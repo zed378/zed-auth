@@ -319,6 +319,58 @@ else
   python3 scripts/openapi-shipped-paths.py 2>&1 | sed 's/^/      /'
 fi
 
+# --- Console ----------------------------------------------------------------
+#
+# The console has its own toolchain, so these run npm rather than go. Skipped
+# rather than failed when node_modules is absent: a backend-only change should
+# not require a frontend install to check.
+
+section "Console"
+
+if [ ! -d console/node_modules ]; then
+  skip "console lint, typecheck and tests" "run: cd console && npm install"
+else
+  if (cd console && npm run --silent lint >/dev/null 2>&1); then
+    pass "console lint (token discipline, a11y rules)"
+  else
+    fail "console lint"
+    (cd console && npm run --silent lint 2>&1 | tail -25)
+  fi
+
+  if (cd console && npm run --silent typecheck >/dev/null 2>&1); then
+    pass "console typecheck"
+  else
+    fail "console typecheck"
+    (cd console && npm run --silent typecheck 2>&1 | tail -25)
+  fi
+
+  if (cd console && npm test --silent >/dev/null 2>&1); then
+    pass "console tests (tokens, contrast, branding, shell a11y)"
+  else
+    fail "console tests"
+    (cd console && npm test --silent 2>&1 | tail -30)
+  fi
+
+  # The generated client is committed, the same discipline as the backend's
+  # generated server interface: a reviewer sees the contract change and its
+  # consequences in one diff (ADR-013).
+  client_before=$(mktemp)
+  cp console/src/lib/api/schema.gen.ts "$client_before"
+
+  if (cd console && npm run --silent api:generate >/dev/null 2>&1); then
+    if diff -q "$client_before" console/src/lib/api/schema.gen.ts >/dev/null 2>&1; then
+      pass "console API client matches the spec"
+    else
+      fail "console API client is stale — run: cd console && npm run api:generate"
+    fi
+  else
+    fail "console API client generation failed"
+  fi
+
+  cp "$client_before" console/src/lib/api/schema.gen.ts
+  rm -f "$client_before"
+fi
+
 # --- Deployment config ------------------------------------------------------
 
 section "Deployment"
