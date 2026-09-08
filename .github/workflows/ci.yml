@@ -79,6 +79,14 @@ jobs:
         # the shape a compromised module takes (SECURITY/02 §15).
         run: go mod verify
 
+      - name: Coverage floors
+        # P0-15 step 6: floors on internal/authn, internal/authz and
+        # internal/oidc specifically, not a repo-wide average. A repo-wide
+        # percentage is satisfied by testing whatever is easiest, and the
+        # easiest code to test is rarely the code where a bug matters.
+        run: sh ../scripts/check-coverage.sh
+        working-directory: backend
+
       - name: go.mod is tidy
         working-directory: backend
         run: |
@@ -137,6 +145,18 @@ jobs:
   integration:
     name: Integration tests
     runs-on: ubuntu-latest
+
+    # These service containers exist for the MIGRATION checks below — apply,
+    # roll back, re-apply — which drive `cmd/migrate` against a DSN and need a
+    # database that outlives a single test binary.
+    #
+    # The Go integration and security tests do NOT use them. They start their
+    # own PostgreSQL and Redis through testcontainers, apply the embedded
+    # migrations and create both roles themselves (P0-15), which is what makes
+    # the suite runnable on any machine with Docker and nothing else. The two
+    # databases are deliberately separate: the migration checks leave a
+    # half-migrated schema behind on purpose, and tests sharing it would fail
+    # for reasons that have nothing to do with them.
     services:
       postgres:
         image: postgres:17.2-alpine
@@ -236,13 +256,17 @@ jobs:
           fi
           echo "Every tenant-scoped table has row-level security enabled."
 
-      - name: Integration tests
+      - name: Integration and security tests
         working-directory: backend
-        env:
-          AUTH_TEST_OWNER_DSN: postgres://auth_owner:ci_only_password@localhost:5432/auth?sslmode=disable
-          AUTH_TEST_APP_DSN: postgres://auth_app:ci_only_password@localhost:5432/auth?sslmode=disable
-          AUTH_TEST_REDIS_ADDR: localhost:6379
-        run: go test -race -tags=integration ./...
+        # No service containers and no DSNs.
+        #
+        # The suite starts its own PostgreSQL and Redis through testcontainers,
+        # applies the embedded migrations, and creates both database roles
+        # (P0-15). That is what makes "runs from a clean machine with only
+        # Docker installed" true, and it removed a worse problem: these tests
+        # used to call t.Skipf when nothing answered at the configured DSN, so
+        # a misconfigured runner reported success having run nothing.
+        run: go test -race -shuffle=on -tags=integration ./...
 
   # --- API contract ---------------------------------------------------------
   api-contract:
@@ -326,6 +350,18 @@ jobs:
 
       - name: Build
         run: npm run build
+
+      - name: Install the E2E browser
+        run: npx playwright install --with-deps chromium
+
+      - name: End-to-end tests
+        # PLAN/11's top pyramid layer, against the production build rather than
+        # the dev server: an E2E suite that has never seen the built bundle is
+        # testing something nobody deploys. It is also the only layer that
+        # applies a real stylesheet — the console's design tokens were once all
+        # defined, correctly named, and generating no CSS at all, with every
+        # jsdom test passing throughout.
+        run: npm run e2e
 
   # --- Public site ----------------------------------------------------------
   #

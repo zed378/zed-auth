@@ -35,7 +35,7 @@ func testDB(t *testing.T) *DB {
 		MaxIdleConns: 2,
 	}, log)
 	if err != nil {
-		t.Skipf("PostgreSQL not reachable: %v\nRun: make up && make migrate-up", err)
+		t.Fatalf("PostgreSQL unreachable despite the test stack being up: %v", err)
 	}
 	t.Cleanup(func() { db.Close() })
 	return db
@@ -423,7 +423,7 @@ func TestAssertRoleIsNotPrivileged(t *testing.T) {
 			MaxIdleConns: 1,
 		}, log)
 		if err != nil {
-			t.Skipf("owner connection unavailable: %v", err)
+			t.Fatalf("owner connection unavailable despite the test stack being up: %v", err)
 		}
 		defer db.Close()
 

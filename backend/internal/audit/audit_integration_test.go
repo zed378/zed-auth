@@ -14,7 +14,12 @@ import (
 	"github.com/zed378/zed-auth/backend/internal/config"
 	"github.com/zed378/zed-auth/backend/internal/observability"
 	"github.com/zed378/zed-auth/backend/internal/storage/postgres"
+	"github.com/zed378/zed-auth/backend/internal/testsupport"
 )
+
+// The stack is started by the tests themselves — no database prepared in
+// advance, no environment variables (P0-15).
+func TestMain(m *testing.M) { os.Exit(testsupport.StartForPackage(m)) }
 
 func envOr(k, fallback string) string {
 	if v := os.Getenv(k); v != "" {
@@ -34,7 +39,7 @@ func newWriter(t *testing.T, fwd Forwarder) (*Writer, *postgres.DB) {
 		MaxIdleConns: 2,
 	}, log)
 	if err != nil {
-		t.Skipf("PostgreSQL not reachable: %v\nRun: make up && make migrate-up", err)
+		t.Fatalf("PostgreSQL unreachable despite the test stack being up: %v", err)
 	}
 	t.Cleanup(func() { db.Close() })
 
@@ -54,7 +59,7 @@ func seedOrg(t *testing.T, name string) string {
 		DSN: ownerDSN, MaxOpenConns: 2, MaxIdleConns: 1,
 	}, log)
 	if err != nil {
-		t.Skipf("owner connection unavailable: %v", err)
+		t.Fatalf("owner connection unavailable despite the test stack being up: %v", err)
 	}
 
 	var orgID, instanceID string
