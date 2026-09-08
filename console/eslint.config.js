@@ -14,6 +14,8 @@ export default tseslint.config(
       // Generated from openapi/openapi.yaml. Linting it would report on code
       // nobody can edit — the fix for anything wrong here is in the spec.
       "src/lib/api/schema.gen.ts",
+      "playwright-report/**",
+      "test-results/**",
     ],
   },
 
@@ -52,6 +54,26 @@ export default tseslint.config(
         "error",
         { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
       ],
+    },
+  },
+
+  {
+    // Playwright's end-to-end tests.
+    //
+    // The React rules do not apply here and misfire badly if left on:
+    // Playwright's fixture API takes a `use` callback that has nothing to do
+    // with React's `use` hook, and `async ({}, use) =>` is its idiomatic way
+    // of declaring a fixture that depends on nothing. Both are reported as
+    // errors by rules that are correct about React and wrong about this file.
+    files: ["e2e/**/*.ts"],
+    languageOptions: {
+      globals: { ...globals.node },
+    },
+    rules: {
+      "react-hooks/rules-of-hooks": "off",
+      "no-empty-pattern": "off",
+      "local/no-raw-color": "off",
+      "local/no-arbitrary-value": "off",
     },
   },
 

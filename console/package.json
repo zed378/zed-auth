@@ -15,7 +15,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "api:generate": "openapi-typescript ../openapi/openapi.yaml -o src/lib/api/schema.gen.ts",
-    "check": "npm run lint && npm run typecheck && npm run test"
+    "check": "npm run lint && npm run typecheck && npm run test",
+    "e2e": "playwright test",
+    "e2e:install": "playwright install --with-deps chromium"
   },
   "dependencies": {
     "@tanstack/react-query": "5.102.8",
@@ -25,6 +27,7 @@
     "react-router-dom": "7.18.3"
   },
   "devDependencies": {
+    "@playwright/test": "^1.56.1",
     "@tailwindcss/cli": "^4.3.3",
     "@tailwindcss/vite": "4.3.3",
     "@testing-library/dom": "10.4.1",

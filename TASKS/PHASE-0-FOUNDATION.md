@@ -460,7 +460,7 @@
 
 | | |
 |---|---|
-| **Status** | TODO |
+| **Status** | DONE — [record](../MEMORY/records/2026-09-08-P0-15-test-harness.md) |
 | **Depends on** | P0-05, P0-16 |
 | **Plan refs** | `PLAN/11-TESTING.md`, `PLAN/06-FRONTEND-ARCHITECTURE.md` § Testing |
 | **Spec required** | No |
@@ -477,10 +477,14 @@
 6. CI wiring with coverage reporting. Set a coverage floor for `internal/authn`, `internal/authz`, and `internal/oidc` specifically, rather than a meaningless repo-wide average.
 
 **Definition of Done**
-- [ ] One passing example test exists at each pyramid layer.
-- [ ] The integration suite runs from a clean machine with only Docker installed.
-- [ ] Tests are isolated: the suite passes when run repeatedly and in random order.
-- [ ] The security-test package exists with at least one real assertion — `P0-08`'s RLS test is its natural first inhabitant.
+- [x] One passing example test exists at each pyramid layer. Unit, integration, security (5 tests), and end-to-end (4 Playwright tests against the production build) — none a placeholder.
+- [x] The integration suite runs from a clean machine with only Docker installed. Containers, migrations and both database roles are created by the tests themselves; a missing Docker daemon is a failure, never a skip.
+- [x] Tests are isolated: the suite passes when run repeatedly and in random order. `-shuffle=on` everywhere, per-test truncation.
+- [x] The security-test package exists with at least one real assertion. Four scenarios from `PLAN/11` § Security Testing, plus a control test — and all of them fail when pointed at a role that bypasses RLS, which is how we know they measure the property.
+
+**Beyond the stated steps**
+
+Removing the skips surfaced that the suite had been reporting success without running, and the new harness's first version then broke the audit log's append-only guarantee by granting privileges in the wrong order — caught by a test the skip had been hiding. `scripts/check-coverage.sh` implements step 6's named floors and reports them as pending until Phase 1 creates the packages.
 
 ---
 
