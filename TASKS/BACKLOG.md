@@ -58,6 +58,24 @@ Invitations, password resets, and anomaly notifications all require outbound ema
 
 `PLAN/02` assumes a single default organization initially. If the actual launch is multi-tenant from day one, `P2-09`'s tenant resolution strategy needs deciding earlier and the Phase 1 assumptions shift.
 
+### OQ-11 — Cloudflare Access in front of the staging service?
+
+**Affects**: `P0-20`, and the security posture until Phase 1 ships authentication.
+
+`https://auth.zedth.my.id` is now publicly reachable, and the service currently
+exposes only `/healthz` and `/readyz` — nothing sensitive. But Phase 1 adds the
+hosted login page and the Management API to that same hostname, and until real
+authentication exists, anything published there is open to the internet.
+
+Cloudflare Access in front of the tunnel would gate the whole hostname behind
+an identity check with no code change, which is worth considering for staging
+specifically. It would need removing before the service is meant to serve real
+consumer applications, since an OIDC provider behind a second login is not
+usable by the applications that depend on it.
+
+**Recommendation**: enable it for staging now, and remove it as part of `P1-28`
+when the two demo consumer applications need real access.
+
 ### OQ-10 — Deploy credential for automated staging deployment
 
 **Blocks**: the last unmet item of `P0-20` — "a merge to `main` deploys to staging automatically".

@@ -63,11 +63,18 @@ services:
       AUTH_LOG_FORMAT: ${AUTH_LOG_FORMAT:-json}
 
     ports:
-      # Bound to all interfaces so the service is reachable from the subnet for
-      # verification before the tunnel exists. Once `cloudflared` runs on this
-      # host, narrow this to 127.0.0.1:${AUTH_PUBLIC_PORT}:8080 — the tunnel
-      # reaches loopback, and nothing else then can.
-      - "${AUTH_PUBLIC_PORT:-10800}:8080"
+      # AUTH_BIND_ADDR defaults to loopback, which is the correct posture once
+      # the tunnel exists: `cloudflared` runs as a host service and reaches
+      # 127.0.0.1 directly, so nothing else on the network can.
+      #
+      # Set it to 0.0.0.0 only while verifying from another machine before the
+      # tunnel is up. Leaving it there afterwards means the service is
+      # reachable over plain HTTP from the whole subnet, bypassing the TLS that
+      # Cloudflare terminates — every credential and token in clear text on the
+      # LAN (PLAN/09 § Transport & Storage: TLS everywhere, no HTTP fallback).
+      #
+      # Verify with: ss -tlnp | grep <port>  — it must show 127.0.0.1, not 0.0.0.0.
+      - "${AUTH_BIND_ADDR:-127.0.0.1}:${AUTH_PUBLIC_PORT:-10800}:8080"
 
     volumes:
       - ${AUTH_SECRETS_DIR:?required}:/etc/zed-auth/secrets:ro
