@@ -1,0 +1,251 @@
+/*
+ * Brand tokens for the public site.
+ *
+ * `PLAN/20` and `UI-UX/20` both say the public site shares the console's
+ * **visual language** and nothing else — brand-level tokens, never components,
+ * never a codebase, never a deploy pipeline. So these values are duplicated
+ * from `console/src/styles/tokens.css` on purpose, and the duplication is the
+ * design rather than a shortcut around one.
+ *
+ * `public-site/scripts/check-brand-tokens.mjs` verifies the shared subset
+ * still matches the console's, so "deliberately duplicated" cannot quietly
+ * become "drifted apart". A visitor moving from here into the console should
+ * feel visual continuity (`UI-UX/20` § Design Direction Differences), and two
+ * different blues would be the most obvious way to break that.
+ *
+ * What is NOT shared: density, type scale, spacing rhythm. `UI-UX/20` inverts
+ * the console's "density over whitespace" for this audience — a first-time,
+ * often impatient visitor reading one idea per screen section, not an admin
+ * scanning a hundred table rows.
+ */
+
+:root {
+  /* --- Shared with the console (verified by script) ------------------- */
+  --color-accent: #1d4ed8;
+  --color-danger: #b42318;
+  --color-warning: #b54708;
+  --color-success: #046c4e;
+  --color-text-primary: #15181d;
+  --color-text-secondary: #586170;
+  --color-bg-base: #f6f7f9;
+  --color-bg-surface: #ffffff;
+  --color-border: #828d9c;
+
+  /* --- Docusaurus's own variables, driven from the tokens above ------- */
+  --ifm-color-primary: var(--color-accent);
+  --ifm-color-primary-dark: #1a46c2;
+  --ifm-color-primary-darker: #1842b7;
+  --ifm-color-primary-darkest: #143797;
+  --ifm-color-primary-light: #2456e8;
+  --ifm-color-primary-lighter: #2e5fea;
+  --ifm-color-primary-lightest: #4d77ee;
+
+  --ifm-color-danger: var(--color-danger);
+  --ifm-color-warning: var(--color-warning);
+  --ifm-color-success: var(--color-success);
+
+  --ifm-background-color: var(--color-bg-surface);
+  --ifm-background-surface-color: var(--color-bg-base);
+  --ifm-font-color-base: var(--color-text-primary);
+  --ifm-toc-border-color: color-mix(in srgb, var(--color-border) 45%, transparent);
+  --ifm-hr-border-color: color-mix(in srgb, var(--color-border) 45%, transparent);
+
+  --ifm-font-family-base:
+    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+
+  /* 16px, not the console's 14px.
+   *
+   * `UI-UX/20` inverts the density priority for this audience: the console is
+   * a tool someone scans all day, this is prose a stranger reads once. */
+  --ifm-font-size-base: 16px;
+  --ifm-line-height-base: 1.65;
+
+  --ifm-code-font-size: 90%;
+  --docusaurus-highlighted-code-line-bg: rgb(0 0 0 / 0.08);
+
+  /* Generous, per `UI-UX/20`'s "one idea per screen section". */
+  --site-section-spacing: 5rem;
+  --site-content-max-width: 60rem;
+}
+
+[data-theme="dark"] {
+  --color-text-primary: #e8eaed;
+  --color-text-secondary: #a8b1bd;
+  --color-bg-base: #14171c;
+  --color-bg-surface: #1b1f26;
+  --color-border: #69727f;
+
+  /* Every semantic colour is re-tuned for a dark surface.
+   *
+   * The light values are the console's, and on #14171c they measure:
+   * accent 2.4:1, danger 2.7:1, warning 3.3:1, success 2.8:1 — all below the
+   * 4.5:1 that `UI-UX/13` requires, and border at 1.8:1 below the 3:1 that
+   * WCAG 1.4.11 requires of a component boundary. Carrying them over unchanged
+   * would have produced a dark mode that looks deliberate and is unreadable,
+   * which is worse than not offering one.
+   *
+   * Each token keeps its MEANING and changes only its value. Danger is still
+   * the colour reserved for destructive and irreversible things (`UI-UX/05`);
+   * it is a different red because the surface behind it is different.
+   *
+   * Measured against both dark backgrounds, and checked by
+   * `scripts/check-contrast.mjs` rather than trusted from these comments. */
+  --color-accent: #7ea2f8; /* 7.2:1 on base, 6.6:1 on surface */
+  --color-danger: #f97066; /* 6.5 / 5.9 */
+  --color-warning: #fdb022; /* 9.8 / 9.0 */
+  --color-success: #47cd89; /* 8.9 / 8.2 */
+
+  --ifm-color-primary: var(--color-accent);
+  --ifm-color-primary-dark: #5b88f6;
+  --ifm-color-primary-darker: #4a7bf5;
+  --ifm-color-primary-darkest: #1a55f0;
+  --ifm-color-primary-light: #a1bcfa;
+  --ifm-color-primary-lighter: #b2c9fb;
+  --ifm-color-primary-lightest: #e5edfe;
+
+  --ifm-color-danger: var(--color-danger);
+  --ifm-color-warning: var(--color-warning);
+  --ifm-color-success: var(--color-success);
+  --ifm-toc-border-color: color-mix(in srgb, var(--color-border) 55%, transparent);
+  --ifm-hr-border-color: color-mix(in srgb, var(--color-border) 55%, transparent);
+
+  --ifm-background-color: var(--color-bg-base);
+  --ifm-background-surface-color: var(--color-bg-surface);
+  --ifm-font-color-base: var(--color-text-primary);
+
+  --docusaurus-highlighted-code-line-bg: rgb(255 255 255 / 0.1);
+}
+
+/*
+ * The focus ring.
+ *
+ * Same rule as the console, for the same reason: `UI-UX/13` applies to this
+ * site too, and says visible focus indicators are "never suppressed for
+ * aesthetic reasons". A public marketing site failing basic accessibility is
+ * both an exclusion problem and, in several jurisdictions, a compliance risk
+ * (`UI-UX/20` § Detailed Spec: Landing Page).
+ */
+:where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* `UI-UX/13` § Motion: a hard requirement, not a nice-to-have. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* --- Marketing page layout ------------------------------------------- */
+
+.site-section {
+  padding-block: var(--site-section-spacing);
+}
+
+.site-section--surface {
+  background-color: var(--color-bg-base);
+}
+
+.site-container {
+  max-width: var(--site-content-max-width);
+  margin-inline: auto;
+  padding-inline: 1.5rem;
+}
+
+.site-hero {
+  padding-block: clamp(3rem, 10vw, 7rem);
+}
+
+.site-hero__title {
+  font-size: clamp(2rem, 5vw, 3.25rem);
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  margin-bottom: 1rem;
+  max-width: 22ch;
+}
+
+.site-hero__subtitle {
+  font-size: clamp(1.05rem, 2vw, 1.25rem);
+  color: var(--color-text-secondary);
+  max-width: 60ch;
+  margin-bottom: 2rem;
+}
+
+.site-cta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+/*
+ * Cards.
+ *
+ * A grid that reflows without a media query per breakpoint. `UI-UX/20`
+ * requires full mobile optimisation here, unlike most console screens, because
+ * public-site traffic is meaningfully mobile.
+ */
+.site-grid {
+  display: grid;
+  gap: 1.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 17rem), 1fr));
+}
+
+.site-card {
+  border: 1px solid color-mix(in srgb, var(--color-border) 45%, transparent);
+  border-radius: 10px;
+  padding: 1.5rem;
+  background-color: var(--color-bg-surface);
+}
+
+.site-card__title {
+  font-size: 1.05rem;
+  margin-bottom: 0.5rem;
+}
+
+.site-card__body {
+  color: var(--color-text-secondary);
+  margin-bottom: 0;
+}
+
+.site-lede {
+  font-size: 1.15rem;
+  color: var(--color-text-secondary);
+  max-width: 65ch;
+}
+
+/*
+ * The phase notice.
+ *
+ * `UI-UX/21` § Content Governance forbids present-tense marketing copy for
+ * anything unshipped, and `CLAUDE.md` repeats it. This is the component that
+ * makes the distinction visible instead of relying on careful phrasing, which
+ * is the thing that erodes first.
+ *
+ * `color-warning`, never `color-danger`: nothing here is destructive or
+ * alarming, and `UI-UX/05` reserves danger so that its appearance stays a
+ * reliable signal.
+ */
+.site-notice {
+  border: 1px solid color-mix(in srgb, var(--color-warning) 40%, transparent);
+  border-left-width: 3px;
+  background-color: color-mix(in srgb, var(--color-warning) 7%, transparent);
+  border-radius: 6px;
+  padding: 1rem 1.25rem;
+}
+
+.site-notice__title {
+  font-weight: 600;
+  margin-bottom: 0.35rem;
+}
+
+.site-notice p:last-child {
+  margin-bottom: 0;
+}

@@ -1,0 +1,48 @@
+# Serves the built public site from the staging VM.
+#
+# A preview of the current build. `PLAN/20` puts this on static hosting or a
+# CDN, deployed independently of the console and the backend — a separate
+# compose file rather than a service inside another one, because "independent"
+# that shares a lifecycle is not independent.
+#
+# The build is produced in CI or locally and copied to the VM; a Node toolchain
+# on the VM is a dependency it does not otherwise need.
+#
+# Usage on the VM:
+#   docker compose -f deploy/public-site/docker-compose.yml up -d
+
+services:
+  public-site:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+
+    ports:
+      # Loopback only. `cloudflared` runs as a host service and reaches
+      # 127.0.0.1 directly, so nothing else on the subnet can.
+      #
+      # Verify with: ss -tlnp | grep 10930 — it must show 127.0.0.1.
+      - "127.0.0.1:${AUTH_SITE_PORT:-10930}:80"
+
+    volumes:
+      - ${AUTH_SITE_DIST:-/home/infra/auth/public-site/build}:/usr/share/nginx/html:ro
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+
+    healthcheck:
+      # A docs page rather than `/`. It exercises a nested route and the docs
+      # plugin's output, so the probe fails if the docs build produced nothing
+      # — which a probe on the landing page alone would not notice.
+      #
+      # 127.0.0.1, not `localhost`: nginx's `listen 80` is IPv4-only while
+      # `localhost` resolves to ::1 first, so the probe would get "connection
+      # refused" from a server that is serving perfectly.
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/docs/concepts/model/"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

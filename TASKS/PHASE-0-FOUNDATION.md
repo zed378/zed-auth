@@ -554,7 +554,7 @@ The generated Go server interface was not asked for and is the reason this task 
 
 | | |
 |---|---|
-| **Status** | TODO |
+| **Status** | DONE — [record](../MEMORY/records/2026-09-08-P0-18-public-site-skeleton.md), [ADR-014](../MEMORY/DECISIONS.md) |
 | **Depends on** | P0-02 |
 | **Plan refs** | `PLAN/20-PUBLIC-SITE-ARCHITECTURE.md`, `UI-UX/20-PUBLIC-SITE-SPECIFICATIONS.md` |
 | **Spec required** | No |
@@ -573,11 +573,15 @@ The generated Go server interface was not asked for and is the reason this task 
 8. Keep content as Markdown/MDX in the repo — docs-as-code, reviewed through the same PR process as code.
 
 **Definition of Done**
-- [ ] The site builds and deploys through a pipeline entirely separate from the console's.
-- [ ] Docs versioning is enabled and demonstrated with a placeholder second version.
-- [ ] Search returns results across docs pages.
-- [ ] No code is shared with `console/`; only design tokens are duplicated, deliberately.
-- [ ] Lighthouse performance and SEO scores meet the bar set in `UI-UX/20` § Cross-Page Requirements.
+- [x] The site builds and deploys through a pipeline entirely separate from the console's — its own CI job, install, cache and `deploy/public-site/`.
+- [x] Docs versioning is enabled and demonstrated with a placeholder second version, labelled as a placeholder rather than presented as a release.
+- [x] Search returns results across docs pages. Local index, 123 documents, covering docs, changelog and pages.
+- [x] No code is shared with `console/`; only design tokens are duplicated, deliberately — and both halves are enforced by script rather than left to memory.
+- [ ] **Lighthouse performance and SEO scores meet the bar set in `UI-UX/20` § Cross-Page Requirements.** That section sets an accessibility bar and no numeric performance target, so there is no bar to meet. Raised as `OQ-10`; settle the number or drop the item.
+
+**Beyond the stated steps**
+
+`check-contrast.mjs` caught a dark palette that would have shipped unreadable — the console's colours measure 2.4:1 to 3.3:1 on a dark surface, all below AA. `write-robots.mjs` generates the sitemap pointer from the same `SITE_URL` Docusaurus uses for canonical URLs, after the first deploy published a pointer to the wrong host.
 
 ---
 

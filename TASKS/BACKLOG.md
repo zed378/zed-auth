@@ -34,6 +34,16 @@ Recorded as [ADR-011](../MEMORY/DECISIONS.md). Consequences worked through in `P
 
 **This answer creates one open deviation**, tracked below as `DV-01`, because a single VM cannot satisfy `PLAN/14`'s and `PLAN/15`'s Multi-AZ requirement for production.
 
+### OQ-10 — Is there a numeric Lighthouse bar for the public site?
+
+**Blocks**: the last item of `P0-18`'s Definition of Done.
+
+That item reads "Lighthouse performance and SEO scores meet the bar set in `UI-UX/20` § Cross-Page Requirements". That section sets an accessibility bar — the same WCAG 2.1 AA as the console — and no numeric performance or SEO target. There is nothing to measure against.
+
+The site is statically generated, ships a sitemap, canonical URLs and per-page metadata, and has no render-blocking third-party script, so it is likely to score well. "Likely to score well" is not a gate.
+
+**Recommendation**: either set a number in `UI-UX/20` (90+ on performance, accessibility, best practices and SEO for the landing page and one docs page is a conventional bar), or delete the item from the DoD and rely on the accessibility checks that do exist. The second is defensible: `PLAN/20` names SEO as critical without quantifying it, and a score threshold nobody chose is a gate that gets waived the first time it fails.
+
 ### OQ-04 — Email delivery provider
 
 **Blocks**: `P1-19.1`, `P1-19.4`, `P3-08`.
