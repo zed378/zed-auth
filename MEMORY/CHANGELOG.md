@@ -48,6 +48,17 @@ Format follows Keep a Changelog conventions, grouped by release once releases ex
 - `/readyz` now genuinely checks PostgreSQL; it previously reported ready with no dependencies wired.
 - Deployed and verified on the VM; `https://auth.zedth.my.id` healthy throughout.
 
+**Added** — metrics endpoint authentication ([record](./records/2026-09-08-P0-11-metrics-endpoint-authentication.md))
+- A bearer token on the metrics endpoint, resolved through the same secret indirection as everything else, compared in constant time, and rejecting with a bare `404` rather than a `401` — a `401` with a challenge header confirms to a prober that the endpoint exists and says what it wants. (`P0-11`)
+- The service now refuses to boot when the metrics listener binds beyond loopback with no token configured. It caught two misconfigurations within the hour, both of them ours. (`P0-11`)
+- `deploy/vm/secrets.sh` — creates and repairs the secrets directory. It exists because `chmod 400` is necessary and not sufficient, and the gap between those two costs a restart loop to find. (`P0-11`)
+- `metrics.zedth.my.id` is live and gated. **Cloudflare Access is still not in front of it**; the token is currently the only control.
+
+**Fixed**
+- Secrets are resolved once, immediately after configuration loads, before any pool is opened or goroutine started. Previously a bad secret reference produced `sql: database is closed` on repeat — the deferred pool close racing the already-running audit goroutine — which is a consequence three steps removed from the cause, pointing at the wrong subsystem. Startup failures should be ordered so the first thing to fail is the thing that is wrong. (`P0-11`)
+- The secrets directory and its contents now belong to the service's uid (`65532`), not the operator's. The runtime image is distroless `:nonroot`, so a directory owned by the operator at mode `700` cannot be traversed by the service at all and the mode on the file inside is never reached. The signing key had the same wrong ownership and would have failed identically in `P1`. (`P0-11`)
+- `scripts/check.sh` supplies a synthetic `AUTH_ADMIN_TOKEN_REF` when validating the tunnel compose, since `${VAR:?}` fails static validation as well as deployment.
+
 **Added** — audit log and toolchain patches ([record](./records/2026-09-08-P0-12-audit-writer.md))
 - The audit writer. Events commit inside the transaction of the action that caused them, so a permission change and its record succeed or fail together. Redaction happens in the writer rather than at call sites, because the table is append-only and a credential written there cannot be deleted by anyone. (`P0-12`)
 - Partition maintenance at startup and daily, keeping three months of runway. Without it every `INSERT` into `events` — and therefore every security-sensitive action — would have failed at a month boundary, with no deploy to correlate against. This was flagged as a time bomb two records ago. (`P0-12`)
@@ -70,4 +81,5 @@ Format follows Keep a Changelog conventions, grouped by release once releases ex
 - Open deviations: DV-01 (single-VM production vs. Multi-AZ), DV-02 (`manager_roles` has no tenant policy until `P2-05` provides a user context).
 - Remaining in Phase 0: the test harness (`P0-15`), OpenAPI (`P0-16`), console and public-site skeletons (`P0-17` … `P0-19`), and staging (`P0-20`, blocked on `OQ-03`).
 - The OIDC provider library remains undecided by design: confirming JWKS rotation with overlap and refresh-token reuse detection requires building against it, so it moves to `P1-03`.
+- `metrics.zedth.my.id` is reachable from the internet with only its bearer token in front of it. Adding a Cloudflare Access policy is the outstanding item.
 - Open questions now number nine; `OQ-09` (audit log retention period and the erasure approach) is new and should be confirmed before `P0-07` writes the partitioning migration.

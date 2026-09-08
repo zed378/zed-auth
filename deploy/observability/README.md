@@ -88,12 +88,48 @@ W3C trace context propagation is enabled, so a trace started by a consumer appli
 |---|---|---|
 | `AUTH_ADMIN_ADDR` | `127.0.0.1:9090` | Refused if it binds all interfaces in production |
 | `AUTH_ADMIN_ENABLED` | `true` | |
+| `AUTH_ADMIN_TOKEN_REF` | *(empty)* | Bearer token required on every request. **Mandatory** when the bind is not loopback — the service refuses to start otherwise |
 | `AUTH_OTLP_ENDPOINT` | *(empty)* | Empty disables tracing |
 | `AUTH_OTLP_INSECURE` | `false` | Plain HTTP; only for a collector on the same host |
 | `AUTH_TRACE_SAMPLE_RATIO` | `0.05` | 0.0–1.0 |
 
 ---
 
+## Authentication
+
+`AUTH_ADMIN_TOKEN_REF` points at a file holding a bearer token. Empty disables the check, which is only appropriate when the listener is bound to loopback and nothing else on the host is untrusted.
+
+The service **refuses to start** when the bind address is not loopback and no token is set. This matters more than it first looks: under Docker the bind is `0.0.0.0` *inside* the container even when the host publishes the port to `127.0.0.1` only. The process cannot see the host's port mapping and correctly declines to assume one, so the compose deployment always needs a token.
+
+A request that fails the check gets a bare **`404`**, not a `401`. A `401` with a `WWW-Authenticate` header confirms to anyone probing that the endpoint exists and tells them what it wants. The comparison is constant-time.
+
+```yaml
+scrape_configs:
+  - job_name: authservice
+    authorization:
+      type: Bearer
+      credentials_file: /etc/prometheus/authservice-token
+    static_configs:
+      - targets: ["auth:9090"]
+```
+
+`credentials_file` rather than an inline `credentials`, so the token is not in a config file that gets copied into a ticket.
+
+---
+
 ## Scraping on the VM
 
-The admin listener binds loopback, so Prometheus must run on the same host or reach it over a private network. On the current single-VM deployment (ADR-011) that means either a Prometheus container joined to the compose network, or `AUTH_ADMIN_ADDR` set to a private interface — the second is a deliberate decision to make, not a default to fall into.
+Two layers, and the second is not optional in the way it might look.
+
+**The token** is the service's own control. It holds regardless of how the endpoint is routed, which is the point — network configuration is a real control that fails silently and is edited by people who do not know the rule exists.
+
+**A Cloudflare Access policy** in front of the public hostname is the layer that keeps unauthenticated traffic from reaching the process at all. Without it the token is doing all the work alone, and a leaked token is a full reconnaissance summary to anyone on the internet.
+
+Generate the token on the VM, never on a laptop:
+
+```bash
+sudo /opt/zed-auth/deploy/vm/secrets.sh metrics-token
+sudo /opt/zed-auth/deploy/vm/secrets.sh show metrics-token   # to paste into Prometheus
+```
+
+The file is owned by uid 65532 and mode `0400`, because the service reads it and you do not. See `deploy/vm/README.md` for why the ownership rather than the mode is the part that is easy to get wrong.

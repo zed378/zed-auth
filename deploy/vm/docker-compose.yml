@@ -85,6 +85,11 @@ services:
       # ingress (PLAN/13, SECURITY/02 §12).
       AUTH_ADMIN_ADDR: "0.0.0.0:9090"
       AUTH_ADMIN_ENABLED: "true"
+      # Required, because AUTH_ADMIN_ADDR above is not loopback INSIDE the
+      # container — the service refuses to start otherwise. The host publishes
+      # the port to 127.0.0.1 only, so the bind is safe, but the service cannot
+      # see the host's port mapping and correctly will not assume it.
+      AUTH_ADMIN_TOKEN_REF: ${AUTH_ADMIN_TOKEN_REF:?required when the metrics listener binds beyond loopback}
       AUTH_OTLP_ENDPOINT: ${AUTH_OTLP_ENDPOINT:-}
       AUTH_TRACE_SAMPLE_RATIO: ${AUTH_TRACE_SAMPLE_RATIO:-0.05}
 
