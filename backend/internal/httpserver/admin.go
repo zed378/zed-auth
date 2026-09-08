@@ -2,10 +2,12 @@ package httpserver
 
 import (
 	"context"
+	"crypto/subtle"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/zed378/zed-auth/backend/internal/config"
@@ -35,6 +37,10 @@ type AdminServer struct {
 type AdminDeps struct {
 	Logger  *slog.Logger
 	Metrics http.Handler
+
+	// Token, when non-empty, is required as a bearer token on every request.
+	// Prometheus sends it via bearer_token in its scrape config.
+	Token string
 }
 
 // NewAdmin builds the internal listener.
@@ -42,7 +48,11 @@ func NewAdmin(cfg config.AdminConfig, deps AdminDeps) *AdminServer {
 	mux := http.NewServeMux()
 
 	if deps.Metrics != nil {
-		mux.Handle("GET /metrics", deps.Metrics)
+		h := deps.Metrics
+		if deps.Token != "" {
+			h = requireBearerToken(deps.Token, h)
+		}
+		mux.Handle("GET /metrics", h)
 	}
 
 	// Deliberately minimal: no request logging, because a scrape every fifteen
@@ -68,6 +78,38 @@ func NewAdmin(cfg config.AdminConfig, deps AdminDeps) *AdminServer {
 			ErrorLog:          slog.NewLogLogger(deps.Logger.Handler(), slog.LevelError),
 		},
 	}
+}
+
+// requireBearerToken gates a handler behind a shared secret.
+//
+// Compared in constant time. A shared secret compared with == leaks its
+// prefix through response timing, and while extracting a token that way over
+// a network is slow and noisy, the constant-time comparison costs nothing and
+// removes the question.
+//
+// The failure response is deliberately bare: no WWW-Authenticate challenge
+// naming a scheme, no hint about what was wrong. This endpoint should not
+// advertise that it exists or what it wants to anyone probing it
+// (SECURITY/02 §12).
+func requireBearerToken(token string, next http.Handler) http.Handler {
+	want := []byte(token)
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		header := r.Header.Get("Authorization")
+		got, ok := strings.CutPrefix(header, "Bearer ")
+		if !ok {
+			// Also accept the token as the whole header value, since some
+			// scrapers send it unprefixed.
+			got = header
+		}
+
+		if subtle.ConstantTimeCompare([]byte(got), want) != 1 {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
 }
 
 // Run serves until ctx is cancelled.

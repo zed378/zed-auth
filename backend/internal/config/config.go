@@ -14,6 +14,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"sort"
 	"strconv"
@@ -108,6 +109,21 @@ type AdminConfig struct {
 
 	// Enabled turns the listener off entirely.
 	Enabled bool
+
+	// TokenRef points at a bearer token required on every request to the
+	// metrics endpoint. Empty disables the check.
+	//
+	// Defence in depth, and it exists because of how this endpoint gets
+	// exposed in practice. Reaching it from a scraper on another host means
+	// either binding beyond loopback or routing it through a tunnel, and at
+	// that point the only thing between an unauthenticated reconnaissance
+	// summary and whoever can reach the address is one piece of network
+	// configuration. Tunnel configs get edited and access policies get
+	// misapplied; a token makes a leak require two mistakes rather than one.
+	//
+	// Prometheus supports bearer_token natively, so this costs nothing
+	// operationally.
+	TokenRef string
 }
 
 // TracingConfig configures OTLP export. Empty endpoint disables tracing.
@@ -180,8 +196,9 @@ func LoadFrom(getenv Getenv) (*Config, error) {
 			TrustProxyHeaders: l.boolean("AUTH_TRUST_PROXY_HEADERS", false),
 		},
 		Admin: AdminConfig{
-			Addr:    l.optional("AUTH_ADMIN_ADDR", "127.0.0.1:9090"),
-			Enabled: l.boolean("AUTH_ADMIN_ENABLED", true),
+			Addr:     l.optional("AUTH_ADMIN_ADDR", "127.0.0.1:9090"),
+			Enabled:  l.boolean("AUTH_ADMIN_ENABLED", true),
+			TokenRef: l.optional("AUTH_ADMIN_TOKEN_REF", ""),
 		},
 		Tracing: TracingConfig{
 			Endpoint:    l.optional("AUTH_OTLP_ENDPOINT", ""),
@@ -351,14 +368,19 @@ func (l *loader) validate(cfg *Config) {
 		l.problem("AUTH_TRACE_SAMPLE_RATIO must be between 0 and 1, got %v", cfg.Tracing.SampleRatio)
 	}
 
-	// A metrics endpoint on 0.0.0.0 in production is an unauthenticated
-	// endpoint disclosing request rates, error rates, and internal structure
-	// to anyone who can reach the host (PLAN/13, SECURITY/02 §12). Loopback or
-	// an explicit private address only.
-	if cfg.Environment.IsProduction() && cfg.Admin.Enabled &&
-		(strings.HasPrefix(cfg.Admin.Addr, "0.0.0.0:") || strings.HasPrefix(cfg.Admin.Addr, ":")) {
-		l.problem("AUTH_ADMIN_ADDR must not bind to all interfaces in production; "+
-			"the metrics endpoint is unauthenticated. Got %q", cfg.Admin.Addr)
+	// A metrics endpoint reachable beyond loopback discloses request rates,
+	// error rates and login outcomes to whoever can reach it — a
+	// reconnaissance summary, and during an attack a reliable oracle for
+	// whether the attack is working (PLAN/13, SECURITY/02 §12).
+	//
+	// Binding beyond loopback is allowed, because a scraper on another host is
+	// a real need. Doing it WITHOUT a token is not: that combination is the
+	// one where a single network-configuration mistake exposes everything.
+	if cfg.Admin.Enabled && cfg.Admin.TokenRef == "" && !isLoopbackAddr(cfg.Admin.Addr) {
+		l.problem("AUTH_ADMIN_ADDR is %q, which is reachable beyond loopback, but "+
+			"AUTH_ADMIN_TOKEN_REF is not set. The metrics endpoint discloses request "+
+			"rates, error rates and login outcomes; require a bearer token, or bind it "+
+			"to 127.0.0.1 and reach it through a tunnel", cfg.Admin.Addr)
 	}
 
 	if cfg.Redis.DB < 0 {
@@ -374,6 +396,25 @@ func (l *loader) validate(cfg *Config) {
 	if cfg.Environment.IsProduction() && cfg.Log.Format != "json" {
 		l.problem("AUTH_LOG_FORMAT must be json in production so logs stay machine-parseable")
 	}
+}
+
+// isLoopbackAddr reports whether a listen address is reachable only from the
+// local host.
+//
+// An empty host (":9090") means all interfaces, which is the case most likely
+// to be written by accident — it looks local and is not.
+func isLoopbackAddr(addr string) bool {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return false
+	}
+	if host == "" {
+		return false
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		return ip.IsLoopback()
+	}
+	return host == "localhost"
 }
 
 // ErrNotConfigured is returned by components asked to start before their
