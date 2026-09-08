@@ -107,27 +107,77 @@ if [[ "$mode" != "--pre-deploy" ]]; then
     postgres pg_restore -U auth_owner -d "$verify_db" --no-owner < "$newest" \
     || { cleanup_verify; die "pg_restore failed — this backup is NOT usable"; }
 
-  # Restoring without error is not the same as restoring correctly. Check that
-  # the tables the plan requires actually arrived.
-  expected_tables=(instances organizations users projects applications roles
-                   user_grants project_grants manager_roles sessions
-                   refresh_tokens signing_keys user_tokens events)
+  # Restoring without error is not the same as restoring correctly.
+  #
+  # This compares the restored database against the SOURCE rather than against
+  # a list written here. The list version passed and reported "all 14 tables
+  # restored", which read like completeness and meant "all 14 I was told to
+  # look for" — a table added by a future migration would not have been
+  # checked, and the event partitions were not checked at all, in a script
+  # whose own comment says a partition that was not dumped is the likeliest
+  # way to lose the audit log.
+  tables_in() {
+    "${COMPOSE[@]}" exec -T -e PGPASSWORD="${AUTH_POSTGRES_OWNER_PASSWORD}" \
+      postgres psql -U auth_owner -d "$1" -tA -c \
+      "SELECT table_name FROM information_schema.tables
+        WHERE table_schema = 'public' ORDER BY table_name" \
+      | tr -d '\r' | grep -v '^$' | sort
+  }
 
-  for table in "${expected_tables[@]}"; do
-    exists=$("${COMPOSE[@]}" exec -T -e PGPASSWORD="${AUTH_POSTGRES_OWNER_PASSWORD}" \
-      postgres psql -U auth_owner -d "$verify_db" -tA \
-      -c "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='${table}')" \
-      | tr -d '[:space:]')
-    [[ "$exists" == "t" ]] || { cleanup_verify; die "restored database is missing table ${table}"; }
+  source_tables=$(tables_in "${AUTH_POSTGRES_DB:-auth}")
+  restored_tables=$(tables_in "$verify_db")
+
+  # The floor. Set comparison alone would pass if BOTH were empty — the
+  # vacuous pass this project keeps meeting. A source with fewer tables than
+  # the schema's core means something is wrong before the backup is even in
+  # question.
+  core_tables=(instances organizations users projects applications roles
+               user_grants project_grants manager_roles sessions
+               refresh_tokens signing_keys user_tokens events)
+
+  for table in "${core_tables[@]}"; do
+    grep -qx "$table" <<<"$source_tables" \
+      || { cleanup_verify; die "the SOURCE database is missing ${table} — the backup is not the problem"; }
   done
 
-  # The audit log is the thing you most need after an incident and the thing
-  # most easily lost to a partition that was not dumped.
+  missing=$(comm -23 <(echo "$source_tables") <(echo "$restored_tables"))
+  if [[ -n "$missing" ]]; then
+    warn "tables present in the source but NOT in the restore:"
+    echo "$missing" | sed 's/^/      /' >&2
+    cleanup_verify
+    die "this backup is incomplete"
+  fi
+
+  table_count=$(wc -l <<<"$source_tables" | tr -d '[:space:]')
+
+  # Row counts per table, not just presence. A restored table that arrived
+  # empty is a restore that looks fine and loses everything.
+  mismatches=0
+  while read -r table; do
+    [[ -z "$table" ]] && continue
+    src=$("${COMPOSE[@]}" exec -T -e PGPASSWORD="${AUTH_POSTGRES_OWNER_PASSWORD}" \
+      postgres psql -U auth_owner -d "${AUTH_POSTGRES_DB:-auth}" -tA \
+      -c "SELECT count(*) FROM \"$table\"" | tr -d '[:space:]')
+    dst=$("${COMPOSE[@]}" exec -T -e PGPASSWORD="${AUTH_POSTGRES_OWNER_PASSWORD}" \
+      postgres psql -U auth_owner -d "$verify_db" -tA \
+      -c "SELECT count(*) FROM \"$table\"" | tr -d '[:space:]')
+
+    if [[ "$src" != "$dst" ]]; then
+      warn "row count differs for ${table}: source ${src}, restored ${dst}"
+      mismatches=$((mismatches + 1))
+    fi
+  done <<<"$source_tables"
+
+  if (( mismatches > 0 )); then
+    cleanup_verify
+    die "${mismatches} table(s) restored with the wrong number of rows"
+  fi
+
   event_count=$("${COMPOSE[@]}" exec -T -e PGPASSWORD="${AUTH_POSTGRES_OWNER_PASSWORD}" \
     postgres psql -U auth_owner -d "$verify_db" -tA -c "SELECT count(*) FROM events" \
     | tr -d '[:space:]')
 
-  echo "    all ${#expected_tables[@]} tables restored; events rows: ${event_count}"
+  echo "    ${table_count} tables restored, row counts match the source; events rows: ${event_count}"
 
   cleanup_verify
   trap 'die "aborted at line $LINENO"' ERR

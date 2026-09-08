@@ -627,7 +627,7 @@ Both audits were verified by breaking them rather than by passing: a sentence fr
 
 | | |
 |---|---|
-| **Status** | TODO |
+| **Status** | WIP — [record](../MEMORY/records/2026-09-08-P0-20-backup-verification.md). Restore verified and automated; `OQ-11` and `OQ-12` are owner decisions |
 | **Depends on** | P0-13 |
 | **Plan refs** | `PLAN/14-DEPLOYMENT.md`, `PLAN/13-OBSERVABILITY.md` § Environments, `PLAN/15-DISASTER-RECOVERY.md` |
 | **Spec required** | No |
@@ -645,11 +645,17 @@ Both audits were verified by breaking them rather than by passing: a sentence fr
 7. Configure automated Postgres backups with point-in-time recovery, and verify a restore actually works — an unverified backup is a hypothesis (`PLAN/15`).
 
 **Definition of Done**
-- [ ] Staging is reachable over TLS only.
-- [ ] Staging signing keys and database are provably distinct from production.
-- [ ] A merge to `main` deploys to staging automatically and runs a smoke test.
-- [ ] A backup restore has been executed successfully at least once, with the result recorded in MEMORY.
-- [ ] Production promotion requires an explicit human action.
+- [x] Staging is reachable over TLS only. Cloudflare terminates TLS; the service binds `127.0.0.1` and nothing on the subnet can reach it.
+- [ ] Staging signing keys and database are provably distinct from production. **Vacuously true — no production environment exists.** Deliberately left unticked: marking it done now means nobody checks it when production is real.
+- [ ] A merge to `main` deploys to staging automatically and runs a smoke test. Blocked on `OQ-11` — CD needs a credential to a machine on a private subnet, held by a system that runs code from pull requests. A trust decision, not a configuration task.
+- [x] A backup restore has been executed successfully at least once, with the result recorded in MEMORY. 19 tables, every row count matching the source, into a throwaway database. Now automated daily.
+- [ ] Production promotion requires an explicit human action. **Vacuously true — no production environment exists.** Left unticked for the same reason as above.
+
+**Also outstanding**: `OQ-12` — backups are written to the same disk as the database they protect, which `PLAN/15` requires them not to be.
+
+**Beyond the stated steps**
+
+The verification itself was strengthened. It reported "all 14 tables restored" against a database with 19 — a hardcoded list, so the line read like completeness and meant "the fourteen I was told to look for". It now compares the table set and per-table row counts against the source, and was verified by creating a table after the newest backup and watching it fail by name.
 
 ---
 

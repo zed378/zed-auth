@@ -48,6 +48,17 @@ Format follows Keep a Changelog conventions, grouped by release once releases ex
 - `/readyz` now genuinely checks PostgreSQL; it previously reported ready with no dependencies wired.
 - Deployed and verified on the VM; `https://auth.zedth.my.id` healthy throughout.
 
+**Operational** — a verified restore ([record](./records/2026-09-08-P0-20-backup-verification.md))
+- **A staging backup was restored and verified against the source**: 19 tables, every row count matching, into a throwaway database that was dropped afterwards. `PLAN/15` § Restore Testing — "a backup that's never been tested isn't a backup you can rely on". (`P0-20`)
+- Backups are now automated: `zed-auth-backup.timer`, daily at 03:15 UTC, `Persistent=true` so a VM that was off overnight backs up at boot rather than skipping the day. A backup taken by hand is taken until the week somebody is busy.
+
+**Fixed**
+- **The backup verification was weaker than its own message.** It reported "all 14 tables restored" while the database had 19 — not missing data, but a hardcoded list of fourteen table names, so the line read like completeness and meant "all fourteen I was told to look for". A table added by a future migration would not have been checked, and the event partitions were not checked at all, in a script whose own comment calls a missing partition the likeliest way to lose the audit log. It now enumerates the source and compares tables and per-table row counts; the hardcoded list survives as a floor so that two empty databases cannot pass trivially. Verified by creating a table after the newest backup and watching the check fail by name. (`P0-20`)
+
+**Decisions the owner needs to make**
+- `OQ-11`: does GitHub Actions get a deploy path to the VM? Continuous deployment needs a credential to a machine on a private subnet, held by a system that runs code from pull requests. A trust decision, not a configuration task.
+- `OQ-12`: where do backups go? They currently sit on the same disk as the database, which protects against `DROP TABLE` and nothing else.
+
 **Added** — the test harness ([record](./records/2026-09-08-P0-15-test-harness.md))
 - `internal/testsupport`: PostgreSQL and Redis started by the tests themselves through testcontainers, the embedded migrations applied, both database roles created. The integration suite now runs on a machine with nothing but Docker — no `make up`, no migrations by hand, no environment variables. (`P0-15`)
 - `backend/tests/security/`: the abuse-case tests from `PLAN/11` § Security Testing, kept apart from feature tests because they are a checklist as much as a suite. The package comment carries a coverage map naming the four scenarios covered and the six that cannot be tested until the feature exists — an unwritten test nobody knows is unwritten is worse than a failing one. (`P0-15`)
@@ -146,7 +157,7 @@ Format follows Keep a Changelog conventions, grouped by release once releases ex
 **Status**
 - Phase 0: 21 of 21 tasks done. `P0-20` (staging) is the remaining exit-checklist item, largely satisfied by the VM deployment. `P0-16` is complete — its last open step, the public site's generated API reference, landed with `P0-18` — step 3 (the console's typed client) landed with `P0-17`; step 4, the public site's API reference, waits on `P0-18`.
 - Open deviations: DV-01 (single-VM production vs. Multi-AZ), DV-02 (`manager_roles` has no tenant policy until `P2-05` provides a user context).
-- Remaining in Phase 0: staging (`P0-20`).
+- `P0-20` is partially done: the restore is verified and automated, and TLS-only staging is live. Continuous deployment (`OQ-11`) and offsite backups (`OQ-12`) are the owner's decisions. Two further DoD items — staging keys distinct from production, and a production promotion gate — are vacuously true because no production environment exists, and are deliberately left unticked so that they are checked when one does.
 - `OQ-10` is open: `P0-18`'s Definition of Done asks for Lighthouse scores against a bar `UI-UX/20` never sets. Set the number or drop the item — inventing a threshold to satisfy a checkbox is the same failure as inventing a capability to fill a section.
 - New plan gap `PG-12`: `color-border` serves both input borders (WCAG 1.4.11 wants 3:1) and table dividers (which want a hairline). One token cannot do both well.
 - The OIDC provider library remains undecided by design: confirming JWKS rotation with overlap and refresh-token reuse detection requires building against it, so it moves to `P1-03`.
