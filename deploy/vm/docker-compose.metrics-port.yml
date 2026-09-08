@@ -1,0 +1,38 @@
+# Publishes the metrics port to the host. Opt-in, and worth a moment's thought.
+#
+# The base file does not publish it. This override exists so that publishing it
+# is a deliberate act with a name, rather than a default nobody revisits.
+#
+# What you are exposing: request rates per route, error rates, login success
+# and failure counts, in-flight concurrency, database pool saturation, and the
+# service version. That is a reconnaissance summary and a reliable oracle for
+# whether an attack is working (SECURITY/02 §12). The bearer token gates it, so
+# this is not an open door — but the token then becomes the only control, and a
+# control that is alone is a control whose failure is total.
+#
+# Reasonable uses:
+#   - A one-off look while debugging, taken down afterwards.
+#   - A Prometheus running on this host, outside Docker.
+#
+# Not a reasonable use:
+#   - Routing a tunnel or reverse proxy at it without an identity-aware policy
+#     (Cloudflare Access or equivalent) in front. If you need that, put the
+#     policy in place first and say so in the deployment record.
+#
+# A Prometheus running as a container does not need this file at all — join it
+# to the compose network and scrape `authservice:9090` directly.
+#
+# Usage:
+#   docker compose -f docker-compose.tunnel.yml \
+#                  -f docker-compose.metrics-port.yml up -d
+#
+# Verify the bind afterwards. It must show 127.0.0.1, never 0.0.0.0:
+#   ss -tlnp | grep "${AUTH_METRICS_PORT:-10900}"
+
+services:
+  authservice:
+    ports:
+      # Loopback only, always. There is no variable to override the interface
+      # here, unlike the application port, because there is no case where this
+      # endpoint should answer the network directly.
+      - "127.0.0.1:${AUTH_METRICS_PORT:-10900}:9090"

@@ -95,8 +95,16 @@ The general shape is worth keeping: **startup failures should be ordered so that
 
 ---
 
-## Outstanding
+## Resolved Same Day: the Port Was Closed Instead
 
-- **Cloudflare Access is not yet in front of `metrics.zedth.my.id`.** The bearer token is currently the only control on it. That was the point of adding the token, but the second layer is the reason the hostname was made public through a tunnel rather than a firewall rule, and it is still missing.
+`metrics.zedth.my.id` existed for about an hour. Rather than add the Access policy that was still missing, the port was unpublished and the DNS record removed.
+
+That is the better answer, and the reasoning is worth keeping. The token, the tunnel and an Access policy were three controls arranged to make an exposure safe — but nothing on that host scrapes the endpoint, and nothing is planned to. **A port published for a scraper that does not exist is a port open for no one.** The correct amount of defence for an exposure with no purpose is not to defend it well; it is to not have it.
+
+The endpoint stays reachable inside the compose network, which is where a Prometheus container would run if one were added, so nothing was lost. `docker-compose.metrics-port.yml` is the opt-in override for a host-side scraper — loopback-only, with no variable to change the interface, and a header saying what publishing it means.
+
+The token stays, and not as belt-and-braces for its own sake: publishing a port is one line in a file that someone will eventually add for a good reason, and the token is what makes that line safe to add.
+
+## Outstanding
 - The VM password appeared in a chat transcript and should be rotated.
 - `AUTH_BACKUP_REMOTE` is unset, so backups sit on the same disk as the database they protect.

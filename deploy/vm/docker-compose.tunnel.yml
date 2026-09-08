@@ -89,9 +89,23 @@ services:
       #
       # Verify with: ss -tlnp | grep <port>  — it must show 127.0.0.1, not 0.0.0.0.
       - "${AUTH_BIND_ADDR:-127.0.0.1}:${AUTH_PUBLIC_PORT:-10800}:8080"
-      # Loopback only, always. Unlike the application port this one has no
-      # reason to be reachable from anywhere but a local scraper.
-      - "127.0.0.1:${AUTH_METRICS_PORT:-10900}:9090"
+
+    # The metrics port is deliberately NOT published.
+    #
+    # It was, briefly, to loopback so a tunnel could route to it. That is a
+    # reasonable posture and it is still one step more exposure than this
+    # deployment needs: nothing on this host scrapes it yet. A port published
+    # for a scraper that does not exist is a port open for no one.
+    #
+    # The endpoint stays reachable inside the compose network, so a Prometheus
+    # container joined to that network scrapes it with no change here. To reach
+    # it from the host for a one-off look, add the override that exists for
+    # exactly that purpose:
+    #
+    #   docker compose -f docker-compose.tunnel.yml \
+    #                  -f docker-compose.metrics-port.yml up -d
+    #
+    # Read that file's header before using it.
 
     volumes:
       - ${AUTH_SECRETS_DIR:?required}:/etc/zed-auth/secrets:ro

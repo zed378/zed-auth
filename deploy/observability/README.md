@@ -119,17 +119,42 @@ scrape_configs:
 
 ## Scraping on the VM
 
-Two layers, and the second is not optional in the way it might look.
+**The metrics port is not published to the host.** The endpoint is reachable inside the compose network and nowhere else.
 
-**The token** is the service's own control. It holds regardless of how the endpoint is routed, which is the point — network configuration is a real control that fails silently and is edited by people who do not know the rule exists.
+It was briefly published to loopback and routed through a tunnel. That posture was defensible, and it was still one step more exposure than this deployment needs — nothing on the host scrapes it yet, so the port was open for no one.
 
-**A Cloudflare Access policy** in front of the public hostname is the layer that keeps unauthenticated traffic from reaching the process at all. Without it the token is doing all the work alone, and a leaked token is a full reconnaissance summary to anyone on the internet.
+Scrape it from a Prometheus container joined to the compose network:
+
+```yaml
+scrape_configs:
+  - job_name: authservice
+    authorization:
+      type: Bearer
+      credentials_file: /etc/prometheus/authservice-token
+    static_configs:
+      - targets: ["authservice:9090"]
+```
+
+`credentials_file` rather than an inline `credentials`, so the token does not travel in a config file that gets pasted into a ticket.
+
+For a Prometheus outside Docker, or a one-off look from the host, there is an opt-in override:
+
+```bash
+docker compose -f docker-compose.tunnel.yml \
+               -f docker-compose.metrics-port.yml up -d
+```
+
+Read that file's header first. It publishes to loopback only and has no variable to change that, because there is no case where this endpoint should answer the network directly.
+
+### If you route a tunnel at it
+
+Put an identity-aware policy (Cloudflare Access or equivalent) in front **before** the hostname exists, not after. The bearer token is the service's own control and it holds regardless of routing — but a control that is alone is a control whose failure is total, and what leaks here is a reconnaissance summary and a reliable oracle for whether an attack is working.
 
 Generate the token on the VM, never on a laptop:
 
 ```bash
 sudo /opt/zed-auth/deploy/vm/secrets.sh metrics-token
-sudo /opt/zed-auth/deploy/vm/secrets.sh show metrics-token   # to paste into Prometheus
+sudo /opt/zed-auth/deploy/vm/secrets.sh show metrics-token
 ```
 
 The file is owned by uid 65532 and mode `0400`, because the service reads it and you do not. See `deploy/vm/README.md` for why the ownership rather than the mode is the part that is easy to get wrong.
