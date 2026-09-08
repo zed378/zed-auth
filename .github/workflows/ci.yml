@@ -279,6 +279,54 @@ jobs:
         # CLAUDE.md).
         run: python3 scripts/openapi-shipped-paths.py
 
+  # --- Console --------------------------------------------------------------
+  console:
+    name: Console
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: console
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: console/package-lock.json
+
+      # `ci` rather than `install`: it installs exactly the lockfile and fails
+      # if package.json and the lockfile disagree, which is the difference
+      # between a reproducible build and one that drifted.
+      - name: Install
+        run: npm ci
+
+      - name: Lint
+        # Includes the token-discipline rules (UI-UX/05 § Governance) and
+        # jsx-a11y, which UI-UX/13 § Testing requires in CI.
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        # Token contrast, the Tailwind compile check, branding restrictions,
+        # and the shell's axe pass.
+        run: npm test
+
+      - name: Generated API client matches the spec
+        # The client is generated from openapi/openapi.yaml and committed, the
+        # same discipline as the backend's generated server interface
+        # (ADR-013). PLAN/06 names the property: a backend change not reflected
+        # in the spec breaks CI before it breaks the console at runtime.
+        run: |
+          npm run api:generate
+          cd .. && git diff --exit-code -- console/src/lib/api/ \
+            || { echo "::error::Console API client is stale. Run: cd console && npm run api:generate"; exit 1; }
+
+      - name: Build
+        run: npm run build
+
   # --- Migration safety -----------------------------------------------------
   migration-safety:
     name: Migration safety
