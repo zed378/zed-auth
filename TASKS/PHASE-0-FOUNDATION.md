@@ -681,11 +681,15 @@ The verification itself was strengthened. It reported "all 14 tables restored" a
 
 ## Phase 0 Exit Checklist
 
-- [ ] `docker compose up` yields a healthy service against real Postgres and Redis.
-- [ ] The full `PLAN/04-DATA-MODEL.md` schema is applied by migration, with RLS active and verified.
-- [ ] Structured logs, metrics, and traces are all emitted and correlated by request ID.
-- [ ] CI rejects: build failure, test failure, high SAST finding, critical CVE, committed secret, stale generated client.
-- [ ] Staging is live, isolated from production, with a verified backup restore.
-- [ ] The console shell renders with real design tokens and full keyboard accessibility.
-- [ ] The public landing page, About page, and docs concepts are live and claim nothing unshipped.
-- [ ] Every completed task has a MEMORY record.
+Answered against what is verified, not against what was intended. Each line says how it was checked, because "yes" without a method is the kind of tick that gets discovered to be wrong during an incident.
+
+- [x] **`docker compose up` yields a healthy service against real Postgres and Redis.** Running on the VM behind `auth.zedth.my.id`; `/healthz` and `/readyz` both 200, container reported healthy by its own probe.
+- [x] **The full `PLAN/04-DATA-MODEL.md` schema is applied by migration, with RLS active and verified.** Nine migration pairs, 14 base tables plus partitions. Verified by tests that issue *unfiltered* queries as the runtime role and assert the database returns only the current tenant's rows — and that fail when pointed at a role which can bypass RLS.
+- [x] **Structured logs, metrics, and traces are all emitted and correlated by request ID.** Redaction by key name, 16 Prometheus instruments behind a bearer token on a separate listener, OpenTelemetry off unless an endpoint is configured.
+- [x] **CI rejects: build failure, test failure, high SAST finding, critical CVE, committed secret, stale generated client.** All six, across ten jobs. The stale-client check covers three generated artifacts from one spec (Go server interface, console client, public API reference). `scripts/check.sh` runs the same gates locally — 38 of them.
+- [ ] **Staging is live, isolated from production, with a verified backup restore.** Two of three: staging is live over TLS only, and the restore is verified (19 tables, row counts matched) and automated daily. *Isolation from production is vacuously true — there is no production environment*, and is left unticked so it is checked when there is one. Backups are still local-only (`OQ-12`).
+- [x] **The console shell renders with real design tokens and full keyboard accessibility.** Verified in a real browser at 1440/1024/768/600px: correct widths, one visible `<h1>` at every width, no horizontal overflow, and every link reachable by Tab with a 2px accent focus ring at 44px target height.
+- [x] **The public landing page, About page, and docs concepts are live and claim nothing unshipped.** Live at `app-auth.zedth.my.id`. `public-site/CLAIMS.md` is the audit; two scripts keep it true — every capability carries a phase label that matches the roadmap board, and no built page contains a verbatim phrase from the documents `PLAN/20` forbids publishing.
+- [x] **Every completed task has a MEMORY record.** Fifteen records, an index, a changelog, and fourteen ADRs.
+
+**Phase 0 is complete** except for the two items above that need an owner decision (`OQ-11`, `OQ-12`) and the two that cannot be meaningfully satisfied until a production environment exists.

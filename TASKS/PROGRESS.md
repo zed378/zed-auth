@@ -52,8 +52,8 @@ Sizes: `S` under half a day · `M` one to two days · `L` several days · `XL` m
 | P0-16 | OpenAPI spec skeleton and client generation | M | **DONE** — one spec generates the backend's server interface, the console's client and the public API reference | P0-13 |
 | P0-17 | Console skeleton with design tokens | L | **DONE** | P0-02, P0-16 |
 | P0-18 | Public site skeleton | L | **DONE** | P0-02 |
-| P0-19 | Landing, About, docs skeleton content | M | TODO | P0-18 |
-| P0-20 | Staging environment provisioning | L | **DONE** | P0-13 |
+| P0-19 | Landing, About, docs skeleton content | M | **DONE** | P0-18 |
+| P0-20 | Staging environment provisioning | L | **WIP** — TLS-only staging live, restore verified and automated; CD (`OQ-11`) and offsite backups (`OQ-12`) await owner decisions | P0-13 |
 | P0-21 | Adopt the TASKS/MEMORY working discipline | S | **DONE** | — |
 
 **Suggested parallel tracks** once `P0-02` lands: backend (`P0-04` → `P0-05` → `P0-06` → `P0-07` → `P0-08`), platform (`P0-13` → `P0-14` → `P0-20`), frontend (`P0-17`), and public site (`P0-18` → `P0-19`). `P0-16` gates both `P0-15` and `P0-17`, so it should not wait.
