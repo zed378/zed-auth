@@ -327,6 +327,73 @@ jobs:
       - name: Build
         run: npm run build
 
+  # --- Public site ----------------------------------------------------------
+  #
+  # A separate job with its own install, its own cache and its own path filter.
+  # PLAN/20 § Why a Separate Surface requires the public site to be built and
+  # deployed independently of the console: "a docs typo fix shouldn't require a
+  # backend deploy pipeline". Two jobs is what that means in practice.
+  public-site:
+    name: Public site
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: public-site
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: public-site/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Brand tokens match the console
+        # The one thing the two surfaces share is the visual language, as
+        # duplicated values (PLAN/20, UI-UX/20 § Cross-Page Requirements).
+        # Duplication on purpose and duplication by accident look identical six
+        # months later.
+        run: npm run check:tokens
+
+      - name: Contrast meets WCAG 2.1 AA in both themes
+        # UI-UX/13 applies here as much as to the console. The dark theme is
+        # why this is a check rather than a comment: the console's palette,
+        # carried over unchanged, measured 2.4:1 to 3.3:1 on a dark surface.
+        run: npm run check:contrast
+
+      - name: No code is shared with the console
+        # PLAN/20 § Why a Separate Surface. A rule that erodes by convenience
+        # rather than by decision, so it is checked rather than trusted.
+        run: npm run check:boundary
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: API reference matches the spec
+        # CLAUDE.md: API reference documentation is never hand-written. The
+        # same openapi/openapi.yaml generates the backend's server interface
+        # (ADR-013) and the console's client.
+        run: |
+          npm run api:generate
+          cd .. && git diff --exit-code -- public-site/docs/api-reference/ \
+            || { echo "::error::The generated API reference is stale. Run: cd public-site && npm run api:generate"; exit 1; }
+
+      - name: Build
+        # onBrokenLinks and onBrokenAnchors are "throw", so this also fails on
+        # a broken internal link. A 404 inside documentation is worse than a
+        # missing page: the reader assumes they took a wrong turn.
+        run: npm run build
+
+      - name: Upload the built site
+        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3
+        with:
+          name: public-site
+          path: public-site/build
+          retention-days: 7
+
   # --- Migration safety -----------------------------------------------------
   migration-safety:
     name: Migration safety

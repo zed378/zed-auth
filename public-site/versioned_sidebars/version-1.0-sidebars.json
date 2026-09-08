@@ -1,0 +1,68 @@
+{
+  "docs": [
+    "docs-home",
+    "quickstart",
+    {
+      "type": "category",
+      "label": "Concepts",
+      "collapsed": false,
+      "items": [
+        "concepts/model",
+        "concepts/authorization",
+        "concepts/sessions"
+      ]
+    },
+    {
+      "type": "category",
+      "label": "Guides",
+      "items": [
+        "guides/guides-index"
+      ]
+    },
+    {
+      "type": "category",
+      "label": "Console",
+      "items": [
+        "console/console-index"
+      ]
+    },
+    {
+      "type": "category",
+      "label": "API reference",
+      "link": {
+        "type": "generated-index",
+        "title": "API reference",
+        "slug": "/api-reference",
+        "description": "Generated from openapi/openapi.yaml, the same file the service's own handlers are generated from. An endpoint documented here exists."
+      },
+      "items": [
+        {
+          "type": "doc",
+          "id": "api-reference/zed-auth-management-api"
+        },
+        {
+          "type": "category",
+          "label": "Operations",
+          "link": {
+            "type": "doc",
+            "id": "api-reference/operations"
+          },
+          "items": [
+            {
+              "type": "doc",
+              "id": "api-reference/get-liveness",
+              "label": "Liveness probe",
+              "className": "api-method get"
+            },
+            {
+              "type": "doc",
+              "id": "api-reference/get-readiness",
+              "label": "Readiness probe",
+              "className": "api-method get"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
