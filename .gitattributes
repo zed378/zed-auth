@@ -1,0 +1,41 @@
+# Normalize line endings so a Windows checkout does not produce artifacts that
+# break on Linux. The concrete failure this prevents: a shell script committed
+# with CRLF fails on Linux with "bad interpreter: /bin/sh^M", which is a
+# confusing error a long way from its cause.
+
+* text=auto eol=lf
+
+# Anything executed by a shell or a container must be LF, always.
+*.sh          text eol=lf
+scripts/hooks/*  text eol=lf
+Dockerfile    text eol=lf
+*.dockerfile  text eol=lf
+
+# Source and configuration.
+*.go    text eol=lf
+*.mod   text eol=lf
+*.sum   text eol=lf
+*.sql   text eol=lf
+*.yaml  text eol=lf
+*.yml   text eol=lf
+*.json  text eol=lf
+*.md    text eol=lf
+*.ts    text eol=lf
+*.tsx   text eol=lf
+*.js    text eol=lf
+*.jsx   text eol=lf
+*.css   text eol=lf
+*.html  text eol=lf
+
+# Binary: never touched.
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.ico   binary
+*.woff  binary
+*.woff2 binary
+*.pdf   binary
+
+# Generated files are excluded from diffs and from language statistics.
+console/src/api/generated/**  linguist-generated=true
