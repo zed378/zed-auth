@@ -154,18 +154,57 @@ func TestEventsAreAppendOnlyForTheApplicationRole(t *testing.T) {
 
 	orgID := seedOrg(t, owner, "append-only-test")
 
+	// Row-level security (P0-08) now applies to events, so this INSERT needs a
+	// tenant context — the raw connection used elsewhere in this file has none.
+	// Setting it inside the transaction mirrors what the storage layer does.
+	//
+	// The test previously inserted without a context and passed, because RLS
+	// did not exist yet. Its failure when RLS landed was the policy working.
+	tx, err := app.Begin()
+	if err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+	defer tx.Rollback() //nolint:errcheck // rolled back or committed below
+
+	if _, err := tx.Exec(`SELECT set_config('app.current_org_id', $1, true)`, orgID); err != nil {
+		t.Fatalf("set tenant context: %v", err)
+	}
+
 	var eventID int64
-	err := app.QueryRow(`
+	err = tx.QueryRow(`
 		INSERT INTO events (org_id, event_type, payload)
 		VALUES ($1, 'user.login.success', '{"note":"seed"}'::jsonb)
 		RETURNING id`, orgID).Scan(&eventID)
 	if err != nil {
 		t.Fatalf("the application role must be able to INSERT audit events: %v", err)
 	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
 	t.Cleanup(func() { owner.Exec(`DELETE FROM events WHERE id = $1`, eventID) })
 
+	// Each sub-test sets the tenant context first. Without it RLS would refuse
+	// the statement before the privilege check was ever reached, and the test
+	// would pass for the wrong reason — proving isolation works rather than
+	// proving the audit log is append-only.
+	scoped := func(t *testing.T, fn func(*sql.Tx) error) error {
+		t.Helper()
+		tx, err := app.Begin()
+		if err != nil {
+			t.Fatalf("begin: %v", err)
+		}
+		defer tx.Rollback() //nolint:errcheck // read-only or expected to fail
+		if _, err := tx.Exec(`SELECT set_config('app.current_org_id', $1, true)`, orgID); err != nil {
+			t.Fatalf("set tenant context: %v", err)
+		}
+		return fn(tx)
+	}
+
 	t.Run("UPDATE is refused", func(t *testing.T) {
-		_, err := app.Exec(`UPDATE events SET event_type = 'tampered' WHERE id = $1`, eventID)
+		err := scoped(t, func(tx *sql.Tx) error {
+			_, err := tx.Exec(`UPDATE events SET event_type = 'tampered' WHERE id = $1`, eventID)
+			return err
+		})
 		if err == nil {
 			t.Fatal("the application role was able to UPDATE an audit event — the log is not append-only")
 		}
@@ -175,7 +214,10 @@ func TestEventsAreAppendOnlyForTheApplicationRole(t *testing.T) {
 	})
 
 	t.Run("DELETE is refused", func(t *testing.T) {
-		_, err := app.Exec(`DELETE FROM events WHERE id = $1`, eventID)
+		err := scoped(t, func(tx *sql.Tx) error {
+			_, err := tx.Exec(`DELETE FROM events WHERE id = $1`, eventID)
+			return err
+		})
 		if err == nil {
 			t.Fatal("the application role was able to DELETE an audit event — the log is not append-only")
 		}
@@ -186,7 +228,9 @@ func TestEventsAreAppendOnlyForTheApplicationRole(t *testing.T) {
 
 	t.Run("SELECT is still allowed", func(t *testing.T) {
 		var got string
-		if err := app.QueryRow(`SELECT event_type FROM events WHERE id = $1`, eventID).Scan(&got); err != nil {
+		if err := scoped(t, func(tx *sql.Tx) error {
+			return tx.QueryRow(`SELECT event_type FROM events WHERE id = $1`, eventID).Scan(&got)
+		}); err != nil {
 			t.Fatalf("the application role must be able to read the audit log: %v", err)
 		}
 		if got != "user.login.success" {
