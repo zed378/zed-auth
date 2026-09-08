@@ -31,7 +31,12 @@
 # compose network, because nothing outside the service needs them and a
 # published database port is a database port someone will eventually reach.
 
-name: zed-auth
+# Container names follow <project>-<service>-1, matching the other stacks on
+# this host. Three projects share the `zedauth` prefix rather than one project
+# holding everything: `docker compose down` removes every container with the
+# project label, not just those in the file it was handed, so a shared name
+# would mean stopping the console also stops the database.
+name: zedauth
 
 services:
   authservice:
@@ -208,5 +213,14 @@ services:
     security_opt: [no-new-privileges:true]
 
 volumes:
+  # Named explicitly rather than left to the project prefix.
+  #
+  # A compose volume is normally `<project>_<name>`, so renaming the project
+  # from `zed-auth` to `zedauth` would silently create empty volumes and
+  # present an empty database as a successful start. Pinning the names makes
+  # the data independent of what the project is called, which is what anyone
+  # renaming a stack actually wants.
   postgres_data:
+    name: zedauth_postgres_data
   redis_data:
+    name: zedauth_redis_data

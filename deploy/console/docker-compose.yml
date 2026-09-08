@@ -12,8 +12,12 @@
 # Usage on the VM:
 #   docker compose -f deploy/console/docker-compose.yml up -d
 
+# `zedauth-console-web-1`. Its own project, so taking the console down cannot
+# take the database with it.
+name: zedauth-console
+
 services:
-  console:
+  web:
     image: nginx:1.27-alpine
     restart: unless-stopped
 
