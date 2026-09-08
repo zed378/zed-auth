@@ -45,6 +45,27 @@ var (
 type DB struct {
 	db  *sql.DB
 	log *slog.Logger
+
+	// onInstanceScope is called whenever the cross-tenant path is used.
+	//
+	// A callback rather than a direct dependency on the audit package: audit
+	// already imports this package, so importing it back would be a cycle.
+	// The hook is set after construction by whoever wires both together.
+	//
+	// It runs OUTSIDE the scoped transaction deliberately. Writing the audit
+	// event inside would need a nested transaction, and a failure to record
+	// the access should not roll back the access itself — this is
+	// observability, not the in-transaction guarantee the audit writer gives
+	// business actions (P0-12, ADR-012).
+	onInstanceScope func(ctx context.Context, reason string)
+}
+
+// SetInstanceScopeHook registers a callback for cross-tenant access.
+//
+// Set once at startup, before serving. It is not guarded by a mutex because
+// mutating it later would be a bug, not a supported operation.
+func (d *DB) SetInstanceScopeHook(fn func(ctx context.Context, reason string)) {
+	d.onInstanceScope = fn
 }
 
 // Open connects and verifies the connection, returning a handle whose only
@@ -71,6 +92,14 @@ func Open(ctx context.Context, cfg config.PostgresConfig, log *slog.Logger) (*DB
 
 // Close releases the pool.
 func (d *DB) Close() error { return d.db.Close() }
+
+// SQL exposes the pool for the connection-statistics collector only.
+//
+// This is the one hole in "no unscoped query path", and it is deliberate and
+// narrow: sql.DBStats needs the handle, and there is no read-only view of it.
+// Using this for queries would bypass tenant scoping entirely, which is why it
+// is named SQL rather than DB and carries this comment.
+func (d *DB) SQL() *sql.DB { return d.db }
 
 // Name identifies this dependency to the readiness endpoint.
 func (d *DB) Name() string { return "postgres" }
@@ -154,6 +183,10 @@ func (d *DB) WithInstanceScope(ctx context.Context, reason string, fn func(*Tx) 
 
 	d.log.LogAttrs(ctx, slog.LevelInfo, "instance-scoped database access",
 		slog.String("reason", reason))
+
+	if d.onInstanceScope != nil {
+		d.onInstanceScope(ctx, reason)
+	}
 
 	return d.withScope(ctx, "", fn)
 }
