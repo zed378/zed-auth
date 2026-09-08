@@ -21,6 +21,10 @@ services:
       POSTGRES_DB: auth
       POSTGRES_USER: auth_owner
       POSTGRES_PASSWORD: local_dev_only
+      # Consumed by init/01-roles.sh to create the application role. Read from
+      # the environment rather than written into the init script, so the
+      # credential never lives in a committed or bind-mounted file.
+      AUTH_POSTGRES_APP_PASSWORD: local_dev_only
       # Deterministic collation, so an index built locally behaves the way it
       # will in a deployed environment.
       POSTGRES_INITDB_ARGS: "--locale=C --encoding=UTF8"

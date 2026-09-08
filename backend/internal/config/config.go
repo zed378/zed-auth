@@ -75,6 +75,21 @@ type HTTPConfig struct {
 	// consumer application, so dropping requests on deploy is not acceptable
 	// (PLAN/14-DEPLOYMENT.md § Deployment Model).
 	ShutdownTimeout time.Duration
+
+	// TrustProxyHeaders controls whether an inbound X-Request-Id is adopted
+	// rather than replaced.
+	//
+	// It is deliberately independent of Environment. "Deployed" and "has a
+	// header-stripping proxy in front" are different facts, and conflating
+	// them gets the answer wrong for any deployment whose proxy does not
+	// strip: a tunnel such as Cloudflare Tunnel forwards client headers
+	// through untouched, so trusting them there lets a caller choose their own
+	// correlation ID and collide it with someone else's deliberately, making
+	// an incident timeline unreadable (SECURITY/02 §10).
+	//
+	// Default false. Turn it on only when something in front provably
+	// overwrites the header — the Caddyfile in deploy/vm does.
+	TrustProxyHeaders bool
 }
 
 type PostgresConfig struct {
@@ -137,6 +152,7 @@ func LoadFrom(getenv Getenv) (*Config, error) {
 			WriteTimeout:      l.duration("AUTH_HTTP_WRITE_TIMEOUT", 30*time.Second),
 			IdleTimeout:       l.duration("AUTH_HTTP_IDLE_TIMEOUT", 60*time.Second),
 			ShutdownTimeout:   l.duration("AUTH_HTTP_SHUTDOWN_TIMEOUT", 20*time.Second),
+			TrustProxyHeaders: l.boolean("AUTH_TRUST_PROXY_HEADERS", false),
 		},
 		Postgres: PostgresConfig{
 			DSN:             l.required("AUTH_POSTGRES_DSN"),
@@ -204,6 +220,22 @@ func (l *loader) duration(key string, fallback time.Duration) time.Duration {
 		return fallback
 	}
 	return d
+}
+
+func (l *loader) boolean(key string, fallback bool) bool {
+	raw := strings.ToLower(strings.TrimSpace(l.getenv(key)))
+	if raw == "" {
+		return fallback
+	}
+	switch raw {
+	case "true", "1", "yes", "on":
+		return true
+	case "false", "0", "no", "off":
+		return false
+	default:
+		l.problem("%s must be true or false, got %q", key, raw)
+		return fallback
+	}
 }
 
 func (l *loader) integer(key string, fallback int) int {

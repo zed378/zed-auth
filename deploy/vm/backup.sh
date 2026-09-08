@@ -20,10 +20,17 @@
 
 set -Eeuo pipefail
 
-readonly ENV_FILE=/etc/zed-auth/env
+# Overridable because the environment file is not always at the same path: a
+# host-managed deployment keeps it in /etc, while a deployment confined to a
+# user's home directory keeps it alongside the project. Hard-coding /etc would
+# make this script unusable in the second case without editing it.
+readonly ENV_FILE="${AUTH_ENV_FILE:-/etc/zed-auth/env}"
 COMPOSE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly COMPOSE_DIR
-readonly COMPOSE=(docker compose -f "${COMPOSE_DIR}/docker-compose.yml")
+# Overridable so the tunnel variant (docker-compose.tunnel.yml) can be used
+# without a second copy of this script.
+readonly COMPOSE_FILE="${AUTH_COMPOSE_FILE:-docker-compose.yml}"
+readonly COMPOSE=(docker compose -f "${COMPOSE_DIR}/${COMPOSE_FILE}")
 
 log()  { printf '\n\033[1;36m==> %s\033[0m\n' "$*"; }
 warn() { printf '\033[1;33m    %s\033[0m\n' "$*" >&2; }
