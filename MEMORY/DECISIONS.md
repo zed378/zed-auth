@@ -432,3 +432,57 @@ An `actor_user_id` may reference a row that no longer exists. That is intended b
 **Plan impact**
 
 None. This implements `PLAN/04` § Retention and Growth as written.
+
+---
+
+### ADR-011 — Deploy to a self-managed VM now, Kubernetes later
+
+| | |
+|---|---|
+| **Date** | 2026-09-08 |
+| **Status** | Accepted, with an open deviation (DV-01) |
+| **Task** | P0-14, P0-20 — answers `TASKS/BACKLOG.md` OQ-03 |
+| **Deciders** | Project owner |
+
+**Context**
+
+`PLAN/14-DEPLOYMENT.md` specifies Docker containers on Kubernetes for production, with Docker Compose "fine for local dev/small staging", and names "Vault / cloud secret manager" for secrets. It does not say which environment, and `OQ-03` recorded that gap because it determines the secret store, the managed database offering, the backup mechanism, and the ingress and TLS approach.
+
+The project owner's answer: a self-managed VM for now, with Kubernetes support built later.
+
+**Decision**
+
+Deploy to a single self-managed VM using Docker Compose, and treat Kubernetes as a target the architecture must not foreclose rather than one it must reach now.
+
+Concretely:
+
+| Concern | Now (VM) | Later (Kubernetes) | What keeps the move cheap |
+|---|---|---|---|
+| Orchestration | Docker Compose + a systemd unit | Deployment + HPA | The service is already stateless with no local disk state |
+| Configuration | Environment variables from a root-owned `0600` file | ConfigMap + Secret | Already environment-variable driven, so no code changes |
+| Secrets | Files under a restricted directory, referenced by URI | Vault or a cloud secret manager, same URI scheme | A `SecretRef` indirection with pluggable schemes (`P0-14`) |
+| TLS | Caddy on the host, automatic ACME | Ingress controller | TLS terminates outside the service either way, exactly as `PLAN/14` assumes |
+| Postgres | Container on the same host, WAL archived offsite | Managed service or an operator | `AUTH_POSTGRES_DSN` is the only coupling |
+| Redis | Container on the same host | Managed service or an operator | `AUTH_REDIS_ADDR` is the only coupling |
+
+The rule that makes this work is the one already followed: the service reads everything from the environment, keeps no state on local disk, and terminates TLS elsewhere. That is what `PLAN/07` means by "stateless service, separate stateful store", and it is what makes a Kubernetes migration a manifest exercise.
+
+**Alternatives considered**
+
+- *Managed Kubernetes on a cloud provider now.* Matches `PLAN/14` exactly and would close DV-01 immediately. Not chosen: it is the owner's call, it carries cost and operational overhead disproportionate to a project with no live consumer applications yet, and `PLAN/00`'s incremental principle argues directly against it.
+- *A single VM with no Kubernetes intent at all.* Simpler, and would let cheaper choices in — writing sessions to local disk, baking configuration into the image, terminating TLS inside the service. Rejected because each of those is individually tempting and collectively the thing that turns a later migration into a rewrite.
+- *Vault on the same VM.* `PLAN/07` names Vault, and it would keep the secret story identical across both targets. Rejected for now as disproportionate: running, unsealing, and backing up Vault on a single host is more operational surface than the secrets it protects. The `SecretRef` indirection means adopting it later is a scheme change, not a refactor.
+
+**Consequences**
+
+Cheaper now, and the migration path stays open. `PLAN/02`'s constraint that no third party holds the private signing key is satisfied trivially — the key never leaves the owner's own machine.
+
+Harder, and this is the real cost: **a single VM is a single point of failure for every consumer application's authentication.** `PLAN/14` and `PLAN/15` both specify Multi-AZ minimum for production, and this does not meet that. Recorded as **DV-01** in `TASKS/BACKLOG.md` rather than absorbed silently, because a deviation that is not written down is a bug nobody has found yet.
+
+Two Phase 5 tasks are affected and should not be marked done without acknowledging it. `P5-06` requires horizontal scaling to be "verified in practice… by actually running a scale-out test" (`PLAN/12`), which one host cannot demonstrate. `P5-07`'s DR drill requires restoring into an isolated environment, which means a second machine.
+
+Operational burden shifts onto the owner: OS patching, database backups, certificate renewal, and monitoring are all self-managed where a cloud provider would supply them. `P0-20` addresses each explicitly rather than leaving them implied.
+
+**Plan impact**
+
+None yet. `PLAN/14` still describes the target architecture correctly, and `PLAN/16` Phase 5 still requires the hardening that a single VM cannot fully satisfy. If the VM becomes the permanent production environment rather than an interim one, `PLAN/14` § Environment Strategy and `PLAN/15` § High Availability both need amending, and `PLAN/18` needs an owned, dated accepted-risk entry. Neither has been done, because the stated intent is that this is temporary.

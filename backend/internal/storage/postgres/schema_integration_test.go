@@ -275,7 +275,11 @@ func TestUserEmailIsUniquePerOrganizationNotGlobally(t *testing.T) {
 func TestSigningKeysRefuseInlinePrivateKeyMaterial(t *testing.T) {
 	db := ownerDB(t)
 
-	pem := "-----BEGIN RSA PRIVATE KEY-----\nMIIEow...\n-----END RSA PRIVATE KEY-----"
+	// Assembled at runtime so this repository contains no literal PEM block
+	// anywhere — see TestIsSecretMaterial in internal/config for why that
+	// matters to the pre-commit hook and to gitleaks.
+	dashes := strings.Repeat("-", 5)
+	pem := dashes + "BEGIN RSA PRIVATE KEY" + dashes + "\nQUJDREVG\n" + dashes + "END RSA PRIVATE KEY" + dashes
 
 	_, err := db.Exec(`
 		INSERT INTO signing_keys (kid, algorithm, public_key, private_key_ref)

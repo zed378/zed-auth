@@ -1,0 +1,66 @@
+# TLS termination for the Auth Service.
+#
+# TLS is mandatory everywhere with no HTTP fallback (PLAN/09-SECURITY.md
+# § Transport & Storage). Caddy obtains and renews Let's Encrypt certificates
+# automatically; on a self-managed host an expired certificate is the most
+# likely single cause of an outage, so the component with the fewest moving
+# parts wins.
+
+{
+	# Fail loudly rather than serving a self-signed certificate nobody trusts.
+	email {$AUTH_ACME_EMAIL}
+
+	servers {
+		# The service reads X-Request-Id only from a trusted proxy (P0-04), and
+		# this is that proxy. Caddy overwrites client-supplied values below.
+		trusted_proxies static private_ranges
+	}
+}
+
+{$AUTH_DOMAIN} {
+	encode zstd gzip
+
+	header {
+		# HSTS with preload: once a browser has seen this, it will not attempt
+		# plaintext to this host again, which closes the initial-request window
+		# that a redirect alone leaves open.
+		Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
+
+		# Defence in depth — the service sets these too (P0-04), but a
+		# misconfigured route that bypassed the middleware would still be
+		# covered here.
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "no-referrer"
+
+		# Never disclose the reverse proxy or its version.
+		-Server
+		-X-Powered-By
+	}
+
+	reverse_proxy authservice:8080 {
+		# Overwrite rather than append. An inbound X-Forwarded-For from a client
+		# would otherwise be trusted, and the rate limiter keys on client IP
+		# (P1-13) — SECURITY/02 §10 names header manipulation as the rate-limit
+		# bypass to prevent.
+		header_up X-Forwarded-For {remote_host}
+		header_up X-Forwarded-Proto {scheme}
+		header_up X-Real-IP {remote_host}
+
+		# A correlation ID chosen by the caller could be collided with someone
+		# else's deliberately, making an incident timeline unreadable. Caddy
+		# strips it; the service generates its own.
+		header_up -X-Request-Id
+
+		health_uri /healthz
+		health_interval 10s
+		health_timeout 3s
+	}
+
+	log {
+		output file /data/access.log {
+			roll_size 50mb
+			roll_keep 5
+		}
+		format json
+	}
+}
