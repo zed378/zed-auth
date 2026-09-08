@@ -53,7 +53,7 @@ Sizes: `S` under half a day · `M` one to two days · `L` several days · `XL` m
 | P0-17 | Console skeleton with design tokens | L | **DONE** | P0-02, P0-16 |
 | P0-18 | Public site skeleton | L | **DONE** | P0-02 |
 | P0-19 | Landing, About, docs skeleton content | M | **DONE** | P0-18 |
-| P0-20 | Staging environment provisioning | L | **WIP** — TLS-only staging live, restore verified and automated; CD (`OQ-11`) and offsite backups (`OQ-12`) await owner decisions | P0-13 |
+| P0-20 | Staging environment provisioning | L | **WIP** — TLS-only staging live, restore verified and automated. `OQ-11` answered: no GitHub Actions (no public IP), so deployment is pull-based and the "merge deploys automatically" DoD item needs re-reading rather than satisfying. `OQ-12` answered: local backups accepted, S3/NFS later | P0-13 |
 | P0-21 | Adopt the TASKS/MEMORY working discipline | S | **DONE** | — |
 
 **Suggested parallel tracks** once `P0-02` lands: backend (`P0-04` → `P0-05` → `P0-06` → `P0-07` → `P0-08`), platform (`P0-13` → `P0-14` → `P0-20`), frontend (`P0-17`), and public site (`P0-18` → `P0-19`). `P0-16` gates both `P0-15` and `P0-17`, so it should not wait.
@@ -323,6 +323,8 @@ Things that are easy to get wrong once and expensive to fix later. Re-check each
 | `SECURITY DEFINER` functions | Two exist for partition maintenance. Their `search_path` is pinned; unpinning it would let a caller have the owner execute their code | `P0-12` |
 | Go toolchain patch level | `govulncheck` found six stdlib vulnerabilities at 1.26.5. The `toolchain` directive pins 1.26.6 — keep it current | `P0-12` |
 | Metric label cardinality | Route labels use the chi pattern, never the concrete path; unmatched paths collapse to one label. A new route that interpolates an id would be unbounded | `P0-11` |
+| Runtime state lives outside the code checkout | Secrets, backups and artifacts in `/home/infra/auth-state/`, so `git pull` and a full re-clone are non-destructive. An operation is only safe if the layout makes it safe — "do not delete that directory" is not a control | `P0-14` |
+| Scripts are executable in the INDEX, not just on disk | Windows git ignores the mode bit, so `chmod +x` never reaches the repository and a fresh clone gets files nothing can run. Checked with `git ls-files -s` | `P0-14` |
 | Credential verification is not authorization | `internal/authn` answers whether a password matches a hash and nothing about what that permits. A package answering both is one where "the password matched" quietly becomes "the request is allowed" | `P1-01` |
 | The not-found path costs what the found path costs | Otherwise response time is an oracle for which addresses have accounts. A real hash, not a sleep — a sleep guesses a duration and does not consume the CPU that makes timings match under load | `P1-01` |
 | Hash parameters are measured on the target | 90ms on the VM against 63ms on a laptop. The binding constraint is concurrency, not latency: memory cost multiplies by simultaneous logins | `P1-01` |

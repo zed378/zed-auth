@@ -34,33 +34,23 @@ Recorded as [ADR-011](../MEMORY/DECISIONS.md). Consequences worked through in `P
 
 **This answer creates one open deviation**, tracked below as `DV-01`, because a single VM cannot satisfy `PLAN/14`'s and `PLAN/15`'s Multi-AZ requirement for production.
 
-### OQ-11 — Does GitHub Actions get a deploy path to the VM?
+### ~~OQ-11 — Does GitHub Actions get a deploy path to the VM?~~ — ANSWERED 2026-09-08
 
-**Blocks**: `P0-20`'s "a merge to `main` deploys to staging automatically and runs a smoke test".
+**Answer**: **No.** The VM has no public IP and nothing external can reach it, so GitHub Actions will not be used for deployment.
 
-Continuous deployment needs CI to reach the VM. That means a credential held by GitHub with access to a machine currently reachable only through a Cloudflare tunnel, on a private subnet.
+Deployment is **pull-based**: the VM runs `git pull`, receives or builds artifacts, and restarts its own services. Nothing outside the network holds a credential to the machine — the property that matters more than the convenience of a push-based pipeline, and the direction this question recommended.
 
-The options differ in what they expose rather than in effort:
+**Consequence for `P0-20`**: its Definition of Done says "a merge to `main` deploys to staging automatically and runs a smoke test". That will not be satisfied as written, and the item should be **re-read rather than left failing**. The intent was fast, repeatable deployment; a pull on the VM achieves it without the trust relationship the phrasing assumed. Worth amending the task card when someone next touches it.
 
-- **An SSH deploy key in GitHub secrets.** Simplest. GitHub then holds a key to the VM, and anyone who can push a workflow file can use it.
-- **A pull-based agent on the VM** polling for a new image. Nothing external holds a credential to the machine; the VM decides when to update. More moving parts, and the agent becomes something to maintain.
-- **Manual deploys**, as today. Slowest feedback, no new trust relationship.
+Recorded in [the clone-based deploy record](../MEMORY/records/2026-09-08-clone-based-deploy-and-state-separation.md).
 
-**Recommendation**: the pull-based option, or staying manual until there is a second environment to promote between. The first is the usual answer and it hands a machine on your private subnet to a system that runs code from pull requests.
+### ~~OQ-12 — Where do backups go?~~ — ANSWERED 2026-09-08
 
-This is a decision about trust and exposure, not a configuration task.
+**Answer**: local-only for now; **S3 or NFS** in future.
 
-### OQ-12 — Where do backups go?
+Accepted deliberately rather than overlooked. The cost was demonstrated the same day: re-cloning the repository destroyed every backup, and only the Docker volume saved the data.
 
-**Blocks**: `P0-20` fully, and `PLAN/15`'s separate-failure-domain requirement.
-
-`AUTH_BACKUP_REMOTE` is unset, so backups are written to the same disk as the database they protect. `backup.sh` warns on every run, correctly: this protects against `DROP TABLE` and against nothing else. Losing the VM loses the database and every backup of it together.
-
-The restore itself is verified and automated (daily, `zed-auth-backup.timer`) — this is only about where the copies live.
-
-Options: object storage with a lifecycle policy (S3, R2, B2), a second machine over `rsync`/`restic`, or a local disk somewhere else entirely. All cost something; the current arrangement costs nothing and provides no protection against the failure that matters.
-
-**Recommendation**: any of them. The choice matters less than there being one.
+`backup.sh` warns on every run that backups are local-only, and **that warning should keep appearing** until `AUTH_BACKUP_REMOTE` is set. It is not noise; it is the accurate description of a known gap.
 
 ### OQ-10 — Is there a numeric Lighthouse bar for the public site?
 

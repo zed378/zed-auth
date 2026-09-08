@@ -51,6 +51,35 @@ sudo ufw enable
 
 ### 2. Repository and directories
 
+**The checkout is disposable; runtime state is not.** Keep them apart:
+
+```
+/home/infra/auth/          the git clone — `git pull` and re-clone are safe
+/home/infra/auth-state/    mode 700, never touched by git
+    .env                   mode 600
+    secrets/               owned by uid 65532
+    backups/
+    artifacts/console      built elsewhere, copied here
+    artifacts/public-site
+```
+
+This is not tidiness. Secrets, backups and build artifacts once lived inside the checkout, and deleting the directory to re-clone destroyed the signing key, the metrics token and every backup at once. The service kept running on already-open mounts and would not have survived a restart — invisible until the moment it mattered.
+
+"Do not delete that directory" is not a control. The person deleting it is doing something ordinary.
+
+Every path is read from a variable in `.env`, so nothing in the compose files needs to change:
+
+```bash
+AUTH_SECRETS_DIR=/home/infra/auth-state/secrets
+AUTH_BACKUP_DEST=/home/infra/auth-state/backups
+AUTH_CONSOLE_DIST=/home/infra/auth-state/artifacts/console
+AUTH_SITE_DIST=/home/infra/auth-state/artifacts/public-site
+```
+
+Note `AUTH_BACKUP_DEST`, not `AUTH_BACKUP_DIR`. Guessing that name once sent every dump back inside the checkout while the script reported success.
+
+### 2a. Cloning
+
 ```bash
 sudo git clone https://github.com/zed378/zed-auth.git /opt/zed-auth
 sudo /opt/zed-auth/deploy/vm/secrets.sh fix

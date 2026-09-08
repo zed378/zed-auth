@@ -92,4 +92,5 @@ Key rotations, DR drills, pentests, load tests, and production incidents — any
 
 | Date | Event | Record |
 |---|---|---|
+| 2026-09-08 | **Re-clone destroyed the signing key, the metrics token and every backup** — runtime state lived inside the code directory. Recovered; state moved out, so `git pull` is now safe | [record](./records/2026-09-08-clone-based-deploy-and-state-separation.md) |
 | 2026-09-08 | **Backup restore verified** — staging dump restored into a throwaway database, 19 tables and every row count matching the source. Backups now run daily by timer | [P0-20](./records/2026-09-08-P0-20-backup-verification.md) |

@@ -48,6 +48,23 @@ Format follows Keep a Changelog conventions, grouped by release once releases ex
 - `/readyz` now genuinely checks PostgreSQL; it previously reported ready with no dependencies wired.
 - Deployed and verified on the VM; `https://auth.zedth.my.id` healthy throughout.
 
+**Operational** — clone-based deploy, and state moved out of the checkout ([record](./records/2026-09-08-clone-based-deploy-and-state-separation.md))
+- The VM now deploys by `git clone` / `git pull` rather than by uploaded files. Better, and the right answer to `OQ-11`: a pull needs no inbound access to a machine with no public IP.
+- Re-cloning destroyed the signing key, the metrics token, every backup, and both frontend builds — because **runtime state lived inside the code directory**. That was never a decision; it was where things landed, and it stayed until an ordinary operation turned destructive. The service kept running on already-open mounts and would not have survived a restart, which is the worst shape for a fault: invisible until you need it.
+- Fixed structurally. `/home/infra/auth-state/` now holds `.env`, secrets, backups and artifacts; the checkout is disposable. The compose files already read every path from a variable, so this was a `.env` change rather than a deployment change — indirection written for another reason, paying for itself.
+- **An operation is only safe if the layout makes it safe.** "Do not delete that directory" is not a control: the person deleting it is doing something ordinary and has no reason to suspect otherwise.
+
+**Fixed**
+- **No script was executable in a fresh clone.** On Windows git does not track the executable bit unless `core.fileMode` is set, so fifteen scripts were committed `100644` while being executable locally — and `check.sh`'s gate for exactly this passed, because it tested the filesystem rather than the index. A clone gets the index. It surfaced when `secrets.sh` failed with "command not found" while regenerating a destroyed signing key. The gate now reads `git ls-files -s`, and found one more on its first run: `deploy/postgres/init/01-roles.sh`, which Docker executes at database init. (`P0-14`)
+- `.env` was mode `664` — world-readable, holding the database passwords. A file recreated by hand takes the shell's umask and nothing was checking.
+- Backups were written to the wrong place twice: an invented variable name (`AUTH_BACKUP_DIR`; the script reads `AUTH_BACKUP_DEST`) sent them back **inside the checkout**, reintroducing the original bug. Caught because the new directory was empty after a run that reported success. Read the script rather than guessing its variable names.
+
+**Answered**
+- `OQ-11`: no GitHub Actions — the VM has no public IP. Deployment is pull-based. `P0-20`'s "merge to `main` deploys automatically" should be re-read rather than left failing.
+- `OQ-12`: local backups accepted for now, S3 or NFS later. The warning on every backup run stays, because it accurately describes a known gap.
+
+---
+
 ## Phase 1 — MVP: Core Authentication and SSO
 
 **Added** — Argon2id password hashing ([record](./records/2026-09-08-P1-01-password-hashing.md), [spec](./specs/P1-01-password-hashing.md))
