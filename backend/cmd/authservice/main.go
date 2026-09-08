@@ -19,6 +19,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/zed378/zed-auth/backend/internal/audit"
 	"github.com/zed378/zed-auth/backend/internal/config"
 	"github.com/zed378/zed-auth/backend/internal/httpserver"
 	"github.com/zed378/zed-auth/backend/internal/observability"
@@ -27,6 +28,13 @@ import (
 
 // version is set at build time: -ldflags "-X main.version=$(git rev-parse --short HEAD)".
 var version = "dev"
+
+// partitionMonthsAhead is how much events-partition runway to maintain.
+//
+// Three months rather than one: a service that is down for a while, or a
+// maintenance tick that fails quietly, still has room before the failure
+// becomes an outage. The cost of an unused empty partition is nothing.
+const partitionMonthsAhead = 3
 
 func main() {
 	// -healthcheck exists because the runtime image is distroless: it has no
@@ -97,6 +105,20 @@ func run() error {
 	if err := db.AssertRoleIsNotPrivileged(ctx); err != nil {
 		return fmt.Errorf("database role check: %w", err)
 	}
+
+	// Forwarding to an external SIEM is nil until P5-08 supplies one. The seam
+	// exists now because PLAN/09 § Audit wants the log forwarded, and adding
+	// the seam later would mean touching every call site.
+	auditor := audit.NewWriter(db, log, nil)
+
+	// Partition maintenance runs for the life of the process.
+	//
+	// Without it the service works fine until the last events partition's range
+	// ends, at which point every INSERT into events fails — and since every
+	// security-sensitive action writes an audit event (PLAN/09 § Audit), every
+	// such action fails with it. At midnight on the first of a month, with no
+	// deploy to correlate against (P0-12).
+	go auditor.Run(ctx, partitionMonthsAhead)
 
 	// Redis joins this list in P1-11/P1-13.
 	health := &httpserver.Health{

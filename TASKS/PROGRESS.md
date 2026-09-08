@@ -15,7 +15,7 @@ Sizes: `S` under half a day · `M` one to two days · `L` several days · `XL` m
 
 | Phase | Tasks | Done | Status | Gate to enter |
 |---|---|---|---|---|
-| [Phase 0 — Foundation](./PHASE-0-FOUNDATION.md) | 21 | 14 | **ACTIVE** | — |
+| [Phase 0 — Foundation](./PHASE-0-FOUNDATION.md) | 21 | 15 | **ACTIVE** | — |
 | [Phase 1 — MVP: Core Auth + SSO](./PHASE-1-MVP-CORE-AUTH-SSO.md) | 28 | 0 | Not started | Phase 0 exit checklist |
 | [Phase 2 — RBAC & Multi-Tenancy](./PHASE-2-RBAC-MULTITENANCY.md) | 17 | 0 | Not started | Phase 1 exit + `P1-28` |
 | [Phase 3 — Advanced Security](./PHASE-3-ADVANCED-SECURITY.md) | 15 | 0 | Not started | Phase 2 exit + threat model review |
@@ -45,7 +45,7 @@ Sizes: `S` under half a day · `M` one to two days · `L` several days · `XL` m
 | P0-09 | Structured logging with redaction | M | **DONE** | P0-04 |
 | P0-10 | Health and readiness endpoints | S | **DONE** | P0-04 |
 | P0-11 | Metrics and tracing baseline | M | TODO | P0-09 |
-| P0-12 | Audit event writer | M | TODO | P0-07, P0-09 |
+| P0-12 | Audit event writer | M | **DONE** | P0-07, P0-09 |
 | P0-13 | CI pipeline | M | **DONE** | P0-04 |
 | P0-14 | Secrets and configuration conventions | S | **DONE** | P0-04 |
 | P0-15 | Test harness | M | TODO | P0-05, P0-16 |
@@ -319,6 +319,9 @@ Things that are easy to get wrong once and expensive to fix later. Re-check each
 | RLS as the isolation backstop | Application-layer filtering is not the control | `P0-08` |
 | `manager_roles` still has no tenant RLS (DV-02) | Deliberate — needs the user context `P2-05` introduces. `P2-05` cannot be done while it is open | `P0-08` |
 | Every new table needs an RLS policy | The migration adds them per table; a table added without one is silently unisolated | `P0-08` |
+| Events partition runway | Maintained by the service at startup and daily. If that goroutine stops, the failure appears at a month boundary, not immediately | `P0-12` |
+| `SECURITY DEFINER` functions | Two exist for partition maintenance. Their `search_path` is pinned; unpinning it would let a caller have the owner execute their code | `P0-12` |
+| Go toolchain patch level | `govulncheck` found six stdlib vulnerabilities at 1.26.5. The `toolchain` directive pins 1.26.6 — keep it current | `P0-12` |
 | Role-source badge built with both values | Retrofitting it means auditing every role-displaying screen twice | `PF-07` |
 | Org-scoped query keys | Without them, a context switch renders the previous org's cached data — a leak in the UI even with a correct API | `PF-20` |
 | `color-danger` reserved for destructive actions only | Its meaning must stay reliable; one misuse on a late screen degrades every earlier one | `PF-03` |
