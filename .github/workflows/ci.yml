@@ -199,6 +199,43 @@ jobs:
           go run ./cmd/migrate down 6
           go run ./cmd/migrate up
 
+      - name: Every tenant-scoped table has a row-level security policy
+        # A table added with an org_id but without a policy is silently
+        # unisolated: queries against it work, tests pass, and it returns every
+        # organization's rows. That failure is invisible until it is a breach,
+        # so it is checked mechanically rather than remembered at review time
+        # (PLAN/08 Part B, P0-08).
+        env:
+          PGPASSWORD: ci_only_password
+        run: |
+          set -euo pipefail
+          missing=$(psql -h localhost -U auth_owner -d auth -tA <<'SQL'
+          SELECT c.relname
+          FROM pg_class c
+          JOIN pg_namespace n ON n.oid = c.relnamespace
+          WHERE n.nspname = 'public'
+            AND c.relkind IN ('r','p')
+            AND EXISTS (
+              SELECT 1 FROM information_schema.columns col
+              WHERE col.table_schema = 'public'
+                AND col.table_name = c.relname
+                AND col.column_name IN ('org_id','granting_org_id')
+            )
+            AND NOT c.relrowsecurity
+            -- Partitions inherit their parent's policies.
+            AND NOT EXISTS (SELECT 1 FROM pg_inherits i WHERE i.inhrelid = c.oid)
+          ORDER BY 1;
+          SQL
+          )
+
+          if [ -n "$missing" ]; then
+            echo "::error::These tenant-scoped tables have no row-level security enabled:"
+            echo "$missing"
+            echo "Add a policy in a migration, or document the exception the way manager_roles is (DV-02)."
+            exit 1
+          fi
+          echo "Every tenant-scoped table has row-level security enabled."
+
       - name: Integration tests
         working-directory: backend
         env:
