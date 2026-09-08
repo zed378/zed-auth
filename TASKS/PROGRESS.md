@@ -48,7 +48,7 @@ Sizes: `S` under half a day · `M` one to two days · `L` several days · `XL` m
 | P0-12 | Audit event writer | M | **DONE** | P0-07, P0-09 |
 | P0-13 | CI pipeline | M | **DONE** | P0-04 |
 | P0-14 | Secrets and configuration conventions | S | **DONE** | P0-04 |
-| P0-15 | Test harness | M | TODO | P0-05, P0-16 |
+| P0-15 | Test harness | M | **DONE** | P0-05, P0-16 |
 | P0-16 | OpenAPI spec skeleton and client generation | M | **DONE** — one spec generates the backend's server interface, the console's client and the public API reference | P0-13 |
 | P0-17 | Console skeleton with design tokens | L | **DONE** | P0-02, P0-16 |
 | P0-18 | Public site skeleton | L | **DONE** | P0-02 |
@@ -323,6 +323,10 @@ Things that are easy to get wrong once and expensive to fix later. Re-check each
 | `SECURITY DEFINER` functions | Two exist for partition maintenance. Their `search_path` is pinned; unpinning it would let a caller have the owner execute their code | `P0-12` |
 | Go toolchain patch level | `govulncheck` found six stdlib vulnerabilities at 1.26.5. The `toolchain` directive pins 1.26.6 — keep it current | `P0-12` |
 | Metric label cardinality | Route labels use the chi pattern, never the concrete path; unmatched paths collapse to one label. A new route that interpolates an id would be unbounded | `P0-11` |
+| Tests never skip a missing dependency | A suite that skips when a database is unreachable reports success having run nothing. Integration tests start their own containers and `Fatal` if they cannot — a green suite that skipped its tests is a false statement everyone acts on | `P0-15` |
+| A test harness mirrors production's privilege model | Approximating it produced a harness where the audit log was not append-only, so the suite tested a database nothing would run. Same grants, same order as `deploy/postgres/init` | `P0-15` |
+| Coverage floors name packages, never an average | A repo-wide percentage is satisfied by testing whatever is easiest, and that is rarely where a bug matters | `P0-15` |
+| Name the address family on both sides | `localhost` resolves to `::1` first while `listen 80` is IPv4-only. Hit three times in one day; the symptom is a healthy server nothing can reach, which never looks like name resolution | `P0-15`, `P0-17` |
 | Public copy claims nothing unshipped | `CLAIMS.md` plus two checks: every capability carries a phase label and no label contradicts the board; the built pages contain no verbatim phrase from `SECURITY/02`, `PLAN/14` or `PLAN/18`. Neither can read prose — that part stays human | `P0-19` |
 | Separation between site and console is checked | `PLAN/20` says they share the visual language and nothing else. Three scripts enforce it: token values match, no code is imported across, contrast holds in both themes. All erode by convenience rather than decision | `P0-18` |
 | A dark palette is not a light palette | Carrying the console's colours to a dark surface put every semantic token below AA. Same meaning, different value per surface — and computed, not eyeballed | `P0-18` |

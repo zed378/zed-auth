@@ -99,6 +99,23 @@ openapi-check: openapi-lint ## Fail if the generated code is stale relative to t
 	@cd backend && go generate ./internal/api/
 	@git diff --exit-code --stat -- backend/internal/api/ 	  || (echo ""; 	      echo "The generated API code is stale."; 	      echo "openapi/openapi.yaml changed without regenerating. Run:"; 	      echo "  make openapi-generate"; 	      echo "and commit the result — the generated files are committed so a"; 	      echo "reviewer sees the contract change and its consequences in one diff."; 	      exit 1)
 
+# --- test layers ------------------------------------------------------------
+#
+# PLAN/11's pyramid, one target per layer, so "run the security tests" is a
+# command rather than a flag someone has to remember.
+
+.PHONY: test-security
+test-security: ## Run the abuse-case tests from PLAN/11 § Security Testing
+	cd backend && go test -tags=integration -shuffle=on ./tests/security/...
+
+.PHONY: test-e2e
+test-e2e: ## Run the console end-to-end tests (needs a browser)
+	cd console && npx playwright test
+
+.PHONY: test-coverage
+test-coverage: ## Check the coverage floors on the security-critical packages
+	sh scripts/check-coverage.sh
+
 # --- quality gates ----------------------------------------------------------
 
 .PHONY: check

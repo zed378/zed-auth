@@ -28,7 +28,13 @@ import (
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
+
+	"github.com/zed378/zed-auth/backend/internal/testsupport"
 )
+
+// The stack is started by the tests themselves — no database prepared in
+// advance, no environment variables (P0-15).
+func TestMain(m *testing.M) { os.Exit(testsupport.StartForPackage(m)) }
 
 const (
 	defaultOwnerDSN = "postgres://auth_owner:local_dev_only@localhost:5432/auth?sslmode=disable"
@@ -55,7 +61,7 @@ func openDB(t *testing.T, envKey, fallback string) *sql.DB {
 	defer cancel()
 	if err := db.PingContext(ctx); err != nil {
 		db.Close()
-		t.Skipf("PostgreSQL not reachable (%s): %v\nRun: make up && make migrate-up", envKey, err)
+		t.Fatalf("PostgreSQL unreachable despite the test stack being up (%s): %v", envKey, err)
 	}
 
 	t.Cleanup(func() { db.Close() })

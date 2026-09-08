@@ -58,13 +58,13 @@ if (cd backend && go build ./... 2>&1); then pass "go build"; else fail "go buil
 # than a flake. It needs cgo, which is off by default on Windows without a C
 # toolchain — so fall back to a plain run and say so, rather than reporting a
 # failure that is really a missing compiler. CI runs on Linux, where -race works.
-if (cd backend && CGO_ENABLED=1 go test -race ./... >/dev/null 2>&1); then
-  pass "unit tests (-race)"
+if (cd backend && CGO_ENABLED=1 go test -race -shuffle=on ./... >/dev/null 2>&1); then
+  pass "unit tests (-race, shuffled)"
 elif (cd backend && go test ./... 2>&1 | grep -v "no test files"); then
   pass "unit tests (no -race — cgo unavailable; CI runs with it)"
 else
   fail "unit tests"
-  (cd backend && go test ./... 2>&1 | grep -v "^ok" | head -20)
+  (cd backend && go test -shuffle=on ./... 2>&1 | grep -v "^ok" | head -20)
 fi
 
 # go.sum verification detects a dependency whose content changed without go.sum
@@ -277,6 +277,24 @@ else
   fi
 fi
 
+# --- Coverage floors --------------------------------------------------------
+#
+# P0-15 step 6: floors on the packages where an untested path is a security
+# problem, not a repo-wide average. A repo-wide percentage is satisfied by
+# testing whatever is easiest, and the easiest code to test is rarely the code
+# where a bug matters.
+
+section "Coverage"
+
+if sh scripts/check-coverage.sh >/dev/null 2>&1; then
+  # The message differs by whether the packages exist yet, so it is shown
+  # rather than summarised: "0 of 3 floors apply" is the useful fact in Phase 0.
+  pass "coverage floors ($(sh scripts/check-coverage.sh | tail -1))"
+else
+  fail "coverage floors"
+  sh scripts/check-coverage.sh 2>&1 | sed 's/^/      /'
+fi
+
 # --- API contract -----------------------------------------------------------
 #
 # openapi/openapi.yaml is the source of truth and the Go server interface is
@@ -382,6 +400,19 @@ else
 
   cp "$client_before" console/src/lib/api/schema.gen.ts
   rm -f "$client_before"
+
+  # The E2E layer needs a browser and a built bundle, so it is opt-in locally
+  # and always on in CI — the same arrangement as the public site build.
+  if [ "${CHECK_FULL:-0}" = "1" ]; then
+    if (cd console && npx playwright test >/dev/null 2>&1); then
+      pass "console end-to-end tests"
+    else
+      fail "console end-to-end tests"
+      (cd console && npx playwright test 2>&1 | tail -20)
+    fi
+  else
+    skip "console end-to-end tests" "needs a browser; set CHECK_FULL=1"
+  fi
 fi
 
 # --- Public site ------------------------------------------------------------
