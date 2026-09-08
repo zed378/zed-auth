@@ -11,8 +11,11 @@
 # Usage on the VM:
 #   docker compose -f deploy/public-site/docker-compose.yml up -d
 
+# `zedauth-site-web-1`. Its own project, for the same reason as the console.
+name: zedauth-site
+
 services:
-  public-site:
+  web:
     image: nginx:1.27-alpine
     restart: unless-stopped
 
