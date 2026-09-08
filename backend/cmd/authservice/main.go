@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -116,8 +117,34 @@ func probeReadiness() int {
 		port = "8080"
 	}
 
+	// Parse the port to an integer and rebuild the URL from that integer rather
+	// than from the environment string.
+	//
+	// AUTH_HTTP_ADDR is configuration, not user input, so this was never a
+	// realistic SSRF vector: anyone who can set it already controls the
+	// process. But an environment-derived string concatenated into a request
+	// URL is the shape of the bug regardless of today's reachability, and
+	// rebuilding from a validated integer means no attacker-influenceable
+	// string reaches the URL at all — which is a genuine fix rather than a
+	// suppressed warning (SECURITY/02-ATTACK-SURFACE-AND-SCENARIOS.md §7).
+	portNum, convErr := strconv.Atoi(port)
+	if convErr != nil || portNum < 1 || portNum > 65535 {
+		fmt.Fprintf(os.Stderr, "healthcheck: AUTH_HTTP_ADDR has an invalid port %q\n", port)
+		return 1
+	}
+
+	url := fmt.Sprintf("http://127.0.0.1:%d/readyz", portNum)
+
 	client := &http.Client{Timeout: 3 * time.Second}
-	resp, err := client.Get("http://127.0.0.1:" + port + "/readyz")
+
+	// #nosec G704 -- gosec's taint analysis follows portNum back to os.Getenv
+	// and cannot see the strconv.Atoi + range check in between. After that
+	// validation the URL contains no attacker-influenceable string: the host is
+	// the literal 127.0.0.1 and the only variable is an int in [1,65535]
+	// formatted with %d. This is a limitation of the analysis, not a reachable
+	// SSRF, and it is annotated rather than worked around because contorting
+	// the code to satisfy a taint tracker would make it worse to read.
+	resp, err := client.Get(url)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "healthcheck: %v\n", err)
 		return 1

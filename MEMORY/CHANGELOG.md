@@ -32,6 +32,16 @@ Format follows Keep a Changelog conventions, grouped by release once releases ex
 - `TASKS/PHASE-F-FRONTEND-IMPLEMENTATION.md`: 53 tasks across seven tracks covering every component in `UI-UX/07`, all 21 console screens, the hosted authentication screens, the public site, and the frontend quality suite. Foundation tasks are phase-independent; every page task carries a binding gate naming the backend task that unblocks it, which enforces `PLAN/16`'s lockstep rule per screen rather than per phase. ([record](./records/2026-09-08-phase-f-frontend-track.md), [ADR-005](./DECISIONS.md))
 - Project total: 124 → 177 tasks.
 
+**Added** — implementation begins ([record](./records/2026-09-08-P0-phase-0-foundation-first-eleven.md))
+- Go service skeleton with fail-fast configuration, a documented middleware chain, and graceful shutdown that provably completes in-flight requests. Health endpoints separate liveness from readiness and disclose no infrastructure detail. (`P0-04`, `P0-10`)
+- Structured JSON logging with redaction enforced by the logger across 23 sensitive key names, plus per-request correlation IDs. (`P0-09`)
+- Local Docker stack — PostgreSQL, Redis, Mailpit — with a distroless non-root runtime image whose healthcheck is the binary itself. The Postgres init script creates the application role as `NOSUPERUSER NOBYPASSRLS` and non-owner, which is the precondition for row-level security. (`P0-05`)
+- Migration tooling as a separate binary with embedded SQL, and the full 14-table Phase 0/1 schema including month-partitioned, append-only `events`. (`P0-06`, `P0-07`)
+- CI pipeline: commit-convention enforcement, build and race-enabled tests, integration tests against real Postgres and Redis, migration round-trip verification, destructive-migration justification, gosec, govulncheck, secret scanning, and a non-root image assertion. Third-party actions pinned by SHA. (`P0-13`)
+- ADR-006 through ADR-010 record the backend stack, embedded migrations, the distroless runtime, text-plus-CHECK over native enums, and why `events` has no foreign keys. (`P0-01`)
+
 **Status**
-- No implementation code exists yet. Phase 0 begins at `P0-01`.
+- Phase 0: 11 of 21 tasks done. 11 of 177 overall.
+- Remaining in Phase 0: RLS policies (`P0-08`), metrics and tracing (`P0-11`), the audit writer (`P0-12`), secrets conventions (`P0-14`), the test harness (`P0-15`), OpenAPI (`P0-16`), console and public-site skeletons (`P0-17` … `P0-19`), and staging (`P0-20`, blocked on `OQ-03`).
+- The OIDC provider library remains undecided by design: confirming JWKS rotation with overlap and refresh-token reuse detection requires building against it, so it moves to `P1-03`.
 - Open questions now number nine; `OQ-09` (audit log retention period and the erasure approach) is new and should be confirmed before `P0-07` writes the partitioning migration.

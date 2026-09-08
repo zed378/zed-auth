@@ -229,7 +229,10 @@ func newMigration(name string) error {
 
 	for filename, content := range files {
 		path := filepath.Join(migrationsDir, filename)
-		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		// 0600 rather than 0644: gosec flags the wider mode, and git stores
+		// only the executable bit, so the committed file lands at the
+		// repository's normal mode either way.
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 			return fmt.Errorf("write %s: %w", path, err)
 		}
 		fmt.Println("created", path)
