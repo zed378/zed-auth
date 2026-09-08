@@ -22,6 +22,7 @@ import (
 	"github.com/zed378/zed-auth/backend/internal/config"
 	"github.com/zed378/zed-auth/backend/internal/httpserver"
 	"github.com/zed378/zed-auth/backend/internal/observability"
+	"github.com/zed378/zed-auth/backend/internal/storage/postgres"
 )
 
 // version is set at build time: -ldflags "-X main.version=$(git rev-parse --short HEAD)".
@@ -76,13 +77,30 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	// Readiness checks are registered as their dependencies are wired in:
-	//   - Postgres  P0-07 / P0-08
-	//   - Redis     P1-11 / P1-13
-	// Until then /readyz reports ready, which is correct — the service has no
-	// dependencies yet, so there is nothing that could make it unready.
+	db, err := postgres.Open(ctx, cfg.Postgres, log)
+	if err != nil {
+		return fmt.Errorf("postgres: %w", err)
+	}
+	defer func() {
+		if cerr := db.Close(); cerr != nil {
+			log.Error("closing postgres", "error", cerr.Error())
+		}
+	}()
+
+	// Refuse to start if the connected role can bypass row-level security.
+	//
+	// Without this the failure is silent and total: point AUTH_POSTGRES_DSN at
+	// auth_owner — entirely plausible while debugging a permissions error —
+	// and every RLS policy stops applying. Nothing errors, no test fails, and
+	// cross-tenant isolation is gone. Refusing to boot is the only response
+	// proportionate to that (PLAN/08 Part B, P0-08).
+	if err := db.AssertRoleIsNotPrivileged(ctx); err != nil {
+		return fmt.Errorf("database role check: %w", err)
+	}
+
+	// Redis joins this list in P1-11/P1-13.
 	health := &httpserver.Health{
-		Checks:  nil,
+		Checks:  []httpserver.Checker{db},
 		Timeout: 2 * time.Second,
 	}
 

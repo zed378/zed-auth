@@ -117,6 +117,24 @@ A single VM is a single point of failure for every consumer application's login.
 
 **Do not let this deviation quietly expire.** Before any consumer application depends on this service in production, either the Kubernetes migration lands or `PLAN/18` carries an explicit, owned, dated accepted-risk entry saying that single-VM availability is acceptable for the named consumers.
 
+### DV-02 — `manager_roles` has no tenant row-level security
+
+**Affects**: `P0-08`, closes in `P2-05`.
+**ADR**: recorded inline in `backend/migrations/20260908000007_row_level_security.up.sql`.
+**Status**: Open — bounded and deliberate, must close when `P2-05` lands.
+
+Every other tenant-scoped table got an org-scoped RLS policy in `P0-08`. `manager_roles` did not, and the reason is structural rather than an oversight.
+
+The table holds `(user_id, role, scope_id)` triples and is read **during permission resolution** — that is, before a tenant context exists, because what the caller may access is precisely what is being determined. An org-scoped policy would make the table unreadable at the only moment it is needed.
+
+The correct policy keys on the current **user**, not the current organization, which requires an `app.current_user_id` session setting that does not exist until bearer authentication lands in `P1-15`/`P2-05`. Adding a half-working policy now would give the appearance of isolation without the substance, which is worse than a documented gap.
+
+**What limits the exposure meanwhile**: the table holds no personal data — only identifiers and role names — and the application scopes its own queries. `manager_roles` is also not reachable through any API surface yet, since none exists.
+
+**What closes it**: `P2-05` introduces the permission-resolution module and with it a user context. The policy to add then is `user_id = current_user_id()`, plus the instance-scoped path for administration.
+
+**Do not let this expire quietly.** `P2-05` cannot be marked done while this is open.
+
 ---
 
 ## Plan Gaps — ALL RESOLVED 2026-09-08
