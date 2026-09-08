@@ -48,6 +48,22 @@ Format follows Keep a Changelog conventions, grouped by release once releases ex
 - `/readyz` now genuinely checks PostgreSQL; it previously reported ready with no dependencies wired.
 - Deployed and verified on the VM; `https://auth.zedth.my.id` healthy throughout.
 
+**Added** — the test harness ([record](./records/2026-09-08-P0-15-test-harness.md))
+- `internal/testsupport`: PostgreSQL and Redis started by the tests themselves through testcontainers, the embedded migrations applied, both database roles created. The integration suite now runs on a machine with nothing but Docker — no `make up`, no migrations by hand, no environment variables. (`P0-15`)
+- `backend/tests/security/`: the abuse-case tests from `PLAN/11` § Security Testing, kept apart from feature tests because they are a checklist as much as a suite. The package comment carries a coverage map naming the four scenarios covered and the six that cannot be tested until the feature exists — an unwritten test nobody knows is unwritten is worse than a failing one. (`P0-15`)
+- A Playwright E2E layer against the console's **production build**, not the dev server. It is the only layer that applies a real stylesheet, which is where the console's dead design tokens would have been caught — every jsdom test passed while `text-body` generated no CSS at all. (`P0-15`)
+- `scripts/check-coverage.sh`: floors on `internal/authn`, `internal/authz` and `internal/oidc` rather than a repo-wide average, which is satisfied by testing whatever is easiest — and the easiest code to test is rarely the code where a bug matters. All three are pending; each floor starts applying the moment its package appears. (`P0-15`)
+- A test-data factory, and `-shuffle=on` everywhere so an accidental ordering dependency fails rather than lurking as an unreproducible flake.
+
+**Fixed**
+- **The integration suite reported success without running.** It resolved a database from an environment variable with a `localhost` fallback and called `t.Skipf` when nothing answered — so a fresh clone or a misconfigured runner skipped every test touching row-level security, the audit log and the schema, and went green. Five skips across three files. That is worse than having no tests: no tests is a known gap, a green suite that skipped them is a false statement everyone acts on. (`P0-15`)
+- **The new harness then broke a production guarantee, and a test caught it.** It granted `UPDATE, DELETE ON ALL TABLES` after migrating, re-granting privileges on the `events` partitions that migration 000006 had revoked — so the harness had a weaker privilege model than production and the audit log was no longer append-only inside it. Production sets `ALTER DEFAULT PRIVILEGES` *before* migrating; the harness now does the same. `TestNewPartitionsAreAppendOnly` found it, which it could only do because the skip hiding it was removed in the same change. (`P0-15`)
+- `check-coverage.sh` tested for a directory, and `P0-02` had scaffolded empty ones — so it reported a coverage failure for packages containing no code. A floor that fails before the code exists is a floor everyone learns to ignore.
+
+**Learned**
+- **The same IPv4/IPv6 bug three times in one day**: Playwright waiting two minutes on a server that started instantly, the console's nginx healthcheck probing a server that was serving perfectly, and a local preview unreachable on one address and fine on the other. `localhost` means different things to the thing binding and the thing connecting, and the symptom never looks like name resolution. Name the address family on both sides.
+- **A control test is the cheapest answer to the vacuous pass**, which this project has now hit five times. `TestIsolationTestsAreNotVacuous` asserts the owner sees *both* tenants' rows, because "tenant A saw one user" is only evidence of isolation if the row it did not see was there. Pointing the security suite at the owner DSN makes all four of its assertions fail — proof they measure the property rather than agreeing with themselves.
+
 **Added** — site content and the capability audit ([record](./records/2026-09-08-P0-19-site-content.md))
 - `public-site/CLAIMS.md`: every claim on every page, what it maps to, and whether it is shipped, planned-and-labelled, positioning, or a principle. The document `P0-19`'s Definition of Done asks for. (`P0-19`)
 - `check-claims.mjs` — every capability on the landing page carries a phase label, and no label contradicts the roadmap board. The second half matters more than it looks: a card labelled "Phase 4" whose task is now DONE is exactly as inaccurate as an unlabelled one, and it is the version nobody notices, because the label is there. (`P0-19`)
@@ -128,9 +144,9 @@ Format follows Keep a Changelog conventions, grouped by release once releases ex
 - Both `P0-12` follow-ups closed: the unsupervised partition-maintenance goroutine is now visible as a gauge with two alerts, and cross-tenant database access is counted as `PLAN/08` Part B asks.
 
 **Status**
-- Phase 0: 20 of 21 done. `P0-16` is complete — its last open step, the public site's generated API reference, landed with `P0-18` — step 3 (the console's typed client) landed with `P0-17`; step 4, the public site's API reference, waits on `P0-18`.
+- Phase 0: 21 of 21 tasks done. `P0-20` (staging) is the remaining exit-checklist item, largely satisfied by the VM deployment. `P0-16` is complete — its last open step, the public site's generated API reference, landed with `P0-18` — step 3 (the console's typed client) landed with `P0-17`; step 4, the public site's API reference, waits on `P0-18`.
 - Open deviations: DV-01 (single-VM production vs. Multi-AZ), DV-02 (`manager_roles` has no tenant policy until `P2-05` provides a user context).
-- Remaining in Phase 0: the test harness (`P0-15`) and staging (`P0-20`).
+- Remaining in Phase 0: staging (`P0-20`).
 - `OQ-10` is open: `P0-18`'s Definition of Done asks for Lighthouse scores against a bar `UI-UX/20` never sets. Set the number or drop the item — inventing a threshold to satisfy a checkbox is the same failure as inventing a capability to fill a section.
 - New plan gap `PG-12`: `color-border` serves both input borders (WCAG 1.4.11 wants 3:1) and table dividers (which want a hairline). One token cannot do both well.
 - The OIDC provider library remains undecided by design: confirming JWKS rotation with overlap and refresh-token reuse detection requires building against it, so it moves to `P1-03`.
