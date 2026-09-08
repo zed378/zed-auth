@@ -163,9 +163,15 @@ export default function Home(): ReactNode {
             are evaluating this, the reasoning is available to read rather than
             summarized in a brochure.
           </p>
+          {/*
+            The closing section restates the primary action rather than
+            introducing a new one (`UI-UX/20` § Detailed Spec: Landing Page,
+            "Final CTA section, restating the primary action"). Same label,
+            same destination, same visual weight as the hero.
+          */}
           <div className="site-cta-row" style={{ marginTop: "2rem" }}>
-            <Link className="button button--primary button--lg" to="/docs/concepts/model">
-              Read the concepts
+            <Link className="button button--primary button--lg" to="/docs">
+              Read the docs
             </Link>
             <Link
               className="button button--secondary button--lg"

@@ -224,6 +224,21 @@ const config: Config = {
           label: "GitHub",
           position: "right",
         },
+        {
+          // The primary call to action, present in the navigation on every
+          // page. `UI-UX/20` § Above-the-fold lists it alongside the logo and
+          // the Docs and About links.
+          //
+          // It says "Read the docs" rather than "Get Started", and the same
+          // words appear in the hero and the closing section. `UI-UX/20` §
+          // Interaction asks for exactly one primary CTA style used
+          // consistently — three labels for one action is the five-competing-
+          // CTAs failure in slower motion.
+          to: "/docs",
+          label: "Read the docs",
+          position: "right",
+          className: "button button--primary button--sm navbar__cta",
+        },
       ],
     },
 
