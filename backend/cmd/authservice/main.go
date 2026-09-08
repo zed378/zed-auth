@@ -79,6 +79,20 @@ func run() error {
 		"issuer", cfg.Issuer,
 	)
 
+	// Every secret is resolved here, before anything is opened or started.
+	//
+	// The ordering is deliberate. When this ran later, next to the listener
+	// that used it, an unreadable secret file produced a confusing cascade: the
+	// process returned an error, the deferred pool close ran, and the audit
+	// maintenance goroutine — already started — logged "sql: database is
+	// closed" on its way out. Three symptoms, one of them wrong, none of them
+	// the cause. Resolving up front means a bad secret reference is one error
+	// message and nothing else.
+	secrets, err := resolveSecrets(cfg)
+	if err != nil {
+		return err
+	}
+
 	// Cancelled on SIGINT or SIGTERM. Kubernetes sends SIGTERM before removing
 	// a pod from the load balancer, which is the window graceful shutdown uses
 	// to drain in-flight requests (PLAN/14-DEPLOYMENT.md).
@@ -170,6 +184,7 @@ func run() error {
 	admin := httpserver.NewAdmin(cfg.Admin, httpserver.AdminDeps{
 		Logger:  log,
 		Metrics: metrics.Handler(),
+		Token:   secrets.adminToken,
 	})
 	go func() {
 		// A failure here is a visibility problem. Taking authentication down
@@ -278,4 +293,36 @@ func exitCode(err error) int {
 	default:
 		return 1
 	}
+}
+
+// serviceSecrets holds every secret value the process needs, resolved once at
+// startup.
+//
+// Values, not references: a reference resolved lazily at the point of use turns
+// a configuration error into a runtime failure at an arbitrary later moment,
+// which is precisely the failure mode P0-14 exists to remove.
+type serviceSecrets struct {
+	adminToken string
+}
+
+// resolveSecrets reads every configured secret reference.
+//
+// Permissions are checked strictly outside local development, so a secret file
+// that is group- or world-readable is refused rather than used. On the VM
+// deployment that means the file must be mode 0400 and owned by the container's
+// own uid, since the service is not the operator (deploy/SECRETS.md).
+func resolveSecrets(cfg *config.Config) (serviceSecrets, error) {
+	var out serviceSecrets
+
+	resolver := config.NewSecretResolver(cfg.Environment != config.EnvLocal)
+
+	if cfg.Admin.TokenRef != "" {
+		raw, err := resolver.Resolve(config.SecretRef(cfg.Admin.TokenRef))
+		if err != nil {
+			return out, fmt.Errorf("resolve admin token: %w", err)
+		}
+		out.adminToken = string(raw)
+	}
+
+	return out, nil
 }
