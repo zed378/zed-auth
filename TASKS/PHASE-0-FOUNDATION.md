@@ -488,7 +488,7 @@
 
 | | |
 |---|---|
-| **Status** | TODO |
+| **Status** | WIP — steps 1, 2 and 5 done ([ADR-013](../MEMORY/DECISIONS.md)). Steps 3 and 4 need `console/` and `public-site/` to exist and are carried into `P0-17` and `P0-18` |
 | **Depends on** | P0-13 |
 | **Plan refs** | `PLAN/05-API-CONTRACT.md` § Documentation, `PLAN/06-FRONTEND-ARCHITECTURE.md` § Tech Stack, `PLAN/20-PUBLIC-SITE-ARCHITECTURE.md` § API Reference Generation |
 | **Spec required** | No |
@@ -504,10 +504,14 @@
 5. CI: lint the spec, and fail if the committed generated client is stale relative to it.
 
 **Definition of Done**
-- [ ] The spec validates in CI.
-- [ ] The error and pagination schemas match `PLAN/05-API-CONTRACT.md` exactly.
-- [ ] Changing the spec without regenerating the client fails CI.
-- [ ] The public site renders the (currently near-empty) API reference from this file, proving the pipeline works before there is content in it.
+- [x] The spec validates in CI. `redocly lint`, in the `api-contract` job and in `scripts/check.sh`.
+- [x] The error and pagination schemas match `PLAN/05-API-CONTRACT.md` exactly.
+- [x] Changing the spec without regenerating the client fails CI. Verified by deliberately renaming an `operationId` and watching the gate fail with the diff.
+- [ ] The public site renders the (currently near-empty) API reference from this file, proving the pipeline works before there is content in it. — carried to `P0-18`.
+
+**Beyond the stated steps**
+
+The generated Go server interface was not asked for and is the reason this task is worth more than a validated YAML file. `PLAN/05` accepts a spec that CI merely validates; handlers implementing a generated interface make a contract mismatch a compile error instead. `scripts/openapi-shipped-paths.py` was also added, because `/docs/api-reference` renders from the spec and a documented endpoint is therefore a public claim that it exists.
 
 ---
 

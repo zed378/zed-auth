@@ -1,0 +1,44 @@
+# Code generation from the API contract (ADR-013).
+#
+# The spec generates the server interface, not the other way round. A handler
+# whose signature stops matching openapi/openapi.yaml fails to compile, which
+# is a stronger guarantee than a CI check that notices drift after it is
+# pushed.
+#
+# Run: make openapi-generate
+
+package: api
+output: api.gen.go
+
+output-options:
+  # Keep components that no operation references yet.
+  #
+  # Pruning is the sensible default and wrong here. The Error, PageInfo and
+  # ResourceId schemas exist precisely so Phase 1 endpoints reuse them instead
+  # of each inventing its own error shape, and in Phase 0 none of them has a
+  # caller. Pruned, they would vanish from the generated types and the first
+  # endpoint to need one would define its own — which is the outcome P0-16
+  # exists to prevent.
+  skip-prune: true
+  nullable-type: true
+
+generate:
+  # Request and response types. The whole point: a field renamed in the spec
+  # becomes a compile error at every use site.
+  models: true
+
+  # A chi-shaped server interface. The router already uses chi, so this
+  # produces a handler contract the existing server mounts directly rather than
+  # a parallel routing layer.
+  chi-server: true
+
+  # Strict handlers: the generated wrapper handles decoding, validation of
+  # required fields, and status-code-to-type mapping, so a handler returns a
+  # typed response object instead of writing bytes. That makes "this endpoint
+  # returns a 503 with this body" a type, not a convention.
+  strict-server: true
+
+  # No client here. The console generates a TypeScript client from the same
+  # spec; a Go client would be a third artifact with nobody to use it.
+  client: false
+  embedded-spec: false

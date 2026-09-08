@@ -26,14 +26,22 @@ SKIP=0
 pass() { printf '  \033[32m✓\033[0m %s\n' "$1"; PASS=$((PASS+1)); }
 fail() { printf '  \033[31m✗\033[0m %s\n' "$1"; FAIL=$((FAIL+1)); }
 skip() { printf '  \033[33m–\033[0m %s (%s)\n' "$1" "$2"; SKIP=$((SKIP+1)); }
-head() { printf '\n\033[1;36m%s\033[0m\n' "$1"; }
+# Named `section`, not `head`.
+#
+# A function called `head` shadows the `head` command for the whole script,
+# so every `... | head -20` in a pipeline called this function instead: it
+# ignores stdin, prints a cyan "-20", and discards the piped output
+# entirely. The effect was invisible until something failed, at which point
+# the diagnostic detail that was supposed to be truncated to 20 lines was
+# thrown away instead.
+section() { printf '\n\033[1;36m%s\033[0m\n' "$1"; }
 
 RUN_INTEGRATION="${RUN_INTEGRATION:-1}"
 RUN_SECURITY="${RUN_SECURITY:-1}"
 
 # --- Go ---------------------------------------------------------------------
 
-head "Go"
+section "Go"
 
 if [ -z "$(gofmt -l backend/cmd backend/internal backend/migrations 2>/dev/null)" ]; then
   pass "gofmt"
@@ -84,7 +92,7 @@ rm -rf "$tidy_tmp"
 
 # --- Integration ------------------------------------------------------------
 
-head "Integration"
+section "Integration"
 
 if [ "$RUN_INTEGRATION" != "1" ]; then
   skip "integration tests" "RUN_INTEGRATION=0"
@@ -120,7 +128,7 @@ fi
 
 # --- Migrations -------------------------------------------------------------
 
-head "Migrations"
+section "Migrations"
 
 missing_down=""
 for up in backend/migrations/*.up.sql; do
@@ -152,7 +160,7 @@ fi
 
 # --- Shell ------------------------------------------------------------------
 
-head "Shell"
+section "Shell"
 
 # A script committed with CRLF fails on Linux with "bad interpreter: /bin/sh^M".
 # The git hooks are a security control, and one that fails to execute protects
@@ -200,7 +208,7 @@ fi
 
 # --- Security ---------------------------------------------------------------
 
-head "Security"
+section "Security"
 
 if [ "$RUN_SECURITY" != "1" ]; then
   skip "security scans" "RUN_SECURITY=0"
@@ -256,9 +264,64 @@ else
   fi
 fi
 
+# --- API contract -----------------------------------------------------------
+#
+# openapi/openapi.yaml is the source of truth and the Go server interface is
+# generated from it (ADR-013). Two things can go wrong and both are silent: the
+# spec can become invalid, and the committed generated code can drift from it.
+
+section "API contract"
+
+if docker info >/dev/null 2>&1; then
+  if MSYS_NO_PATHCONV=1 docker run --rm -v "$PWD/openapi:/spec" \
+     redocly/cli:1.34.2 lint --config /spec/redocly.yaml /spec/openapi.yaml >/dev/null 2>&1; then
+    pass "OpenAPI spec is valid"
+  else
+    fail "OpenAPI spec is invalid"
+    MSYS_NO_PATHCONV=1 docker run --rm -v "$PWD/openapi:/spec" \
+      redocly/cli:1.34.2 lint --config /spec/redocly.yaml /spec/openapi.yaml 2>&1 | tail -20
+  fi
+else
+  skip "OpenAPI spec validation" "docker unavailable"
+fi
+
+# The generated code is committed, so a reviewer sees the contract change and
+# its consequences in one diff and a fresh clone builds with no generation
+# step. That only holds if the committed copy is current.
+#
+# Regenerate into a scratch copy rather than over the working tree: a check
+# that rewrites files it is only supposed to inspect is how uncommitted work
+# gets destroyed, which this script has done before.
+gen_before=$(mktemp)
+cp backend/internal/api/api.gen.go "$gen_before"
+
+if (cd backend && go generate ./internal/api/ >/dev/null 2>&1); then
+  if diff -q "$gen_before" backend/internal/api/api.gen.go >/dev/null 2>&1; then
+    pass "generated API code matches the spec"
+  else
+    fail "generated API code is stale — run: make openapi-generate"
+    diff -u "$gen_before" backend/internal/api/api.gen.go | head -30
+  fi
+else
+  fail "code generation from the OpenAPI spec failed"
+fi
+
+# Put back exactly what was there, whatever the outcome above.
+cp "$gen_before" backend/internal/api/api.gen.go
+rm -f "$gen_before"
+
+# The spec is what the public API reference renders from, so an endpoint listed
+# there is a public claim that it exists. One implementation, shared with CI.
+if python3 scripts/openapi-shipped-paths.py >/dev/null 2>&1; then
+  pass "spec claims no endpoint beyond what has shipped"
+else
+  fail "spec documents unshipped endpoints"
+  python3 scripts/openapi-shipped-paths.py 2>&1 | sed 's/^/      /'
+fi
+
 # --- Deployment config ------------------------------------------------------
 
-head "Deployment"
+section "Deployment"
 
 if docker info >/dev/null 2>&1; then
   if docker compose -f deploy/docker-compose.yml config -q 2>&1; then

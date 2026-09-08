@@ -49,7 +49,7 @@ Sizes: `S` under half a day · `M` one to two days · `L` several days · `XL` m
 | P0-13 | CI pipeline | M | **DONE** | P0-04 |
 | P0-14 | Secrets and configuration conventions | S | **DONE** | P0-04 |
 | P0-15 | Test harness | M | TODO | P0-05, P0-16 |
-| P0-16 | OpenAPI spec skeleton and client generation | M | TODO | P0-13 |
+| P0-16 | OpenAPI spec skeleton and client generation | M | **WIP** — contract, Go generation and CI gates done; console client (step 3) and public-site rendering (step 4) carried into `P0-17` and `P0-18`, which create those surfaces | P0-13 |
 | P0-17 | Console skeleton with design tokens | L | TODO | P0-02, P0-16 |
 | P0-18 | Public site skeleton | L | TODO | P0-02 |
 | P0-19 | Landing, About, docs skeleton content | M | TODO | P0-18 |
@@ -323,6 +323,8 @@ Things that are easy to get wrong once and expensive to fix later. Re-check each
 | `SECURITY DEFINER` functions | Two exist for partition maintenance. Their `search_path` is pinned; unpinning it would let a caller have the owner execute their code | `P0-12` |
 | Go toolchain patch level | `govulncheck` found six stdlib vulnerabilities at 1.26.5. The `toolchain` directive pins 1.26.6 — keep it current | `P0-12` |
 | Metric label cardinality | Route labels use the chi pattern, never the concrete path; unmatched paths collapse to one label. A new route that interpolates an id would be unbounded | `P0-11` |
+| API contract direction | The spec generates the code, never the reverse (ADR-013). Handlers implement a generated interface, so a signature that stops matching the contract fails to compile rather than failing a CI check after the push | `P0-16` |
+| Spec documents only shipped endpoints | `/docs/api-reference` renders from `openapi.yaml`, so a documented endpoint is a public claim it exists. `scripts/openapi-shipped-paths.py` gates it; adding an endpoint means adding it to `SHIPPED` in the same commit | `P0-16` |
 | Metrics port publication | Not published to the host. Reachable inside the compose network only; `docker-compose.metrics-port.yml` is the opt-in override, loopback-only with no interface variable | `P0-11` |
 | Metrics listener binding | Disclosing, so it authenticates on its own behalf: a bearer token compared in constant time, rejecting with a bare `404`. Required whenever the bind is not loopback, enforced by refusing to boot. Under Docker the bind is always `0.0.0.0` inside the container, so the token is not optional there | `P0-11` |
 | Secret file ownership | Owned by the service's uid (`65532`), not the operator's. The runtime image is distroless `:nonroot`, so a secrets directory owned by the operator at mode `700` cannot be traversed and the mode on the file inside is never reached. `chmod` alone is necessary and not sufficient | `P0-11`, `P0-14` |

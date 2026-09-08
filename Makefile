@@ -78,6 +78,27 @@ fmt: ## Format Go source
 fmt-check: ## Fail if Go source is not formatted
 	@cd backend && test -z "$$(gofmt -l ./cmd ./internal)" || (echo "unformatted files:"; gofmt -l ./cmd ./internal; exit 1)
 
+# --- API contract -----------------------------------------------------------
+#
+# openapi/openapi.yaml is the source of truth (ADR-013). The Go server
+# interface is generated from it, so a handler that stops matching the contract
+# fails to compile. These targets keep the generated artifacts honest.
+
+REDOCLY ?= redocly/cli:1.34.2
+
+.PHONY: openapi-lint
+openapi-lint: ## Lint the API contract
+	docker run --rm -v "$(CURDIR)/openapi:/spec" $(REDOCLY) 	  lint --config /spec/redocly.yaml /spec/openapi.yaml
+
+.PHONY: openapi-generate
+openapi-generate: ## Regenerate the Go server interface from the contract
+	cd backend && go generate ./internal/api/
+
+.PHONY: openapi-check
+openapi-check: openapi-lint ## Fail if the generated code is stale relative to the contract
+	@cd backend && go generate ./internal/api/
+	@git diff --exit-code --stat -- backend/internal/api/ 	  || (echo ""; 	      echo "The generated API code is stale."; 	      echo "openapi/openapi.yaml changed without regenerating. Run:"; 	      echo "  make openapi-generate"; 	      echo "and commit the result — the generated files are committed so a"; 	      echo "reviewer sees the contract change and its consequences in one diff."; 	      exit 1)
+
 # --- quality gates ----------------------------------------------------------
 
 .PHONY: check

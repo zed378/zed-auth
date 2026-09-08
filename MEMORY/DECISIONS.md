@@ -486,3 +486,90 @@ Operational burden shifts onto the owner: OS patching, database backups, certifi
 **Plan impact**
 
 None yet. `PLAN/14` still describes the target architecture correctly, and `PLAN/16` Phase 5 still requires the hardening that a single VM cannot fully satisfy. If the VM becomes the permanent production environment rather than an interim one, `PLAN/14` § Environment Strategy and `PLAN/15` § High Availability both need amending, and `PLAN/18` needs an owned, dated accepted-risk entry. Neither has been done, because the stated intent is that this is temporary.
+
+---
+
+### ADR-012 — Audit writes commit inside the transaction of the action they record
+
+| | |
+|---|---|
+| **Date** | 2026-09-08 |
+| **Status** | Accepted |
+| **Task** | P0-12 |
+| **Deciders** | Project owner |
+
+**Context**
+
+`P0-12` step 4 required an explicit choice: does the audit write happen inside the business transaction, or after it? The two options fail in opposite directions, and neither failure is free.
+
+Inside the transaction, a failed audit write rolls back the action that caused it. A database hiccup while recording a role assignment means the role assignment does not happen.
+
+After the transaction, the action succeeds even if auditing fails. A role assignment can then exist with no record of who made it. `PLAN/09` § Audit calls the audit log the mechanism by which "we can answer who did what, when" — a log with silent holes cannot answer that, and worse, cannot be *known* to have holes.
+
+This was recorded in the code and in the change record but never written here, which `P0-12`'s Definition of Done required. Correcting that now.
+
+**Decision**
+
+Business events are written inside the caller's transaction. `audit.Write(ctx, tx, Event)` takes the transaction rather than opening its own, so the event and the action commit or fail together.
+
+Two paths deliberately do not follow this rule:
+
+- `WriteStandalone` opens its own transaction, for events with no business transaction to join — a failed login has no action to roll back.
+- The instance-scope hook (`PLAN/08` Part B's cross-tenant access record) runs *outside* the scoped transaction. Failing to record the access should not roll back the access. This is the opposite trade, made deliberately, because the record is observational rather than constitutive: nobody's authority derives from it.
+
+**Alternatives considered**
+
+- *Write after the transaction, with a retry queue.* Closes most of the hole and adds a durable queue that itself needs auditing, monitoring, and a failure policy. The complexity is real and the residual hole — a crash between commit and enqueue — remains.
+- *Write to both the database and a log stream, treating the stream as the record of truth.* Defers the problem to log-pipeline reliability, which is generally weaker than the database's, not stronger.
+
+**Consequences**
+
+An audit-write failure takes down the action it was recording. That is an outage, and it is the intended trade: the service refuses to act rather than acting unrecorded. `AuditWriteFailures` alerts on it as critical, and its annotation says exactly this, so whoever is paged is not left deciding whether the alert matters.
+
+The audit log is append-only at the privilege level, so a credential accidentally written there cannot be deleted by anyone. Redaction therefore happens in the writer, not at call sites — a call site that forgets is a permanent mistake.
+
+**Plan impact**
+
+None. `PLAN/09` § Audit requires the log to be complete and tamper-evident; this is the stronger of the two readings of that requirement.
+
+---
+
+### ADR-013 — The OpenAPI spec is hand-written and generates the code, not the reverse
+
+| | |
+|---|---|
+| **Date** | 2026-09-08 |
+| **Status** | Accepted |
+| **Task** | P0-16 |
+| **Deciders** | Project owner |
+
+**Context**
+
+`P0-16` step 2 required choosing between spec-first and code-first generation. `PLAN/05` § Documentation accepts either — "generated from code or validated in CI" — so the decision turns on which one makes drift *impossible* rather than merely *detectable*.
+
+The stakes are set by `CLAUDE.md`'s hard rule that API reference documentation is never hand-written, and by two consumers that both generate from this artifact: the console's typed client and the public API reference. A spec that has drifted from the implementation is worse than no spec, because both consumers will confidently render the wrong thing.
+
+**Decision**
+
+Spec-first. `openapi/openapi.yaml` is authored by hand and is the source of truth. From it:
+
+- `oapi-codegen` generates **Go server interfaces** into `backend/internal/api/`. Handlers implement a generated interface, so an endpoint whose signature no longer matches the spec **fails to compile**.
+- `oapi-codegen` generates TypeScript types for the console.
+- The public site renders the reference from the same file.
+
+**Alternatives considered**
+
+- *Code-first from Go annotations (swaggo).* The annotation sits next to the handler, which feels like it prevents drift, but an annotation is a comment: it can say `200` while the handler returns `201` and nothing objects. It converts a compile-time property into a review-time one.
+- *Spec-first with CI validation only.* This is what `P0-16` literally asked for, and it is weaker. CI validation catches drift after it is written and pushed; a generated interface catches it in the editor. The CI check stays as a backstop for the generated artifacts being stale, but it is no longer the primary mechanism.
+
+**Consequences**
+
+Adding an endpoint means editing the spec first. That ordering is a discipline cost and it is also the point — the contract is designed before the handler, which is what "API-first" (`PLAN/02` FR-14) means in practice rather than as an aspiration.
+
+The generated files are committed, so a reviewer sees the contract change and its consequences in one diff, and a fresh clone builds without a code-generation step. CI regenerates and fails on any difference.
+
+The compiler enforcement is limited to shapes — paths, methods, status codes, request and response types. It cannot check that a handler's *behaviour* matches its description. Authorization semantics in particular are invisible to it and remain the reviewer's job.
+
+**Plan impact**
+
+None. `PLAN/05` § Documentation permits this and `PLAN/20` § API Reference Generation requires exactly one renderable source, which this is.
