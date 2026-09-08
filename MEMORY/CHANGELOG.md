@@ -48,6 +48,22 @@ Format follows Keep a Changelog conventions, grouped by release once releases ex
 - `/readyz` now genuinely checks PostgreSQL; it previously reported ready with no dependencies wired.
 - Deployed and verified on the VM; `https://auth.zedth.my.id` healthy throughout.
 
+**Added** — the public site ([record](./records/2026-09-08-P0-18-public-site-skeleton.md))
+- The full route structure from `PLAN/20`: landing, about, contact, docs (quickstart, concepts, guides, console, API reference) and a changelog. 34 pages. `/pricing` and `/security` are deliberately absent — the first because no commercial tier exists, the second because `PLAN/20` places the trust page alongside Phase 5. (`P0-18`)
+- **The API reference is generated** from `openapi/openapi.yaml`, the same file that generates the backend's server interface and the console's client — three consumers, one source, none able to disagree. This closes `P0-16`, whose last open step was exactly this. (`P0-18`)
+- Docs versioning live from the first commit, with a `1.0` snapshot labelled *placeholder*: it proves the pipeline before there is a release to version. Retrofitting versioning once v1 docs exist means reorganising every file at the moment there is most content to break. (`P0-18`)
+- Local search over 123 documents. `UI-UX/20` wants fuzzy matching because "a developer often doesn't know the exact terminology this project uses yet".
+- Three scripts turn `PLAN/20`'s separation rules into checks: the nine shared colour values still match the console's, nothing here imports from `console/`, and every token meets AA in both themes. All three erode by convenience rather than by decision, so none is left to memory.
+- `deploy/public-site/` and a CI job with its own install and cache — `PLAN/20`: "a docs typo fix shouldn't require a backend deploy pipeline".
+
+**Decided**
+- [ADR-014](./DECISIONS.md): one Docusaurus project rather than a marketing SSG plus a separate docs framework. `PLAN/20` implies two; `UI-UX/20` § Cross-Page Requirements requires a shared header and footer so Landing → Docs "never feels like a different product", and two projects make that a duplicated component. The deciding argument was that `PLAN/20` requires docs versioning and the obvious marketing-side alternative has none.
+
+**Fixed**
+- **A dark mode that would have shipped unreadable.** Carrying the console's palette to a dark surface measures accent 2.4:1, danger 2.7:1, warning 3.3:1, success 2.8:1 — all below AA — and the border 1.8:1, below the 3:1 for a component boundary. It would have looked deliberate. Each token was re-tuned: same meaning, different value for a different surface. None of it was visible by looking; it came from computing the ratios. (`P0-18`)
+- **A soft 404.** The nginx config served the 404 page with a `200` status, telling every crawler that missing URLs exist — on the one surface whose job is discovery. `=404` with `error_page` returns the real status and still renders the styled page. (`P0-18`)
+- **A security check that cried wolf.** `scripts/check.sh` reported "a PEM private key block is committed" for three files inside `public-site/node_modules` — gitignored, committed by no definition. It walked the working tree while its message said "committed"; it now scans `git ls-files` like the credential check beside it always did. A check that fires the first time someone installs dependencies is a check that gets commented out.
+
 **Added** — the console shell ([record](./records/2026-09-08-P0-17-console-skeleton.md))
 - React 19 + TypeScript on Vite 8 and Tailwind 4: every design token `UI-UX/05` names, routing, the navigation tree from `PLAN/06`, an error boundary, TanStack Query, and the typed API client generated from `openapi/openapi.yaml` — which closes `P0-16` step 3. (`P0-17`)
 - Three local ESLint rules make the token discipline a build failure rather than a convention: a raw hex, a Tailwind arbitrary value, or an inline style all fail lint. The first run caught a real bug — `w-[--spacing-nav]` referenced a token that did not exist, so the navigation would have had no width. (`P0-17`)
@@ -102,9 +118,9 @@ Format follows Keep a Changelog conventions, grouped by release once releases ex
 - Both `P0-12` follow-ups closed: the unsupervised partition-maintenance goroutine is now visible as a gauge with two alerts, and cross-tenant database access is counted as `PLAN/08` Part B asks.
 
 **Status**
-- Phase 0: 17 of 21 done. `P0-16` remains in progress — step 3 (the console's typed client) landed with `P0-17`; step 4, the public site's API reference, waits on `P0-18`.
+- Phase 0: 19 of 21 done. `P0-16` is complete — its last open step, the public site's generated API reference, landed with `P0-18` — step 3 (the console's typed client) landed with `P0-17`; step 4, the public site's API reference, waits on `P0-18`.
 - Open deviations: DV-01 (single-VM production vs. Multi-AZ), DV-02 (`manager_roles` has no tenant policy until `P2-05` provides a user context).
-- Remaining in Phase 0: the test harness (`P0-15`), the public site (`P0-18`, `P0-19`), and staging (`P0-20`).
+- Remaining in Phase 0: the test harness (`P0-15`), landing and docs content (`P0-19`), and staging (`P0-20`).
 - New plan gap `PG-12`: `color-border` serves both input borders (WCAG 1.4.11 wants 3:1) and table dividers (which want a hairline). One token cannot do both well.
 - The OIDC provider library remains undecided by design: confirming JWKS rotation with overlap and refresh-token reuse detection requires building against it, so it moves to `P1-03`.
 - Open questions now number nine; `OQ-09` (audit log retention period and the erasure approach) is new and should be confirmed before `P0-07` writes the partitioning migration.

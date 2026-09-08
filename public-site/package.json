@@ -1,0 +1,52 @@
+{
+  "name": "@zed-auth/public-site",
+  "private": true,
+  "version": "0.1.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "docusaurus start",
+    "build": "docusaurus build && node scripts/write-robots.mjs",
+    "serve": "docusaurus serve",
+    "clear": "docusaurus clear",
+    "typecheck": "tsc --noEmit",
+    "api:generate": "docusaurus gen-api-docs all",
+    "api:clean": "docusaurus clean-api-docs all",
+    "docs:version": "docusaurus docs:version",
+    "check": "npm run check:tokens && npm run check:contrast && npm run check:boundary && npm run typecheck && npm run build",
+    "check:tokens": "node scripts/check-brand-tokens.mjs",
+    "check:contrast": "node scripts/check-contrast.mjs",
+    "check:boundary": "node scripts/check-no-shared-code.mjs"
+  },
+  "dependencies": {
+    "@docusaurus/core": "3.10.2",
+    "@docusaurus/preset-classic": "3.10.2",
+    "@easyops-cn/docusaurus-search-local": "0.55.3",
+    "@mdx-js/react": "3.1.1",
+    "clsx": "2.1.1",
+    "docusaurus-plugin-openapi-docs": "5.2.0",
+    "docusaurus-theme-openapi-docs": "5.2.0",
+    "prism-react-renderer": "2.4.1",
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
+  },
+  "devDependencies": {
+    "@docusaurus/module-type-aliases": "3.10.2",
+    "@docusaurus/tsconfig": "3.10.2",
+    "@docusaurus/types": "3.10.2",
+    "typescript": "5.9.3"
+  },
+  "browserslist": {
+    "production": [
+      ">0.5%",
+      "not dead",
+      "not op_mini all"
+    ],
+    "development": [
+      "last 3 chrome version",
+      "last 3 firefox version",
+      "last 5 safari version"
+    ]
+  }
+}

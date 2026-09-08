@@ -573,3 +573,50 @@ The compiler enforcement is limited to shapes — paths, methods, status codes, 
 **Plan impact**
 
 None. `PLAN/05` § Documentation permits this and `PLAN/20` § API Reference Generation requires exactly one renderable source, which this is.
+
+---
+
+### ADR-014 — The public site is one Docusaurus project, not a marketing SSG plus a docs framework
+
+| | |
+|---|---|
+| **Date** | 2026-09-08 |
+| **Status** | Accepted |
+| **Task** | P0-18 |
+| **Deciders** | Project owner |
+
+**Context**
+
+`PLAN/20` § Recommended Stack lists the two concerns separately — "Landing/marketing pages: static site generator (e.g. Next.js in static export mode, or Astro)" and "Documentation site: Docusaurus (or similar)" — and `P0-01` step 5 restates it as "a static generator for marketing plus a docs framework with native versioning". Read as an instruction, that is two projects.
+
+`UI-UX/20` § Cross-Page Requirements pulls the other way: "Every page shares the same header/footer navigation and the same visual tokens, so moving between Landing → Docs → About never feels like a different product."
+
+Two projects make that shared navigation a duplicated component in two codebases with two build systems. Duplicated navigation is not a theoretical risk — it is the specific thing that drifts, because a link added to one is a link somebody has to remember to add to the other, and the failure is invisible until a visitor takes the path nobody tested.
+
+Neither document is wrong. They are optimising for different things, and the tension is real rather than a misreading.
+
+**Decision**
+
+One Docusaurus project serving landing, about, contact, docs, and the changelog.
+
+`PLAN/20`'s table is a list of concerns with illustrative examples ("e.g."), not a mandate of two deployments; Docusaurus is itself a static site generator, so using it for the marketing pages satisfies the letter of that row. What it does not satisfy is the implied separation, which is why this is recorded rather than done quietly.
+
+The marketing pages are ordinary React and MDX under `src/pages/`. Moving them to a separate Astro build later is a move, not a rewrite, if the reasons below stop holding.
+
+**Alternatives considered**
+
+- *Two projects, as `PLAN/20` implies.* Buys an independent marketing deploy cadence and a lighter marketing bundle. The cadence benefit needs a marketing team that can be blocked by a docs release, and there is one person. The bundle benefit is real and small: Docusaurus ships a React runtime the landing page does not need.
+- *Two projects sharing a header package.* Solves the drift and reintroduces the coupling `PLAN/20` § Why a Separate Surface exists to prevent — now with a third package to version.
+- *Astro with Starlight for both.* Better first-paint than Docusaurus, and Starlight has no native docs versioning. `PLAN/20` § Versioning Strategy makes versioning a requirement, and `P0-18`'s Definition of Done asks for it demonstrated. Choosing a stack that needs a third-party plugin for a stated requirement is the wrong trade.
+
+**Consequences**
+
+The shared header and footer are one definition in `docusaurus.config.ts` and cannot drift. One dependency tree, one build, one deploy.
+
+The cost is a heavier landing page than a purpose-built marketing SSG would produce — a React runtime on a page that is static text. If Lighthouse on the landing page becomes a real problem rather than a hypothetical one, the marketing pages move out and the docs stay put.
+
+`P0-01`'s Definition of Done asks for an ADR naming the public-site generator and the docs framework separately. Here they are the same choice, and this record is that ADR for both.
+
+**Plan impact**
+
+`PLAN/20` § Recommended Stack's first two rows now describe an option that was considered and not taken. The document is not wrong about the concerns; it is one implementation short of describing what was built. If the single-project arrangement survives Phase 1, that table is worth amending to say so — and `UI-UX/20` § Cross-Page Requirements is worth citing there as the reason.
