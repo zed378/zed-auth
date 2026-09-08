@@ -52,7 +52,7 @@ Format follows Keep a Changelog conventions, grouped by release once releases ex
 - A bearer token on the metrics endpoint, resolved through the same secret indirection as everything else, compared in constant time, and rejecting with a bare `404` rather than a `401` — a `401` with a challenge header confirms to a prober that the endpoint exists and says what it wants. (`P0-11`)
 - The service now refuses to boot when the metrics listener binds beyond loopback with no token configured. It caught two misconfigurations within the hour, both of them ours. (`P0-11`)
 - `deploy/vm/secrets.sh` — creates and repairs the secrets directory. It exists because `chmod 400` is necessary and not sufficient, and the gap between those two costs a restart loop to find. (`P0-11`)
-- `metrics.zedth.my.id` is live and gated. **Cloudflare Access is still not in front of it**; the token is currently the only control.
+- The metrics port is **not published to the host**. `metrics.zedth.my.id` was live and token-gated for about an hour; the hostname and the published port are both gone. The endpoint stays reachable inside the compose network, which is where the only scraper that will ever exist here would run. A port published for a scraper that does not exist is a port open for no one. `docker-compose.metrics-port.yml` is the opt-in override, loopback-only, with a header explaining what publishing it means.
 
 **Fixed**
 - Secrets are resolved once, immediately after configuration loads, before any pool is opened or goroutine started. Previously a bad secret reference produced `sql: database is closed` on repeat — the deferred pool close racing the already-running audit goroutine — which is a consequence three steps removed from the cause, pointing at the wrong subsystem. Startup failures should be ordered so the first thing to fail is the thing that is wrong. (`P0-11`)
@@ -81,5 +81,4 @@ Format follows Keep a Changelog conventions, grouped by release once releases ex
 - Open deviations: DV-01 (single-VM production vs. Multi-AZ), DV-02 (`manager_roles` has no tenant policy until `P2-05` provides a user context).
 - Remaining in Phase 0: the test harness (`P0-15`), OpenAPI (`P0-16`), console and public-site skeletons (`P0-17` … `P0-19`), and staging (`P0-20`, blocked on `OQ-03`).
 - The OIDC provider library remains undecided by design: confirming JWKS rotation with overlap and refresh-token reuse detection requires building against it, so it moves to `P1-03`.
-- `metrics.zedth.my.id` is reachable from the internet with only its bearer token in front of it. Adding a Cloudflare Access policy is the outstanding item.
 - Open questions now number nine; `OQ-09` (audit log retention period and the erasure approach) is new and should be confirmed before `P0-07` writes the partitioning migration.

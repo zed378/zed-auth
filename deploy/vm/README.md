@@ -90,7 +90,9 @@ Generate passwords with `openssl rand -base64 32`. Do not reuse one between `aut
 
 ### 4b. Metrics scrape token
 
-Required whenever `AUTH_ADMIN_ADDR` is not loopback — which includes this compose deployment, because the bind is `0.0.0.0` *inside* the container even though the host publishes the port to `127.0.0.1` only. The service cannot see the host's port mapping and correctly declines to assume it.
+Required whenever `AUTH_ADMIN_ADDR` is not loopback — which includes this compose deployment, because the bind is `0.0.0.0` *inside* the container. The service cannot see what the host does or does not publish, and correctly declines to assume anything about it.
+
+The metrics port is **not published to the host**. The endpoint is reachable inside the compose network, so a Prometheus container joined to that network scrapes `authservice:9090` with nothing further to configure. See `docker-compose.metrics-port.yml` if you need it on the host.
 
 ```bash
 sudo /opt/zed-auth/deploy/vm/secrets.sh metrics-token
@@ -99,6 +101,8 @@ echo 'AUTH_ADMIN_TOKEN_REF=file:/etc/zed-auth/secrets/metrics-token' \
 ```
 
 Prometheus sends it as a bearer token. A request without it gets a bare `404` rather than a `401`: the endpoint does not confirm it exists to anyone probing for it.
+
+The token is required even though the port is unpublished, and that is not belt-and-braces for its own sake. Publishing a port is one line in a file that someone will one day add for a good reason; the token is what makes that line safe to add.
 
 ### 5. Start
 
