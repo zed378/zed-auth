@@ -10,6 +10,7 @@ Add a line here as part of writing the record — an unindexed record is a recor
 
 | Date | Task | Record | Hook |
 |---|---|---|---|
+| 2026-09-08 | P0-14, P0-20 | [Secrets conventions and VM deployment](./records/2026-09-08-P0-14-P0-20-secrets-and-vm-deployment.md) | OQ-03 answered (self-managed VM). Secret-reference abstraction, rotation runbooks, full VM deploy. Found and fixed an env_file bug handing the service RLS-bypassing owner credentials. Opens DV-01: single VM misses PLAN/14's Multi-AZ requirement |
 | 2026-09-08 | P0-01…P0-13 | [Phase 0 foundation, first eleven tasks](./records/2026-09-08-P0-phase-0-foundation-first-eleven.md) | Repo goes from docs-only to a running, tested service: Go skeleton, local stack, full 14-table schema, CI. 11/21 of Phase 0 done |
 | 2026-09-08 | — | [Phase F frontend track added](./records/2026-09-08-phase-f-frontend-track.md) | 53 frontend tasks; resolves the tension with PLAN/16's lockstep rule by gating each page on its backend task; found a 4-screen omission in UI-UX/08 |
 | 2026-09-08 | — | [Plan gap remediation](./records/2026-09-08-plan-gap-remediation.md) | All 11 gaps and both contradictions closed by amending the plan; PLAN/04 grew 158 → 295 lines; 2 further gaps found while fixing them |
@@ -25,6 +26,7 @@ Add a line here as part of writing the record — an unindexed record is a recor
 
 ### Phase 0 — Foundation
 - `P0-01`…`P0-13` — [Foundation, first eleven tasks](./records/2026-09-08-P0-phase-0-foundation-first-eleven.md) — service skeleton, local stack, schema, CI
+- `P0-14`, `P0-20` — [Secrets conventions and VM deployment](./records/2026-09-08-P0-14-P0-20-secrets-and-vm-deployment.md)
 - `P0-21` — [TASKS and MEMORY scaffolding](./records/2026-09-08-P0-21-tasks-and-memory-scaffolding.md)
 
 ### Phase 1 — MVP: Core Auth + SSO

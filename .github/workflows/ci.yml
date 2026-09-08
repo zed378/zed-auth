@@ -309,6 +309,83 @@ jobs:
           fi
           echo "No raw request material reaches a log call."
 
+  # --- Shell and deployment configuration -----------------------------------
+  shell:
+    name: Shell scripts and deploy config
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: No CRLF in anything a shell executes
+        # A script committed with CRLF fails on Linux with
+        # "bad interpreter: /bin/sh^M" — an error a long way from its cause.
+        # .gitattributes normalizes this on commit, but a file can still reach
+        # the tree with CRLF, and the git hooks are a security control: one
+        # that fails to execute protects nothing.
+        run: |
+          set -euo pipefail
+          fail=0
+          while IFS= read -r f; do
+            if grep -qU $'\r' "$f"; then
+              echo "::error file=$f::Contains CRLF line endings; must be LF"
+              fail=1
+            fi
+          done < <(find scripts deploy -type f \( -name '*.sh' -o -path 'scripts/hooks/*' \) )
+          exit $fail
+
+      - name: shellcheck
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
+          shellcheck -S warning \
+            scripts/install-hooks.sh \
+            scripts/hooks/commit-msg \
+            scripts/hooks/pre-commit \
+            deploy/vm/deploy.sh \
+            deploy/vm/backup.sh
+
+      - name: Git hooks are executable and actually run
+        # A hook that is committed non-executable is a hook that silently does
+        # nothing, which is worse than no hook: it produces the appearance of a
+        # control without the control.
+        run: |
+          set -euo pipefail
+          for hook in scripts/hooks/*; do
+            [ -x "$hook" ] || { echo "::error file=$hook::not executable"; exit 1; }
+          done
+
+          # The commit-msg hook must reject a subject with no task ID.
+          echo "no task id here" > /tmp/msg
+          if sh scripts/hooks/commit-msg /tmp/msg 2>/dev/null; then
+            echo "::error::commit-msg hook accepted a subject without a task ID"
+            exit 1
+          fi
+          echo "P0-01: valid subject" > /tmp/msg
+          sh scripts/hooks/commit-msg /tmp/msg
+
+      - name: Deployment compose files are valid
+        run: |
+          set -euo pipefail
+          docker compose -f deploy/docker-compose.yml config -q
+          # The VM compose file requires the deployed environment's variables;
+          # supply placeholders so the syntax is still validated in CI.
+          AUTH_DOMAIN=ci.example.com \
+          AUTH_IMAGE=ghcr.io/example/app@sha256:0000000000000000000000000000000000000000000000000000000000000000 \
+          AUTH_POSTGRES_OWNER_PASSWORD=ci_only_password \
+          AUTH_REDIS_PASSWORD=ci_only_password \
+            docker compose -f deploy/vm/docker-compose.yml config -q
+
+      - name: The repository contains no PEM private key block
+        # The pre-commit hook and gitleaks both refuse these, and test fixtures
+        # assemble PEM markers at runtime so this stays true. Any literal block
+        # that appears is therefore a genuine finding, not a known exception.
+        run: |
+          set -euo pipefail
+          if grep -rn --exclude-dir=.git --exclude='pre-commit' -- '-----BEGIN [A-Z ]*PRIVATE KEY-----' . ; then
+            echo "::error::A PEM private key block is committed."
+            exit 1
+          fi
+          echo "No PEM private key blocks."
+
   # --- Docker ---------------------------------------------------------------
   docker:
     name: Container image builds

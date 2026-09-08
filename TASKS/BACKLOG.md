@@ -26,11 +26,13 @@ These two files govern agent behavior, so editing them is a deliberate act rathe
 
 Written in English to match the existing 49 documents across `PLAN/`, `UI-UX/`, and `SECURITY/`, so the whole corpus reads as one body of work and cross-references stay natural. If Indonesian is preferred for these two folders, say so and they can be translated — the structure is unaffected.
 
-### OQ-03 — Deployment target
+### ~~OQ-03 — Deployment target~~ — ANSWERED 2026-09-08
 
-**Blocks**: `P0-20`, and shapes `P0-14`, `P5-06`, `P5-07`.
+**Answer**: a **self-managed VM** for now, with **Kubernetes support planned later**.
 
-`PLAN/14` specifies Docker and Kubernetes but not which environment: a managed Kubernetes service on a named cloud, a self-hosted cluster, or something smaller. This determines the secret manager (`PLAN/07` says "Vault / cloud secret manager"), the managed Postgres and Redis offering, the backup and point-in-time recovery mechanism, and the ingress and TLS approach.
+Recorded as [ADR-011](../MEMORY/DECISIONS.md). Consequences worked through in `P0-14` (secrets) and `P0-20` (staging). The architecture stays deployment-agnostic — configuration by environment variable, no local disk state, stateless service — so the move to Kubernetes is a manifest change rather than a rewrite.
+
+**This answer creates one open deviation**, tracked below as `DV-01`, because a single VM cannot satisfy `PLAN/14`'s and `PLAN/15`'s Multi-AZ requirement for production.
 
 ### OQ-04 — Email delivery provider
 
@@ -56,11 +58,46 @@ Invitations, password resets, and anomaly notifications all require outbound ema
 
 `PLAN/02` assumes a single default organization initially. If the actual launch is multi-tenant from day one, `P2-09`'s tenant resolution strategy needs deciding earlier and the Phase 1 assumptions shift.
 
+### OQ-10 — Deploy credential for automated staging deployment
+
+**Blocks**: the last unmet item of `P0-20` — "a merge to `main` deploys to staging automatically".
+
+`deploy.sh` runs correctly on the VM, but nothing triggers it from CI. That needs either an SSH deploy key held as a repository secret, or a self-hosted runner on the VM. Both are credential decisions with real security consequences — a deploy key in GitHub Actions is a key that can reach production, and a self-hosted runner executes untrusted PR code on the deployment host unless carefully restricted (`SECURITY/02` §18).
+
+**Recommendation**: a self-hosted runner restricted to `main` only, never to pull requests. Awaiting the owner's decision.
+
 ### OQ-08 — Which two applications are the MVP consumers?
 
 **Affects**: `P1-26`, `P1-28`.
 
 `PLAN/01`'s MVP definition of done requires two internal applications authenticating real users. `P1-26` builds two demo applications, which proves the mechanism — but the acceptance criterion says *internal applications*, implying real ones. Are there specific applications lined up, and are their teams ready to integrate during Phase 1?
+
+---
+
+## Open Deviations
+
+A deviation is a place where the built system knowingly differs from what `PLAN/`, `UI-UX/`, or `SECURITY/` specifies. Per the deviation protocol in `00-TASK-CONVENTIONS.md`, each carries an ADR, is visible here rather than only in a commit message, and either closes or is accepted as a risk in `PLAN/18-RISK-REGISTER.md`.
+
+### DV-01 — Single-VM production cannot meet the Multi-AZ requirement
+
+**Affects**: `P0-20`, `P5-06` (horizontal scale-out verification), `P5-07` (DR drill), and `PLAN/17` Phase 5 sign-off.
+**ADR**: [ADR-011](../MEMORY/DECISIONS.md).
+**Status**: Open — accepted for the interim, must be closed or formally risk-accepted before production sign-off.
+
+`PLAN/14-DEPLOYMENT.md` § Environment Strategy specifies production as "Multi-AZ minimum". `PLAN/15-DISASTER-RECOVERY.md` § High Availability repeats it. `PLAN/02-REQUIREMENTS.md` sets availability to "match or exceed the strictest consumer app's SLA", and `PLAN/09` opens by noting a compromise here compromises every dependent application — the same logic applies to an outage.
+
+A single VM is a single point of failure for every consumer application's login. That is a real gap, not a technicality:
+
+- **No instance redundancy.** A VM reboot, a kernel panic, or a failed deploy takes authentication down platform-wide. Running several containers on one host survives a process crash, not a host failure.
+- **No database failover.** `PLAN/14` § Scalability assumes read replicas and a single primary; one VM has neither.
+- **`P5-06` cannot pass as written.** `PLAN/12` requires horizontal scaling to be "verified in practice… by actually running a scale-out test", and a single host cannot demonstrate multi-node scaling.
+- **`P5-07`'s DR drill is weaker.** Restoring into "an isolated environment" (`PLAN/15`) means a second machine that does not exist yet.
+
+**Why it is nonetheless reasonable now**: this is explicitly interim, the consumer applications that would define an SLA do not exist yet (`OQ-08` is still open), and `PLAN/00`'s incremental principle argues against building multi-region HA before a single tenant is live. `PLAN/15` says the same about multi-region: "don't build it speculatively."
+
+**What closes it**: the planned Kubernetes migration, with at least two nodes and a Postgres primary/replica pair. Until then, `P0-20` implements the strongest single-host posture available — offsite backups in a separate failure domain, a verified restore, and a documented recovery time — so the gap is bounded and measured rather than unknown.
+
+**Do not let this deviation quietly expire.** Before any consumer application depends on this service in production, either the Kubernetes migration lands or `PLAN/18` carries an explicit, owned, dated accepted-risk entry saying that single-VM availability is acceptable for the named consumers.
 
 ---
 

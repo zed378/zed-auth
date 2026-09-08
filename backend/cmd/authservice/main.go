@@ -89,11 +89,11 @@ func run() error {
 	srv := httpserver.New(cfg.HTTP, httpserver.Deps{
 		Logger: log,
 		Health: health,
-		// Local development has no proxy in front, so an inbound correlation
-		// header is client-controlled and must not be trusted. Deployed
-		// environments set this once an ingress that strips the header is in
-		// place (P0-20).
-		TrustProxyHeaders: cfg.Environment != config.EnvLocal,
+		// Explicit configuration, not inferred from the environment: see the
+		// comment on config.HTTPConfig.TrustProxyHeaders. Defaults to false,
+		// so a deployment behind a proxy that forwards client headers
+		// untouched is safe by default rather than by accident.
+		TrustProxyHeaders: cfg.HTTP.TrustProxyHeaders,
 	})
 
 	if err := srv.Run(ctx); err != nil {
