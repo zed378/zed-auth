@@ -15,7 +15,7 @@ func env(m map[string]string) Getenv {
 func valid() map[string]string {
 	return map[string]string{
 		"AUTH_ISSUER":       "https://auth.example.com",
-		"AUTH_POSTGRES_DSN": "postgres://user:pass@localhost:5432/auth?sslmode=disable",
+		"AUTH_POSTGRES_DSN": "postgres://auth_app:local_dev_only@localhost:5432/auth?sslmode=disable",
 		"AUTH_REDIS_ADDR":   "localhost:6379",
 	}
 }
@@ -241,4 +241,50 @@ func asLoadError(err error, target **LoadError) bool {
 		*target = le
 	}
 	return ok
+}
+
+// TrustProxyHeaders is deliberately independent of Environment: "deployed" and
+// "has a header-stripping proxy in front" are different facts. A tunnel such as
+// Cloudflare Tunnel forwards client headers untouched, so inferring trust from
+// the environment would get it wrong there (SECURITY/02 §10).
+func TestLoadFrom_TrustProxyHeadersIsExplicitAndDefaultsToFalse(t *testing.T) {
+	t.Run("defaults to false even in production", func(t *testing.T) {
+		m := valid()
+		m["AUTH_ENV"] = "production"
+
+		cfg, err := LoadFrom(env(m))
+		if err != nil {
+			t.Fatalf("load: %v", err)
+		}
+		if cfg.HTTP.TrustProxyHeaders {
+			t.Error("must default to false: a deployment behind a non-stripping proxy should be safe by default, not by accident")
+		}
+	})
+
+	t.Run("accepted truthy and falsy spellings", func(t *testing.T) {
+		for raw, want := range map[string]bool{
+			"true": true, "1": true, "yes": true, "on": true, "TRUE": true,
+			"false": false, "0": false, "no": false, "off": false,
+		} {
+			m := valid()
+			m["AUTH_TRUST_PROXY_HEADERS"] = raw
+
+			cfg, err := LoadFrom(env(m))
+			if err != nil {
+				t.Fatalf("%q: %v", raw, err)
+			}
+			if cfg.HTTP.TrustProxyHeaders != want {
+				t.Errorf("%q: got %v, want %v", raw, cfg.HTTP.TrustProxyHeaders, want)
+			}
+		}
+	})
+
+	t.Run("a malformed value is rejected rather than silently false", func(t *testing.T) {
+		m := valid()
+		m["AUTH_TRUST_PROXY_HEADERS"] = "maybe"
+
+		if _, err := LoadFrom(env(m)); err == nil {
+			t.Error("a malformed boolean must be an error: silently defaulting to false would hide a typo in a security-relevant setting")
+		}
+	})
 }

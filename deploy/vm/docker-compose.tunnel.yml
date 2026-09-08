@@ -1,0 +1,174 @@
+# Deployed stack for a VM that is exposed through Cloudflare Tunnel.
+#
+# This is a variant of docker-compose.yml, not a replacement. The difference is
+# where TLS terminates:
+#
+#   docker-compose.yml         Caddy on the host obtains a Let's Encrypt
+#                              certificate and terminates TLS on 443.
+#   docker-compose.tunnel.yml  Cloudflare terminates TLS at its edge and
+#                              `cloudflared` makes an OUTBOUND connection, so
+#                              the host needs no inbound port open at all.
+#
+# Caddy is dropped here rather than kept, for two reasons:
+#
+#   1. Its ACME challenge would fail. HTTP-01 needs a publicly reachable port
+#      80, and behind a tunnel there is none. Running it anyway would produce a
+#      service that works but logs certificate errors forever — the kind of
+#      permanent-warning state that trains people to ignore logs.
+#   2. Cloudflare already terminates TLS. A second termination inside the host
+#      would add a hop without adding a guarantee.
+#
+# What is LOST by dropping Caddy, and how it is handled instead:
+#
+#   Caddy stripped inbound X-Request-Id so a caller could not choose their own
+#   correlation ID. `cloudflared` does NOT strip it. The service therefore runs
+#   with AUTH_TRUST_PROXY_HEADERS=false, which makes it generate its own ID and
+#   ignore whatever arrives (SECURITY/02 §10). That is why that setting is
+#   explicit configuration rather than inferred from the environment.
+#
+# Ports: everything above 10000, per the host's existing allocations. Only the
+# application port is published; PostgreSQL and Redis stay on the internal
+# compose network, because nothing outside the service needs them and a
+# published database port is a database port someone will eventually reach.
+
+name: zed-auth
+
+services:
+  authservice:
+    image: ${AUTH_IMAGE:?AUTH_IMAGE is required}
+    restart: always
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis:    {condition: service_healthy}
+
+    # Named explicitly rather than loaded with env_file. env_file would pass the
+    # whole file in, including AUTH_POSTGRES_OWNER_PASSWORD and
+    # AUTH_MIGRATE_DSN — the schema owner's credentials, which bypass row-level
+    # security and can alter the audit log. The point of the two-role split is
+    # that compromising the service does not yield owner access.
+    environment:
+      AUTH_ENV: ${AUTH_ENV:?required}
+      AUTH_ISSUER: ${AUTH_ISSUER:?required}
+      AUTH_HTTP_ADDR: ":8080"
+      AUTH_TRUST_PROXY_HEADERS: "false"
+      AUTH_POSTGRES_DSN: ${AUTH_POSTGRES_DSN:?required}
+      AUTH_POSTGRES_MAX_OPEN_CONNS: ${AUTH_POSTGRES_MAX_OPEN_CONNS:-25}
+      AUTH_POSTGRES_MAX_IDLE_CONNS: ${AUTH_POSTGRES_MAX_IDLE_CONNS:-5}
+      AUTH_POSTGRES_CONN_MAX_LIFETIME: ${AUTH_POSTGRES_CONN_MAX_LIFETIME:-30m}
+      AUTH_REDIS_ADDR: ${AUTH_REDIS_ADDR:-redis:6379}
+      AUTH_REDIS_PASSWORD: ${AUTH_REDIS_PASSWORD:?required}
+      AUTH_REDIS_DB: ${AUTH_REDIS_DB:-0}
+      AUTH_JWT_SIGNING_KEY_REF: ${AUTH_JWT_SIGNING_KEY_REF:?required}
+      AUTH_LOG_LEVEL: ${AUTH_LOG_LEVEL:-info}
+      AUTH_LOG_FORMAT: ${AUTH_LOG_FORMAT:-json}
+
+    ports:
+      # Bound to all interfaces so the service is reachable from the subnet for
+      # verification before the tunnel exists. Once `cloudflared` runs on this
+      # host, narrow this to 127.0.0.1:${AUTH_PUBLIC_PORT}:8080 — the tunnel
+      # reaches loopback, and nothing else then can.
+      - "${AUTH_PUBLIC_PORT:-10800}:8080"
+
+    volumes:
+      - ${AUTH_SECRETS_DIR:?required}:/etc/zed-auth/secrets:ro
+
+    healthcheck:
+      test: ["CMD", "/authservice", "-healthcheck"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+
+    security_opt: [no-new-privileges:true]
+    read_only: true
+    cap_drop: [ALL]
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    logging:
+      driver: json-file
+      options: {max-size: "50m", max-file: "5"}
+    deploy:
+      resources:
+        limits: {memory: 512M}
+
+  postgres:
+    image: postgres:17.2-alpine
+    restart: always
+    environment:
+      POSTGRES_DB: auth
+      POSTGRES_USER: auth_owner
+      POSTGRES_PASSWORD: ${AUTH_POSTGRES_OWNER_PASSWORD:?required}
+      # Consumed by init/01-roles.sh. Kept out of the init script itself so the
+      # credential never lives in a bind-mounted file.
+      AUTH_POSTGRES_APP_PASSWORD: ${AUTH_POSTGRES_APP_PASSWORD:?required}
+      POSTGRES_INITDB_ARGS: "--locale=C --encoding=UTF8"
+    command:
+      # WAL archiving is what makes point-in-time recovery possible
+      # (PLAN/15 § Backup Strategy). Without it a backup can only restore to
+      # the moment it was taken, and RPO becomes the backup interval.
+      #
+      # The archive lives INSIDE the data volume rather than in a separate
+      # named volume. A separate volume is the more obvious design, and it was
+      # the first attempt — but Docker creates a named volume's mount point
+      # owned by root, and the postgres process runs unprivileged, so every
+      # archive_command failed with "Permission denied". That failure is worse
+      # than it looks: PostgreSQL retains WAL segments indefinitely while
+      # archiving keeps failing, so the disk fills and PITR does not actually
+      # work while appearing configured.
+      #
+      # On a single host (ADR-011, DV-01) the separate volume bought no
+      # failure-domain isolation anyway — both live on the same disk. The real
+      # off-host protection is backup.sh shipping the dump to AUTH_BACKUP_REMOTE.
+      - postgres
+      - -c
+      - wal_level=replica
+      - -c
+      - archive_mode=on
+      - -c
+      - archive_command=mkdir -p /var/lib/postgresql/data/wal_archive && test ! -f /var/lib/postgresql/data/wal_archive/%f && cp %p /var/lib/postgresql/data/wal_archive/%f
+      - -c
+      - archive_timeout=300
+      - -c
+      - max_wal_senders=3
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ../postgres/init:/docker-entrypoint-initdb.d:ro
+    # Deliberately NOT published. This host already runs another PostgreSQL on
+    # 5432, and more importantly nothing outside the service needs to reach
+    # this one. Use `docker compose exec postgres psql` for administration.
+    expose:
+      - "5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U auth_owner -d auth"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    security_opt: [no-new-privileges:true]
+
+  redis:
+    image: redis:7.4-alpine
+    restart: always
+    command:
+      - redis-server
+      - --requirepass
+      - ${AUTH_REDIS_PASSWORD:?required}
+      - --appendonly
+      - "yes"
+      - --maxmemory-policy
+      - noeviction
+    volumes:
+      - redis_data:/data
+    expose:
+      - "6379"
+    environment:
+      AUTH_REDIS_PASSWORD: ${AUTH_REDIS_PASSWORD:?required}
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$AUTH_REDIS_PASSWORD\" ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    security_opt: [no-new-privileges:true]
+
+volumes:
+  postgres_data:
+  redis_data:

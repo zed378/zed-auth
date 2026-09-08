@@ -117,25 +117,40 @@ services:
       POSTGRES_DB: auth
       POSTGRES_USER: auth_owner
       POSTGRES_PASSWORD: ${AUTH_POSTGRES_OWNER_PASSWORD:?required}
+      # Consumed by init/01-roles.sh. Kept out of the init script itself so the
+      # credential never lives in a bind-mounted file.
+      AUTH_POSTGRES_APP_PASSWORD: ${AUTH_POSTGRES_APP_PASSWORD:?required}
       POSTGRES_INITDB_ARGS: "--locale=C --encoding=UTF8"
     command:
       # WAL archiving is what makes point-in-time recovery possible
       # (PLAN/15 § Backup Strategy). Without it a backup can only restore to
       # the moment it was taken, and RPO becomes the backup interval.
+      #
+      # The archive lives INSIDE the data volume rather than in a separate
+      # named volume. A separate volume is the more obvious design, and it was
+      # the first attempt — but Docker creates a named volume's mount point
+      # owned by root, and the postgres process runs unprivileged, so every
+      # archive_command failed with "Permission denied". That failure is worse
+      # than it looks: PostgreSQL retains WAL segments indefinitely while
+      # archiving keeps failing, so the disk fills and PITR does not actually
+      # work while appearing configured.
+      #
+      # On a single host (ADR-011, DV-01) the separate volume bought no
+      # failure-domain isolation anyway — both live on the same disk. The real
+      # off-host protection is backup.sh shipping the dump to AUTH_BACKUP_REMOTE.
       - postgres
       - -c
       - wal_level=replica
       - -c
       - archive_mode=on
       - -c
-      - archive_command=test ! -f /var/lib/postgresql/wal_archive/%f && cp %p /var/lib/postgresql/wal_archive/%f
+      - archive_command=mkdir -p /var/lib/postgresql/data/wal_archive && test ! -f /var/lib/postgresql/data/wal_archive/%f && cp %p /var/lib/postgresql/data/wal_archive/%f
       - -c
       - archive_timeout=300
       - -c
       - max_wal_senders=3
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - postgres_wal:/var/lib/postgresql/wal_archive
       - ../postgres/init:/docker-entrypoint-initdb.d:ro
     # Never published to the host. Reachable only from the compose network.
     expose:
@@ -173,7 +188,6 @@ services:
 
 volumes:
   postgres_data:
-  postgres_wal:
   redis_data:
   caddy_data:
   caddy_config:
