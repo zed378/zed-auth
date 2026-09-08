@@ -40,8 +40,17 @@ Format follows Keep a Changelog conventions, grouped by release once releases ex
 - CI pipeline: commit-convention enforcement, build and race-enabled tests, integration tests against real Postgres and Redis, migration round-trip verification, destructive-migration justification, gosec, govulncheck, secret scanning, and a non-root image assertion. Third-party actions pinned by SHA. (`P0-13`)
 - ADR-006 through ADR-010 record the backend stack, embedded migrations, the distroless runtime, text-plus-CHECK over native enums, and why `events` has no foreign keys. (`P0-01`)
 
+**Added** — cross-tenant isolation ([record](./records/2026-09-08-P0-08-row-level-security.md))
+- Row-level security on 11 tables, keyed to a transaction-scoped `app.current_org_id`. A query with no tenant context returns zero rows rather than every row — fail-closed as a consequence of how SQL evaluates NULL, not as a check someone has to remember. (`P0-08`)
+- A storage API with no exported way to query outside a declared scope: every path goes through `WithTenant` or `WithInstanceScope`, both of which set the tenant inside a transaction before returning a queryable handle. `SET LOCAL` rather than `SET`, so a pooled connection cannot carry one request's tenant into the next. (`P0-08`)
+- The service refuses to boot if its database role is a superuser, has `BYPASSRLS`, or owns a table — closing the hole flagged in the previous record, where pointing `AUTH_POSTGRES_DSN` at the owner would silently disable every policy with no test failure. (`P0-08`)
+- A CI gate failing the build when a table with an `org_id` has no RLS enabled. (`P0-08`)
+- `/readyz` now genuinely checks PostgreSQL; it previously reported ready with no dependencies wired.
+- Deployed and verified on the VM; `https://auth.zedth.my.id` healthy throughout.
+
 **Status**
-- Phase 0: 11 of 21 tasks done. 11 of 177 overall.
-- Remaining in Phase 0: RLS policies (`P0-08`), metrics and tracing (`P0-11`), the audit writer (`P0-12`), secrets conventions (`P0-14`), the test harness (`P0-15`), OpenAPI (`P0-16`), console and public-site skeletons (`P0-17` … `P0-19`), and staging (`P0-20`, blocked on `OQ-03`).
+- Phase 0: 14 of 21 tasks done. 14 of 177 overall.
+- Open deviations: DV-01 (single-VM production vs. Multi-AZ), DV-02 (`manager_roles` has no tenant policy until `P2-05` provides a user context).
+- Remaining in Phase 0: metrics and tracing (`P0-11`), the audit writer (`P0-12`), secrets conventions (`P0-14`), the test harness (`P0-15`), OpenAPI (`P0-16`), console and public-site skeletons (`P0-17` … `P0-19`), and staging (`P0-20`, blocked on `OQ-03`).
 - The OIDC provider library remains undecided by design: confirming JWKS rotation with overlap and refresh-token reuse detection requires building against it, so it moves to `P1-03`.
 - Open questions now number nine; `OQ-09` (audit log retention period and the erasure approach) is new and should be confirmed before `P0-07` writes the partitioning migration.
