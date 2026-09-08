@@ -1,0 +1,144 @@
+#!/bin/sh
+#
+# Refuses a commit that stages a credential.
+#
+# CI runs gitleaks over the diff too (P0-13), and that is the real gate. This
+# hook exists because of the gap between the two: once a secret reaches a remote
+# branch, deleting the commit does not un-leak it — the value has to be rotated.
+# Catching it here is the difference between deleting a line and rotating a
+# production key (SECURITY/02-ATTACK-SURFACE-AND-SCENARIOS.md §16).
+#
+# Install: scripts/install-hooks.sh
+# Bypass:  git commit --no-verify   (then rotate whatever you just committed)
+
+set -eu
+
+staged=$(git diff --cached --name-only --diff-filter=ACM)
+[ -z "$staged" ] && exit 0
+
+fail=0
+
+note() {
+  printf '\n  %s\n' "$1" >&2
+}
+
+# --- 1. Files that must never be committed at all --------------------------
+
+for f in $staged; do
+  case "$f" in
+    .env|.env.*)
+      # .env.example is the documented template and carries only placeholders.
+      [ "$f" = ".env.example" ] && continue
+      note "Refusing to commit $f — environment files hold real credentials."
+      fail=1
+      ;;
+    *.pem|*.key|*.p12|*.pfx|*.jks|id_rsa|id_ed25519|*.kdbx)
+      note "Refusing to commit $f — this looks like key material."
+      note "Secrets belong on the host, referenced by URI (deploy/SECRETS.md)."
+      fail=1
+      ;;
+  esac
+done
+
+# --- 2. Key material inside any staged file --------------------------------
+#
+# Catches a key pasted into a config file, a test fixture, or a Markdown block —
+# the shapes the filename check above misses.
+
+for f in $staged; do
+  [ -f "$f" ] || continue
+
+  # This hook necessarily contains the patterns it detects.
+  case "$f" in
+    scripts/hooks/pre-commit) continue ;;
+  esac
+
+  if git show ":$f" 2>/dev/null | grep -qE -- '-----BEGIN [A-Z ]*PRIVATE KEY-----'; then
+    note "Refusing $f — it contains a PEM private key block."
+    fail=1
+  fi
+done
+
+# --- 3. High-signal credential patterns ------------------------------------
+#
+# Deliberately narrow. A hook that fires on every string containing "password"
+# gets bypassed within a week, and a bypassed hook protects nothing. These
+# patterns target assignments of long, non-placeholder values.
+
+# Connection strings are deliberately NOT in this list. A generic
+# `scheme://user:password@host` pattern fires on this repository's own
+# `local_dev_only` placeholder, which appears in docker-compose.yml,
+# .env.example, the Makefile, CI, and the integration tests. A hook that
+# blocks the repository's own contents is a hook that gets bypassed within a
+# week, and a bypassed hook protects nothing. Section 4 below handles
+# connection strings instead, and it knows which passwords are placeholders.
+patterns='
+(aws_secret_access_key|AWS_SECRET_ACCESS_KEY)[[:space:]]*[:=][[:space:]]*["'\'']?[A-Za-z0-9/+=]{40}
+(ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{36}
+xox[baprs]-[A-Za-z0-9-]{10,}
+sk-[A-Za-z0-9]{32,}
+-----BEGIN OPENSSH PRIVATE KEY-----
+'
+
+for f in $staged; do
+  [ -f "$f" ] || continue
+
+  # deploy/SECRETS.md and .env.example document these shapes on purpose.
+  case "$f" in
+    deploy/SECRETS.md|.env.example|scripts/hooks/pre-commit) continue ;;
+  esac
+
+  content=$(git show ":$f" 2>/dev/null || true)
+  [ -z "$content" ] && continue
+
+  echo "$patterns" | while IFS= read -r pattern; do
+    [ -z "$pattern" ] && continue
+    if printf '%s' "$content" | grep -qE -- "$pattern"; then
+      printf '\n  Possible credential in %s (pattern: %s)\n' "$f" "$pattern" >&2
+      printf '  If this is a placeholder, make it obviously fake.\n' >&2
+      printf '  If it is real, do not just unstage it — rotate it.\n' >&2
+      exit 1
+    fi
+  done || fail=1
+done
+
+# --- 4. Local connection strings with a non-placeholder password -----------
+#
+# The local stack uses `local_dev_only` everywhere precisely so that a real
+# password in a committed DSN stands out.
+
+for f in $staged; do
+  [ -f "$f" ] || continue
+  # Documented templates carry these shapes on purpose.
+  case "$f" in
+    deploy/SECRETS.md|.env.example|*env.example) continue ;;
+  esac
+
+  # The allowlist is the set of values that are obviously not real. Anything
+  # else in a committed connection string is treated as a live credential.
+  if git show ":$f" 2>/dev/null \
+     | grep -oE '(postgres|postgresql|redis)://[^:@[:space:]]+:[^@[:space:]]+@' \
+     | grep -qvE ':(local_dev_only|ci_only_password|placeholder|CHANGEME|REPLACE_ME|password|xxx+)@'; then
+    note "$f contains a connection string with a password that is not the local placeholder."
+    note "Use an obviously fake placeholder (local_dev_only, REPLACE_ME) so a real one stands out."
+    fail=1
+  fi
+done
+
+if [ "$fail" -ne 0 ]; then
+  cat >&2 <<'EOF'
+
+  Commit blocked by the secret-scanning hook.
+
+  If a secret was already committed or pushed: rotate it. Rewriting history
+  does not un-leak a value, and deleting a message does not un-see it
+  (deploy/SECRETS.md, "What Must Never Happen").
+
+  If this is a false positive, --no-verify bypasses the hook. Say so in the
+  PR so a reviewer looks at the line rather than trusting the green check.
+
+EOF
+  exit 1
+fi
+
+exit 0

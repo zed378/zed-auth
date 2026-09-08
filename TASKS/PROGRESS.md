@@ -15,7 +15,7 @@ Sizes: `S` under half a day · `M` one to two days · `L` several days · `XL` m
 
 | Phase | Tasks | Done | Status | Gate to enter |
 |---|---|---|---|---|
-| [Phase 0 — Foundation](./PHASE-0-FOUNDATION.md) | 21 | 11 | **ACTIVE** | — |
+| [Phase 0 — Foundation](./PHASE-0-FOUNDATION.md) | 21 | 13 | **ACTIVE** | — |
 | [Phase 1 — MVP: Core Auth + SSO](./PHASE-1-MVP-CORE-AUTH-SSO.md) | 28 | 0 | Not started | Phase 0 exit checklist |
 | [Phase 2 — RBAC & Multi-Tenancy](./PHASE-2-RBAC-MULTITENANCY.md) | 17 | 0 | Not started | Phase 1 exit + `P1-28` |
 | [Phase 3 — Advanced Security](./PHASE-3-ADVANCED-SECURITY.md) | 15 | 0 | Not started | Phase 2 exit + threat model review |
@@ -47,13 +47,13 @@ Sizes: `S` under half a day · `M` one to two days · `L` several days · `XL` m
 | P0-11 | Metrics and tracing baseline | M | TODO | P0-09 |
 | P0-12 | Audit event writer | M | TODO | P0-07, P0-09 |
 | P0-13 | CI pipeline | M | **DONE** | P0-04 |
-| P0-14 | Secrets and configuration conventions | S | TODO | P0-04 |
+| P0-14 | Secrets and configuration conventions | S | **DONE** | P0-04 |
 | P0-15 | Test harness | M | TODO | P0-05, P0-16 |
 | P0-16 | OpenAPI spec skeleton and client generation | M | TODO | P0-13 |
 | P0-17 | Console skeleton with design tokens | L | TODO | P0-02, P0-16 |
 | P0-18 | Public site skeleton | L | TODO | P0-02 |
 | P0-19 | Landing, About, docs skeleton content | M | TODO | P0-18 |
-| P0-20 | Staging environment provisioning | L | TODO | P0-13 |
+| P0-20 | Staging environment provisioning | L | **DONE** | P0-13 |
 | P0-21 | Adopt the TASKS/MEMORY working discipline | S | **DONE** | — |
 
 **Suggested parallel tracks** once `P0-02` lands: backend (`P0-04` → `P0-05` → `P0-06` → `P0-07` → `P0-08`), platform (`P0-13` → `P0-14` → `P0-20`), frontend (`P0-17`), and public site (`P0-18` → `P0-19`). `P0-16` gates both `P0-15` and `P0-17`, so it should not wait.
@@ -322,3 +322,6 @@ Things that are easy to get wrong once and expensive to fix later. Re-check each
 | `color-danger` reserved for destructive actions only | Its meaning must stay reliable; one misuse on a late screen degrades every earlier one | `PF-03` |
 | Accessibility built in, not retrofitted | `PLAN/18` R-10 names late retrofitting as a real risk; `UI-UX/13` says it is far more expensive | `PF-19` |
 | Audit log retention confirmed | 24 months is a working default, not a confirmed obligation (`BACKLOG.md` OQ-09) | `P0-07` |
+| Single-VM production (DV-01) | A VM reboot takes authentication down platform-wide; `PLAN/14` requires Multi-AZ. Must close or be formally risk-accepted before a consumer app depends on it | `P0-20` |
+| `AUTH_BACKUP_REMOTE` actually set | Unset means backups sit on the disk they protect — safety-feeling without safety | `P0-20` |
+| Service never receives owner credentials | The owner bypasses RLS and can alter the audit log; asserted in CI against the rendered compose config | `P0-20` |

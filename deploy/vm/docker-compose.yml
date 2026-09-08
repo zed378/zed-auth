@@ -1,0 +1,179 @@
+# Deployed stack for a self-managed VM (ADR-011).
+#
+# Used for both staging and production, distinguished entirely by which env
+# file is loaded. PLAN/13 and PLAN/14 both require every environment to have
+# separate signing keys and databases; nothing here is shared between them.
+#
+#   /etc/zed-auth/env            secrets and per-environment configuration
+#   /etc/zed-auth/secrets/       signing keys, 0400, owned by the service user
+#
+# Brought up by systemd (zed-auth.service), not by hand:
+#   systemctl start zed-auth
+#
+# Known limitation, tracked as DV-01 in TASKS/BACKLOG.md: a single VM does not
+# meet PLAN/14's Multi-AZ requirement for production. This file implements the
+# strongest single-host posture available, so the gap stays bounded and
+# measured rather than unknown.
+
+name: zed-auth
+
+services:
+  # --- TLS termination ------------------------------------------------------
+  caddy:
+    # TLS is mandatory everywhere with no HTTP fallback (PLAN/09). Caddy is
+    # used rather than nginx because it obtains and renews Let's Encrypt
+    # certificates without a separate certbot timer — on a self-managed host,
+    # an expired certificate is the most likely cause of an outage, and the
+    # component with the fewest moving parts is the one that keeps working.
+    image: caddy:2.8-alpine
+    restart: always
+    ports:
+      - "80:80"    # ACME challenge and the redirect to 443. Never serves the app.
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data      # certificates and ACME account key — back this up
+      - caddy_config:/config
+    environment:
+      AUTH_DOMAIN: ${AUTH_DOMAIN:?AUTH_DOMAIN is required}
+    depends_on:
+      authservice:
+        condition: service_healthy
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+
+  # --- Application ----------------------------------------------------------
+  authservice:
+    image: ${AUTH_IMAGE:?AUTH_IMAGE is required, pinned by digest}
+    restart: always
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis:    {condition: service_healthy}
+
+    # Variables are listed explicitly rather than loaded with `env_file`.
+    #
+    # `env_file: /etc/zed-auth/env` would pass the WHOLE file into this
+    # container, including AUTH_POSTGRES_OWNER_PASSWORD and AUTH_MIGRATE_DSN.
+    # Those are the schema owner's credentials, and the owner bypasses
+    # row-level security and can alter the audit log (PLAN/08 Part B,
+    # SECURITY/02 §19). The service must never be able to reach them: if it is
+    # compromised, the blast radius should stop at what auth_app can do.
+    #
+    # systemd's EnvironmentFile puts the file's values in the *compose process*
+    # environment, which is what the ${...} interpolation below reads. The
+    # container receives only what is named here.
+    environment:
+      AUTH_ENV: ${AUTH_ENV:?required}
+      AUTH_ISSUER: ${AUTH_ISSUER:?required}
+      AUTH_HTTP_ADDR: ":8080"
+      AUTH_POSTGRES_DSN: ${AUTH_POSTGRES_DSN:?required}
+      AUTH_POSTGRES_MAX_OPEN_CONNS: ${AUTH_POSTGRES_MAX_OPEN_CONNS:-25}
+      AUTH_POSTGRES_MAX_IDLE_CONNS: ${AUTH_POSTGRES_MAX_IDLE_CONNS:-5}
+      AUTH_POSTGRES_CONN_MAX_LIFETIME: ${AUTH_POSTGRES_CONN_MAX_LIFETIME:-30m}
+      AUTH_REDIS_ADDR: ${AUTH_REDIS_ADDR:-redis:6379}
+      AUTH_REDIS_PASSWORD: ${AUTH_REDIS_PASSWORD:?required}
+      AUTH_REDIS_DB: ${AUTH_REDIS_DB:-0}
+      AUTH_JWT_SIGNING_KEY_REF: ${AUTH_JWT_SIGNING_KEY_REF:?required}
+      AUTH_LOG_LEVEL: ${AUTH_LOG_LEVEL:-info}
+      AUTH_LOG_FORMAT: ${AUTH_LOG_FORMAT:-json}
+
+    volumes:
+      # Read-only, and the resolver additionally refuses any file that is
+      # group- or world-readable (P0-14).
+      - /etc/zed-auth/secrets:/etc/zed-auth/secrets:ro
+    # Not published to the host: only Caddy reaches the service, so there is no
+    # way to bypass TLS by hitting the port directly.
+    expose:
+      - "8080"
+    healthcheck:
+      # The runtime image is distroless and has no shell, so the healthcheck is
+      # the binary itself (ADR-008).
+      test: ["CMD", "/authservice", "-healthcheck"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    security_opt: [no-new-privileges:true]
+    read_only: true
+    cap_drop: [ALL]
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    logging:
+      driver: json-file
+      options: {max-size: "50m", max-file: "5"}
+    deploy:
+      resources:
+        limits: {memory: 512M}
+
+  # --- Data -----------------------------------------------------------------
+  postgres:
+    image: postgres:17.2-alpine
+    restart: always
+    # Named explicitly, for the same reason as authservice above: a container
+    # receives only the credentials it needs.
+    environment:
+      POSTGRES_DB: auth
+      POSTGRES_USER: auth_owner
+      POSTGRES_PASSWORD: ${AUTH_POSTGRES_OWNER_PASSWORD:?required}
+      POSTGRES_INITDB_ARGS: "--locale=C --encoding=UTF8"
+    command:
+      # WAL archiving is what makes point-in-time recovery possible
+      # (PLAN/15 § Backup Strategy). Without it a backup can only restore to
+      # the moment it was taken, and RPO becomes the backup interval.
+      - postgres
+      - -c
+      - wal_level=replica
+      - -c
+      - archive_mode=on
+      - -c
+      - archive_command=test ! -f /var/lib/postgresql/wal_archive/%f && cp %p /var/lib/postgresql/wal_archive/%f
+      - -c
+      - archive_timeout=300
+      - -c
+      - max_wal_senders=3
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - postgres_wal:/var/lib/postgresql/wal_archive
+      - ../postgres/init:/docker-entrypoint-initdb.d:ro
+    # Never published to the host. Reachable only from the compose network.
+    expose:
+      - "5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U auth_owner -d auth"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    security_opt: [no-new-privileges:true]
+
+  redis:
+    image: redis:7.4-alpine
+    restart: always
+    command:
+      - redis-server
+      - --requirepass
+      - ${AUTH_REDIS_PASSWORD:?required}
+      - --appendonly
+      - "yes"
+      - --maxmemory-policy
+      - noeviction
+    volumes:
+      - redis_data:/data
+    expose:
+      - "6379"
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$AUTH_REDIS_PASSWORD\" ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    environment:
+      AUTH_REDIS_PASSWORD: ${AUTH_REDIS_PASSWORD:?required}
+    security_opt: [no-new-privileges:true]
+
+volumes:
+  postgres_data:
+  postgres_wal:
+  redis_data:
+  caddy_data:
+  caddy_config:

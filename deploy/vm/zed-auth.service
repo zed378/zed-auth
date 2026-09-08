@@ -1,0 +1,36 @@
+# systemd unit for the Auth Service stack on a self-managed VM (ADR-011).
+#
+# Install:
+#   sudo cp deploy/vm/zed-auth.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now zed-auth
+#
+# Migrations are deliberately NOT run here. PLAN/14 § Release Process requires
+# them to be a separate, reviewable step before application rollout; running
+# them from the unit would make every restart a schema change.
+
+[Unit]
+Description=Zed Auth Service
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/zed-auth/deploy/vm
+EnvironmentFile=/etc/zed-auth/env
+
+ExecStart=/usr/bin/docker compose up -d --remove-orphans
+ExecStop=/usr/bin/docker compose down
+
+# Reload re-reads the compose file without a full stop, so a configuration
+# change does not drop connections unnecessarily. In-flight requests still
+# drain, because the service handles SIGTERM (P0-04).
+ExecReload=/usr/bin/docker compose up -d --remove-orphans
+
+TimeoutStartSec=300
+TimeoutStopSec=60
+
+[Install]
+WantedBy=multi-user.target
