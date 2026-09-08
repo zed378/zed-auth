@@ -171,6 +171,27 @@ The erasure approach — pseudonymize the actor reference rather than delete the
 
 ---
 
+## New Plan Gaps
+
+The original eleven were closed on 2026-09-08 by amending the plan documents. These are gaps found since, during implementation.
+
+### PG-12 — `color-border` has two jobs with different accessibility requirements
+
+**Affects**: `P0-17`, and every form and table screen in Phase 1.
+
+`UI-UX/05-DESIGN-SYSTEM.md` gives one `color-border` token for "dividers, table borders, input borders". Those are not the same requirement:
+
+- An **input's border** is the visual information that identifies a UI component, so WCAG 2.1 AA (1.4.11 Non-text Contrast) requires **3:1** against its background. `UI-UX/13` targets AA.
+- A **table divider** is decorative. At 3:1 it reads as a heavy grid, which works against `UI-UX/00`'s density principle — dense tables want a hairline, not a rule.
+
+`P0-17` set the single token to `#828d9c` (3.1:1 on base, 3.4:1 on surface), erring toward the accessible reading, because a pretty divider that makes every text input's boundary fail is the worse trade. Tables will look heavier than they should until this is resolved.
+
+**Recommendation**: split into two tokens in `UI-UX/05` — `color-border` (controls, 3:1, the current value) and `color-border-subtle` (dividers, hairline). That is a design-system change, and `UI-UX/05` § Governance requires it to happen there before a screen uses it, so it is raised rather than made.
+
+**Until then**: no screen may introduce its own lighter divider colour. That would be a raw value, the lint rule rejects it, and the rejection is correct — the fix is the token, not the exception.
+
+---
+
 ## Deferred
 
 Carried over from `PLAN/01-PRODUCT-SCOPE.md` § Out of Scope, recorded here so the deferral is visible during execution rather than only in the scope document.

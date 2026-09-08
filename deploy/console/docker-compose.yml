@@ -1,0 +1,53 @@
+# Serves a built console from the staging VM.
+#
+# A preview of the current build, not a production deployment. PLAN/06 puts the
+# console on a CDN or static host, deployed independently of the backend; this
+# is the smallest thing that behaves the same way — same nginx config, same
+# SPA fallback, same headers — so what is verified here is what ships.
+#
+# The build itself is NOT produced here. `console/dist` is built in CI or
+# locally and copied to the VM, because a Node toolchain on the VM is a
+# dependency the VM does not otherwise need.
+#
+# Usage on the VM:
+#   docker compose -f deploy/console/docker-compose.yml up -d
+
+services:
+  console:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+
+    ports:
+      # Loopback only. `cloudflared` runs as a host service and reaches
+      # 127.0.0.1 directly, so nothing else on the subnet can — the same
+      # posture as the auth service on 10800.
+      #
+      # Verify with: ss -tlnp | grep 10920 — it must show 127.0.0.1.
+      - "127.0.0.1:${AUTH_CONSOLE_PORT:-10920}:80"
+
+    volumes:
+      - ${AUTH_CONSOLE_DIST:-/home/infra/auth/console/dist}:/usr/share/nginx/html:ro
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+
+    healthcheck:
+      # `/projects` rather than `/`, deliberately: it is a route with no file
+      # behind it, so this probe fails if the SPA history fallback is ever
+      # dropped from the config. A probe on `/` would keep passing while every
+      # refresh 404s, which is exactly the bug this config exists to fix.
+      #
+      # 127.0.0.1, not `localhost`. nginx's `listen 80` binds IPv4 only, while
+      # `localhost` in this image resolves to ::1 first — so the probe gets
+      # "connection refused" from a server that is serving perfectly. The
+      # container reports unhealthy and the site works, which is a confusing
+      # half hour for whoever investigates.
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/projects"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
