@@ -90,4 +90,4 @@ Key rotations, DR drills, pentests, load tests, and production incidents — any
 
 | Date | Event | Record |
 |---|---|---|
-| — | — | — |
+| 2026-09-08 | **Backup restore verified** — staging dump restored into a throwaway database, 19 tables and every row count matching the source. Backups now run daily by timer | [P0-20](./records/2026-09-08-P0-20-backup-verification.md) |
