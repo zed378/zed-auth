@@ -288,3 +288,63 @@ func TestLoadFrom_TrustProxyHeadersIsExplicitAndDefaultsToFalse(t *testing.T) {
 		}
 	})
 }
+
+// A metrics endpoint reachable beyond loopback discloses request rates, error
+// rates and login outcomes to whoever can reach it. Allowing that bind is
+// reasonable — a scraper on another host is a real need — but allowing it
+// WITHOUT a token is the combination where one network-configuration mistake
+// exposes everything (SECURITY/02 §12).
+func TestLoadFrom_MetricsBeyondLoopbackRequiresAToken(t *testing.T) {
+	tests := []struct {
+		name    string
+		addr    string
+		token   string
+		wantErr bool
+	}{
+		{"loopback without a token is fine", "127.0.0.1:9090", "", false},
+		{"localhost without a token is fine", "localhost:9090", "", false},
+		{"ipv6 loopback without a token is fine", "[::1]:9090", "", false},
+		{"private address without a token is refused", "10.1.200.13:9090", "", true},
+		{"all interfaces without a token is refused", "0.0.0.0:9090", "", true},
+		{"empty host means all interfaces, and is refused", ":9090", "", true},
+		{"private address with a token is allowed", "10.1.200.13:9090", "file:/etc/zed-auth/secrets/metrics-token", false},
+		{"all interfaces with a token is allowed", "0.0.0.0:9090", "file:/etc/zed-auth/secrets/metrics-token", false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			m := valid()
+			m["AUTH_ADMIN_ADDR"] = tc.addr
+			if tc.token != "" {
+				m["AUTH_ADMIN_TOKEN_REF"] = tc.token
+			}
+
+			_, err := LoadFrom(env(m))
+			if tc.wantErr && err == nil {
+				t.Errorf("addr %q with token %q must be refused", tc.addr, tc.token)
+			}
+			if !tc.wantErr && err != nil {
+				t.Errorf("addr %q with token %q must be accepted, got: %v", tc.addr, tc.token, err)
+			}
+		})
+	}
+}
+
+// ":9090" looks local and is not — it binds every interface. It is the shape
+// most likely to be written by accident.
+func TestIsLoopbackAddr(t *testing.T) {
+	for addr, want := range map[string]bool{
+		"127.0.0.1:9090": true,
+		"localhost:9090": true,
+		"[::1]:9090":     true,
+		"0.0.0.0:9090":   false,
+		":9090":          false,
+		"10.1.200.13:90": false,
+		"example.com:90": false,
+		"garbage":        false,
+	} {
+		if got := isLoopbackAddr(addr); got != want {
+			t.Errorf("isLoopbackAddr(%q) = %v, want %v", addr, got, want)
+		}
+	}
+}

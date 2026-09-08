@@ -53,9 +53,16 @@ sudo ufw enable
 
 ```bash
 sudo git clone https://github.com/zed378/zed-auth.git /opt/zed-auth
-sudo mkdir -p /etc/zed-auth/secrets
-sudo chmod 700 /etc/zed-auth/secrets
+sudo /opt/zed-auth/deploy/vm/secrets.sh fix
 ```
+
+`secrets.sh fix` creates `/etc/zed-auth/secrets` owned by **uid 65532**, not by you. That ownership is load-bearing, and getting it wrong is not a subtle failure — the service will not boot.
+
+The runtime image is distroless `:nonroot`, so the process runs as uid 65532. The secrets directory is a bind mount, so the host's ownership is what the container sees. A directory that is mode 700 and owned by the operator cannot even be *traversed* by the service, and the failure reads as `stat /etc/zed-auth/secrets/<file>: permission denied` on a file that plainly exists and plainly has the right mode.
+
+The repair that first comes to mind — make the file group-readable — is refused by the secret resolver (`P0-14`), correctly. That leaves exactly one shape: directory and contents owned by the service's uid, `0700` and `0400`. You are not the service; read these files with `sudo /opt/zed-auth/deploy/vm/secrets.sh show <name>`.
+
+Run `secrets.sh fix` again after adding any file by hand. It is idempotent.
 
 ### 3. Signing keys
 
@@ -64,10 +71,10 @@ Generate them **on this machine**. `PLAN/02` § Constraints: no third party hold
 ```bash
 sudo openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 \
   -out /etc/zed-auth/secrets/jwt-signing-current.pem
-sudo chmod 400 /etc/zed-auth/secrets/jwt-signing-current.pem
+sudo /opt/zed-auth/deploy/vm/secrets.sh fix
 ```
 
-The resolver refuses a key file that is group- or world-readable (`P0-14`), so a wrong mode here fails at startup rather than silently.
+The resolver refuses a key file that is group- or world-readable (`P0-14`), so a wrong mode here fails at startup rather than silently. `secrets.sh fix` sets both the mode and the ownership; `chmod` alone leaves the file unreadable to the service.
 
 **Staging and production must have different keys.** `deploy.sh` fingerprints them and refuses to start if two environments share a key — a shared key means a staging token is valid in production.
 
@@ -80,6 +87,18 @@ sudo "$EDITOR" /etc/zed-auth/env      # replace every REPLACE_ME
 ```
 
 Generate passwords with `openssl rand -base64 32`. Do not reuse one between `auth_owner` and `auth_app`: the whole point of the split is that compromising the service does not yield owner access.
+
+### 4b. Metrics scrape token
+
+Required whenever `AUTH_ADMIN_ADDR` is not loopback — which includes this compose deployment, because the bind is `0.0.0.0` *inside* the container even though the host publishes the port to `127.0.0.1` only. The service cannot see the host's port mapping and correctly declines to assume it.
+
+```bash
+sudo /opt/zed-auth/deploy/vm/secrets.sh metrics-token
+echo 'AUTH_ADMIN_TOKEN_REF=file:/etc/zed-auth/secrets/metrics-token' \
+  | sudo tee -a /etc/zed-auth/env
+```
+
+Prometheus sends it as a bearer token. A request without it gets a bare `404` rather than a `401`: the endpoint does not confirm it exists to anyone probing for it.
 
 ### 5. Start
 
