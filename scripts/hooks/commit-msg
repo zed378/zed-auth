@@ -1,0 +1,57 @@
+#!/bin/sh
+#
+# Rejects a commit subject that does not begin with a valid task ID from TASKS/.
+#
+# Rationale: TASKS/00-TASK-CONVENTIONS.md makes the task ID the join key across
+# branch names, commits, PRs, MEMORY records, and PROGRESS.md. A commit without
+# one breaks that chain, and the chain is the whole point of the audit trail.
+#
+# Install: scripts/install-hooks.sh   (or: git config core.hooksPath scripts/hooks)
+# Bypass:  git commit --no-verify     (only for a genuine emergency; say so in the PR)
+
+msg_file="$1"
+subject=$(head -n 1 "$msg_file")
+
+# Allow git's own generated messages through — merges, reverts, fixups, and squashes
+# are mechanical and carry the original subject underneath.
+case "$subject" in
+  "Merge "*|"Revert "*|"fixup!"*|"squash!"*|"amend!"*)
+    exit 0
+    ;;
+esac
+
+# Valid task IDs: P0-01 … P5-16, P4B-00 … P4B-10, PF-01 … PF-53, plus sub-tasks like P1-19.4.
+# Accepted subject shapes:
+#   P1-07: implement POST /oauth/token
+#   feat(P1-07): implement POST /oauth/token
+pattern='^(([a-z]+)(\([^)]*\))?: *)?(P[0-9]B?-[0-9]+(\.[0-9]+)?|P4B-[0-9]+|PF-[0-9]+)[:( ]'
+
+if printf '%s' "$subject" | grep -Eq "$pattern"; then
+  exit 0
+fi
+
+# Also accept the conventional-commit form with the task ID inside the scope.
+if printf '%s' "$subject" | grep -Eq '^[a-z]+\((P[0-9]B?-[0-9]+(\.[0-9]+)?|P4B-[0-9]+|PF-[0-9]+)\): '; then
+  exit 0
+fi
+
+cat >&2 <<'EOF'
+
+  Commit rejected: the subject must start with a task ID from TASKS/.
+
+  Accepted forms:
+      P1-07: implement POST /oauth/token
+      feat(P1-07): implement POST /oauth/token
+      chore(P0-13): pin CI actions by SHA
+
+  Valid IDs are P0-01 … P5-16, P4B-00 … P4B-10, and PF-01 … PF-53.
+  Sub-tasks such as P1-19.4 are accepted.
+
+  Why: TASKS/00-TASK-CONVENTIONS.md uses the task ID as the join key across
+  branches, commits, PRs, MEMORY records, and PROGRESS.md. Without it there is
+  no trail from a line of code back to the plan document that required it.
+
+  If the work does not correspond to a task, it probably needs one first.
+
+EOF
+exit 1

@@ -1,0 +1,53 @@
+# --- Secrets: never commit these (SECURITY/02 §16 Secret Exposure) ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+secrets/
+
+# --- Go ---
+/backend/bin/
+/backend/dist/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+coverage.out
+coverage.html
+
+# --- Node / frontend ---
+node_modules/
+.pnp
+.pnp.js
+dist/
+build/
+.next/
+out/
+.astro/
+.docusaurus/
+.cache/
+*.tsbuildinfo
+
+# --- Test / tooling output ---
+/console/playwright-report/
+/console/test-results/
+/console/blob-report/
+/console/.nyc_output/
+/console/storybook-static/
+
+# --- Editors / OS ---
+.DS_Store
+Thumbs.db
+.idea/
+*.swp
+*.swo
+
+# --- Local infrastructure state ---
+/deploy/.volumes/
+/deploy/*.local.yml
