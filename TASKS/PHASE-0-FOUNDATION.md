@@ -230,24 +230,30 @@
 **Goal** — The complete entity model from `PLAN/04` exists in Postgres, multi-tenant-ready from day one even though the MVP runs with a single default organization.
 
 **Steps**
-1. Create tables in dependency order: `instances` → `organizations` → `users`, `projects` → `applications`, `roles` → `user_grants`, `project_grants`, `manager_roles`, `sessions`, `refresh_tokens`, `events`.
-2. Add the ABAC tables (`user_attributes`, `policies`) now **only if** doing so costs nothing; otherwise defer them to `P4B-01`. Record the choice in the MEMORY record either way — `PLAN/00`'s stated principle is not to over-engineer ahead of need.
-3. Enforce the constraints the plan states rather than implies:
+1. Create tables in dependency order: `instances` → `organizations` → `users`, `projects` → `applications`, `roles` → `user_grants`, `project_grants`, `manager_roles`, `sessions`, `refresh_tokens`, `signing_keys`, `user_tokens`, `events`.
+2. Later-phase tables may be created now or deferred to the phase that uses them — `user_mfa_factors` and `user_recovery_codes` (Phase 3), `user_identities`, `webhook_endpoints`, `webhook_deliveries` (Phase 4), `user_attributes` and `policies` (Phase 4b). Defer by default, per `PLAN/00`'s principle of not over-engineering ahead of need; create early only where doing so costs nothing. Record the choice in the MEMORY record either way.
+3. `signing_keys` and `user_tokens` are **not** deferrable — `P1-03` and `P1-19` both need them inside Phase 1.
+4. Include the columns Phase 3 depends on but Phase 1 does not use: `refresh_tokens.family_id` and `replaced_by` (`PLAN/04`). The storage shape must not need changing when rotation arrives.
+5. Partition `events` by month on `created_at` from the start (`PLAN/04` § Retention and Growth) — retrofitting partitioning onto a large table is far more disruptive than starting with it.
+6. Enforce the constraints the plan states rather than implies:
    - `users.email` unique **per org**, not globally (`PLAN/04`) — a composite unique index on `(org_id, lower(email))`.
    - `users.username` unique per org where present.
    - `users.password_hash` nullable, because social and passwordless users legitimately have none.
    - `applications.client_secret_hash` nullable for public clients (SPA/native), which must use PKCE.
    - `project_grants.status` and `users.status` as real enums or check constraints, never free text.
-4. Put `org_id` on every tenant-scoped table, even where it is derivable through a join — RLS in `P0-08` needs it directly, and a misscoped query is exactly the failure mode `PLAN/08` Part B guards against.
-5. Index for the access patterns the plan already anticipates: login lookup by `(org_id, email)`, session lookup by id, `user_grants` by `(user_id, project_id)`, `events` by `(org_id, created_at DESC)` and by `event_type`.
-6. Make `events` append-only at the database level: revoke `UPDATE` and `DELETE` from the application role (`SECURITY/02` §19 Logging / Audit Integrity).
-7. Store `refresh_tokens.token_hash` only — the raw token is never persisted (`PLAN/04`'s explicit note).
+   - `user_identities` unique on `(provider, provider_subject)` — matching is never on email (`PLAN/04`).
+   - `roles` unique on `(project_id, key)`.
+7. Put `org_id` on every tenant-scoped table, even where it is derivable through a join — RLS in `P0-08` needs it directly, and a misscoped query is exactly the failure mode `PLAN/08` Part B guards against. This now includes `sessions.org_id` (`PLAN/04`).
+8. Index for the access patterns the plan already anticipates: login lookup by `(org_id, email)`, session lookup by id, `user_grants` by `(user_id, project_id)`, `events` by `(org_id, created_at DESC)` and by `event_type`, `signing_keys` by `kid` and by `status`, `user_tokens` by `token_hash`.
+9. Make `events` append-only at the database level: revoke `UPDATE` and `DELETE` from the application role (`SECURITY/02` §19 Logging / Audit Integrity).
+10. Store only hashes where the plan says so: `refresh_tokens.token_hash`, `user_tokens.token_hash`, `user_recovery_codes.code_hash`, `applications.client_secret_hash`, `webhook_endpoints.secret_hash`. `signing_keys.private_key_ref` holds a secret-manager reference, never key material.
 
 **Definition of Done**
-- [ ] Every table and column in `PLAN/04-DATA-MODEL.md` exists with the stated nullability and types.
+- [ ] Every Phase 1 table and column in `PLAN/04-DATA-MODEL.md` exists with the stated nullability and types; every deferred table is named in the MEMORY record with the phase that will create it.
 - [ ] The application database role cannot `UPDATE` or `DELETE` rows in `events`, verified by an integration test that attempts it and expects failure.
+- [ ] `events` is month-partitioned and a partition can be dropped without touching the rest of the table.
 - [ ] Two users with the same email in *different* organizations can both be created; two in the same organization cannot.
-- [ ] No table storing a credential stores it in a reversible form.
+- [ ] No table storing a credential stores it in a reversible form, verified by inspecting every column listed in step 10.
 - [ ] An ERD generated from the live schema matches the diagram in `PLAN/04`.
 
 **Abuse cases to test**

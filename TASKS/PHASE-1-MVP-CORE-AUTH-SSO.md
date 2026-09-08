@@ -121,7 +121,7 @@
 3. Support **multiple simultaneously-active keys**, each with a stable `kid`, in three states: `next` (published, not yet signing), `current` (signing), `previous` (still verifying, no longer signing).
 4. Publish all non-retired public keys at the JWKS endpoint, so a token signed just before rotation still verifies afterward (`PLAN/09`'s overlap period).
 5. Implement rotation as an explicit operational command, not an automatic timer, for the first release — a scheduled rotation that fails at 3am is worse than a deliberate one during business hours. Note the 90-day cadence from `PLAN/09` as the operational expectation.
-6. Handle the rollback case `PLAN/14` calls out: rolling the application back must not invalidate tokens signed by a newer key, so key state lives in the database, not in the binary.
+6. Handle the rollback case `PLAN/14` calls out: rolling the application back must not invalidate tokens signed by a newer key, so key state lives in the `signing_keys` table (`PLAN/04`), not in the binary or its configuration.
 7. Add a cache with a bounded TTL for the key set, and ensure a newly-added key is picked up by all instances within that TTL.
 8. Write the rotation runbook: pre-checks, the command, verification steps, and rollback.
 
@@ -223,7 +223,7 @@
 5. If no session, store the pending authorization request server-side keyed by an opaque identifier, redirect to the hosted login page, and resume exactly where it left off after successful authentication.
 6. Honor `prompt=none` (return `login_required` rather than showing UI) and `prompt=login` (force re-authentication even with a session), since consumer SPAs rely on both for silent token renewal.
 7. Issue a single-use authorization code with a short lifetime (60 seconds or less), bound to the client, redirect URI, session, and `code_challenge`.
-8. Store the code in Redis with an automatic expiry, so an unredeemed code cannot linger.
+8. Store the code and its `code_challenge` in Redis with a sub-60-second TTL, per `PLAN/04` § What Is Deliberately Not Stored Here, so an unredeemed code cannot linger.
 9. Emit metrics distinguishing the silent-SSO path from the login-required path, since `PLAN/12` sets a separate latency target for the former.
 
 **Definition of Done**
@@ -663,7 +663,7 @@
 **Steps**
 1. Enforce per-organization email uniqueness (`P0-07`'s composite index), returning a clear conflict error.
 2. Never accept a password hash from the client, and never return one.
-3. Make invite and reset tokens single-use with a short expiry, stored hashed, and invalidated once used.
+3. Make invite and reset tokens single-use with a short expiry, stored hashed in `user_tokens` with the appropriate `purpose` (`PLAN/04`), and invalidated once used.
 4. Rate-limit invite sending and password-reset requests — both are email-amplification vectors (`SECURITY/02` §10).
 5. Deactivation must immediately terminate the user's sessions and revoke their refresh tokens; a deactivated user who can still act is not deactivated.
 6. Audit every user lifecycle event.

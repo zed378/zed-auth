@@ -22,7 +22,7 @@ Guiding principle: **don't reinvent cryptography/OAuth protocols from scratch** 
 | Need | Choice | Reason |
 |---|---|---|
 | Primary store | **PostgreSQL** | ACID, JSONB for flexible data (custom claims, metadata), mature for multi-tenancy |
-| Cache & session | **Redis** | Fast session lookups, good fit for rate limiting & token blacklisting |
+| Cache & session | **Redis** | Fast session lookups, good fit for rate limiting, short-lived authorization codes, and token blacklisting. Redis is a **cache in front of PostgreSQL for sessions, not a second source of truth** — see the storage note under `sessions` in `04-DATA-MODEL.md` |
 | Audit log / event store | Append-only `events` table in PostgreSQL to start; evaluate a separate event store later if volume grows | Simpler than full event sourcing to begin with |
 
 ## Cryptography

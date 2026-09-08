@@ -10,7 +10,7 @@ This document covers both the **OIDC/OAuth2 authentication endpoints** and the *
 |---|---|---|
 | **OAuth 2.1 / OIDC** | Login & authorization for web/mobile/SPA | Mandatory, Phase 1 |
 | **PKCE** | Mandatory for all clients (not just public clients) | Mandatory, Phase 1 |
-| **SAML 2.0** | Compatibility with enterprise/legacy applications | Phase 2 |
+| **SAML 2.0** | Compatibility with enterprise/legacy applications | Phase 4 |
 | **SCIM** | Automated user provisioning from an external IdP | Phase 4 (optional) |
 
 ### Supported Grant Types

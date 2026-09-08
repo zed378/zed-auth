@@ -47,7 +47,7 @@
 **Goal** — Roles scoped to a project, each carrying permission keys, exactly as `PLAN/08` Part A specifies: "admin" in Project A must never imply "admin" in Project B.
 
 **Steps**
-1. Implement the `roles` entity with `project_id`, `key`, and `display_name`, unique on `(project_id, key)`.
+1. Implement the `roles` entity per `PLAN/04`: `project_id`, `key`, `display_name`, `permission_keys text[]`, and `is_builtin`, unique on `(project_id, key)`.
 2. Define the permission key format as `resource:action` (`PLAN/08`'s example: `user:read`, `billing:write`), validated by a regex that is documented and shared with the console's form validation (`PLAN/11` names role key format as a unit-test target).
 3. Distinguish built-in roles (`org_owner`, `org_admin` per `PLAN/08`) from custom roles created by an organization admin. Built-in roles are not deletable and not renamable.
 4. Prevent role key collisions with reserved names.
