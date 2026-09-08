@@ -49,7 +49,7 @@
 
 | | |
 |---|---|
-| **Status** | TODO |
+| **Status** | DONE — [record](../MEMORY/records/2026-09-08-P1-01-password-hashing.md), [spec](../MEMORY/specs/P1-01-password-hashing.md) |
 | **Depends on** | P0-15 |
 | **Plan refs** | `PLAN/09-SECURITY.md` § Passwords & Credentials, `PLAN/07-BACKEND-ARCHITECTURE.md` § Cryptography, `PLAN/11-TESTING.md` § Unit Testing |
 | **Spec required** | Yes — authentication |
@@ -66,11 +66,11 @@
 6. Add a benchmark test so the parameter choice is a measured decision and can be re-measured on new hardware.
 
 **Definition of Done**
-- [ ] Hashing and verification are covered by unit tests, including wrong-password, malformed-hash, and empty-input cases.
-- [ ] Verification against a nonexistent user takes comparable time to a real user, verified by a timing test with a defined tolerance.
-- [ ] Rehash-on-login is exercised by a test that starts from a deliberately weak stored hash.
-- [ ] A benchmark records the chosen parameters and their measured cost; the numbers are in the MEMORY record.
-- [ ] No log line, error message, or panic can carry the plaintext password (`PLAN/09`: never log passwords, even failed attempts).
+- [x] Hashing and verification are covered by unit tests, including wrong-password, malformed-hash, and empty-input cases. 18 malformed-hash cases; none panics, none matches. 95.9% coverage.
+- [x] Verification against a nonexistent user takes comparable time to a real user, verified by a timing test with a defined tolerance. Ratio 0.88, tolerance 0.5–2.0 — and the test fails at 0.00 when the path is short-circuited, which is how we know it measures something.
+- [x] Rehash-on-login is exercised by a test that starts from a deliberately weak stored hash. Plus its inverse: a hash *stronger* than current is never flagged, so lowering parameters cannot silently downgrade every password that logs in.
+- [x] A benchmark records the chosen parameters and their measured cost; the numbers are in the MEMORY record. 90ms/hash on the staging VM, 63ms on a laptop, 67 MB per operation.
+- [x] No log line, error message, or panic can carry the plaintext password. The package logs nothing at all — it is a pure function and the caller owns the audit event — and a test asserts no error string contains the password or a prefix of it.
 
 ---
 
