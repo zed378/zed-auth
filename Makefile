@@ -81,7 +81,11 @@ fmt-check: ## Fail if Go source is not formatted
 # --- quality gates ----------------------------------------------------------
 
 .PHONY: check
-check: fmt-check vet test ## Run every fast local gate
+check: fmt-check vet test ## Run the fast local gates (format, vet, unit tests)
+
+.PHONY: check-all
+check-all: ## Run every gate CI runs — integration, security scans, shell, compose
+	sh scripts/check.sh
 
 .PHONY: hooks
 hooks: ## Install the repository's git hooks
