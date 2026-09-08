@@ -1,0 +1,244 @@
+package config
+
+import (
+	"strings"
+	"testing"
+	"time"
+)
+
+// env builds a Getenv from a map, so tests never mutate process state.
+func env(m map[string]string) Getenv {
+	return func(k string) string { return m[k] }
+}
+
+// valid returns the minimum environment that must produce a usable Config.
+func valid() map[string]string {
+	return map[string]string{
+		"AUTH_ISSUER":       "https://auth.example.com",
+		"AUTH_POSTGRES_DSN": "postgres://user:pass@localhost:5432/auth?sslmode=disable",
+		"AUTH_REDIS_ADDR":   "localhost:6379",
+	}
+}
+
+func TestLoadFrom_MinimalValidEnvironment(t *testing.T) {
+	cfg, err := LoadFrom(env(valid()))
+	if err != nil {
+		t.Fatalf("expected valid config, got error: %v", err)
+	}
+
+	if cfg.Environment != EnvLocal {
+		t.Errorf("Environment: want %q (the default), got %q", EnvLocal, cfg.Environment)
+	}
+	if cfg.HTTP.Addr != ":8080" {
+		t.Errorf("HTTP.Addr: want default %q, got %q", ":8080", cfg.HTTP.Addr)
+	}
+	if cfg.HTTP.ShutdownTimeout != 20*time.Second {
+		t.Errorf("HTTP.ShutdownTimeout: want default 20s, got %v", cfg.HTTP.ShutdownTimeout)
+	}
+	if cfg.Log.Format != "json" {
+		t.Errorf("Log.Format: want default %q, got %q", "json", cfg.Log.Format)
+	}
+}
+
+// The core P0-04 requirement: a missing required value fails at startup with a
+// message naming the variable — never with a nil dereference at first use.
+func TestLoadFrom_MissingRequiredValuesAreNamed(t *testing.T) {
+	for _, key := range []string{"AUTH_ISSUER", "AUTH_POSTGRES_DSN", "AUTH_REDIS_ADDR"} {
+		t.Run(key, func(t *testing.T) {
+			m := valid()
+			delete(m, key)
+
+			cfg, err := LoadFrom(env(m))
+			if err == nil {
+				t.Fatalf("expected an error when %s is unset, got a usable config: %+v", key, cfg)
+			}
+			if cfg != nil {
+				t.Errorf("expected a nil config alongside the error, got %+v", cfg)
+			}
+			if !strings.Contains(err.Error(), key) {
+				t.Errorf("error must name the missing variable %q, got: %v", key, err)
+			}
+		})
+	}
+}
+
+func TestLoadFrom_BlankRequiredValueIsTreatedAsMissing(t *testing.T) {
+	m := valid()
+	m["AUTH_ISSUER"] = "   "
+
+	if _, err := LoadFrom(env(m)); err == nil {
+		t.Fatal("a whitespace-only required value must be rejected, not accepted as set")
+	}
+}
+
+// All problems are reported at once. Fixing configuration one error per restart
+// is needless friction when the whole environment can be checked in one pass.
+func TestLoadFrom_ReportsEveryProblemAtOnce(t *testing.T) {
+	_, err := LoadFrom(env(map[string]string{}))
+	if err == nil {
+		t.Fatal("expected an error for an entirely empty environment")
+	}
+
+	var le *LoadError
+	if !asLoadError(err, &le) {
+		t.Fatalf("expected *LoadError, got %T", err)
+	}
+	if len(le.Problems) < 3 {
+		t.Errorf("expected at least 3 problems (issuer, dsn, redis), got %d: %v", len(le.Problems), le.Problems)
+	}
+}
+
+func TestEnvironment_Validation(t *testing.T) {
+	tests := []struct {
+		value string
+		valid bool
+	}{
+		{"local", true},
+		{"staging", true},
+		{"production", true},
+		{"prod", false},
+		{"dev", false},
+		{"", false}, // empty falls back to local, so this is exercised via the default
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.value, func(t *testing.T) {
+			if got := Environment(tc.value).Valid(); got != tc.valid {
+				t.Errorf("Environment(%q).Valid(): want %v, got %v", tc.value, tc.valid, got)
+			}
+		})
+	}
+}
+
+// PLAN/09-SECURITY.md: TLS is mandatory everywhere with no HTTP fallback. The
+// issuer is what consumer applications actually call, so a plaintext issuer
+// outside local development publishes an insecure endpoint to every client.
+func TestLoadFrom_IssuerMustUseHTTPSOutsideLocal(t *testing.T) {
+	tests := []struct {
+		name    string
+		envName string
+		issuer  string
+		wantErr bool
+	}{
+		{"https in production", "production", "https://auth.example.com", false},
+		{"http in production", "production", "http://auth.example.com", true},
+		{"http in staging", "staging", "http://auth.example.com", true},
+		{"http in local is allowed", "local", "http://localhost:8080", false},
+		{"not a URL", "local", "auth.example.com", true},
+		{"trailing slash", "local", "http://localhost:8080/", true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			m := valid()
+			m["AUTH_ENV"] = tc.envName
+			m["AUTH_ISSUER"] = tc.issuer
+
+			_, err := LoadFrom(env(m))
+			if tc.wantErr && err == nil {
+				t.Errorf("issuer %q in %s must be rejected", tc.issuer, tc.envName)
+			}
+			if !tc.wantErr && err != nil {
+				t.Errorf("issuer %q in %s must be accepted, got: %v", tc.issuer, tc.envName, err)
+			}
+		})
+	}
+}
+
+// Debug logging across an identity provider is exactly where sensitive values
+// leak into logs despite redaction (PLAN/13-OBSERVABILITY.md).
+func TestLoadFrom_ProductionRefusesUnsafeLogging(t *testing.T) {
+	t.Run("debug level", func(t *testing.T) {
+		m := valid()
+		m["AUTH_ENV"] = "production"
+		m["AUTH_LOG_LEVEL"] = "debug"
+
+		if _, err := LoadFrom(env(m)); err == nil {
+			t.Error("production must refuse debug logging")
+		}
+	})
+
+	t.Run("text format", func(t *testing.T) {
+		m := valid()
+		m["AUTH_ENV"] = "production"
+		m["AUTH_LOG_FORMAT"] = "text"
+
+		if _, err := LoadFrom(env(m)); err == nil {
+			t.Error("production must require json log format")
+		}
+	})
+
+	t.Run("debug is allowed locally", func(t *testing.T) {
+		m := valid()
+		m["AUTH_LOG_LEVEL"] = "debug"
+
+		if _, err := LoadFrom(env(m)); err != nil {
+			t.Errorf("debug logging must be allowed locally, got: %v", err)
+		}
+	})
+}
+
+func TestLoadFrom_MalformedValuesAreRejected(t *testing.T) {
+	tests := []struct {
+		name string
+		key  string
+		val  string
+	}{
+		{"non-duration timeout", "AUTH_HTTP_READ_TIMEOUT", "thirty seconds"},
+		{"negative duration", "AUTH_HTTP_READ_TIMEOUT", "-5s"},
+		{"zero duration", "AUTH_HTTP_SHUTDOWN_TIMEOUT", "0s"},
+		{"non-integer pool size", "AUTH_POSTGRES_MAX_OPEN_CONNS", "many"},
+		{"zero pool size", "AUTH_POSTGRES_MAX_OPEN_CONNS", "0"},
+		{"negative redis db", "AUTH_REDIS_DB", "-1"},
+		{"unknown log level", "AUTH_LOG_LEVEL", "verbose"},
+		{"unknown log format", "AUTH_LOG_FORMAT", "xml"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			m := valid()
+			m[tc.key] = tc.val
+
+			if _, err := LoadFrom(env(m)); err == nil {
+				t.Errorf("%s=%q must be rejected", tc.key, tc.val)
+			}
+		})
+	}
+}
+
+// An idle pool larger than the open pool is a misconfiguration the database
+// driver will silently clamp — better to say so at startup.
+func TestLoadFrom_IdleConnectionsCannotExceedOpenConnections(t *testing.T) {
+	m := valid()
+	m["AUTH_POSTGRES_MAX_OPEN_CONNS"] = "5"
+	m["AUTH_POSTGRES_MAX_IDLE_CONNS"] = "10"
+
+	_, err := LoadFrom(env(m))
+	if err == nil {
+		t.Fatal("idle connections exceeding open connections must be rejected")
+	}
+	if !strings.Contains(err.Error(), "MAX_IDLE_CONNS") {
+		t.Errorf("error should name the offending variable, got: %v", err)
+	}
+}
+
+// The error message is what an operator reads at 3am. It must list the problems.
+func TestLoadError_MessageListsEveryProblem(t *testing.T) {
+	e := &LoadError{Problems: []string{"first problem", "second problem"}}
+	msg := e.Error()
+
+	if !strings.Contains(msg, "first problem") || !strings.Contains(msg, "second problem") {
+		t.Errorf("error message must contain every problem, got: %s", msg)
+	}
+	if !strings.Contains(msg, "2 problem(s)") {
+		t.Errorf("error message should state the problem count, got: %s", msg)
+	}
+}
+
+func asLoadError(err error, target **LoadError) bool {
+	le, ok := err.(*LoadError)
+	if ok {
+		*target = le
+	}
+	return ok
+}
