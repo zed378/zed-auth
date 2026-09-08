@@ -21,6 +21,11 @@
 //	                                                         TestUnfilteredQueryCannotSeeAnotherTenant
 //	The runtime role cannot bypass RLS ..................... TestRuntimeRoleCannotBypassRLS
 //	The audit log is append-only .......................... TestAuditLogCannotBeAltered
+//	User enumeration by login timing ...................... internal/authn:
+//	                                                         TestNonexistentUserCostsTheSameAsARealOne
+//	                                                         (lives there because it needs the package's
+//	                                                          own cost parameters; verified to fail when
+//	                                                          the not-found path short-circuits)
 //
 //	Not yet testable — the feature does not exist:
 //	  Token with wrong `aud` rejected ...................... P1-07
