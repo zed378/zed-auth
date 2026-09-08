@@ -179,6 +179,31 @@ for h in scripts/hooks/*; do
 done
 if [ -z "$nonexec" ]; then pass "git hooks are executable"; else fail "non-executable hooks:$nonexec"; fi
 
+# The mode recorded in the INDEX, not the one on this filesystem.
+#
+# These are different things and the difference bit us. On Windows, git does
+# not track the executable bit unless core.fileMode is set, so `chmod +x`
+# locally never reaches the repository — every script was committed 100644
+# while being executable in the working tree. The check above passed happily.
+#
+# It surfaced when the VM deployment moved to `git clone`: a fresh checkout got
+# files nothing could run, and `secrets.sh` failed with "command not found" at
+# the moment it was needed to regenerate a signing key.
+#
+# A clone gets the index mode. That is what has to be right.
+non_exec_in_index=$(git ls-files -s -- \
+    'scripts/*.sh' 'scripts/hooks/*' 'scripts/*.py' \
+    'deploy/**/*.sh' 'public-site/scripts/*.mjs' 2>/dev/null \
+  | awk '$1 == "100644" { print $4 }')
+
+if [ -z "$non_exec_in_index" ]; then
+  pass "scripts are executable in the git index (what a clone gets)"
+else
+  fail "scripts committed without the executable bit — a fresh clone cannot run them"
+  echo "$non_exec_in_index" | sed 's/^/      /'
+  echo "      Fix: git update-index --chmod=+x <file>"
+fi
+
 # The hook is only a control if it actually rejects. Verify rather than assume.
 if printf 'no task id here\n' > /tmp/_msgcheck && ! sh scripts/hooks/commit-msg /tmp/_msgcheck >/dev/null 2>&1 \
    && printf 'P0-01: valid\n' > /tmp/_msgcheck && sh scripts/hooks/commit-msg /tmp/_msgcheck >/dev/null 2>&1; then
