@@ -247,11 +247,24 @@ else
     pass "no raw request material in log calls"
   fi
 
-  # Test fixtures assemble PEM markers at runtime so this stays true; any
-  # literal block is therefore a real finding, not a known exception.
-  if grep -rn --exclude-dir=.git --exclude='pre-commit' --exclude='check.sh' \
-       -- '-----BEGIN [A-Z ]*PRIVATE KEY-----' . >/dev/null 2>&1; then
+  # Tracked files only, via `git ls-files`.
+  #
+  # This walked the whole working tree until it started reporting three files
+  # inside public-site/node_modules — a certificate library's own fixtures,
+  # gitignored, and not committed by any definition. The check's own message
+  # says "committed", so scanning untracked files was reporting something it
+  # was not asking about, and a security check that cries wolf the first time
+  # someone installs dependencies in a new directory is a check that gets
+  # commented out.
+  #
+  # Repository test fixtures assemble PEM markers at runtime so this stays
+  # true; any literal block in a tracked file is a real finding.
+  if git ls-files -z \
+       | xargs -0 grep -ln -- '-----BEGIN [A-Z ]*PRIVATE KEY-----' 2>/dev/null \
+       | grep -v 'pre-commit\|check.sh' >/dev/null 2>&1; then
     fail "a PEM private key block is committed"
+    git ls-files -z | xargs -0 grep -ln -- '-----BEGIN [A-Z ]*PRIVATE KEY-----' 2>/dev/null \
+      | grep -v 'pre-commit\|check.sh' | sed 's/^/      /'
   else
     pass "no PEM private key blocks"
   fi
@@ -369,6 +382,75 @@ else
 
   cp "$client_before" console/src/lib/api/schema.gen.ts
   rm -f "$client_before"
+fi
+
+# --- Public site ------------------------------------------------------------
+#
+# Separate from the console's section on purpose: PLAN/20 § Why a Separate
+# Surface requires these to be independent projects, and running them as one
+# gate would quietly couple what the plan says to keep apart.
+#
+# The Docusaurus build is slow, so it runs only when the site's own sources
+# changed. The three cheap checks always run.
+
+section "Public site"
+
+if [ ! -d public-site/node_modules ]; then
+  skip "public site checks" "run: cd public-site && npm install"
+else
+  if (cd public-site && npm run --silent check:tokens >/dev/null 2>&1); then
+    pass "brand tokens match the console"
+  else
+    fail "brand tokens have drifted from the console"
+    (cd public-site && npm run --silent check:tokens 2>&1 | tail -12)
+  fi
+
+  if (cd public-site && npm run --silent check:contrast >/dev/null 2>&1); then
+    pass "public site contrast meets AA in both themes"
+  else
+    fail "public site contrast"
+    (cd public-site && npm run --silent check:contrast 2>&1 | tail -15)
+  fi
+
+  if (cd public-site && npm run --silent check:boundary >/dev/null 2>&1); then
+    pass "no code shared between the public site and the console"
+  else
+    fail "the public site is reaching into the console"
+    (cd public-site && npm run --silent check:boundary 2>&1 | tail -12)
+  fi
+
+  # The generated API reference, same discipline as the backend interface and
+  # the console client: committed, and CI fails if it is stale.
+  api_before=$(mktemp -d)
+  cp -r public-site/docs/api-reference/. "$api_before/" 2>/dev/null || true
+
+  if (cd public-site && npm run --silent api:generate >/dev/null 2>&1); then
+    if diff -r -q "$api_before" public-site/docs/api-reference >/dev/null 2>&1; then
+      pass "generated API reference matches the spec"
+    else
+      fail "generated API reference is stale — run: cd public-site && npm run api:generate"
+    fi
+  else
+    fail "API reference generation failed"
+  fi
+
+  rm -rf public-site/docs/api-reference
+  mkdir -p public-site/docs/api-reference
+  cp -r "$api_before/." public-site/docs/api-reference/ 2>/dev/null || true
+  rm -rf "$api_before"
+
+  # The full build is opt-in locally: it takes about half a minute and CI runs
+  # it on every push regardless.
+  if [ "${CHECK_FULL:-0}" = "1" ]; then
+    if (cd public-site && npm run --silent build >/dev/null 2>&1); then
+      pass "public site builds (no broken links)"
+    else
+      fail "public site build"
+      (cd public-site && npm run --silent build 2>&1 | tail -25)
+    fi
+  else
+    skip "public site build" "slow; set CHECK_FULL=1 to include"
+  fi
 fi
 
 # --- Deployment config ------------------------------------------------------

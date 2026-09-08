@@ -49,9 +49,9 @@ Sizes: `S` under half a day · `M` one to two days · `L` several days · `XL` m
 | P0-13 | CI pipeline | M | **DONE** | P0-04 |
 | P0-14 | Secrets and configuration conventions | S | **DONE** | P0-04 |
 | P0-15 | Test harness | M | TODO | P0-05, P0-16 |
-| P0-16 | OpenAPI spec skeleton and client generation | M | **WIP** — contract, Go generation, console client and CI gates done; step 4 (the public site's API reference) waits on `P0-18` | P0-13 |
+| P0-16 | OpenAPI spec skeleton and client generation | M | **DONE** — one spec generates the backend's server interface, the console's client and the public API reference | P0-13 |
 | P0-17 | Console skeleton with design tokens | L | **DONE** | P0-02, P0-16 |
-| P0-18 | Public site skeleton | L | TODO | P0-02 |
+| P0-18 | Public site skeleton | L | **DONE** | P0-02 |
 | P0-19 | Landing, About, docs skeleton content | M | TODO | P0-18 |
 | P0-20 | Staging environment provisioning | L | **DONE** | P0-13 |
 | P0-21 | Adopt the TASKS/MEMORY working discipline | S | **DONE** | — |
@@ -323,6 +323,9 @@ Things that are easy to get wrong once and expensive to fix later. Re-check each
 | `SECURITY DEFINER` functions | Two exist for partition maintenance. Their `search_path` is pinned; unpinning it would let a caller have the owner execute their code | `P0-12` |
 | Go toolchain patch level | `govulncheck` found six stdlib vulnerabilities at 1.26.5. The `toolchain` directive pins 1.26.6 — keep it current | `P0-12` |
 | Metric label cardinality | Route labels use the chi pattern, never the concrete path; unmatched paths collapse to one label. A new route that interpolates an id would be unbounded | `P0-11` |
+| Separation between site and console is checked | `PLAN/20` says they share the visual language and nothing else. Three scripts enforce it: token values match, no code is imported across, contrast holds in both themes. All erode by convenience rather than decision | `P0-18` |
+| A dark palette is not a light palette | Carrying the console's colours to a dark surface put every semantic token below AA. Same meaning, different value per surface — and computed, not eyeballed | `P0-18` |
+| Missing pages return 404, not 200 | `try_files` with a file fallback serves a styled 404 page with a 200 status. Crawlers are then told missing URLs exist, on the surface whose job is discovery | `P0-18` |
 | Token discipline is enforced, not asked for | Three local ESLint rules reject raw hex, Tailwind arbitrary values, and inline styles in console code (`UI-UX/05` § Governance). Its first run found a real bug: a class referencing a token that did not exist | `P0-17` |
 | Design tokens must be verified against the compiler | Every type token was defined and correctly named and generated no CSS, because Tailwind v4's namespace is `--text-*` not `--font-size-*`. Source-reading tests passed throughout. `utilities.test.ts` compiles Tailwind and asserts the classes actually produce rules | `P0-17` |
 | `color-danger` cannot be rebranded | A union of literal token names plus a runtime filter, because branding arrives as untyped JSON. Tested | `P0-17` |
