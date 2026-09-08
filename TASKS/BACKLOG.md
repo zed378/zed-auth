@@ -192,8 +192,21 @@ Carried over from `PLAN/01-PRODUCT-SCOPE.md` § Out of Scope, recorded here so t
 
 ---
 
+## Suppressed Lint Rules Awaiting Re-enablement
+
+Rules turned off with a stated shelf life. Each is off because it currently fires on the parts of the codebase that are most correct, and each becomes meaningful again at a named moment. They are tracked here rather than only in a code comment, because a comment explaining why a check is disabled is exactly the kind of thing that outlives its own reasoning.
+
+| ID | Rule | File | Off because | Turn back on when |
+|---|---|---|---|---|
+| SL-01 | `no-unused-components` | `openapi/redocly.yaml` | The shared error, pagination and parameter components exist so Phase 1 endpoints reuse them rather than each inventing its own error shape. In Phase 0 almost none has a caller, so the rule fires fifteen times on the file's most deliberate content — and fifteen warnings people learn to scroll past is how a real one goes unnoticed | The Phase 1 management endpoints land (`P1-05` onward) and an unused component starts meaning something again |
+| SL-03 | OpenAPI 3.1 | `openapi/openapi.yaml` | `oapi-codegen` prints "3.1.x is not yet supported ... some functionality may not be available" and generates anyway. The value of spec-first rests on the generated interface being trustworthy enough to be the enforcement mechanism, and a generator that says it may be silently incomplete cannot be that. Nothing in the contract needs 3.1 | `oapi-codegen` supports 3.1 ([issue #373](https://github.com/oapi-codegen/oapi-codegen/issues/373)). The spec then regains `info.summary`, `license.identifier`, and schema-level `examples` arrays |
+| SL-02 | `operation-4xx-response` | `openapi/redocly.yaml` | The only operations in the spec are `/healthz` and `/readyz`: unauthenticated, parameterless, and genuinely incapable of a 4xx. Satisfying the rule would mean inventing responses the endpoints do not return, which is worse than the warning | The first authenticated endpoint is added. From that point a missing 4xx is a real omission, and this rule should be `error`, not merely on |
+
+---
+
 ## How to Close an Entry
 
 - **OQ** — the user decides; record it in `MEMORY/DECISIONS.md`, update the affected tasks, and strike the entry here with a link to the decision.
 - **PG** — either amend the plan document (a deliberate, code-owner-reviewed edit per `AGENTS.md` rule 9) or record an implementation decision in `MEMORY/DECISIONS.md` explaining what was built and why the plan was not changed.
+- **SL** — re-enable the rule, fix whatever it then reports, and delete the row. If the rule turns out to be wrong for this codebase rather than merely early, replace the row with a decision in `MEMORY/DECISIONS.md` saying so — a permanent suppression is a decision, not a deferral.
 - **DF** — only reopens with a documented, concrete need. "It would be useful" is not a concrete need; `PLAN/00`'s design principles say so directly.

@@ -244,6 +244,41 @@ jobs:
           AUTH_TEST_REDIS_ADDR: localhost:6379
         run: go test -race -tags=integration ./...
 
+  # --- API contract ---------------------------------------------------------
+  api-contract:
+    name: API contract
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - uses: actions/setup-go@41dfa10bad2bb2ae585af6ee5bb4d7d973ad74ed # v5.1.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: backend/go.sum
+
+      - name: Lint the OpenAPI spec
+        run: |
+          docker run --rm -v "$PWD/openapi:/spec" redocly/cli:1.34.2 \
+            lint --config /spec/redocly.yaml /spec/openapi.yaml
+
+      - name: Generated code matches the spec
+        # openapi/openapi.yaml is the source of truth and the Go server
+        # interface is generated from it (ADR-013), so a handler that stops
+        # matching the contract fails to compile. The generated file is
+        # committed — a reviewer sees the contract change and its consequences
+        # in one diff, and a fresh clone builds with no generation step. That
+        # only holds if the committed copy is current.
+        run: |
+          cd backend && go generate ./internal/api/
+          cd .. && git diff --exit-code -- backend/internal/api/ \
+            || { echo "::error::Generated API code is stale. Run: make openapi-generate"; exit 1; }
+
+      - name: The spec claims no unshipped endpoint
+        # /docs/api-reference renders from this file, so documenting an
+        # endpoint publishes a claim that it exists (UI-UX/21 governance rule,
+        # CLAUDE.md).
+        run: python3 scripts/openapi-shipped-paths.py
+
   # --- Migration safety -----------------------------------------------------
   migration-safety:
     name: Migration safety
