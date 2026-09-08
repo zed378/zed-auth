@@ -11,6 +11,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/zed378/zed-auth/backend/internal/config"
+	"github.com/zed378/zed-auth/backend/internal/observability"
 )
 
 // Server owns the HTTP listener and its lifecycle.
@@ -25,8 +26,9 @@ type Server struct {
 // the OIDC provider (P1-06/P1-07), the Management API (P1-15), and the
 // authorization service (P2-06).
 type Deps struct {
-	Logger *slog.Logger
-	Health *Health
+	Logger  *slog.Logger
+	Health  *Health
+	Metrics *observability.Metrics
 
 	// TrustProxyHeaders must be true only when a proxy in front of this service
 	// strips client-supplied correlation headers. See RequestID.
@@ -55,13 +57,15 @@ func New(cfg config.HTTPConfig, deps Deps) *Server {
 	//                       access-log line with its 500 status rather than
 	//                       vanishing.
 	//  3. AccessLog       — after Recover so it observes the real status code.
-	//  4. SecurityHeaders — before any handler can write a response.
-	//  5. Timeout         — innermost of the always-on middleware, so the
+	//  4. Metrics        — after AccessLog so it observes the real status, and
+	//                       before SecurityHeaders so it times the handler
+	//                       rather than the header-writing wrapper.
+	//  5. SecurityHeaders — before any handler can write a response.
+	//  6. Timeout         — innermost of the always-on middleware, so the
 	//                       timeout bounds handler work rather than the
 	//                       logging and recovery wrappers.
 	//
 	// Later phases insert:
-	//  - Metrics          (P0-11) between AccessLog and SecurityHeaders.
 	//  - RateLimit        (P1-13) after SecurityHeaders, before authentication,
 	//                     so an unauthenticated flood is rejected as cheaply as
 	//                     possible.
@@ -71,6 +75,18 @@ func New(cfg config.HTTPConfig, deps Deps) *Server {
 	mux.Use(RequestID(deps.TrustProxyHeaders))
 	mux.Use(Recover(deps.Logger))
 	mux.Use(AccessLog(deps.Logger))
+	if deps.Metrics != nil {
+		// Labelled by the chi route PATTERN, not the concrete path: the
+		// pattern gives one time series per endpoint, while the path would
+		// give one per organization — unbounded cardinality, and the usual way
+		// an application change takes down a Prometheus server.
+		mux.Use(deps.Metrics.Instrument(func(r *http.Request) string {
+			if rctx := chi.RouteContext(r.Context()); rctx != nil {
+				return rctx.RoutePattern()
+			}
+			return ""
+		}))
+	}
 	mux.Use(SecurityHeaders)
 	mux.Use(Timeout(cfg.WriteTimeout - time.Second))
 

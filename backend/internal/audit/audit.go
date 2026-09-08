@@ -113,10 +113,22 @@ type Event struct {
 	RequestID string
 }
 
+// Observer receives maintenance outcomes, so the metrics package does not have
+// to be imported here and this package stays usable without it.
+type Observer interface {
+	// PartitionRunway reports how many months of runway remain.
+	PartitionRunway(months int)
+	// PartitionMaintenanceFailed reports a failed run.
+	PartitionMaintenanceFailed()
+}
+
 // Writer records events.
 type Writer struct {
 	db  *postgres.DB
 	log *slog.Logger
+
+	// observer is optional; nil means metrics are not wired.
+	observer Observer
 
 	// forwarder ships events to an external SIEM. PLAN/09 § Audit says the log
 	// should "ideally" be forwarded; this is the seam, a no-op until P5-08
@@ -137,6 +149,9 @@ type Forwarder interface {
 func NewWriter(db *postgres.DB, log *slog.Logger, forwarder Forwarder) *Writer {
 	return &Writer{db: db, log: log, forwarder: forwarder}
 }
+
+// SetObserver wires maintenance reporting. Set once at startup.
+func (w *Writer) SetObserver(o Observer) { w.observer = o }
 
 // Write records an event inside an existing transaction.
 //
@@ -430,6 +445,14 @@ func (w *Writer) EnsurePartitions(ctx context.Context, monthsAhead int) error {
 			slog.Int("months_ahead", monthsAhead),
 			slog.Any("partitions", created),
 		)
+
+		// Report the runway actually present rather than the runway requested.
+		// If partition creation silently stopped working, the gauge drifts
+		// toward zero weeks before the month boundary where it becomes an
+		// outage — which is the whole reason this metric exists (P0-12).
+		if w.observer != nil {
+			w.observer.PartitionRunway(len(created) - 1)
+		}
 		return nil
 	})
 }
@@ -446,6 +469,9 @@ func (w *Writer) Run(ctx context.Context, monthsAhead int) {
 		// would turn a future problem into an immediate outage.
 		w.log.LogAttrs(ctx, slog.LevelError, "initial partition maintenance failed",
 			slog.String("error", err.Error()))
+		if w.observer != nil {
+			w.observer.PartitionMaintenanceFailed()
+		}
 	}
 
 	ticker := time.NewTicker(24 * time.Hour)
@@ -459,6 +485,9 @@ func (w *Writer) Run(ctx context.Context, monthsAhead int) {
 			if err := w.EnsurePartitions(ctx, monthsAhead); err != nil {
 				w.log.LogAttrs(ctx, slog.LevelError, "partition maintenance failed",
 					slog.String("error", err.Error()))
+				if w.observer != nil {
+					w.observer.PartitionMaintenanceFailed()
+				}
 			}
 		}
 	}

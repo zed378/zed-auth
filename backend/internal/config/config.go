@@ -51,9 +51,11 @@ type Config struct {
 	Environment Environment
 
 	HTTP     HTTPConfig
+	Admin    AdminConfig
 	Postgres PostgresConfig
 	Redis    RedisConfig
 	Log      LogConfig
+	Tracing  TracingConfig
 
 	// Issuer is the OIDC issuer identifier. It must exactly match the `iss`
 	// claim the token issuer emits and the `issuer` field in the discovery
@@ -90,6 +92,29 @@ type HTTPConfig struct {
 	// Default false. Turn it on only when something in front provably
 	// overwrites the header — the Caddyfile in deploy/vm does.
 	TrustProxyHeaders bool
+}
+
+// AdminConfig is the internal listener carrying metrics.
+//
+// A SEPARATE listener from the public one, not a route on it. PLAN/13 requires
+// the metrics endpoint not to be reachable from the public ingress, and a
+// separate port makes that a property of the binding rather than something an
+// ingress rule has to remember. It also survives the ingress being
+// reconfigured by someone who does not know the rule exists.
+type AdminConfig struct {
+	// Addr defaults to loopback. Deployed environments that scrape from
+	// another host set it explicitly, which is a visible decision.
+	Addr string
+
+	// Enabled turns the listener off entirely.
+	Enabled bool
+}
+
+// TracingConfig configures OTLP export. Empty endpoint disables tracing.
+type TracingConfig struct {
+	Endpoint    string
+	Insecure    bool
+	SampleRatio float64
 }
 
 type PostgresConfig struct {
@@ -153,6 +178,15 @@ func LoadFrom(getenv Getenv) (*Config, error) {
 			IdleTimeout:       l.duration("AUTH_HTTP_IDLE_TIMEOUT", 60*time.Second),
 			ShutdownTimeout:   l.duration("AUTH_HTTP_SHUTDOWN_TIMEOUT", 20*time.Second),
 			TrustProxyHeaders: l.boolean("AUTH_TRUST_PROXY_HEADERS", false),
+		},
+		Admin: AdminConfig{
+			Addr:    l.optional("AUTH_ADMIN_ADDR", "127.0.0.1:9090"),
+			Enabled: l.boolean("AUTH_ADMIN_ENABLED", true),
+		},
+		Tracing: TracingConfig{
+			Endpoint:    l.optional("AUTH_OTLP_ENDPOINT", ""),
+			Insecure:    l.boolean("AUTH_OTLP_INSECURE", false),
+			SampleRatio: l.float("AUTH_TRACE_SAMPLE_RATIO", 0.05),
 		},
 		Postgres: PostgresConfig{
 			DSN:             l.required("AUTH_POSTGRES_DSN"),
@@ -238,6 +272,19 @@ func (l *loader) boolean(key string, fallback bool) bool {
 	}
 }
 
+func (l *loader) float(key string, fallback float64) float64 {
+	raw := strings.TrimSpace(l.getenv(key))
+	if raw == "" {
+		return fallback
+	}
+	f, err := strconv.ParseFloat(raw, 64)
+	if err != nil {
+		l.problem("%s must be a number, got %q", key, raw)
+		return fallback
+	}
+	return f
+}
+
 func (l *loader) integer(key string, fallback int) int {
 	raw := strings.TrimSpace(l.getenv(key))
 	if raw == "" {
@@ -300,6 +347,20 @@ func (l *loader) validate(cfg *Config) {
 		l.problem("AUTH_POSTGRES_MAX_IDLE_CONNS (%d) must not exceed AUTH_POSTGRES_MAX_OPEN_CONNS (%d)",
 			cfg.Postgres.MaxIdleConns, cfg.Postgres.MaxOpenConns)
 	}
+	if cfg.Tracing.SampleRatio < 0 || cfg.Tracing.SampleRatio > 1 {
+		l.problem("AUTH_TRACE_SAMPLE_RATIO must be between 0 and 1, got %v", cfg.Tracing.SampleRatio)
+	}
+
+	// A metrics endpoint on 0.0.0.0 in production is an unauthenticated
+	// endpoint disclosing request rates, error rates, and internal structure
+	// to anyone who can reach the host (PLAN/13, SECURITY/02 §12). Loopback or
+	// an explicit private address only.
+	if cfg.Environment.IsProduction() && cfg.Admin.Enabled &&
+		(strings.HasPrefix(cfg.Admin.Addr, "0.0.0.0:") || strings.HasPrefix(cfg.Admin.Addr, ":")) {
+		l.problem("AUTH_ADMIN_ADDR must not bind to all interfaces in production; "+
+			"the metrics endpoint is unauthenticated. Got %q", cfg.Admin.Addr)
+	}
+
 	if cfg.Redis.DB < 0 {
 		l.problem("AUTH_REDIS_DB must not be negative, got %d", cfg.Redis.DB)
 	}
