@@ -1,0 +1,25 @@
+# Schedules the backup.
+#
+# P0-20 step 7 asks for AUTOMATED backups. A backup taken by hand is taken
+# until the week somebody is busy, and the gap is invisible until a restore is
+# needed — at which point the most recent backup is however old the last
+# manual run was.
+
+[Unit]
+Description=Daily verified backup of the Auth Service database
+
+[Timer]
+# 03:15 UTC: after the daily audit-partition maintenance, and outside the hours
+# anyone is likely to be using staging.
+OnCalendar=*-*-* 03:15:00 UTC
+
+# Randomised so a fleet of hosts does not dump simultaneously. Harmless with
+# one host and correct when there is more than one.
+RandomizedDelaySec=15min
+
+# If the machine was off at 03:15, run at boot instead of skipping the day.
+# Without this, a VM that is shut down overnight simply has no backups.
+Persistent=true
+
+[Install]
+WantedBy=timers.target
