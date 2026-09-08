@@ -9,7 +9,10 @@ package main
 import (
 	"context"
 	"errors"
+	"flag"
 	"fmt"
+	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -24,6 +27,18 @@ import (
 var version = "dev"
 
 func main() {
+	// -healthcheck exists because the runtime image is distroless: it has no
+	// shell and no curl, so a container healthcheck has to be the binary
+	// itself (SECURITY/02-ATTACK-SURFACE-AND-SCENARIOS.md §17 — a runtime image
+	// carrying a shell just to run a healthcheck is attack surface added for
+	// operational convenience).
+	healthcheck := flag.Bool("healthcheck", false, "probe the local readiness endpoint and exit 0 if ready")
+	flag.Parse()
+
+	if *healthcheck {
+		os.Exit(probeReadiness())
+	}
+
 	if err := run(); err != nil {
 		// Written to stderr rather than through the logger, because the most
 		// likely reason we are here is that configuration failed to load and
@@ -84,6 +99,36 @@ func run() error {
 		return fmt.Errorf("server: %w", err)
 	}
 	return nil
+}
+
+// probeReadiness requests the local readiness endpoint and reports the result
+// as a process exit code, for the container healthcheck.
+//
+// It talks to 127.0.0.1 rather than to the configured address, because the
+// probe runs inside the same container as the server it is checking.
+func probeReadiness() int {
+	addr := os.Getenv("AUTH_HTTP_ADDR")
+	if addr == "" {
+		addr = ":8080"
+	}
+	_, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		port = "8080"
+	}
+
+	client := &http.Client{Timeout: 3 * time.Second}
+	resp, err := client.Get("http://127.0.0.1:" + port + "/readyz")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "healthcheck: %v\n", err)
+		return 1
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		fmt.Fprintf(os.Stderr, "healthcheck: readiness returned %d\n", resp.StatusCode)
+		return 1
+	}
+	return 0
 }
 
 // exitCode maps an error to a process exit code. Kept for the operational
