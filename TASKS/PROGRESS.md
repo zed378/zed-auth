@@ -64,7 +64,7 @@ Sizes: `S` under half a day · `M` one to two days · `L` several days · `XL` m
 
 | ID | Task | Size | Status | Depends on |
 |---|---|---|---|---|
-| P1-01 | Argon2id password hashing | M | TODO | P0-15 |
+| P1-01 | Argon2id password hashing | M | **DONE** | P0-15 |
 | P1-02 | Password policy and breached-password rejection | M | TODO | P1-01 |
 | P1-03 | Signing key management, JWKS, rotation | L | TODO | P0-14 |
 | P1-04 | Discovery document and JWKS endpoint | S | TODO | P1-03 |
@@ -323,6 +323,9 @@ Things that are easy to get wrong once and expensive to fix later. Re-check each
 | `SECURITY DEFINER` functions | Two exist for partition maintenance. Their `search_path` is pinned; unpinning it would let a caller have the owner execute their code | `P0-12` |
 | Go toolchain patch level | `govulncheck` found six stdlib vulnerabilities at 1.26.5. The `toolchain` directive pins 1.26.6 — keep it current | `P0-12` |
 | Metric label cardinality | Route labels use the chi pattern, never the concrete path; unmatched paths collapse to one label. A new route that interpolates an id would be unbounded | `P0-11` |
+| Credential verification is not authorization | `internal/authn` answers whether a password matches a hash and nothing about what that permits. A package answering both is one where "the password matched" quietly becomes "the request is allowed" | `P1-01` |
+| The not-found path costs what the found path costs | Otherwise response time is an oracle for which addresses have accounts. A real hash, not a sleep — a sleep guesses a duration and does not consume the CPU that makes timings match under load | `P1-01` |
+| Hash parameters are measured on the target | 90ms on the VM against 63ms on a laptop. The binding constraint is concurrency, not latency: memory cost multiplies by simultaneous logins | `P1-01` |
 | A backup is verified by restoring it | Not by a hardcoded list of tables — that reported "all 14 restored" against a database with 19, and would not have checked a table added by a later migration. Compare the source: table set and per-table row counts | `P0-20` |
 | Tests never skip a missing dependency | A suite that skips when a database is unreachable reports success having run nothing. Integration tests start their own containers and `Fatal` if they cannot — a green suite that skipped its tests is a false statement everyone acts on | `P0-15` |
 | A test harness mirrors production's privilege model | Approximating it produced a harness where the audit log was not append-only, so the suite tested a database nothing would run. Same grants, same order as `deploy/postgres/init` | `P0-15` |

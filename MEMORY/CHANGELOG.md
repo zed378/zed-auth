@@ -48,6 +48,19 @@ Format follows Keep a Changelog conventions, grouped by release once releases ex
 - `/readyz` now genuinely checks PostgreSQL; it previously reported ready with no dependencies wired.
 - Deployed and verified on the VM; `https://auth.zedth.my.id` healthy throughout.
 
+## Phase 1 — MVP: Core Authentication and SSO
+
+**Added** — Argon2id password hashing ([record](./records/2026-09-08-P1-01-password-hashing.md), [spec](./specs/P1-01-password-hashing.md))
+- `internal/authn`: Argon2id with PHC encoding, so every row records the cost it was hashed at and raising parameters is a deploy rather than a migration. (`P1-01`)
+- **Parameters measured, not copied**: 64 MiB / t=3 / p=4, giving 90ms per hash on the staging VM and 63ms on a development laptop. The binding constraint is concurrency rather than latency — memory cost multiplies by simultaneous logins, and the VM runs five other things. On four cores that is roughly 44 logins/second before latency climbs, which is a number `P1-13`'s rate limiting should sit below.
+- **Enumeration defence**: the not-found path performs a real Argon2 computation rather than returning early, because response time would otherwise say which addresses have accounts. Measured ratio 0.88; verified by short-circuiting it and watching the test fail at 0.00. A real hash rather than a sleep — a sleep guesses a duration, gets it wrong when parameters change, and does not consume the CPU that makes timings match under load.
+- Rehash-on-login, and a hash **stronger** than current is deliberately never flagged — otherwise a deploy that lowers parameters silently weakens every password that logs in afterwards, one user at a time, invisible in any diff.
+- No bcrypt. `PLAN/07` names it a fallback "if compatibility is needed"; there is no legacy system, and adding it now means maintaining a path that accepts a weaker algorithm for a migration that may never happen.
+- **gosec found a real gap, not a false positive.** `G115` flagged an unbounded `int -> uint32` conversion of salt and key lengths read from a stored hash — and the actual problem was that nothing bounded those lengths at all. Salt is now 8–64 bytes and key 16–64, which closes the overflow concern and an unbounded-allocation path together, with its own test across both boundaries. The first instinct on a lint finding is to silence it; reading it as "what would have to be true for this to be safe?" produced a bound the code was missing.
+- 95.9% coverage. **`internal/authn` is the first package `P0-15`'s coverage floors apply to** — they had reported "not built yet" since they were written and activated on their own when the package appeared, which is the behaviour they were designed for, observed rather than assumed.
+
+---
+
 **Operational** — a verified restore ([record](./records/2026-09-08-P0-20-backup-verification.md))
 - **A staging backup was restored and verified against the source**: 19 tables, every row count matching, into a throwaway database that was dropped afterwards. `PLAN/15` § Restore Testing — "a backup that's never been tested isn't a backup you can rely on". (`P0-20`)
 - Backups are now automated: `zed-auth-backup.timer`, daily at 03:15 UTC, `Persistent=true` so a VM that was off overnight backs up at boot rather than skipping the day. A backup taken by hand is taken until the week somebody is busy.
