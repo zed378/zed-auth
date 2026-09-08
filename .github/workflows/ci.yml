@@ -387,6 +387,20 @@ jobs:
         # missing page: the reader assumes they took a wrong turn.
         run: npm run build
 
+      - name: Capability audit
+        # P0-19's DoD: every claim maps to something shipped or explicitly
+        # labelled as planned. Checks the built pages, because that is what a
+        # visitor sees — a check over the source would miss anything a
+        # component interpolates.
+        run: npm run check:claims
+
+      - name: No internal material is published
+        # PLAN/20 § What Never Gets Published: no attack scenarios from
+        # SECURITY/02, no topology from PLAN/14, nothing from PLAN/18.
+        # Verbatim phrase matching rather than keywords — a keyword check on a
+        # security page cries wolf, and a check that cries wolf gets disabled.
+        run: npm run check:leak
+
       - name: Upload the built site
         uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3
         with:
