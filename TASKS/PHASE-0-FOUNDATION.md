@@ -589,7 +589,7 @@ The generated Go server interface was not asked for and is the reason this task 
 
 | | |
 |---|---|
-| **Status** | TODO |
+| **Status** | DONE — [record](../MEMORY/records/2026-09-08-P0-19-site-content.md), audit in `public-site/CLAIMS.md` |
 | **Depends on** | P0-18 |
 | **Plan refs** | `UI-UX/20-PUBLIC-SITE-SPECIFICATIONS.md`, `UI-UX/21-CONTENT-AND-COPY-STRATEGY.md`, `PLAN/20-PUBLIC-SITE-ARCHITECTURE.md` § Deployment & Roadmap Placement |
 | **Spec required** | No |
@@ -607,11 +607,15 @@ The generated Go server interface was not asked for and is the reason this task 
 7. Do **not** publish `/security` content yet — `PLAN/20` places the trust page alongside Phase 5, and it must never leak `SECURITY/` internals.
 
 **Definition of Done**
-- [ ] Landing and About pages match `UI-UX/20`'s spec and `UI-UX/21`'s copy blueprints.
-- [ ] A capability audit confirms every claim on every published page maps to something either shipped or explicitly labelled as planned.
-- [ ] The quickstart placeholder is unambiguous about what does not exist yet.
-- [ ] A responsible-disclosure contact path is live.
-- [ ] No content derived from `SECURITY/02`, `PLAN/14` topology, or `PLAN/18` appears anywhere on the site.
+- [x] Landing and About pages match `UI-UX/20`'s spec and `UI-UX/21`'s copy blueprints — with the capability copy converted from present tense to labelled-as-planned, since `UI-UX/21`'s own governance section forbids what its blueprint literally says.
+- [x] A capability audit confirms every claim on every published page maps to something either shipped or explicitly labelled as planned. `public-site/CLAIMS.md`, plus `check-claims.mjs` so it keeps holding.
+- [x] The quickstart placeholder is unambiguous about what does not exist yet — it opens with "This guide does not exist yet" and lists the four tasks that must ship first.
+- [x] A responsible-disclosure contact path is live at `/contact#security`.
+- [x] No content derived from `SECURITY/02`, `PLAN/14` topology, or `PLAN/18` appears anywhere on the site. `check-no-internal-leak.mjs` scans 35 built pages against 3,240 verbatim phrases on every build.
+
+**Beyond the stated steps**
+
+Both audits were verified by breaking them rather than by passing: a sentence from `SECURITY/02` pasted into `/about`, a private IP on `/contact`, and a capability card stripped of its phase label. The landing page also gained the navigation CTA `UI-UX/20` § Above-the-fold requires, and its three primary-action labels were collapsed to one.
 
 ---
 

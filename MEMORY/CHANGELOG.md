@@ -48,6 +48,16 @@ Format follows Keep a Changelog conventions, grouped by release once releases ex
 - `/readyz` now genuinely checks PostgreSQL; it previously reported ready with no dependencies wired.
 - Deployed and verified on the VM; `https://auth.zedth.my.id` healthy throughout.
 
+**Added** — site content and the capability audit ([record](./records/2026-09-08-P0-19-site-content.md))
+- `public-site/CLAIMS.md`: every claim on every page, what it maps to, and whether it is shipped, planned-and-labelled, positioning, or a principle. The document `P0-19`'s Definition of Done asks for. (`P0-19`)
+- `check-claims.mjs` — every capability on the landing page carries a phase label, and no label contradicts the roadmap board. The second half matters more than it looks: a card labelled "Phase 4" whose task is now DONE is exactly as inaccurate as an unlabelled one, and it is the version nobody notices, because the label is there. (`P0-19`)
+- `check-no-internal-leak.mjs` — scans the built pages for **verbatim eight-word phrases** from the three documents `PLAN/20` forbids publishing. Phrases rather than keywords, because a keyword check on a site that legitimately discusses authorization and tokens cries wolf, and this project watched a PEM scanner get flagged for `node_modules` days ago. An eight-word run in both places is a paste, not a coincidence. (`P0-19`)
+- Both audits verified by breaking them: a sentence from `SECURITY/02` pasted into `/about`, a private IP on `/contact`, and a capability card stripped of its label. Each caught and located.
+
+**Fixed**
+- The landing page had three different labels for its one primary action. `UI-UX/20` § Interaction asks for exactly one primary CTA used consistently, and its landing spec says the closing section restates the primary action rather than introducing a new one. Three reasonable-looking labels is the five-competing-CTAs failure in slower motion. (`P0-19`)
+- Added the primary CTA to the navigation, which `UI-UX/20` § Above-the-fold lists alongside the logo and the Docs and About links. (`P0-19`)
+
 **Added** — the public site ([record](./records/2026-09-08-P0-18-public-site-skeleton.md))
 - The full route structure from `PLAN/20`: landing, about, contact, docs (quickstart, concepts, guides, console, API reference) and a changelog. 34 pages. `/pricing` and `/security` are deliberately absent — the first because no commercial tier exists, the second because `PLAN/20` places the trust page alongside Phase 5. (`P0-18`)
 - **The API reference is generated** from `openapi/openapi.yaml`, the same file that generates the backend's server interface and the console's client — three consumers, one source, none able to disagree. This closes `P0-16`, whose last open step was exactly this. (`P0-18`)
@@ -118,9 +128,10 @@ Format follows Keep a Changelog conventions, grouped by release once releases ex
 - Both `P0-12` follow-ups closed: the unsupervised partition-maintenance goroutine is now visible as a gauge with two alerts, and cross-tenant database access is counted as `PLAN/08` Part B asks.
 
 **Status**
-- Phase 0: 19 of 21 done. `P0-16` is complete — its last open step, the public site's generated API reference, landed with `P0-18` — step 3 (the console's typed client) landed with `P0-17`; step 4, the public site's API reference, waits on `P0-18`.
+- Phase 0: 20 of 21 done. `P0-16` is complete — its last open step, the public site's generated API reference, landed with `P0-18` — step 3 (the console's typed client) landed with `P0-17`; step 4, the public site's API reference, waits on `P0-18`.
 - Open deviations: DV-01 (single-VM production vs. Multi-AZ), DV-02 (`manager_roles` has no tenant policy until `P2-05` provides a user context).
-- Remaining in Phase 0: the test harness (`P0-15`), landing and docs content (`P0-19`), and staging (`P0-20`).
+- Remaining in Phase 0: the test harness (`P0-15`) and staging (`P0-20`).
+- `OQ-10` is open: `P0-18`'s Definition of Done asks for Lighthouse scores against a bar `UI-UX/20` never sets. Set the number or drop the item — inventing a threshold to satisfy a checkbox is the same failure as inventing a capability to fill a section.
 - New plan gap `PG-12`: `color-border` serves both input borders (WCAG 1.4.11 wants 3:1) and table dividers (which want a hairline). One token cannot do both well.
 - The OIDC provider library remains undecided by design: confirming JWKS rotation with overlap and refresh-token reuse detection requires building against it, so it moves to `P1-03`.
 - Open questions now number nine; `OQ-09` (audit log retention period and the erasure approach) is new and should be confirmed before `P0-07` writes the partitioning migration.
