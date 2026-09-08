@@ -1,0 +1,51 @@
+# Lint configuration for the API contract.
+#
+# Run: make openapi-lint
+
+extends:
+  - recommended
+
+rules:
+  # Off, deliberately and with a shelf life.
+  #
+  # The shared schemas, parameters and responses in this spec exist so that
+  # every future endpoint reuses them rather than inventing its own error
+  # shape. In Phase 0 almost none of them have a caller yet, so this rule fires
+  # on the parts of the file that are most correct.
+  #
+  # The cost of leaving it on would be fifteen warnings that everyone learns to
+  # scroll past, which is how a real warning goes unnoticed. Turn it back on
+  # once the Phase 1 endpoints land and an unused component starts meaning
+  # something again.
+  no-unused-components: off
+
+  # Off, also with a shelf life (BACKLOG SL-02).
+  #
+  # The only operations here are /healthz and /readyz: unauthenticated,
+  # parameterless, and genuinely incapable of returning a 4xx. Satisfying this
+  # rule would mean documenting responses the endpoints do not return, which is
+  # worse than the warning it silences.
+  #
+  # This one should become `error` rather than merely on when the first
+  # authenticated endpoint lands, because from that point a missing 4xx is a
+  # real omission.
+  operation-4xx-response: off
+
+  # Every operation needs a stable operationId: it becomes the generated
+  # function name in both the Go interface and the TypeScript client, so
+  # changing one silently renames a caller's method.
+  operation-operationId: error
+  operation-operationId-unique: error
+
+  # A described endpoint that nobody can call is a documentation bug.
+  operation-2xx-response: error
+
+  # The public API reference renders these directly. An endpoint with no
+  # summary renders as a bare path, which is how hand-written docs start
+  # creeping back in.
+  operation-summary: error
+
+  # Security is declared globally and overridden per operation. Requiring it
+  # explicitly means a new endpoint cannot quietly inherit "unauthenticated"
+  # by omission — the most expensive kind of typo in this codebase.
+  security-defined: error

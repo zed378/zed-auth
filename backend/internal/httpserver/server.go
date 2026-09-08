@@ -10,6 +10,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/zed378/zed-auth/backend/internal/api"
 	"github.com/zed378/zed-auth/backend/internal/config"
 	"github.com/zed378/zed-auth/backend/internal/observability"
 )
@@ -96,10 +97,16 @@ func New(cfg config.HTTPConfig, deps Deps) *Server {
 	// logging: probe traffic arrives every few seconds from the orchestrator
 	// and would otherwise drown every other line in the log
 	// (TASKS P0-10). They are also exempt from rate limiting when that arrives.
+	//
+	// The routes themselves come from the generated router rather than being
+	// registered by hand, so the paths, methods and status codes are the ones
+	// in openapi/openapi.yaml by construction. A path that exists here but not
+	// in the spec cannot be reached, and a path in the spec with no handler
+	// fails to compile (ADR-013).
 	health := chi.NewRouter()
 	health.Use(SecurityHeaders)
-	health.Get("/healthz", deps.Health.Liveness())
-	health.Get("/readyz", deps.Health.Readiness())
+	health.Use(noStore)
+	api.HandlerFromMux(api.NewStrictHandler(deps.Health, nil), health)
 	mux.Mount("/", health)
 
 	srv := &http.Server{

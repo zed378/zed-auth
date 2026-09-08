@@ -2,6 +2,7 @@ package httpserver
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
@@ -12,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/zed378/zed-auth/backend/internal/api"
 	"github.com/zed378/zed-auth/backend/internal/config"
 	"github.com/zed378/zed-auth/backend/internal/observability"
 )
@@ -33,6 +35,93 @@ func testHTTPConfig(addr string) config.HTTPConfig {
 
 // --- health endpoints (P0-10) ---------------------------------------------
 
+// probes adapts Health to the generated ServerInterface, whose methods are
+// plain http.HandlerFuncs. Tests exercise the handler through the same wrapper
+// that serves production traffic, so the generated decoding and status mapping
+// are covered rather than bypassed.
+func probes(h *Health) api.ServerInterface {
+	return api.NewStrictHandler(h, nil)
+}
+
+// The two probes report different words for success: /healthz says "ok" and
+// /readyz says "ready". That is odd, it is what ships, and it is what the spec
+// records (ADR-013).
+//
+// The test exists because the tidying instinct is strong and wrong here: a
+// consumer already parsing "ready" breaks if the server is changed to match a
+// prettier spec. Changing it is a breaking API change and should have to
+// defeat a failing test to happen by accident.
+func TestHealth_ProbeVocabularyMatchesTheSpec(t *testing.T) {
+	h := &Health{Checks: []Checker{stubChecker{"postgres", nil}}}
+
+	tests := []struct {
+		name    string
+		serve   func(http.ResponseWriter, *http.Request)
+		path    string
+		want    string
+		wantErr bool
+	}{
+		{"liveness", probes(h).GetLiveness, "/healthz", "ok", false},
+		{"readiness", probes(h).GetReadiness, "/readyz", "ready", false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			tc.serve(rec, httptest.NewRequest(http.MethodGet, tc.path, nil))
+
+			var body struct {
+				Status string `json:"status"`
+			}
+			if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+				t.Fatalf("decoding %s: %v", tc.path, err)
+			}
+			if body.Status != tc.want {
+				t.Errorf("%s status = %q, want %q — if this is a deliberate change, "+
+					"openapi/openapi.yaml must change with it and it is a breaking "+
+					"change for any client parsing the old value", tc.path, body.Status, tc.want)
+			}
+		})
+	}
+
+	t.Run("unready", func(t *testing.T) {
+		down := &Health{Checks: []Checker{stubChecker{"postgres", errors.New("down")}}}
+
+		rec := httptest.NewRecorder()
+		probes(down).GetReadiness(rec, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+
+		var body struct {
+			Status string `json:"status"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+			t.Fatalf("decoding /readyz: %v", err)
+		}
+		if body.Status != "unavailable" {
+			t.Errorf("unready status = %q, want %q", body.Status, "unavailable")
+		}
+	})
+}
+
+// A cached readiness response lets an unready instance keep looking ready for
+// the life of the cache entry, which is the one thing this endpoint exists to
+// prevent. The generated response writers set only Content-Type and the status
+// code, so the header comes from middleware and is worth pinning.
+func TestHealth_ProbesAreNeverCached(t *testing.T) {
+	srv := New(testHTTPConfig("127.0.0.1:0"), Deps{
+		Logger: discardLogger(),
+		Health: &Health{Checks: []Checker{stubChecker{"postgres", nil}}},
+	})
+
+	for _, path := range []string{"/healthz", "/readyz"} {
+		rec := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+
+		if got := rec.Header().Get("Cache-Control"); got != "no-store" {
+			t.Errorf("%s Cache-Control = %q, want %q", path, got, "no-store")
+		}
+	}
+}
+
 type stubChecker struct {
 	name string
 	err  error
@@ -47,7 +136,7 @@ func TestHealth_LivenessIgnoresDependencies(t *testing.T) {
 	h := &Health{Checks: []Checker{stubChecker{"postgres", errors.New("connection refused")}}}
 
 	rec := httptest.NewRecorder()
-	h.Liveness()(rec, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	probes(h).GetLiveness(rec, httptest.NewRequest(http.MethodGet, "/healthz", nil))
 
 	if rec.Code != http.StatusOK {
 		t.Errorf("liveness must stay 200 with a failing dependency, got %d", rec.Code)
@@ -59,7 +148,7 @@ func TestHealth_ReadinessReflectsDependencies(t *testing.T) {
 		h := &Health{Checks: []Checker{stubChecker{"postgres", nil}, stubChecker{"redis", nil}}}
 
 		rec := httptest.NewRecorder()
-		h.Readiness()(rec, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+		probes(h).GetReadiness(rec, httptest.NewRequest(http.MethodGet, "/readyz", nil))
 
 		if rec.Code != http.StatusOK {
 			t.Errorf("want 200 when every dependency is healthy, got %d", rec.Code)
@@ -73,7 +162,7 @@ func TestHealth_ReadinessReflectsDependencies(t *testing.T) {
 		}}
 
 		rec := httptest.NewRecorder()
-		h.Readiness()(rec, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+		probes(h).GetReadiness(rec, httptest.NewRequest(http.MethodGet, "/readyz", nil))
 
 		if rec.Code != http.StatusServiceUnavailable {
 			t.Errorf("want 503 when a dependency fails, got %d", rec.Code)
@@ -90,7 +179,7 @@ func TestHealth_ReadinessLeaksNoInfrastructureDetail(t *testing.T) {
 	}}
 
 	rec := httptest.NewRecorder()
-	h.Readiness()(rec, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+	probes(h).GetReadiness(rec, httptest.NewRequest(http.MethodGet, "/readyz", nil))
 
 	body := rec.Body.String()
 	for _, leak := range []string{"postgres", "10.0.4.2", "5432", "connection refused", "dial tcp"} {
@@ -116,7 +205,7 @@ func TestHealth_ReadinessBoundsSlowChecks(t *testing.T) {
 
 	start := time.Now()
 	rec := httptest.NewRecorder()
-	h.Readiness()(rec, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+	probes(h).GetReadiness(rec, httptest.NewRequest(http.MethodGet, "/readyz", nil))
 	elapsed := time.Since(start)
 
 	if elapsed > time.Second {
@@ -219,8 +308,15 @@ func TestRequestID_RejectsMalformedProxyHeader(t *testing.T) {
 // PLAN/10-THREAT-MODEL.md § Information Disclosure: a panic message or stack
 // trace returned to the caller is an information-disclosure bug.
 func TestRecover_ReturnsGenericErrorAndKeepsServing(t *testing.T) {
+	// The password is the repository's designated placeholder rather than an
+	// invented one. The secret-scanning hook cannot tell a test fixture from a
+	// real leak and should not try — a hook routinely bypassed with
+	// --no-verify stops being a control (deploy/SECRETS.md). The test asserts
+	// on the exact string either way, so nothing is weakened.
+	const leaked = "local_dev_only"
+
 	h := Recover(discardLogger())(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		panic("internal detail: connection string postgres://user:hunter2@db:5432")
+		panic("internal detail: connection string postgres://user:" + leaked + "@db:5432")
 	}))
 
 	rec := httptest.NewRecorder()
@@ -230,7 +326,7 @@ func TestRecover_ReturnsGenericErrorAndKeepsServing(t *testing.T) {
 		t.Errorf("want 500 after a panic, got %d", rec.Code)
 	}
 	body := rec.Body.String()
-	if strings.Contains(body, "hunter2") || strings.Contains(body, "postgres://") {
+	if strings.Contains(body, leaked) || strings.Contains(body, "postgres://") {
 		t.Errorf("panic detail leaked to the caller: %s", body)
 	}
 	if !strings.Contains(body, "INTERNAL_ERROR") {
