@@ -3,8 +3,8 @@
 Single source of truth for where the project stands. Updated in the same commit as the work it describes (`00-TASK-CONVENTIONS.md` global DoD item 8).
 
 **Last updated**: 2026-09-08
-**Current phase**: Phase 0 — Foundation
-**Overall**: 1 / 177 tasks done
+**Current phase**: Phase 0 — Foundation (11 / 21 done)
+**Overall**: 11 / 177 tasks done
 
 Status values: `TODO` · `BLOCKED` · `SPEC` · `WIP` · `REVIEW` · `DONE` · `DROPPED`
 Sizes: `S` under half a day · `M` one to two days · `L` several days · `XL` must be split
@@ -15,7 +15,7 @@ Sizes: `S` under half a day · `M` one to two days · `L` several days · `XL` m
 
 | Phase | Tasks | Done | Status | Gate to enter |
 |---|---|---|---|---|
-| [Phase 0 — Foundation](./PHASE-0-FOUNDATION.md) | 21 | 1 | **ACTIVE** | — |
+| [Phase 0 — Foundation](./PHASE-0-FOUNDATION.md) | 21 | 11 | **ACTIVE** | — |
 | [Phase 1 — MVP: Core Auth + SSO](./PHASE-1-MVP-CORE-AUTH-SSO.md) | 28 | 0 | Not started | Phase 0 exit checklist |
 | [Phase 2 — RBAC & Multi-Tenancy](./PHASE-2-RBAC-MULTITENANCY.md) | 17 | 0 | Not started | Phase 1 exit + `P1-28` |
 | [Phase 3 — Advanced Security](./PHASE-3-ADVANCED-SECURITY.md) | 15 | 0 | Not started | Phase 2 exit + threat model review |
@@ -34,19 +34,19 @@ Sizes: `S` under half a day · `M` one to two days · `L` several days · `XL` m
 
 | ID | Task | Size | Status | Depends on |
 |---|---|---|---|---|
-| P0-01 | Confirm and freeze the tech stack (ADRs) | S | TODO | — |
-| P0-02 | Initialize repository structure | S | TODO | P0-01 |
-| P0-03 | Git conventions, branch strategy, PR template | S | TODO | P0-02 |
-| P0-04 | Go service skeleton | M | TODO | P0-02 |
-| P0-05 | Local environment via Docker Compose | M | TODO | P0-04 |
-| P0-06 | Migration tooling and baseline migration | S | TODO | P0-05 |
-| P0-07 | Core schema implementation | L | TODO | P0-06 |
+| P0-01 | Confirm and freeze the tech stack (ADRs) | S | **DONE** | — |
+| P0-02 | Initialize repository structure | S | **DONE** | P0-01 |
+| P0-03 | Git conventions, branch strategy, PR template | S | **DONE** | P0-02 |
+| P0-04 | Go service skeleton | M | **DONE** | P0-02 |
+| P0-05 | Local environment via Docker Compose | M | **DONE** | P0-04 |
+| P0-06 | Migration tooling and baseline migration | S | **DONE** | P0-05 |
+| P0-07 | Core schema implementation | L | **DONE** | P0-06 |
 | P0-08 | Row-level security scaffolding | M | TODO | P0-07 |
-| P0-09 | Structured logging with redaction | M | TODO | P0-04 |
-| P0-10 | Health and readiness endpoints | S | TODO | P0-04 |
+| P0-09 | Structured logging with redaction | M | **DONE** | P0-04 |
+| P0-10 | Health and readiness endpoints | S | **DONE** | P0-04 |
 | P0-11 | Metrics and tracing baseline | M | TODO | P0-09 |
 | P0-12 | Audit event writer | M | TODO | P0-07, P0-09 |
-| P0-13 | CI pipeline | M | TODO | P0-04 |
+| P0-13 | CI pipeline | M | **DONE** | P0-04 |
 | P0-14 | Secrets and configuration conventions | S | TODO | P0-04 |
 | P0-15 | Test harness | M | TODO | P0-05, P0-16 |
 | P0-16 | OpenAPI spec skeleton and client generation | M | TODO | P0-13 |

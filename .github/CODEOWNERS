@@ -1,0 +1,17 @@
+# The plan folders are reference documentation, not implementation output (AGENTS.md rule 9).
+# Changing them must be a deliberate, reviewed act — never a side effect of feature work.
+/PLAN/       @zed378
+/UI-UX/      @zed378
+/SECURITY/   @zed378
+
+# These govern how every AI agent behaves in this repository.
+/CLAUDE.md   @zed378
+/AGENTS.md   @zed378
+
+# The execution plan and the decision log.
+/TASKS/      @zed378
+/MEMORY/     @zed378
+
+# The API contract: both the console client and the public API reference are generated from it,
+# so a change here propagates to two surfaces at once.
+/openapi/    @zed378

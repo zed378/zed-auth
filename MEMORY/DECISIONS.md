@@ -43,7 +43,7 @@ Decisions `TASKS/` has identified as needing an ADR, listed here so they are not
 
 | Task | Decision needed | Why it matters |
 |---|---|---|
-| P0-01 | Backend language, OIDC library, HTTP router, migration tool, console build tool, public-site generator, docs framework | `PLAN/07` labels these "initial recommendations, not final decisions" |
+| ~~P0-01~~ | ~~Backend stack~~ — **decided 2026-09-08**, ADR-006. The **OIDC provider library** is deliberately still open: confirming JWKS rotation with overlap and refresh-token reuse detection requires building against it, so it moves to `P1-03` | `PLAN/07` labels these "initial recommendations, not final decisions" |
 | P0-12 | Audit write semantics: inside the business transaction, or after it | Determines whether a failed audit write blocks the action it records |
 | P1-02 | Breached-password check: fail open or fail closed when the service is unreachable | Failing closed blocks legitimate password changes during a third-party outage |
 | P1-13 | Rate limiting behavior when Redis is unavailable | Fail open means no rate limiting; fail closed means no logins at all |
@@ -261,3 +261,174 @@ Risk accepted: making all the frontend work visible in one place makes it tempti
 **Plan impact**
 
 None yet. `PLAN/16`'s lockstep sentence is preserved in intent; whether it should also be amended in wording is raised for the user rather than decided.
+
+---
+
+### ADR-006 — Backend stack: Go 1.26, chi, pgx, golang-migrate
+
+| | |
+|---|---|
+| **Date** | 2026-09-08 |
+| **Status** | Accepted |
+| **Task** | P0-01 |
+| **Deciders** | Project owner |
+
+**Context**
+
+`PLAN/07-BACKEND-ARCHITECTURE.md` labels its stack table "initial recommendations, not final decisions" and asks for them to be confirmed before implementation. `P0-01` is that confirmation.
+
+**Decision**
+
+| Layer | Choice |
+|---|---|
+| Language | Go 1.26.5 (the plan's recommendation, confirmed) |
+| HTTP router | `go-chi/chi/v5` |
+| PostgreSQL driver | `jackc/pgx/v5`, via `database/sql` for now |
+| Migrations | `golang-migrate/migrate/v4`, embedded source |
+| Logging | `log/slog` (standard library) |
+
+**Alternatives considered**
+
+- *Plain `net/http` instead of chi.* Go 1.22+ `ServeMux` handles method-and-path patterns natively, and zero dependencies is a real supply-chain advantage for an auth service (`SECURITY/02` §15). Rejected because the Management API is deeply nested (`/v1/organizations/{org_id}/projects/{project_id}/roles`) and every `/v1` route needs the same bearer-auth and tenant-scoping middleware. chi's route groups express that directly; the stdlib equivalent is manual wrapping at every mount point, which is exactly where one route ends up subtly less protected than the rest. chi is small and has no transitive dependencies, so the supply-chain cost is low. Revisitable if the middleware story stays simple.
+- *A third-party logging library (zap, zerolog).* Rejected: `log/slog` is in the standard library, its `ReplaceAttr` hook is exactly the right place for the redaction `PLAN/13` requires, and a logging dependency in an identity provider is a dependency that sees every credential the redaction layer exists to protect.
+- *`goose` or `atlas` for migrations.* Both are good. golang-migrate was chosen for advisory locking (concurrent runners during a rolling deploy) and explicit dirty-state tracking, which is the failure mode that actually bites.
+- *TypeScript/NestJS or Java/Spring Authorization Server*, which `PLAN/07` names as acceptable substitutes. Not chosen; no reason to deviate from the plan's default.
+
+**Consequences**
+
+Deferred, deliberately: the OIDC provider library (`ory/fosite` vs `zitadel/oidc`) is **not** decided here. `P0-01`'s Definition of Done requires the ADR to confirm support for JWKS rotation with an overlap window and refresh-token reuse detection, and confirming that honestly means building against the library rather than reading its documentation. That decision moves to `P1-03`, the first task that actually needs it, and is recorded as an open item rather than guessed at.
+
+**Plan impact**
+
+None. Every choice matches `PLAN/07`'s first-named recommendation.
+
+---
+
+### ADR-007 — Migrations are embedded in the binary, not read from disk
+
+| | |
+|---|---|
+| **Date** | 2026-09-08 |
+| **Status** | Accepted |
+| **Task** | P0-06 |
+| **Deciders** | Project owner |
+
+**Context**
+
+golang-migrate's default `file://` source could not resolve a Windows absolute path — `file:///C:/...` produced "The filename, directory name, or volume label syntax is incorrect". That was the trigger, but a worse problem sat underneath it: a container image can ship a `/migrations` directory at a different revision from the binary that reads it, and nothing detects the mismatch until a migration does the wrong thing.
+
+**Decision**
+
+Embed the `.sql` files with `embed.FS` and read them through golang-migrate's `iofs` source.
+
+**Alternatives considered**
+
+- *Fix the Windows path handling.* Solves the immediate error and leaves the drift problem untouched.
+- *Require the migration CLI to be installed separately.* Adds a toolchain dependency to every developer machine and every CI job, for no benefit.
+
+**Consequences**
+
+The binary and its migrations cannot diverge, and there is no filesystem path to get wrong on any operating system. The cost: adding a migration requires rebuilding the binary — which is correct, because a migration *is* a code change.
+
+**Plan impact**
+
+None. `PLAN/14` requires migrations to run as a separate step, which they still do. This changes only where the SQL is read from.
+
+---
+
+### ADR-008 — Runtime image is distroless, and the healthcheck is the binary itself
+
+| | |
+|---|---|
+| **Date** | 2026-09-08 |
+| **Status** | Accepted |
+| **Task** | P0-05 |
+| **Deciders** | Project owner |
+
+**Context**
+
+`SECURITY/02-ATTACK-SURFACE-AND-SCENARIOS.md` §17 covers container and runtime security. A container healthcheck conventionally shells out to `curl` or `wget`, which requires the runtime image to contain a shell and an HTTP client.
+
+**Decision**
+
+The runtime image is `gcr.io/distroless/static-debian12:nonroot` — no shell, no package manager, no libc. The container healthcheck invokes the service binary with a `-healthcheck` flag, which probes the local readiness endpoint and exits 0 or 1.
+
+**Alternatives considered**
+
+- *Alpine with `curl` installed.* Familiar and easier to debug, but it means an attacker who achieves code execution lands in an image with a shell, a package manager, and a working HTTP client — everything needed to pivot. Adding that permanently, to serve a healthcheck, is a poor trade for the most security-sensitive service in the platform.
+- *No container healthcheck; rely on the Kubernetes probe.* Kubernetes probes need no in-image client, so this would work in production. Rejected because Docker Compose is the local environment (`PLAN/14`), and a healthcheck that exists in only one environment is one that gets broken in the other without anyone noticing.
+
+**Consequences**
+
+Debugging inside a running container is genuinely harder — there is no shell to exec into. The mitigation is that the service is stateless and its logs are structured, so diagnosis happens from logs and metrics rather than from inside the container. That is the posture `PLAN/13` assumes anyway.
+
+**Plan impact**
+
+None.
+
+---
+
+### ADR-009 — Status columns are text + CHECK, not native PostgreSQL enums
+
+| | |
+|---|---|
+| **Date** | 2026-09-08 |
+| **Status** | Accepted |
+| **Task** | P0-07 |
+| **Deciders** | Project owner |
+
+**Context**
+
+`PLAN/04-DATA-MODEL.md` specifies several columns as "enum" — `users.status`, `project_grants.status`, `applications.type`, `signing_keys.status` among them. `P0-07` step 3 requires "real enums or check constraints, never free text", leaving the choice open.
+
+**Decision**
+
+`text` columns with `CHECK (col IN (...))` constraints.
+
+**Alternatives considered**
+
+- *Native `CREATE TYPE ... AS ENUM`.* Better ergonomics and marginally smaller storage. Rejected because altering one fights the expand/contract discipline `PLAN/14` requires: adding a value could not run inside a transaction on older PostgreSQL, and removing one is effectively impossible without recreating the type and every column that uses it. The roadmap adds values to exactly these columns in later phases — `applications.type` gains `saml` in Phase 4, `signing_keys.purpose` likewise — so a type that resists alteration is the wrong shape here.
+- *Free text with application-layer validation only.* Rejected outright: `P0-07` requires the constraint, and the entire point of a database-level check is that it holds when the application layer has a bug.
+
+**Consequences**
+
+Adding an allowed value is a one-line `DROP CONSTRAINT` / `ADD CONSTRAINT`, which runs inside a transaction and is trivially reversible. The costs are marginally more storage and no automatic type safety in Go — though the application defines its own constants either way.
+
+**Plan impact**
+
+None. `PLAN/04` accepts either.
+
+---
+
+### ADR-010 — `events` has no foreign keys, deliberately
+
+| | |
+|---|---|
+| **Date** | 2026-09-08 |
+| **Status** | Accepted |
+| **Task** | P0-07 |
+| **Deciders** | Project owner |
+
+**Context**
+
+`events.org_id` and `events.actor_user_id` reference real rows in `organizations` and `users`. Foreign keys would be the default choice and would guarantee referential integrity.
+
+**Decision**
+
+No foreign key constraints on either column.
+
+**Alternatives considered**
+
+- *`ON DELETE CASCADE`.* Deleting a user would delete their audit history — destroying exactly the evidence an incident investigation needs, precisely when a departing or compromised account makes that history most valuable.
+- *`ON DELETE RESTRICT`.* Makes a GDPR erasure request impossible to satisfy without first deleting audit rows, which the append-only guarantee forbids and which the application role has no privilege to do anyway.
+- *`ON DELETE SET NULL`.* Loses the ability to correlate one actor's actions across the log, which is most of what an investigation does.
+
+None of the three is compatible with `PLAN/04` § Retention and Growth, which resolves the tension between an immutable audit log and a right to erasure by **pseudonymizing**: personal data in `users` is erased while `actor_user_id` is retained as an opaque identifier that no longer resolves to a person. The audit trail must be able to outlive the rows it refers to.
+
+**Consequences**
+
+An `actor_user_id` may reference a row that no longer exists. That is intended behavior, not a defect, and any query joining `events` to `users` must use an outer join and handle the miss. Referential integrity is given up deliberately, to keep the audit trail intact and erasure satisfiable.
+
+**Plan impact**
+
+None. This implements `PLAN/04` § Retention and Growth as written.
