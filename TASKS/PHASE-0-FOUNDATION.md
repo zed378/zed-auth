@@ -519,7 +519,7 @@ The generated Go server interface was not asked for and is the reason this task 
 
 | | |
 |---|---|
-| **Status** | TODO |
+| **Status** | DONE — [record](../MEMORY/records/2026-09-08-P0-17-console-skeleton.md) |
 | **Depends on** | P0-02, P0-16 |
 | **Plan refs** | `PLAN/06-FRONTEND-ARCHITECTURE.md`, `UI-UX/05-DESIGN-SYSTEM.md`, `UI-UX/06-VISUAL-LANGUAGE.md`, `UI-UX/12-RESPONSIVE-BEHAVIOR.md`, `UI-UX/13-ACCESSIBILITY.md` |
 | **Spec required** | No |
@@ -538,11 +538,15 @@ The generated Go server interface was not asked for and is the reason this task 
 8. Accessibility baseline from the start: visible focus rings using `color-accent`, a skip-to-content link, and correct landmark regions (`UI-UX/13`). Retrofitting these in Phase 5 is how accessibility audits fail.
 
 **Definition of Done**
-- [ ] Every token in `UI-UX/05` exists in code, by name.
-- [ ] A raw hex color in a component fails lint.
-- [ ] `color-danger` cannot be overridden by organization branding, verified by test.
-- [ ] The shell renders correctly at 1440px, 1024px, and 768px per `UI-UX/12`'s grid.
-- [ ] Keyboard navigation reaches every interactive element in the shell with a visible focus indicator.
+- [x] Every token in `UI-UX/05` exists in code, by name. Asserted by `tokens.test.ts`, which also fails if a tenth colour token appears — that would be a design-system change and `UI-UX/05` § Governance requires it to happen there first.
+- [x] A raw hex color in a component fails lint. Verified against a deliberately violating component; all three rules fire.
+- [x] `color-danger` cannot be overridden by organization branding, verified by test — through the type and through the runtime filter behind it, since branding arrives as untyped JSON.
+- [x] The shell renders correctly at 1440px, 1024px, and 768px per `UI-UX/12`'s grid. Measured in a real browser against `console.zedth.my.id`, plus 600px for `UI-UX/12` § Testing's unsupported-width message.
+- [x] Keyboard navigation reaches every interactive element in the shell with a visible focus indicator. Verified with real `Tab` presses: every link matches `:focus-visible` with a 2px accent outline and a 44px target.
+
+**Beyond the stated steps**
+
+`utilities.test.ts` compiles Tailwind and asserts the classes the components use actually produce CSS. It exists because every type token was defined, correctly named, and generated nothing at all — and the source-reading tests passed throughout. `deploy/console/` carries the nginx config and compose file for the staging preview, including the history-mode fallback that a static host needs and a healthcheck that probes a route with no file behind it.
 
 ---
 

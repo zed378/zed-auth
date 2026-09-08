@@ -49,8 +49,8 @@ Sizes: `S` under half a day · `M` one to two days · `L` several days · `XL` m
 | P0-13 | CI pipeline | M | **DONE** | P0-04 |
 | P0-14 | Secrets and configuration conventions | S | **DONE** | P0-04 |
 | P0-15 | Test harness | M | TODO | P0-05, P0-16 |
-| P0-16 | OpenAPI spec skeleton and client generation | M | **WIP** — contract, Go generation and CI gates done; console client (step 3) and public-site rendering (step 4) carried into `P0-17` and `P0-18`, which create those surfaces | P0-13 |
-| P0-17 | Console skeleton with design tokens | L | TODO | P0-02, P0-16 |
+| P0-16 | OpenAPI spec skeleton and client generation | M | **WIP** — contract, Go generation, console client and CI gates done; step 4 (the public site's API reference) waits on `P0-18` | P0-13 |
+| P0-17 | Console skeleton with design tokens | L | **DONE** | P0-02, P0-16 |
 | P0-18 | Public site skeleton | L | TODO | P0-02 |
 | P0-19 | Landing, About, docs skeleton content | M | TODO | P0-18 |
 | P0-20 | Staging environment provisioning | L | **DONE** | P0-13 |
@@ -323,6 +323,11 @@ Things that are easy to get wrong once and expensive to fix later. Re-check each
 | `SECURITY DEFINER` functions | Two exist for partition maintenance. Their `search_path` is pinned; unpinning it would let a caller have the owner execute their code | `P0-12` |
 | Go toolchain patch level | `govulncheck` found six stdlib vulnerabilities at 1.26.5. The `toolchain` directive pins 1.26.6 — keep it current | `P0-12` |
 | Metric label cardinality | Route labels use the chi pattern, never the concrete path; unmatched paths collapse to one label. A new route that interpolates an id would be unbounded | `P0-11` |
+| Token discipline is enforced, not asked for | Three local ESLint rules reject raw hex, Tailwind arbitrary values, and inline styles in console code (`UI-UX/05` § Governance). Its first run found a real bug: a class referencing a token that did not exist | `P0-17` |
+| Design tokens must be verified against the compiler | Every type token was defined and correctly named and generated no CSS, because Tailwind v4's namespace is `--text-*` not `--font-size-*`. Source-reading tests passed throughout. `utilities.test.ts` compiles Tailwind and asserts the classes actually produce rules | `P0-17` |
+| `color-danger` cannot be rebranded | A union of literal token names plus a runtime filter, because branding arrives as untyped JSON. Tested | `P0-17` |
+| Static hosting needs a history fallback | `try_files $uri $uri/ /index.html`, and the healthcheck probes a route with no file behind it so the fallback cannot be dropped unnoticed | `P0-17` |
+| nginx `add_header` does not accumulate | A `location` block with any `add_header` of its own discards every server-level header. Keep all headers in one context; put varying values in a `map` | `P0-17` |
 | API contract direction | The spec generates the code, never the reverse (ADR-013). Handlers implement a generated interface, so a signature that stops matching the contract fails to compile rather than failing a CI check after the push | `P0-16` |
 | Spec documents only shipped endpoints | `/docs/api-reference` renders from `openapi.yaml`, so a documented endpoint is a public claim it exists. `scripts/openapi-shipped-paths.py` gates it; adding an endpoint means adding it to `SHIPPED` in the same commit | `P0-16` |
 | Metrics port publication | Not published to the host. Reachable inside the compose network only; `docker-compose.metrics-port.yml` is the opt-in override, loopback-only with no interface variable | `P0-11` |

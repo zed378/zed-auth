@@ -48,6 +48,20 @@ Format follows Keep a Changelog conventions, grouped by release once releases ex
 - `/readyz` now genuinely checks PostgreSQL; it previously reported ready with no dependencies wired.
 - Deployed and verified on the VM; `https://auth.zedth.my.id` healthy throughout.
 
+**Added** — the console shell ([record](./records/2026-09-08-P0-17-console-skeleton.md))
+- React 19 + TypeScript on Vite 8 and Tailwind 4: every design token `UI-UX/05` names, routing, the navigation tree from `PLAN/06`, an error boundary, TanStack Query, and the typed API client generated from `openapi/openapi.yaml` — which closes `P0-16` step 3. (`P0-17`)
+- Three local ESLint rules make the token discipline a build failure rather than a convention: a raw hex, a Tailwind arbitrary value, or an inline style all fail lint. The first run caught a real bug — `w-[--spacing-nav]` referenced a token that did not exist, so the navigation would have had no width. (`P0-17`)
+- `color-danger` is un-overridable structurally: the brandable set is a union of literal token names, backed by a runtime filter because branding arrives as JSON where the type system has ended. A custom accent is contrast-checked against its surface before it is applied, which `UI-UX/13` requires at the moment an org admin sets it. (`P0-17`)
+- Accessibility in the shell rather than on a list: landmarks, a skip link whose target is genuinely focusable, 44px targets at compact density, a focus ring using `color-accent`, and a `prefers-reduced-motion` fallback. Verified with real `Tab` presses in a browser, plus an axe pass on the WCAG 2.1 A/AA rule set. (`P0-17`)
+- `deploy/console/` — nginx config and compose file for the staging preview at `console.zedth.my.id`, bound to `127.0.0.1:10920` so only `cloudflared` reaches it.
+- Console lint, typecheck, tests and generated-client freshness are gates in `scripts/check.sh` and CI. 25 gates became 29.
+
+**Fixed**
+- **Every piece of text rendered at the browser default size, and nothing failed.** Tailwind v4 reads font sizes from `--text-*`; `--font-size-*` is not a namespace it knows, so the five type-scale tokens sat in the stylesheet as inert custom properties and generated no CSS. The same for `--line-height-*`, `--easing-*`, and `--duration-*` (not a namespace at all). Lint, typecheck, 72 tests and the build were all green — **because the tests read the source file**, which contained exactly what it should. A test that reads the input to a compiler cannot tell you what the compiler did. `utilities.test.ts` now compiles Tailwind and asserts the classes the components use produce rules; verified by reintroducing the bug, which the new test catches and the old one passes 48/48 through. (`P0-17`)
+- Two `<h1>` elements: the narrow-width message overlaid the layout instead of replacing it, so below tablet width a screen-reader user would have walked past "this screen is too narrow" into the application it says is unusable. A visual overlay hides nothing from assistive technology. (`P0-17`)
+- Refreshing on `/projects` returned 404 — the history-mode failure, where a static host looks up the route as a file. `deploy/console/nginx.conf` adds the fallback, never caches `index.html` (it is the file that names the current bundle), and sets the console's own security headers. (`P0-17`)
+- Those headers then silently vanished: in nginx `add_header` does not accumulate across contexts, so a `location` block with any header of its own discards every server-level one. Found with `curl -I` against the deployed site; nothing in the config looked wrong. (`P0-17`)
+
 **Added** — the API contract ([record](./records/2026-09-08-P0-16-api-contract.md))
 - `openapi/openapi.yaml` is the single contract artifact, and it **generates the code rather than describing it** ([ADR-013](./DECISIONS.md)). Handlers implement a generated interface, so a signature that stops matching the contract fails to compile. `PLAN/05` accepts a spec that CI merely validates; that is now the backstop, not the mechanism. (`P0-16`)
 - The shared component schemas — error envelope, pagination token, common parameters — are deliberately ahead of the endpoints. They are contract infrastructure, and an error format that changes after twenty endpoints exist is a breaking change to all twenty. (`P0-16`)
@@ -88,8 +102,9 @@ Format follows Keep a Changelog conventions, grouped by release once releases ex
 - Both `P0-12` follow-ups closed: the unsupervised partition-maintenance goroutine is now visible as a gauge with two alerts, and cross-tenant database access is counted as `PLAN/08` Part B asks.
 
 **Status**
-- Phase 0: 16 of 21 done, plus `P0-16` in progress — its contract, Go generation and CI gates are complete; the console client and public-site rendering are carried into `P0-17` and `P0-18`, which create those surfaces.
+- Phase 0: 17 of 21 done. `P0-16` remains in progress — step 3 (the console's typed client) landed with `P0-17`; step 4, the public site's API reference, waits on `P0-18`.
 - Open deviations: DV-01 (single-VM production vs. Multi-AZ), DV-02 (`manager_roles` has no tenant policy until `P2-05` provides a user context).
-- Remaining in Phase 0: the test harness (`P0-15`), console and public-site skeletons (`P0-17` … `P0-19`), and staging (`P0-20`). `OQ-03` is answered, so `P0-20` is no longer blocked.
+- Remaining in Phase 0: the test harness (`P0-15`), the public site (`P0-18`, `P0-19`), and staging (`P0-20`).
+- New plan gap `PG-12`: `color-border` serves both input borders (WCAG 1.4.11 wants 3:1) and table dividers (which want a hairline). One token cannot do both well.
 - The OIDC provider library remains undecided by design: confirming JWKS rotation with overlap and refresh-token reuse detection requires building against it, so it moves to `P1-03`.
 - Open questions now number nine; `OQ-09` (audit log retention period and the erasure approach) is new and should be confirmed before `P0-07` writes the partitioning migration.
