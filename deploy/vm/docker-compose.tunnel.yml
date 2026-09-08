@@ -61,6 +61,15 @@ services:
       AUTH_JWT_SIGNING_KEY_REF: ${AUTH_JWT_SIGNING_KEY_REF:?required}
       AUTH_LOG_LEVEL: ${AUTH_LOG_LEVEL:-info}
       AUTH_LOG_FORMAT: ${AUTH_LOG_FORMAT:-json}
+      # Metrics listener. Inside the container it binds all interfaces so the
+      # compose network can reach it; on the HOST it is published to loopback
+      # only (see the ports entry). The endpoint is unauthenticated and
+      # discloses request and error rates, so it must never reach the public
+      # ingress (PLAN/13, SECURITY/02 §12).
+      AUTH_ADMIN_ADDR: "0.0.0.0:9090"
+      AUTH_ADMIN_ENABLED: "true"
+      AUTH_OTLP_ENDPOINT: ${AUTH_OTLP_ENDPOINT:-}
+      AUTH_TRACE_SAMPLE_RATIO: ${AUTH_TRACE_SAMPLE_RATIO:-0.05}
 
     ports:
       # AUTH_BIND_ADDR defaults to loopback, which is the correct posture once
@@ -75,6 +84,9 @@ services:
       #
       # Verify with: ss -tlnp | grep <port>  — it must show 127.0.0.1, not 0.0.0.0.
       - "${AUTH_BIND_ADDR:-127.0.0.1}:${AUTH_PUBLIC_PORT:-10800}:8080"
+      # Loopback only, always. Unlike the application port this one has no
+      # reason to be reachable from anywhere but a local scraper.
+      - "127.0.0.1:${AUTH_METRICS_PORT:-10900}:9090"
 
     volumes:
       - ${AUTH_SECRETS_DIR:?required}:/etc/zed-auth/secrets:ro

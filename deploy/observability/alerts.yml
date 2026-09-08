@@ -1,0 +1,231 @@
+# Prometheus alerting rules.
+#
+# Every rule here comes from PLAN/13-OBSERVABILITY.md § Alerting or from a
+# failure this project has already hit. Each carries the reason it exists in
+# its annotation, because an alert whose purpose nobody remembers is an alert
+# that gets silenced.
+#
+# One principle shapes all of them: absence is not health. A counter with no
+# observations produces no time series, so `rate(...) == 0` never fires when
+# the service is down — it fires when the service is up and idle. Rules that
+# must catch "stopped happening" use absent() or a gauge, never a zero
+# comparison.
+
+groups:
+  - name: authservice-availability
+    interval: 30s
+    rules:
+      - alert: AuthServiceDown
+        expr: up{job="authservice"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Auth Service is not being scraped"
+          description: >-
+            PLAN/09 opens by noting that a compromise here compromises every
+            dependent application; an outage has the same reach. Every consumer
+            application's login path is down.
+
+      - alert: TokenEndpointErrorRate
+        # PLAN/13 § Alerting names this explicitly: every consumer application
+        # is affected.
+        expr: |
+          sum(rate(http_requests_total{route="/oauth/token",status_class="5xx"}[5m]))
+          /
+          sum(rate(http_requests_total{route="/oauth/token"}[5m])) > 0.01
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "More than 1% of token requests are failing"
+          description: >-
+            /oauth/token is the highest-volume endpoint in the system
+            (PLAN/12). Failures here surface in every consumer application at
+            once, usually as users being logged out.
+
+      - alert: HighErrorRate
+        expr: |
+          sum by (route) (rate(http_requests_total{status_class="5xx"}[5m]))
+          /
+          sum by (route) (rate(http_requests_total[5m])) > 0.05
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.route }} is failing more than 5% of requests"
+
+  - name: authservice-latency
+    interval: 30s
+    rules:
+      # Thresholds are PLAN/12's p95 targets exactly. They are alerts rather
+      # than aspirations because PLAN/12 § Definition of "Performance
+      # Acceptable" makes meeting them a go-live gate.
+      - alert: TokenEndpointSlow
+        expr: |
+          histogram_quantile(0.95,
+            sum by (le) (rate(http_request_duration_seconds_bucket{route="/oauth/token"}[5m]))
+          ) > 0.200
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "/oauth/token p95 is above PLAN/12's 200ms target"
+
+      - alert: AuthorizeEndpointSlow
+        expr: |
+          histogram_quantile(0.95,
+            sum by (le) (rate(http_request_duration_seconds_bucket{route="/oauth/authorize"}[5m]))
+          ) > 0.150
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "/oauth/authorize p95 is above PLAN/12's 150ms target"
+          description: >-
+            This is the silent-SSO path. It has to feel instantaneous to an end
+            user who is not aware a redirect happened at all.
+
+      - alert: AuthzCheckSlow
+        # PLAN/13 names sustained latency on this endpoint as a critical alert.
+        # It is called on every protected request across every consumer app, so
+        # its latency is added to theirs.
+        expr: |
+          histogram_quantile(0.95,
+            sum by (le) (rate(authz_check_duration_seconds_bucket{mode="rbac"}[5m]))
+          ) > 0.080
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "/v1/authz/check p95 is above PLAN/12's 80ms RBAC target"
+
+  - name: authservice-security
+    interval: 30s
+    rules:
+      - alert: LoginFailureSpike
+        # PLAN/13 § Alerting: a spike in failed logins is a possible attack.
+        # Rate-based rather than absolute, so it does not fire simply because
+        # traffic grew.
+        expr: |
+          sum(rate(auth_login_attempts_total{outcome="failure"}[5m]))
+          /
+          clamp_min(sum(rate(auth_login_attempts_total[5m])), 0.01) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "More than half of login attempts are failing"
+          description: >-
+            Credential stuffing, or a broken consumer integration. Check
+            whether failures concentrate on one IP or one account
+            (SECURITY/02 §13).
+
+      - alert: LockoutSpike
+        expr: sum(increase(auth_lockouts_total[15m])) > 20
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Unusual number of account lockouts"
+          description: >-
+            Could be an attack, or a consumer application retrying with stale
+            credentials. PLAN/05 requires lockout to be a cooldown rather than
+            a permanent lock, so this is not itself a denial of service — but
+            it is worth understanding.
+
+      - alert: UnusualProjectGrantActivity
+        # PLAN/13 names an unusual spike in grant creation or revocation as a
+        # possible misuse indicator.
+        expr: sum(increase(authz_project_grant_changes_total[1h])) > 50
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Unusual rate of Project Grant changes"
+
+      - alert: UnexpectedInstanceScopedAccess
+        # The cross-tenant database path should be rare and operational. A
+        # sustained rate means something is using it as a normal path, which is
+        # exactly what PLAN/08 Part B warns against. Audit maintenance is
+        # excluded because it legitimately runs on a timer.
+        expr: sum(increase(db_instance_scoped_access_total{reason!~"audit:.*"}[1h])) > 100
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Cross-tenant database access is unusually frequent"
+
+  - name: authservice-audit
+    interval: 1m
+    rules:
+      - alert: AuditPartitionRunwayLow
+        # The alert for a failure that already happened once: the maintenance
+        # goroutine has no supervisor, and when the runway reaches zero every
+        # audited action fails — which means every security-sensitive action
+        # fails — at a month boundary, with no deploy to correlate against
+        # (P0-12).
+        expr: audit_partition_runway_months < 2
+        for: 1h
+        labels:
+          severity: critical
+        annotations:
+          summary: "Audit partition runway is down to {{ $value }} months"
+          description: >-
+            When it reaches zero, every INSERT into events fails and with it
+            every action that writes an audit event. Check that the maintenance
+            goroutine is still running.
+
+      - alert: AuditPartitionRunwayUnknown
+        # Absence, not zero. If the metric stops being reported the goroutine
+        # has died, and a rule comparing its value would never fire.
+        expr: absent(audit_partition_runway_months)
+        for: 30m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Audit partition runway is not being reported"
+          description: >-
+            The maintenance goroutine reports this gauge on every run. Its
+            absence means the goroutine is gone, which is the same outage as a
+            zero runway, only silent.
+
+      - alert: AuditWriteFailures
+        expr: increase(audit_events_written_total{outcome="failure"}[10m]) > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: "Audit writes are failing"
+          description: >-
+            The audit write is inside the transaction of the action that caused
+            it (ADR-012), so failures here mean those actions are failing too.
+            The service is refusing to act rather than acting unrecorded, which
+            is the intended trade — but it is an outage.
+
+  - name: authservice-dependencies
+    interval: 30s
+    rules:
+      - alert: DatabasePoolSaturated
+        # PLAN/13 names pool utilisation. Saturation presents as latency at
+        # every endpoint simultaneously, which reads as a dozen unrelated
+        # problems until someone checks the pool.
+        expr: |
+          postgres_blocked_connections / clamp_min(postgres_max_open_connections, 1) > 0.9
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "PostgreSQL connection pool is nearly exhausted"
+
+      - alert: RedisSlow
+        expr: |
+          histogram_quantile(0.95, sum by (le) (rate(redis_operation_duration_seconds_bucket[5m]))) > 0.050
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Redis p95 latency is above 50ms"
+          description: >-
+            Redis is a cache in front of PostgreSQL for sessions (ADR-003), so
+            this degrades the silent-SSO path rather than breaking it. PLAN/13
+            requires graceful degradation, not failure.

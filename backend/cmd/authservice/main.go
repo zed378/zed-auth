@@ -85,6 +85,30 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	metrics := observability.NewMetrics("authservice", version)
+
+	// Tracing is off unless an OTLP endpoint is configured. The shutdown flush
+	// matters: an unflushed exporter drops the spans from the last seconds of
+	// a process, which are exactly the ones present when it crashed.
+	shutdownTracing, err := observability.InitTracing(ctx, observability.TracingConfig{
+		Endpoint:       cfg.Tracing.Endpoint,
+		Insecure:       cfg.Tracing.Insecure,
+		SampleRatio:    cfg.Tracing.SampleRatio,
+		ServiceName:    "authservice",
+		ServiceVersion: version,
+		Environment:    string(cfg.Environment),
+	}, log)
+	if err != nil {
+		return fmt.Errorf("tracing: %w", err)
+	}
+	defer func() {
+		flushCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		if ferr := shutdownTracing(flushCtx); ferr != nil {
+			log.Error("flushing traces", "error", ferr.Error())
+		}
+	}()
+
 	db, err := postgres.Open(ctx, cfg.Postgres, log)
 	if err != nil {
 		return fmt.Errorf("postgres: %w", err)
@@ -106,10 +130,27 @@ func run() error {
 		return fmt.Errorf("database role check: %w", err)
 	}
 
+	// PLAN/13 names pool utilisation explicitly: exhaustion presents as latency
+	// at every endpoint at once, which looks like a dozen unrelated problems
+	// until someone thinks to check the pool.
+	if err := metrics.RegisterDBStats("postgres", db.SQL()); err != nil {
+		return fmt.Errorf("register db metrics: %w", err)
+	}
+
 	// Forwarding to an external SIEM is nil until P5-08 supplies one. The seam
 	// exists now because PLAN/09 § Audit wants the log forwarded, and adding
 	// the seam later would mean touching every call site.
 	auditor := audit.NewWriter(db, log, nil)
+	auditor.SetObserver(auditObserver{m: metrics})
+
+	// PLAN/08 Part B requires the cross-tenant database path to be auditable.
+	// A hook rather than a direct call, because audit already imports postgres
+	// and importing back would be a cycle. It runs outside the scoped
+	// transaction: failing to record the access should not roll back the
+	// access, which is the opposite trade from business events (ADR-012).
+	db.SetInstanceScopeHook(func(hookCtx context.Context, reason string) {
+		metrics.InstanceScopedAccess.WithLabelValues(reason).Inc()
+	})
 
 	// Partition maintenance runs for the life of the process.
 	//
@@ -126,9 +167,23 @@ func run() error {
 		Timeout: 2 * time.Second,
 	}
 
+	admin := httpserver.NewAdmin(cfg.Admin, httpserver.AdminDeps{
+		Logger:  log,
+		Metrics: metrics.Handler(),
+	})
+	go func() {
+		// A failure here is a visibility problem. Taking authentication down
+		// over a metrics listener would be a worse outcome than the one it
+		// would be reporting.
+		if aerr := admin.Run(ctx); aerr != nil {
+			log.Error("admin listener stopped", "error", aerr.Error())
+		}
+	}()
+
 	srv := httpserver.New(cfg.HTTP, httpserver.Deps{
-		Logger: log,
-		Health: health,
+		Logger:  log,
+		Health:  health,
+		Metrics: metrics,
 		// Explicit configuration, not inferred from the environment: see the
 		// comment on config.HTTPConfig.TrustProxyHeaders. Defaults to false,
 		// so a deployment behind a proxy that forwards client headers
@@ -196,6 +251,19 @@ func probeReadiness() int {
 		return 1
 	}
 	return 0
+}
+
+// auditObserver adapts the audit package's Observer to the metric instruments.
+// It exists so audit does not import observability, keeping the dependency
+// one-directional.
+type auditObserver struct{ m *observability.Metrics }
+
+func (o auditObserver) PartitionRunway(months int) {
+	o.m.AuditPartitionRunway.Set(float64(months))
+}
+
+func (o auditObserver) PartitionMaintenanceFailed() {
+	o.m.AuditPartitionErrors.Inc()
 }
 
 // exitCode maps an error to a process exit code. Kept for the operational
