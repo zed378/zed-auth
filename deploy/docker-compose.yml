@@ -1,0 +1,111 @@
+# Local development stack. One command brings up everything the service needs,
+# so "works on my machine" never becomes a debugging variable in a
+# security-critical codebase.
+#
+#   docker compose -f deploy/docker-compose.yml up -d
+#
+# Images are pinned to a minor version rather than :latest
+# (SECURITY/02-ATTACK-SURFACE-AND-SCENARIOS.md §15 Supply-Chain).
+#
+# Every credential here is a local-only placeholder. Real values come from the
+# secret manager in deployed environments and never from a committed file
+# (PLAN/07-BACKEND-ARCHITECTURE.md § Infrastructure).
+
+name: zed-auth
+
+services:
+  postgres:
+    image: postgres:17.2-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: auth
+      POSTGRES_USER: auth_owner
+      POSTGRES_PASSWORD: local_dev_only
+      # Deterministic collation, so an index built locally behaves the way it
+      # will in a deployed environment.
+      POSTGRES_INITDB_ARGS: "--locale=C --encoding=UTF8"
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      # Gate startup on the database being genuinely ready to accept queries,
+      # not merely on the container having started.
+      test: ["CMD-SHELL", "pg_isready -U auth_owner -d auth"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+    security_opt:
+      - no-new-privileges:true
+
+  redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    # appendonly yes: sessions and rate-limit counters survive a container
+    # restart during development. In production Redis is a cache in front of
+    # PostgreSQL for sessions (PLAN/04-DATA-MODEL.md § sessions), so losing it
+    # is recoverable — but losing it on every local restart is just friction.
+    command: ["redis-server", "--appendonly", "yes", "--save", ""]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    security_opt:
+      - no-new-privileges:true
+
+  mailpit:
+    # Catches every outbound email locally. Invitations (P1-19.1), password
+    # resets (P1-19.4), and anomaly notifications (P3-08) all send mail, and
+    # none of them should reach a real inbox from a developer machine.
+    image: axllent/mailpit:v1.21
+    restart: unless-stopped
+    ports:
+      - "1025:1025"  # SMTP
+      - "8025:8025"  # web UI: http://localhost:8025
+    security_opt:
+      - no-new-privileges:true
+
+  authservice:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+      args:
+        VERSION: local
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      AUTH_ENV: local
+      AUTH_ISSUER: http://localhost:8080
+      AUTH_HTTP_ADDR: ":8080"
+      AUTH_POSTGRES_DSN: "postgres://auth_app:local_dev_only@postgres:5432/auth?sslmode=disable"
+      AUTH_REDIS_ADDR: "redis:6379"
+      AUTH_LOG_LEVEL: debug
+      AUTH_LOG_FORMAT: json
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "/authservice", "-healthcheck"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    cap_drop:
+      - ALL
+
+volumes:
+  postgres_data:
+  redis_data:
