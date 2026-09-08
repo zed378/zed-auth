@@ -48,6 +48,17 @@ Format follows Keep a Changelog conventions, grouped by release once releases ex
 - `/readyz` now genuinely checks PostgreSQL; it previously reported ready with no dependencies wired.
 - Deployed and verified on the VM; `https://auth.zedth.my.id` healthy throughout.
 
+**Added** — the API contract ([record](./records/2026-09-08-P0-16-api-contract.md))
+- `openapi/openapi.yaml` is the single contract artifact, and it **generates the code rather than describing it** ([ADR-013](./DECISIONS.md)). Handlers implement a generated interface, so a signature that stops matching the contract fails to compile. `PLAN/05` accepts a spec that CI merely validates; that is now the backstop, not the mechanism. (`P0-16`)
+- The shared component schemas — error envelope, pagination token, common parameters — are deliberately ahead of the endpoints. They are contract infrastructure, and an error format that changes after twenty endpoints exist is a breaking change to all twenty. (`P0-16`)
+- `scripts/openapi-shipped-paths.py`: the spec documents only endpoints that exist. `/docs/api-reference` renders from it, so a documented endpoint is a public claim it exists (`UI-UX/21` governance, `CLAUDE.md`). Adding one means adding it to `SHIPPED` in the same commit. (`P0-16`)
+- Three new gates in CI and `scripts/check.sh` — spec validity, generated-code freshness, and the shipped-endpoint rule. 22 gates became 25. Each was verified by deliberately breaking it.
+- **ADR-012**, the audit write-semantics decision, written at last. Four code comments and a change record referenced it and it had never been written into `DECISIONS.md`, which `P0-12`'s Definition of Done required. A reference to a decision that does not exist reads as though the reasoning was recorded somewhere.
+
+**Fixed**
+- Writing the spec against the running service found that `/healthz` returns `{"status":"ok"}` while `/readyz` returns `{"status":"ready"}`. Recorded as two schemas rather than tidied into one: a consumer already parsing `ready` would break if the server were changed to match a prettier document. A test now pins both values and says what changing them would cost. (`P0-16`)
+- `scripts/check.sh` defined a shell function named `head`, which shadowed the `head` command for the whole script. Every `... | head -20` in a pipeline called the function, which ignores stdin and **discards the piped output**. Two failure paths — unit-test failures and `govulncheck` findings — had been throwing their diagnostic detail away since they were written. Invisible until something failed, which is where a silent bug survives longest. Renamed to `section`.
+
 **Added** — metrics endpoint authentication ([record](./records/2026-09-08-P0-11-metrics-endpoint-authentication.md))
 - A bearer token on the metrics endpoint, resolved through the same secret indirection as everything else, compared in constant time, and rejecting with a bare `404` rather than a `401` — a `401` with a challenge header confirms to a prober that the endpoint exists and says what it wants. (`P0-11`)
 - The service now refuses to boot when the metrics listener binds beyond loopback with no token configured. It caught two misconfigurations within the hour, both of them ours. (`P0-11`)
@@ -77,8 +88,8 @@ Format follows Keep a Changelog conventions, grouped by release once releases ex
 - Both `P0-12` follow-ups closed: the unsupervised partition-maintenance goroutine is now visible as a gauge with two alerts, and cross-tenant database access is counted as `PLAN/08` Part B asks.
 
 **Status**
-- Phase 0: 16 of 21 tasks done. 16 of 177 overall.
+- Phase 0: 16 of 21 done, plus `P0-16` in progress — its contract, Go generation and CI gates are complete; the console client and public-site rendering are carried into `P0-17` and `P0-18`, which create those surfaces.
 - Open deviations: DV-01 (single-VM production vs. Multi-AZ), DV-02 (`manager_roles` has no tenant policy until `P2-05` provides a user context).
-- Remaining in Phase 0: the test harness (`P0-15`), OpenAPI (`P0-16`), console and public-site skeletons (`P0-17` … `P0-19`), and staging (`P0-20`, blocked on `OQ-03`).
+- Remaining in Phase 0: the test harness (`P0-15`), console and public-site skeletons (`P0-17` … `P0-19`), and staging (`P0-20`). `OQ-03` is answered, so `P0-20` is no longer blocked.
 - The OIDC provider library remains undecided by design: confirming JWKS rotation with overlap and refresh-token reuse detection requires building against it, so it moves to `P1-03`.
 - Open questions now number nine; `OQ-09` (audit log retention period and the erasure approach) is new and should be confirmed before `P0-07` writes the partitioning migration.

@@ -2,9 +2,10 @@ package httpserver
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"time"
+
+	"github.com/zed378/zed-auth/backend/internal/api"
 )
 
 // Checker reports whether a dependency is usable. Implemented by the Postgres
@@ -17,7 +18,13 @@ type Checker interface {
 	Check(ctx context.Context) error
 }
 
-// Health holds the readiness dependencies.
+// Health holds the readiness dependencies and serves both probes.
+//
+// It implements api.StrictServerInterface, the interface generated from
+// openapi/openapi.yaml. That is the enforcement mechanism rather than a
+// stylistic choice: if the spec's probe responses change and this type is not
+// updated, the build fails at the assertion below (ADR-013). A CI check that
+// compares the two would find the same problem later, after it was pushed.
 type Health struct {
 	// Checks are evaluated by /readyz. /healthz never touches them.
 	Checks []Checker
@@ -27,19 +34,20 @@ type Health struct {
 	Timeout time.Duration
 }
 
-// Liveness answers "is this process alive and not wedged?".
+// The contract, asserted at compile time.
+var _ api.StrictServerInterface = (*Health)(nil)
+
+// GetLiveness answers "is this process alive and not wedged?".
 //
 // It deliberately checks nothing. PLAN/14-DEPLOYMENT.md separates liveness from
 // readiness precisely so a transient database problem restarts nothing — if
 // /healthz consulted Postgres, a brief database blip would make Kubernetes kill
 // every pod at once, turning a recoverable dependency failure into an outage.
-func (h *Health) Liveness() http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		writeHealth(w, http.StatusOK, "ok")
-	}
+func (h *Health) GetLiveness(context.Context, api.GetLivenessRequestObject) (api.GetLivenessResponseObject, error) {
+	return api.GetLiveness200JSONResponse{Status: api.Ok}, nil
 }
 
-// Readiness answers "should this instance receive traffic?".
+// GetReadiness answers "should this instance receive traffic?".
 //
 // It verifies every dependency the service needs to serve a request. A rolling
 // update must not route traffic to an instance whose connection pool is not up
@@ -51,33 +59,41 @@ func (h *Health) Liveness() http.HandlerFunc {
 // connection refused at 10.0.4.2:5432" hands over infrastructure topology
 // (SECURITY/02-ATTACK-SURFACE-AND-SCENARIOS.md §12 Enumeration). The detail
 // goes to the logs, which is where an operator can see it.
-func (h *Health) Readiness() http.HandlerFunc {
+//
+// The returned error is always nil. A dependency failure is a 503, which is a
+// documented response and therefore a value, not an error — returning an error
+// here would produce an undocumented 500 and lose the distinction between "not
+// ready" and "broken".
+func (h *Health) GetReadiness(ctx context.Context, _ api.GetReadinessRequestObject) (api.GetReadinessResponseObject, error) {
 	timeout := h.Timeout
 	if timeout <= 0 {
 		timeout = 2 * time.Second
 	}
 
-	return func(w http.ResponseWriter, r *http.Request) {
-		ctx, cancel := context.WithTimeout(r.Context(), timeout)
-		defer cancel()
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
 
-		for _, c := range h.Checks {
-			if err := c.Check(ctx); err != nil {
-				// Logged with the dependency name by the access log middleware's
-				// caller; the body stays opaque.
-				writeHealth(w, http.StatusServiceUnavailable, "unavailable")
-				return
-			}
+	for _, c := range h.Checks {
+		if err := c.Check(ctx); err != nil {
+			return api.GetReadiness503JSONResponse{Status: api.Unavailable}, nil
 		}
-
-		writeHealth(w, http.StatusOK, "ready")
 	}
+
+	return api.GetReadiness200JSONResponse{Status: api.Ready}, nil
 }
 
-func writeHealth(w http.ResponseWriter, status int, state string) {
-	w.Header().Set("Content-Type", "application/json")
-	// A cached readiness response would let an unready instance look ready.
-	w.Header().Set("Cache-Control", "no-store")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]string{"status": state})
+// noStore keeps probe responses out of every cache between here and the
+// orchestrator.
+//
+// Without it a cached readiness response lets an unready instance look ready
+// for the life of the cache entry, which is the one failure this endpoint
+// exists to prevent. The generated response writers set Content-Type and the
+// status code and nothing else, so this is applied as middleware rather than
+// per handler — a header that has to be remembered in each handler is a header
+// that will be forgotten in one.
+func noStore(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
+		next.ServeHTTP(w, r)
+	})
 }

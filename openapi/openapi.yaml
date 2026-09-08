@@ -1,0 +1,469 @@
+# The Management REST API contract.
+#
+# This file is the source of truth (ADR-013). Go server interfaces, the
+# console's TypeScript client, and the public API reference are all generated
+# from it, so a handler whose signature no longer matches this file fails to
+# compile rather than failing in production.
+#
+# Governing document: PLAN/05-API-CONTRACT.md. Where the two disagree, PLAN/05
+# is right and this file is a bug.
+#
+# On what is NOT here: this spec describes only endpoints that exist. The
+# endpoint structure in PLAN/05 Part B lists the full v1 surface, and it is
+# tempting to write it all out now as a design exercise. It is not written out,
+# because /docs/api-reference renders from this file, and an endpoint in the
+# public reference is a claim that the endpoint exists. Documenting the whole
+# roadmap here would put that claim on the public site for every unbuilt
+# endpoint at once (UI-UX/21 § governance, CLAUDE.md).
+#
+# The component schemas below are different in kind. They are contract
+# infrastructure — the shapes every future endpoint will reuse — and settling
+# them now is the point of P0-16. An error format that changes after twenty
+# endpoints exist is a breaking change to all twenty.
+
+# 3.0.3 rather than 3.1, deliberately (ADR-013).
+#
+# oapi-codegen prints "OpenAPI 3.1.x is not yet supported ... some
+# functionality may not be available" and generates anyway. Generating anyway
+# is the problem: the entire value of spec-first here is that the generated
+# interface is trustworthy enough to be the enforcement mechanism, and a
+# generator that has told you it may be silently incomplete cannot be that.
+#
+# Nothing in this contract needs 3.1. Revisit when oapi-codegen supports it
+# (BACKLOG SL-03).
+openapi: 3.0.3
+
+info:
+  title: Zed Auth — Management API
+  version: 0.1.0
+  description: |
+    The Management REST API for the Zed Auth service.
+
+    **Every capability in the management console is available here.** The
+    console is a client of this API and has no privileged path around it
+    (`PLAN/02` FR-14). If the console can do something this API cannot, that is
+    a defect.
+
+    ## Current status
+
+    Phase 0. The service runs, and the endpoints below are the ones that exist:
+    operational probes only. The identity and authorization endpoints arrive in
+    Phase 1 and are deliberately absent from this document until they are real.
+
+    ## Versioning
+
+    Management endpoints are prefixed `/v1`. Breaking changes go to `/v2` with a
+    published deprecation window for `/v1` (`PLAN/05` Part B). The operational
+    probes are unversioned: they describe the process, not the API.
+
+    ## Authentication
+
+    Management endpoints require an OAuth 2.0 Bearer access token, including
+    the Client Credentials grant for service accounts. Authorization is
+    enforced server-side on every request without exception — the console
+    hiding a control is a user-experience decision, never a security one
+    (`PLAN/08`).
+  contact:
+    name: Responsible disclosure
+    email: security@zedth.my.id
+  license:
+    # 3.0 has no `identifier` field, so the SPDX form used at 3.1 is not
+    # available here. The name alone is unambiguous enough for its purpose: a
+    # spec published with no licence field at all says nothing about reuse
+    # rights, and "nothing" gets read as "probably fine" by whoever finds it.
+    name: Proprietary — all rights reserved
+
+servers:
+  - url: https://auth.zedth.my.id
+    description: Staging. Not production; do not integrate against it expecting stability.
+
+tags:
+  - name: Operations
+    description: |
+      Process-level probes. Unauthenticated by design, and deliberately
+      uninformative: they answer whether the process can serve traffic and
+      nothing else. A probe that reports which dependency is unhealthy is a
+      reconnaissance endpoint (`SECURITY/02` §12).
+
+paths:
+  /healthz:
+    get:
+      tags: [Operations]
+      operationId: getLiveness
+      summary: Liveness probe
+      description: |
+        Answers whether the process is running. It performs no dependency
+        checks and cannot fail while the process is able to respond at all.
+
+        The distinction from `/readyz` is load-bearing. A liveness probe that
+        checks the database restarts the service during a database outage,
+        which converts a recoverable dependency failure into a crash loop that
+        prevents recovery (`PLAN/14`).
+      security: []
+      responses:
+        "200":
+          description: The process is alive.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LivenessStatus"
+              examples:
+                alive:
+                  value:
+                    status: ok
+
+  /readyz:
+    get:
+      tags: [Operations]
+      operationId: getReadiness
+      summary: Readiness probe
+      description: |
+        Answers whether the process can serve traffic right now, which includes
+        its dependencies being reachable.
+
+        A failure removes this instance from the load balancer without
+        restarting it — the correct response to a dependency being briefly
+        unavailable.
+      security: []
+      responses:
+        "200":
+          description: Ready to serve traffic.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReadinessStatus"
+              examples:
+                ready:
+                  value:
+                    status: ready
+        "503":
+          description: |
+            Not ready. The body names no dependency and gives no detail, on
+            purpose: this endpoint is reachable from the public ingress, and
+            "which of our dependencies is down" is not something to tell an
+            anonymous caller. The detail is in the logs and metrics.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReadinessStatus"
+              examples:
+                notReady:
+                  value:
+                    status: unavailable
+
+components:
+  securitySchemes:
+    oauth2:
+      type: oauth2
+      description: |
+        OAuth 2.0 access tokens. Authorization Code with PKCE for interactive
+        clients including the console itself; Client Credentials for service
+        accounts (`PLAN/05` Part A).
+      flows:
+        authorizationCode:
+          authorizationUrl: https://auth.zedth.my.id/oauth/authorize
+          tokenUrl: https://auth.zedth.my.id/oauth/token
+          refreshUrl: https://auth.zedth.my.id/oauth/token
+          scopes:
+            openid: OpenID Connect authentication.
+            profile: Basic profile claims.
+            email: Email address claim.
+            offline_access: Issue a refresh token.
+        clientCredentials:
+          tokenUrl: https://auth.zedth.my.id/oauth/token
+          scopes: {}
+
+  parameters:
+    PageSize:
+      name: page_size
+      in: query
+      required: false
+      description: |
+        Maximum items to return. The server may return fewer, and returning
+        fewer never means the collection is exhausted — only an absent
+        `next_page_token` means that.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+
+    PageToken:
+      name: page_token
+      in: query
+      required: false
+      description: |
+        The `next_page_token` from the previous response. Opaque: its contents
+        are not part of the contract and must not be constructed, parsed, or
+        persisted by a client.
+      schema:
+        type: string
+        maxLength: 512
+
+    OrganizationId:
+      name: org_id
+      in: path
+      required: true
+      description: The organization that owns the resource. Every request is scoped to exactly one.
+      schema:
+        $ref: "#/components/schemas/ResourceId"
+
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      description: |
+        A client-generated key making a retried `POST` safe. Replaying a
+        request with the same key returns the original result rather than
+        creating a second resource — which matters most for automated
+        provisioning, where a network timeout is indistinguishable from a
+        failure (`PLAN/05` Part B).
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 255
+
+  schemas:
+    LivenessStatus:
+      type: object
+      description: |
+        The complete `/healthz` response. There are no other fields, and none
+        will be added that name a dependency or a version.
+      required: [status]
+      additionalProperties: false
+      properties:
+        status:
+          type: string
+          enum: [ok]
+
+    ReadinessStatus:
+      type: object
+      description: |
+        The complete `/readyz` response.
+
+        Note that the ready value is `ready`, not `ok`. The two probes report
+        different vocabularies, which was found by writing this spec against
+        the running code rather than from memory. It is recorded accurately
+        rather than tidied, because a client already parsing `ready` would
+        break if the server were changed to match a prettier spec — the spec
+        describes what ships (ADR-013).
+      required: [status]
+      additionalProperties: false
+      properties:
+        status:
+          type: string
+          enum: [ready, unavailable]
+
+    ResourceId:
+      type: string
+      description: |
+        A prefixed, sortable identifier — `usr_`, `org_`, `prj_`, `app_`,
+        `rol_`, `grt_`. The prefix makes an identifier pasted into a support
+        ticket self-describing, and makes passing a project id where a user id
+        belongs visible on sight rather than at the database.
+      pattern: "^[a-z]{3,5}_[0-9A-HJKMNP-TV-Z]{26}$"
+      example: usr_01HQZX3M8K4N7P2R5T9V6W8Y0B
+
+    ErrorCode:
+      type: string
+      description: |
+        A stable, machine-readable code. Clients branch on this; `message` is
+        for humans and may be reworded at any time without a version bump.
+
+        Deliberately coarse. A code per failure mode leaks internal structure
+        and becomes an enumeration oracle — `USER_NOT_FOUND` versus
+        `PERMISSION_DENIED` tells an attacker which addresses are registered
+        (`SECURITY/02` §12).
+      enum:
+        - VALIDATION_ERROR
+        - UNAUTHENTICATED
+        - PERMISSION_DENIED
+        - NOT_FOUND
+        - CONFLICT
+        - RATE_LIMITED
+        - INTERNAL
+
+    ErrorDetail:
+      type: object
+      description: |
+        One specific problem within a failed request. Present for
+        `VALIDATION_ERROR`, where naming the bad field is helpful and discloses
+        nothing the caller did not send. Generally absent otherwise.
+      required: [field, issue]
+      additionalProperties: false
+      properties:
+        field:
+          type: string
+          description: JSON path to the offending field, relative to the request body.
+          example: email
+        issue:
+          type: string
+          description: What is wrong with it, in plain language.
+          example: email format is not valid
+
+    Error:
+      type: object
+      description: |
+        The error envelope for every non-2xx response, without exception
+        (`PLAN/05` Part B § Standard Error Format). One shape means a client
+        writes one error path rather than one per endpoint.
+      required: [error]
+      additionalProperties: false
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          additionalProperties: false
+          properties:
+            code:
+              $ref: "#/components/schemas/ErrorCode"
+            message:
+              type: string
+              description: |
+                Human-readable, safe to surface in a UI, and never containing a
+                token, a password, a raw `/v1/authz/check` resource attribute,
+                a stack trace, or a SQL fragment (`PLAN/13`, `CLAUDE.md`).
+            details:
+              type: array
+              description: Field-level problems. Omitted when there are none.
+              items:
+                $ref: "#/components/schemas/ErrorDetail"
+
+    PageInfo:
+      type: object
+      description: |
+        The pagination envelope every collection response embeds.
+
+        Token-based rather than offset-based: an offset re-reads rows that
+        shifted under concurrent writes, silently skipping or duplicating
+        entries. For an audit log or a user list that is a correctness bug that
+        nobody notices.
+      additionalProperties: false
+      properties:
+        next_page_token:
+          type: string
+          description: |
+            Pass as `page_token` for the following page. **Absent when there
+            are no more results** — the presence of this field is the only
+            valid end-of-collection test. An empty array is not one: a page can
+            legitimately return zero items and still have a next page.
+
+  responses:
+    BadRequest:
+      description: The request is malformed or fails validation.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          examples:
+            validation:
+              value:
+                error:
+                  code: VALIDATION_ERROR
+                  message: "Field 'email' is invalid"
+                  details:
+                    - field: email
+                      issue: email format is not valid
+
+    Unauthorized:
+      description: No access token, or one that is expired, malformed, or revoked.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          examples:
+            unauthenticated:
+              value:
+                error:
+                  code: UNAUTHENTICATED
+                  message: The access token is missing or invalid
+
+    Forbidden:
+      description: |
+        Authenticated, but not permitted. Returned for a resource in another
+        organization even when it exists — distinguishing "forbidden" from "not
+        found" across a tenant boundary confirms the resource's existence to
+        someone with no right to know it (`PLAN/08`, `SECURITY/02` §3).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          examples:
+            denied:
+              value:
+                error:
+                  code: PERMISSION_DENIED
+                  message: You do not have permission to perform this action
+
+    NotFound:
+      description: No such resource, or none visible to this caller.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          examples:
+            missing:
+              value:
+                error:
+                  code: NOT_FOUND
+                  message: The requested resource does not exist
+
+    Conflict:
+      description: The request conflicts with the current state, such as a duplicate email.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          examples:
+            duplicate:
+              value:
+                error:
+                  code: CONFLICT
+                  message: A user with this email already exists in this organization
+
+    RateLimited:
+      description: |
+        Too many requests. Limits are applied per `client_id` or API key rather
+        than per IP, so one noisy tenant behind a shared NAT cannot exhaust
+        another's budget (`PLAN/05` Part B).
+      headers:
+        X-RateLimit-Limit:
+          description: Requests permitted in the current window.
+          schema: { type: integer }
+        X-RateLimit-Remaining:
+          description: Requests left in the current window.
+          schema: { type: integer }
+        X-RateLimit-Reset:
+          description: Unix seconds at which the window resets.
+          schema: { type: integer }
+        Retry-After:
+          description: Seconds to wait before retrying.
+          schema: { type: integer }
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          examples:
+            limited:
+              value:
+                error:
+                  code: RATE_LIMITED
+                  message: Rate limit exceeded
+
+    InternalError:
+      description: |
+        An unexpected failure. The message is deliberately generic; the detail
+        is correlated by request id in the logs.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          examples:
+            internal:
+              value:
+                error:
+                  code: INTERNAL
+                  message: An unexpected error occurred
+
+security:
+  - oauth2: []
