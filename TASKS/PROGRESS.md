@@ -323,7 +323,8 @@ Things that are easy to get wrong once and expensive to fix later. Re-check each
 | Accessibility built in, not retrofitted | `PLAN/18` R-10 names late retrofitting as a real risk; `UI-UX/13` says it is far more expensive | `PF-19` |
 | Audit log retention confirmed | 24 months is a working default, not a confirmed obligation (`BACKLOG.md` OQ-09) | `P0-07` |
 | Single-VM production (DV-01) | A VM reboot takes authentication down platform-wide; `PLAN/14` requires Multi-AZ. Must close or be formally risk-accepted before a consumer app depends on it | `P0-20` |
-| `AUTH_ISSUER` still points at `.invalid` on the VM | The service starts, but every OIDC client would reject its tokens. Must become the real Cloudflare hostname before Phase 1 | `P0-20` |
-| Service port bound to `0.0.0.0` on the VM | Correct for subnet verification, wrong once the tunnel exists — narrow to `127.0.0.1` then | `P0-20` |
+| ~~`AUTH_ISSUER` placeholder~~ | Resolved 2026-09-08: `https://auth.zedth.my.id`, verified in the running process | `P0-20` |
+| ~~Service bound to `0.0.0.0`~~ | Resolved 2026-09-08: narrowed to `127.0.0.1`; LAN access confirmed closed | `P0-20` |
+| Issuer must match on every environment | The `iss` claim, the discovery document, and each client's configured issuer must agree exactly; a mismatch fails verification with an error naming none of them | `P1-04` |
 | `AUTH_BACKUP_REMOTE` actually set | Unset means backups sit on the disk they protect — safety-feeling without safety | `P0-20` |
 | Service never receives owner credentials | The owner bypasses RLS and can alter the audit log; asserted in CI against the rendered compose config | `P0-20` |
