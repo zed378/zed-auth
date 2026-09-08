@@ -58,9 +58,16 @@ Format follows Keep a Changelog conventions, grouped by release once releases ex
 **Fixed**
 - Six Go standard-library vulnerabilities at 1.26.5, one of them directly relevant: `ReadHeaderTimeout` was not applied during the unencrypted HTTP/2 check, and that timeout exists to bound slow-header attacks. Toolchain pinned to 1.26.6; `golang.org/x/text` upgraded past an infinite-loop bug. (`P0-12`)
 
+**Added** — observability ([record](./records/2026-09-08-P0-11-metrics-and-tracing.md))
+- Sixteen Prometheus instruments on a listener separate from the public one, so "not reachable from the public ingress" is a property of the socket rather than an ingress rule someone has to remember. The endpoint is unauthenticated and discloses request rates, error rates and login outcomes, so an all-interfaces bind is refused in production and compose publishes it to loopback. (`P0-11`)
+- Histogram buckets sit exactly on `PLAN/12`'s latency targets, so a quantile query can answer "did we meet it" without interpolating across a wide bucket. Tested. (`P0-11`)
+- Fifteen alert rules, promtool-validated, each carrying the reason it exists. Rules that must catch "stopped happening" use `absent()` rather than `== 0`, because a counter with no observations produces no time series and a zero comparison never fires when the thing is down. (`P0-11`)
+- OpenTelemetry tracing with W3C propagation, off unless an OTLP endpoint is configured. Handler and query spans arrive with the endpoints in Phase 1. (`P0-11`)
+- Both `P0-12` follow-ups closed: the unsupervised partition-maintenance goroutine is now visible as a gauge with two alerts, and cross-tenant database access is counted as `PLAN/08` Part B asks.
+
 **Status**
-- Phase 0: 15 of 21 tasks done. 15 of 177 overall.
+- Phase 0: 16 of 21 tasks done. 16 of 177 overall.
 - Open deviations: DV-01 (single-VM production vs. Multi-AZ), DV-02 (`manager_roles` has no tenant policy until `P2-05` provides a user context).
-- Remaining in Phase 0: metrics and tracing (`P0-11`), the test harness (`P0-15`), OpenAPI (`P0-16`), console and public-site skeletons (`P0-17` … `P0-19`), and staging (`P0-20`, blocked on `OQ-03`).
+- Remaining in Phase 0: the test harness (`P0-15`), OpenAPI (`P0-16`), console and public-site skeletons (`P0-17` … `P0-19`), and staging (`P0-20`, blocked on `OQ-03`).
 - The OIDC provider library remains undecided by design: confirming JWKS rotation with overlap and refresh-token reuse detection requires building against it, so it moves to `P1-03`.
 - Open questions now number nine; `OQ-09` (audit log retention period and the erasure approach) is new and should be confirmed before `P0-07` writes the partitioning migration.

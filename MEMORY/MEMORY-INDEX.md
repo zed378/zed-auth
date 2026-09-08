@@ -10,6 +10,7 @@ Add a line here as part of writing the record — an unindexed record is a recor
 
 | Date | Task | Record | Hook |
 |---|---|---|---|
+| 2026-09-08 | P0-11 | [Metrics, tracing, and alerting](./records/2026-09-08-P0-11-metrics-and-tracing.md) | 16 instruments on a separate internal listener, 15 promtool-validated alerts. Closes both P0-12 follow-ups. The principle worth keeping: absence is not health |
 | 2026-09-08 | P0-12 | [Audit event writer](./records/2026-09-08-P0-12-audit-writer.md) | Events commit with the action that caused them. Kills the partition time bomb flagged two records ago. Six stdlib vulnerabilities found and fixed. A check script that was silently discarding uncommitted work |
 | 2026-09-08 | P0-08 | [Row-level security](./records/2026-09-08-P0-08-row-level-security.md) | Cross-tenant isolation becomes a database guarantee: 11 policies, a storage API with no unscoped query path, a startup assertion refusing an RLS-bypassing role, and a CI gate. Opens DV-02 |
 | 2026-09-08 | P0-14, P0-20 | [Secrets conventions and VM deployment](./records/2026-09-08-P0-14-P0-20-secrets-and-vm-deployment.md) | OQ-03 answered (self-managed VM). Secret-reference abstraction, rotation runbooks, full VM deploy. Found and fixed an env_file bug handing the service RLS-bypassing owner credentials. Opens DV-01: single VM misses PLAN/14's Multi-AZ requirement |
@@ -28,6 +29,7 @@ Add a line here as part of writing the record — an unindexed record is a recor
 
 ### Phase 0 — Foundation
 - `P0-01`…`P0-13` — [Foundation, first eleven tasks](./records/2026-09-08-P0-phase-0-foundation-first-eleven.md) — service skeleton, local stack, schema, CI
+- `P0-11` — [Metrics, tracing, and alerting](./records/2026-09-08-P0-11-metrics-and-tracing.md) — measurement before the thing measured
 - `P0-12` — [Audit event writer](./records/2026-09-08-P0-12-audit-writer.md) — append-only log, partition maintenance
 - `P0-08` — [Row-level security](./records/2026-09-08-P0-08-row-level-security.md) — isolation enforced by the database
 - `P0-14`, `P0-20` — [Secrets conventions and VM deployment](./records/2026-09-08-P0-14-P0-20-secrets-and-vm-deployment.md)
