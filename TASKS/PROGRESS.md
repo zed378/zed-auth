@@ -4,7 +4,7 @@ Single source of truth for where the project stands. Updated in the same commit 
 
 **Last updated**: 2026-09-08
 **Current phase**: Phase 0 — Foundation
-**Overall**: 1 / 124 tasks done
+**Overall**: 1 / 177 tasks done
 
 Status values: `TODO` · `BLOCKED` · `SPEC` · `WIP` · `REVIEW` · `DONE` · `DROPPED`
 Sizes: `S` under half a day · `M` one to two days · `L` several days · `XL` must be split
@@ -22,8 +22,11 @@ Sizes: `S` under half a day · `M` one to two days · `L` several days · `XL` m
 | [Phase 4 — Enterprise Interop](./PHASE-4-ENTERPRISE-INTEROP.md) | 16 | 0 | Not started | Phase 3 exit + threat model review |
 | [Phase 4b — ABAC](./PHASE-4B-ABAC.md) | 11 | 0 | **CONDITIONAL** | A concrete requirement RBAC cannot express (`P4B-00`) |
 | [Phase 5 — Hardening](./PHASE-5-HARDENING.md) | 16 | 0 | Not started | Phase 4 exit; 4b done or declined |
+| [Phase F — Frontend Implementation](./PHASE-F-FRONTEND-IMPLEMENTATION.md) | 53 | 0 | **TRACK** — runs alongside | Foundation: `P0-17`. Pages: each carries its own gate |
 
 > Phase 3 and Phase 4 may be swapped **as whole phases** if business need demands it (`PLAN/16`'s note). They are never interleaved task by task.
+>
+> Phase F is a **track, not a sequence position**. Its foundation tasks (`PF-01`–`PF-20`, `PF-48`–`PF-52`) are phase-independent and should start as soon as `P0-17` lands. Its page tasks (`PF-21`–`PF-47`) each carry a binding gate, which is how `PLAN/16`'s lockstep rule is enforced per screen rather than per phase.
 
 ---
 
@@ -210,6 +213,94 @@ Sizes: `S` under half a day · `M` one to two days · `L` several days · `XL` m
 
 ---
 
+---
+
+## Phase F — Frontend Implementation (Track)
+
+Runs alongside Phases 0–5, not after them. **Foundation** tasks are phase-independent — start them as soon as `P0-17` lands, because every page task depends on them. **Page** tasks each carry a binding gate; the gate is `PLAN/16`'s lockstep rule made explicit per screen.
+
+### Foundation — start early, no phase gate
+
+| ID | Task | Size | Status | Depends on |
+|---|---|---|---|---|
+| PF-01 | Motion tokens and the reduced-motion contract | S | TODO | P0-17 |
+| PF-02 | Component library scaffolding and workbench | M | TODO | P0-17 |
+| PF-03 | Button | S | TODO | PF-02 |
+| PF-04 | Table | L | TODO | PF-02 |
+| PF-05 | Form field primitives | L | TODO | PF-02 |
+| PF-06 | Modal and Side Panel | M | TODO | PF-02, PF-01 |
+| PF-07 | Badge and Tag (incl. role-source badge) | S | TODO | PF-02 |
+| PF-08 | Confirmation Dialog (incl. typed-confirmation) | M | TODO | PF-06 |
+| PF-09 | Breadcrumb | S | TODO | PF-02 |
+| PF-10 | Search Input — global and scoped | M | TODO | PF-02 |
+| PF-11 | Supporting components (tabs, step indicator, toast, copy, KPI card, pagination, error banner) | L | TODO | PF-02 |
+| PF-12 | Routing and permission-gated navigation | L | TODO | PF-02, P1-21 |
+| PF-13 | Navigation chrome and organization context | M | TODO | PF-12, PF-09 |
+| PF-14 | Global search | M | TODO | PF-10, PF-12 |
+| PF-15 | Progressive disclosure rules | S | TODO | PF-13 |
+| PF-16 | Four-state system (loading/empty/error/permission) | M | TODO | PF-04 |
+| PF-17 | Form system | L | TODO | PF-05 |
+| PF-18 | Responsive grid and unsupported-width boundary | M | TODO | PF-13 |
+| PF-19 | Accessibility infrastructure | M | TODO | PF-02 |
+| PF-20 | Data layer conventions | M | TODO | P0-16, P1-21 |
+
+### Console screens — each gated on its backend task
+
+| ID | Screen | Size | Status | Gate |
+|---|---|---|---|---|
+| PF-21 | Organization Overview | L | TODO | P1-16 |
+| PF-22 | Project list | M | TODO | P1-17 |
+| PF-23 | Applications tab | L | TODO | P1-18 |
+| PF-24 | User list (incl. invite Flow 1) | L | TODO | P1-19 |
+| PF-25 | User detail shell + Profile tab | M | TODO | P1-19 |
+| PF-26 | Audit Log | M | TODO | P1-20 |
+| PF-27 | Organization Settings | M | TODO | P1-16 |
+| PF-28 | Instance screens (org list, policies, audit) | L | TODO | P1-16, P1-20 |
+| PF-29 | Organization switcher | M | TODO | P2-08 |
+| PF-30 | Roles tab | M | TODO | P2-02 |
+| PF-31 | Authorizations tab + User Grants tab | L | TODO | P2-03 |
+| PF-32 | Policies — Access tab | M | TODO | P2-10 |
+| PF-33 | Sessions tab (Flow 4) | M | TODO | P3-09 |
+| PF-34 | MFA tab | M | TODO | P3-02, P3-05 |
+| PF-35 | Personal account settings (mobile) | L | TODO | P3-09, P3-02 |
+| PF-36 | Project Grants tab (Flow 2) | L | TODO | P4-01 |
+| PF-37 | Granted Projects list (Flow 3) | L | TODO | P4-02 |
+| PF-38 | Policies — ABAC tab (Flow 5) | L | TODO | P4B-04, P4B-05 |
+
+### Hosted authentication screens
+
+| ID | Screen | Size | Status | Gate |
+|---|---|---|---|---|
+| PF-39 | Login page | M | TODO | P1-12 |
+| PF-40 | MFA challenge and enrollment | M | TODO | P3-03 |
+| PF-41 | Password reset and invitation acceptance | M | TODO | P1-19.4, P1-19.5 |
+| PF-42 | Logout, consent, protocol error screens | M | TODO | P1-10 |
+
+### Public site
+
+| ID | Task | Size | Status | Gate |
+|---|---|---|---|---|
+| PF-43 | Layout and shared visual language | M | TODO | P0-18 |
+| PF-44 | Landing page | L | TODO | P0-18 |
+| PF-45 | About, Contact, Changelog | M | TODO | P0-18 |
+| PF-46 | Docs shell and generated API reference | L | TODO | P0-16, P0-18 |
+| PF-47 | Security and trust page | M | TODO | P5-03 |
+
+### Frontend quality
+
+| ID | Task | Size | Status | Depends on |
+|---|---|---|---|---|
+| PF-48 | Component test suite | L | TODO | Track A |
+| PF-49 | E2E suite for console flows | L | TODO | Track D |
+| PF-50 | Accessibility CI and manual audit | L | TODO | Tracks D, E |
+| PF-51 | Visual regression testing | M | TODO | Track A |
+| PF-52 | Frontend performance budget | M | TODO | Tracks D, F |
+| PF-53 | Frontend acceptance validation | M | TODO | all above |
+
+**Critical path within Phase F**: `PF-02` → `PF-04`/`PF-05` → `PF-16`/`PF-17` → every page task. The table and form primitives block more downstream work than anything else here, and `PF-07`'s role-source badge should be built with both values from the start even though "delegated" does not render until `PF-37`.
+
+**Highest-risk task**: `PF-12`. It is the only frontend task marked `Spec required`, because "genuinely unreachable, not merely hidden" is an authorization property, and getting it wrong produces a UI that disagrees with the API about what a user may do.
+
 ## Cross-Phase Watch List
 
 Things that are easy to get wrong once and expensive to fix later. Re-check each at every phase boundary.
@@ -226,3 +317,8 @@ Things that are easy to get wrong once and expensive to fix later. Re-check each
 | No unshipped claims in copy | Applies to marketing, docs, the console, and the OIDC discovery document | `P0-19` |
 | Fail-closed authorization | A check that cannot complete denies | `P2-06` |
 | RLS as the isolation backstop | Application-layer filtering is not the control | `P0-08` |
+| Role-source badge built with both values | Retrofitting it means auditing every role-displaying screen twice | `PF-07` |
+| Org-scoped query keys | Without them, a context switch renders the previous org's cached data — a leak in the UI even with a correct API | `PF-20` |
+| `color-danger` reserved for destructive actions only | Its meaning must stay reliable; one misuse on a late screen degrades every earlier one | `PF-03` |
+| Accessibility built in, not retrofitted | `PLAN/18` R-10 names late retrofitting as a real risk; `UI-UX/13` says it is far more expensive | `PF-19` |
+| Audit log retention confirmed | 24 months is a working default, not a confirmed obligation (`BACKLOG.md` OQ-09) | `P0-07` |

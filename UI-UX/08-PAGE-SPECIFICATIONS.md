@@ -6,8 +6,12 @@ Full screen inventory, built from `PLAN/06-FRONTEND-ARCHITECTURE.md`'s IA and `0
 
 | Screen | Primary users | Key actions | Composed of | Notes |
 |---|---|---|---|---|
+| Organization Overview (the workspace landing screen) | Org Admin (Budi) | Orient, drill into any section | KPI cards, table, breadcrumb | The console's "dashboard" — full spec in `18-DETAILED-PAGE-SPECIFICATIONS.md` |
 | Organization switcher | Any admin belonging to >1 org | Switch active org context | Search input, list | Only relevant once multi-org is active (`PLAN/16-IMPLEMENTATION-ROADMAP.md` Phase 2) |
+| Organization Settings | Org Owner (Budi) | Edit branding (logo, accent color), verify domain | Form, badge (verification status) | Branding overrides `color-accent` and the logo only — never `color-danger`/`color-warning` (`05-DESIGN-SYSTEM.md`); a custom accent must be contrast-checked at the point it's set (`13-ACCESSIBILITY.md`) |
 | Organization list (instance level) | Instance Owner (Dian) | Create org, view org, suspend org | Table, primary button, confirmation dialog | |
+| Instance-wide policies | Instance Owner (Dian) | Set defaults inherited by organizations | Form | Instance level, per `03-INFORMATION-ARCHITECTURE.md` |
+| Instance audit log | Instance Owner (Dian) | Review activity across all organizations | Table, filter controls | The cross-organization counterpart of the org-scoped Audit Log below; reads the same `events` table without an `org_id` filter, via the explicit, audited instance-level access path (`PLAN/04-DATA-MODEL.md`) |
 | Project list | Org Admin (Budi) | Create project | Table, primary button | |
 | Project detail — Applications tab | Project Owner (Sari) | Register application, view `client_id`/secret, set redirect URIs | Table, form, modal | Secrets shown once at creation only, never retrievable again (`PLAN/09-SECURITY.md`) |
 | Project detail — Roles tab | Project Owner (Sari) | Create/edit role, define permission keys | Table, form | |
