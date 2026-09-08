@@ -5,7 +5,7 @@
 # and §15 (Supply-Chain): every base image is pinned by digest, never :latest.
 
 # --- build stage ------------------------------------------------------------
-FROM golang:1.26-alpine AS build
+FROM golang:1.26.6-alpine AS build
 
 WORKDIR /src
 

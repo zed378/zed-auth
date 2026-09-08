@@ -48,9 +48,19 @@ Format follows Keep a Changelog conventions, grouped by release once releases ex
 - `/readyz` now genuinely checks PostgreSQL; it previously reported ready with no dependencies wired.
 - Deployed and verified on the VM; `https://auth.zedth.my.id` healthy throughout.
 
+**Added** — audit log and toolchain patches ([record](./records/2026-09-08-P0-12-audit-writer.md))
+- The audit writer. Events commit inside the transaction of the action that caused them, so a permission change and its record succeed or fail together. Redaction happens in the writer rather than at call sites, because the table is append-only and a credential written there cannot be deleted by anyone. (`P0-12`)
+- Partition maintenance at startup and daily, keeping three months of runway. Without it every `INSERT` into `events` — and therefore every security-sensitive action — would have failed at a month boundary, with no deploy to correlate against. This was flagged as a time bomb two records ago. (`P0-12`)
+- Partition creation via `SECURITY DEFINER` with a pinned `search_path`, rather than granting the runtime role `CREATE` on the schema. (`P0-12`)
+- Instance-level events: `events.org_id` is now nullable, so the cross-tenant database path can be audited as `PLAN/08` Part B requires. (`P0-12`)
+- `scripts/check.sh` — 22 gates, the same ones CI runs, before a push rather than after.
+
+**Fixed**
+- Six Go standard-library vulnerabilities at 1.26.5, one of them directly relevant: `ReadHeaderTimeout` was not applied during the unencrypted HTTP/2 check, and that timeout exists to bound slow-header attacks. Toolchain pinned to 1.26.6; `golang.org/x/text` upgraded past an infinite-loop bug. (`P0-12`)
+
 **Status**
-- Phase 0: 14 of 21 tasks done. 14 of 177 overall.
+- Phase 0: 15 of 21 tasks done. 15 of 177 overall.
 - Open deviations: DV-01 (single-VM production vs. Multi-AZ), DV-02 (`manager_roles` has no tenant policy until `P2-05` provides a user context).
-- Remaining in Phase 0: metrics and tracing (`P0-11`), the audit writer (`P0-12`), secrets conventions (`P0-14`), the test harness (`P0-15`), OpenAPI (`P0-16`), console and public-site skeletons (`P0-17` … `P0-19`), and staging (`P0-20`, blocked on `OQ-03`).
+- Remaining in Phase 0: metrics and tracing (`P0-11`), the test harness (`P0-15`), OpenAPI (`P0-16`), console and public-site skeletons (`P0-17` … `P0-19`), and staging (`P0-20`, blocked on `OQ-03`).
 - The OIDC provider library remains undecided by design: confirming JWKS rotation with overlap and refresh-token reuse detection requires building against it, so it moves to `P1-03`.
 - Open questions now number nine; `OQ-09` (audit log retention period and the erasure approach) is new and should be confirmed before `P0-07` writes the partitioning migration.
