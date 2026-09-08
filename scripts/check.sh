@@ -439,17 +439,33 @@ else
   cp -r "$api_before/." public-site/docs/api-reference/ 2>/dev/null || true
   rm -rf "$api_before"
 
-  # The full build is opt-in locally: it takes about half a minute and CI runs
-  # it on every push regardless.
+  # The build and the two audits that read its output are opt-in locally: the
+  # build takes about half a minute, and CI runs all three on every push.
   if [ "${CHECK_FULL:-0}" = "1" ]; then
     if (cd public-site && npm run --silent build >/dev/null 2>&1); then
       pass "public site builds (no broken links)"
+
+      # P0-19's DoD: every claim maps to something shipped or labelled planned.
+      if (cd public-site && npm run --silent check:claims >/dev/null 2>&1); then
+        pass "capability audit"
+      else
+        fail "capability audit"
+        (cd public-site && npm run --silent check:claims 2>&1 | tail -12)
+      fi
+
+      # PLAN/20 § What Never Gets Published.
+      if (cd public-site && npm run --silent check:leak >/dev/null 2>&1); then
+        pass "no internal material on the public site"
+      else
+        fail "internal material found on the public site"
+        (cd public-site && npm run --silent check:leak 2>&1 | tail -12)
+      fi
     else
       fail "public site build"
       (cd public-site && npm run --silent build 2>&1 | tail -25)
     fi
   else
-    skip "public site build" "slow; set CHECK_FULL=1 to include"
+    skip "public site build, capability audit and leak check" "slow; set CHECK_FULL=1"
   fi
 fi
 

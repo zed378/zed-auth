@@ -14,10 +14,12 @@
     "api:generate": "docusaurus gen-api-docs all",
     "api:clean": "docusaurus clean-api-docs all",
     "docs:version": "docusaurus docs:version",
-    "check": "npm run check:tokens && npm run check:contrast && npm run check:boundary && npm run typecheck && npm run build",
+    "check": "npm run check:tokens && npm run check:contrast && npm run check:boundary && npm run typecheck && npm run build && npm run check:claims && npm run check:leak",
     "check:tokens": "node scripts/check-brand-tokens.mjs",
     "check:contrast": "node scripts/check-contrast.mjs",
-    "check:boundary": "node scripts/check-no-shared-code.mjs"
+    "check:boundary": "node scripts/check-no-shared-code.mjs",
+    "check:claims": "node scripts/check-claims.mjs",
+    "check:leak": "node scripts/check-no-internal-leak.mjs"
   },
   "dependencies": {
     "@docusaurus/core": "3.10.2",
