@@ -142,12 +142,21 @@ This is the same shape as every vacuous check collected in these records, arrivi
 
 **Two blank assignments in `main.go`.** The first wiring left `_ = breachChecker` and `_ = policyStore`, which is how partial wiring usually gets hidden. Replaced with a `passwordChecks` value that the startup log reports, so the state is visible rather than merely compiling.
 
+**Deploying this found a dead backup.** The migration is additive and ran without incident, but the pre-deploy backup step did not: `P0-14` moved runtime state out of the code checkout on 2026-09-08 and the systemd unit's `ReadWritePaths` still named `/home/infra/auth/backups`. systemd refuses to start a unit whose `ReadWritePaths` does not exist, so the service exited `226/NAMESPACE` before `backup.sh` ran a line — every night since.
+
+The quiet part is the lesson. `systemctl list-timers` reported the timer healthy throughout, because the *timer* was healthy: it fired on schedule every night and the service it triggered died instantly. Nothing distinguished that from a working backup except a `systemctl status` nobody had reason to run.
+
+I also made it worse before making it better, twice. I ran the migration after the pre-deploy backup failed, when the correct action was to stop — the migration was additive so nothing was at risk, but the process exists precisely so that judgement is not required in the moment. Then I copied the repo's unit file over the installed one before pushing the fix, overwriting a hand-edited correction with the stale version. Both are recorded because the second is the more instructive: the repo and the running system had drifted, and I reached for the repo as the source of truth without checking which one was ahead.
+
+Fixed, reinstalled, and a verified backup taken (90KB, 19 tables, row counts matching). `BL-01` is open for the freshness alert that would have caught it on day one.
+
 ## Follow-Ups and Open Questions
 
 - `P1-12` and `P1-19` must call `Evaluate` and `CheckBreach` on every password-set path, record the returned `Outcome`, write `user.password.rejected` / `user.password.breach_check_skipped`, and set `password_changed_at`. Until then this is a library with no caller.
 - `P1-11` must enforce `Expired` at login. The predicate and the column are ready.
 - `PLAN/04-DATA-MODEL.md` § `users` should be amended to list `password_changed_at`, through the deliberate plan-change process (`AGENTS.md` rule 9). Raised in `PG-13` rather than made here.
 - `require_uppercase` cannot be satisfied in a caseless script. The remedy available today is that the rule is per organization. If the product targets such a market, `PLAN/08` Part B's policy shape is worth revisiting.
+- `BL-01`: nothing alerts on a backup that stops happening. The unit paths are fixed, but the health of the backup is currently only as good as somebody remembering to look.
 - Re-checking passwords admitted during a fail-open window is possible from the audit events but not implemented. ADR-015 § Alternatives explains why the queue-for-recheck design was deferred.
 
 ## What to Watch
