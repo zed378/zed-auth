@@ -121,6 +121,46 @@ groups:
             whether failures concentrate on one IP or one account
             (SECURITY/02 §13).
 
+      - alert: SessionCacheInvalidationFailing
+        # P1-11's guarantee is that revoking a session takes effect on the next
+        # request rather than after a cache TTL. That holds because the cache
+        # entry is deleted when the revocation commits. When the delete fails,
+        # the session stays usable until its entry expires — and nothing else
+        # reports it.
+        #
+        # Any occurrence is worth knowing about: this is not a rate to tune, it
+        # is a security control failing.
+        expr: increase(auth_session_cache_invalidation_failures_total[10m]) > 0
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Session revocations are not reaching the cache"
+          description: >-
+            A revoked session may still be served from cache until its entry
+            expires. Check Redis connectivity from the auth service. Sessions
+            revoked during this window should be treated as still live until
+            the cache TTL has passed.
+
+      - alert: SessionLookupsBypassingTheCache
+        # Not a correctness alert: PLAN/12 gives /oauth/authorize 150ms at p95
+        # and the cache is how that is met. A collapsed hit rate means the
+        # silent-SSO path is running on database round trips and will show up
+        # as latency before anyone connects it to Redis.
+        expr: |
+          sum(rate(auth_session_lookup_duration_seconds_count{source="database"}[10m]))
+          /
+          clamp_min(sum(rate(auth_session_lookup_duration_seconds_count[10m])), 0.001) > 0.5
+        for: 15m
+        labels:
+          severity: info
+        annotations:
+          summary: "Most session lookups are missing the cache"
+          description: >-
+            More than half of session lookups are reaching PostgreSQL. Expected
+            briefly after a restart or a Redis flush; sustained, it means the
+            cache is not working and PLAN/12's silent-SSO budget is at risk.
+
       - alert: PasswordBreachCheckFailingOpen
         # ADR-015: an unreachable breach corpus admits the password rather
         # than blocking the change. That is only defensible because this fires.
