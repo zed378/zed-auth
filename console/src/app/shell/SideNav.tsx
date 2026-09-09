@@ -70,8 +70,23 @@ export function SideNav() {
           The wordmark. Per-organization branding may replace the logo and the
           accent colour, and nothing else (UI-UX/05, src/branding/).
         */}
-        <span className="block text-heading-3 font-bold text-text-primary">Zed Auth</span>
-        <span className="block text-small text-text-secondary">Console</span>
+        <div className="flex items-center gap-3">
+          {/*
+            The identity mark. An <img> rather than an inlined <svg> on
+            purpose: the mark paints itself from a gradient with an id, and two
+            inlined copies on one page would collide on that id — the second
+            would silently render with the first's gradient.
+
+            Decorative here, so alt="" and the accessible name comes from the
+            wordmark beside it. Announcing "Zed Auth" twice to a screen reader
+            is noise (UI-UX/13).
+          */}
+          <img src="/zed-auth-mark.svg" alt="" width={36} height={36} className="shrink-0" />
+          <span>
+            <span className="block text-heading-3 font-bold text-text-primary">Zed Auth</span>
+            <span className="block text-small text-text-secondary">Console</span>
+          </span>
+        </div>
       </div>
 
       <ul className="flex flex-col gap-1 px-2 pb-4 tablet:px-3">

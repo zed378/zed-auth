@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<!--
+  Zed Auth brand identity concept, version 3 ("Mesh") — the geometry-bearing
+  extract of the concept document supplied on 2026-09-09.
+
+  This is the REFERENCE, not an asset. brand/check.py parses the symbol below
+  and asserts that brand/build.py still describes the same mesh, so the
+  generator cannot drift away from the design it was transcribed from without
+  a check failing.
+
+  Only the symbol is kept. The specimen sheet's CSS, layout and prose were
+  presentation; keeping the whole page would invite edits to it as though it
+  were a living document, and it is a fixed record of what was designed.
+
+  From the concept's own description:
+
+    "a triangulated identity graph, hand-placed rather than randomly
+    generated, where every line still terminates on a real node. Eight
+    application nodes sit on a light-blue-to-navy gradient; one darker hub,
+    ringed in indigo, anchors the centre ... the eight outer points still
+    resolve into the Z silhouette along the top bar, diagonal, and bottom bar."
+
+  Palette, as specified:
+    mesh light  #6BA3FA    mesh mid   #2E4FD1    mesh deep / ink  #0B1220
+    hub fill    #16224A    hub ring   #4655F5 (light) / #7B85FA (dark)
+    tile        #0B1220, 22% corner radius, mark at 64%
+    lockup      mark 72px beside a 34px Space Grotesk wordmark
+-->
+<html lang="en">
+<head><meta charset="UTF-8"><title>Zed Auth — Brand identity concept v3</title></head>
+<body>
+  <svg width="0" height="0" style="position:absolute">
+    <defs>
+      <linearGradient id="zedGradient" gradientUnits="userSpaceOnUse" x1="178" y1="18" x2="30" y2="182">
+        <stop offset="0%" stop-color="#6BA3FA"/>
+        <stop offset="45%" stop-color="#2E4FD1"/>
+        <stop offset="100%" stop-color="#0B1220"/>
+      </linearGradient>
+
+      <symbol id="zedmark3" viewBox="0 0 200 200">
+        <g stroke="url(#zedGradient)" stroke-width="3.2" stroke-linecap="round" fill="none">
+          <line x1="52" y1="40" x2="100" y2="34"/>
+          <line x1="100" y1="34" x2="150" y2="44"/>
+          <line x1="150" y1="44" x2="100" y2="100"/>
+          <line x1="100" y1="100" x2="52" y2="156"/>
+          <line x1="52" y1="156" x2="100" y2="166"/>
+          <line x1="100" y1="166" x2="150" y2="158"/>
+          <line x1="52" y1="40" x2="34" y2="100"/>
+          <line x1="34" y1="100" x2="52" y2="156"/>
+          <line x1="150" y1="44" x2="166" y2="96"/>
+          <line x1="166" y1="96" x2="150" y2="158"/>
+          <line x1="52" y1="40" x2="100" y2="100"/>
+          <line x1="100" y1="34" x2="100" y2="100"/>
+          <line x1="100" y1="100" x2="150" y2="158"/>
+          <line x1="100" y1="100" x2="100" y2="166"/>
+          <line x1="34" y1="100" x2="100" y2="100"/>
+          <line x1="100" y1="100" x2="166" y2="96"/>
+          <line x1="34" y1="100" x2="100" y2="34"/>
+          <line x1="100" y1="34" x2="166" y2="96"/>
+          <line x1="34" y1="100" x2="100" y2="166"/>
+          <line x1="100" y1="166" x2="166" y2="96"/>
+        </g>
+        <g fill="url(#zedGradient)">
+          <circle cx="52" cy="40" r="7.5"/>
+          <circle cx="100" cy="34" r="7"/>
+          <circle cx="150" cy="44" r="7.5"/>
+          <circle cx="34" cy="100" r="7.5"/>
+          <circle cx="166" cy="96" r="7.5"/>
+          <circle cx="52" cy="156" r="7.5"/>
+          <circle cx="100" cy="166" r="7"/>
+          <circle cx="150" cy="158" r="7.5"/>
+        </g>
+        <circle cx="100" cy="100" r="14" fill="var(--zm-hub)" stroke="var(--zm-accent)" stroke-width="2.5"/>
+      </symbol>
+    </defs>
+  </svg>
+</body>
+</html>

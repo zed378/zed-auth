@@ -393,6 +393,20 @@ fi
 # rather than failed when node_modules is absent: a backend-only change should
 # not require a frontend install to check.
 
+section "Brand"
+
+# The identity mark is generated from one definition of the geometry, and each
+# surface keeps its own copy. Three ways that goes wrong quietly: a hand-edit
+# to a generated SVG, a coordinate that drifts from the concept document, and
+# one surface's copy updating while the other's does not. brand/check.py
+# catches all three; see brand/BRAND.md.
+if python3 brand/check.py >/dev/null 2>&1; then
+  pass "brand assets match their source and the concept"
+else
+  fail "brand assets are out of step"
+  python3 brand/check.py 2>&1 | tail -12
+fi
+
 section "Console"
 
 if [ ! -d console/node_modules ]; then
