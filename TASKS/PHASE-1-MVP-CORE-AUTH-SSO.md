@@ -173,10 +173,10 @@ An 8-character floor no configuration can go below, because otherwise `"min_leng
 5. Ensure the `issuer` value exactly matches the `iss` claim the token issuer emits — a mismatch here breaks every conforming client library, and it is a classic misconfiguration.
 
 **Definition of Done**
-- [ ] An off-the-shelf OIDC client library configures successfully from the discovery URL alone. **Deferred to P1-07, deliberately unticked.** A conforming library needs `authorization_endpoint` and `token_endpoint` to finish configuring, and neither exists yet. Claiming this now would be the exact false claim step 2 of this task exists to prevent. The half that can be verified today is covered: `TestDiscoveryDocumentLeadsToTheKeySet` follows `jwks_uri` out of the document the way a client library would and asserts it reaches the current key.
+- [x] An off-the-shelf OIDC client library configures successfully from the discovery URL alone. **Ticked by `P1-07`**, which is when it became true: the document now carries `authorization_endpoint`, `token_endpoint`, `grant_types_supported`, `response_types_supported`, `scopes_supported` and `code_challenge_methods_supported`, each because the thing it names exists. Until then it read: *Deferred to P1-07, deliberately unticked.* A conforming library needs `authorization_endpoint` and `token_endpoint` to finish configuring, and neither exists yet. Claiming this now would be the exact false claim step 2 of this task exists to prevent. The half that can be verified today is covered: `TestDiscoveryDocumentLeadsToTheKeySet` follows `jwks_uri` out of the document the way a client library would and asserts it reaches the current key.
 - [x] `code_challenge_methods_supported` contains `S256` and does not contain `plain`. Also absent entirely until there is an authorization endpoint to apply it to.
 - [x] Neither `implicit` nor `password` appears in `grant_types_supported` (`PLAN/05`: both explicitly unsupported). Enforced at construction, not just left out — `Capabilities.Validate` refuses to build a handler that would advertise either.
-- [ ] `issuer` matches the `iss` claim, asserted by an integration test. **Deferred to P1-07, deliberately unticked** — nothing emits an `iss` claim yet. What holds today is the single-source property: the document publishes `cfg.Issuer` verbatim and unnormalised.
+- [x] `issuer` matches the `iss` claim, asserted by an integration test. **Ticked by `P1-07`**: `TestTheIssuedIDTokenVerifiesAgainstTheJWKS` decodes a real issued token and asserts `iss` equals the configured issuer, which is the comparison that could not be made while nothing emitted the claim. What holds today is the single-source property: the document publishes `cfg.Issuer` verbatim and unnormalised.
 - [x] JWKS exposes no private key parameters, asserted by a test that inspects the JSON keys.
 
 **Beyond the stated steps**
@@ -281,7 +281,7 @@ Discovery now advertises `authorization_endpoint` and `code_challenge_methods_su
 
 | | |
 |---|---|
-| **Status** | TODO |
+| **Status** | DONE (one item deferred to `P1-27`) — [record](../MEMORY/records/2026-09-09-P1-07-token.md), [spec](../MEMORY/specs/P1-07-token.md) |
 | **Depends on** | P1-06, P1-03 |
 | **Plan refs** | `PLAN/05-API-CONTRACT.md` Part A, `PLAN/09-SECURITY.md` § Tokens & Keys, `PLAN/12-PERFORMANCE.md`, `PLAN/08-AUTHORIZATION.md` Part A |
 | **Spec required** | Yes — authentication core |
@@ -302,13 +302,23 @@ Discovery now advertises `authorization_endpoint` and `code_challenge_methods_su
 10. Instrument latency to `PLAN/12`'s targets: p50 < 50ms, p95 < 200ms, p99 < 400ms.
 
 **Definition of Done**
-- [ ] Each supported grant works end-to-end against an integration test with a real database.
-- [ ] `password` and `implicit` grants are rejected with the correct OAuth error.
-- [ ] A wrong `code_verifier` is rejected.
-- [ ] Concurrent redemption of one code yields exactly one success, verified by a parallel test.
-- [ ] Tokens carry the exact claim set above, and `aud` and `iss` are correct for the requesting client.
-- [ ] No refresh token is stored in plaintext.
-- [ ] The endpoint meets `PLAN/12`'s latency targets under the load test.
+- [x] Each supported grant works end-to-end against an integration test with a real database — and a real Redis and a real signing key, so the whole chain from `P1-03` to `P1-06` is exercised rather than stubbed.
+- [x] `password` and `implicit` grants are rejected with the correct OAuth error, **by name**, with a description pointing at the supported flow rather than falling through to an unknown-grant message.
+- [x] A wrong `code_verifier` is rejected — and the code does not survive the attempt, so it cannot be retried against.
+- [x] Concurrent redemption of one code yields exactly one success, verified by a parallel test through the whole endpoint.
+- [x] Tokens carry the exact claim set, and `aud` and `iss` are correct for the requesting client. Asserted **after verifying against the published JWKS**, not on the struct — which is the property a consumer actually depends on.
+- [x] No refresh token is stored in plaintext, verified by reading the whole row as text so a leak into any column is caught.
+- [ ] The endpoint meets `PLAN/12`'s latency targets under the load test. **Deferred to `P1-27`, which owns it.** What ships here is the histogram, bucketed on the targets so a quantile query answers "did we meet it" without interpolating across a wide bucket.
+
+**Beyond the stated steps**
+
+**The flow closes here.** `P1-06` had been issuing codes nothing could redeem, and `P1-02`, `P1-05` and `P1-11` were packages with no callers. Discovery now advertises both endpoints a conforming client needs.
+
+`PG-15` found and closed: `refresh_tokens` had no scope column, so a refresh had nothing to reproduce — it could carry no scope, or re-derive one from the client's registration, which is not the same thing. Scope is what the user consented to; `grant_types` is what the client may ask for.
+
+The refresh token is **opaque rather than a JWT**, and the second reason is the one worth keeping: `P1-03` found that sixteen encodings of one signature all verify, so a JWT's string form is a poor key for `P3-06`'s reuse detection. An opaque value has one representation.
+
+Found while cleaning up a signature: `AuthenticateClient` checked that a secret was *presented* and never verified it — a function that returned nil for any secret at all, which every test at the time would have passed because none presented a wrong one.
 
 **Abuse cases to test**
 - Code replay after successful redemption (`PLAN/10`).

@@ -53,6 +53,11 @@ type Deps struct {
 	// Only the code generation is skipped.
 	Authorize http.Handler
 
+	// Token serves POST /oauth/token, hand-registered for the reason above:
+	// RFC 6749 puts client credentials in the Authorization header, and the
+	// generated strict interface passes a parsed body and no request.
+	Token http.Handler
+
 	// TrustProxyHeaders must be true only when a proxy in front of this service
 	// strips client-supplied correlation headers. See RequestID.
 	TrustProxyHeaders bool
@@ -142,6 +147,9 @@ func New(cfg config.HTTPConfig, deps Deps) *Server {
 	// metrics and the security headers like everything else.
 	if deps.Authorize != nil {
 		mux.Method(http.MethodGet, "/oauth/authorize", deps.Authorize)
+	}
+	if deps.Token != nil {
+		mux.Method(http.MethodPost, "/oauth/token", deps.Token)
 	}
 
 	routes := apiRoutes{Health: deps.Health, Handler: deps.Discovery}

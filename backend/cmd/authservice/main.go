@@ -28,6 +28,7 @@ import (
 	"github.com/zed378/zed-auth/backend/internal/httpserver"
 	"github.com/zed378/zed-auth/backend/internal/oauth/authorize"
 	"github.com/zed378/zed-auth/backend/internal/oauth/client"
+	"github.com/zed378/zed-auth/backend/internal/oauth/token"
 	"github.com/zed378/zed-auth/backend/internal/observability"
 	"github.com/zed378/zed-auth/backend/internal/oidc"
 	"github.com/zed378/zed-auth/backend/internal/session"
@@ -292,6 +293,19 @@ func run() error {
 		Policy:    session.DefaultPolicy,
 	}
 
+	tokenHandler := &token.Handler{
+		Issuer:   cfg.Issuer,
+		Clients:  clientLookup{store: clients, db: db},
+		Codes:    authorize.NewStore(rdb),
+		Sessions: sessionLiveness{sessions: sessions, policy: session.DefaultPolicy},
+		Refresh:  token.NewRefreshStore(),
+		Signer:   signing.NewSigner(keys),
+		DB:       db,
+		Audit:    auditor,
+		Observer: tokenObserver{metrics},
+		Log:      log,
+	}
+
 	discoveryCapabilities := oidc.Capabilities{
 		Issuer:  cfg.Issuer,
 		JWKSURI: cfg.Issuer + "/.well-known/jwks.json",
@@ -306,10 +320,20 @@ func run() error {
 		// absent. A conforming client will fail to configure against a
 		// document with one and not the other, which is the correct outcome:
 		// it fails at configuration rather than halfway through a login.
+		// P1-07 completes the pair. With both endpoints a conforming client
+		// can finally configure itself and complete a login from the discovery
+		// URL alone — which is P1-04's first Definition-of-Done item, and the
+		// first moment it can honestly be ticked.
 		AuthorizationEndpoint: cfg.Issuer + "/oauth/authorize",
+		TokenEndpoint:         cfg.Issuer + "/oauth/token",
 		ResponseTypes:         []string{"code"},
-		Scopes:                authorize.SupportedScopes(),
-		SigningAlgorithms:     []string{string(signing.RS256), string(signing.ES256)},
+		GrantTypes: []string{
+			token.GrantAuthorizationCode,
+			token.GrantRefreshToken,
+			token.GrantClientCredentials,
+		},
+		Scopes:            authorize.SupportedScopes(),
+		SigningAlgorithms: []string{string(signing.RS256), string(signing.ES256)},
 	}
 
 	discovery, err := oidc.NewHandler(discoveryCapabilities, keys)
@@ -335,6 +359,7 @@ func run() error {
 		Metrics:   metrics,
 		Discovery: discovery,
 		Authorize: authorizeHandler,
+		Token:     tokenHandler,
 		// Explicit configuration, not inferred from the environment: see the
 		// comment on config.HTTPConfig.TrustProxyHeaders. Defaults to false,
 		// so a deployment behind a proxy that forwards client headers
@@ -588,6 +613,15 @@ func (c clientLookup) ByClientID(ctx context.Context, clientID string) (client.A
 	return c.store.ByClientID(ctx, c.db, clientID)
 }
 
+// CredentialsFor takes the already-resolved application rather than a bare
+// client_id: by then the tenant is known, so the secret hash is read on the
+// normal tenant-scoped path instead of needing a second bootstrap function.
+func (c clientLookup) CredentialsFor(
+	ctx context.Context, app client.Application,
+) (client.Credentials, error) {
+	return c.store.CredentialsFor(ctx, c.db, app)
+}
+
 // authorizeObserver reports which path an authorization request took.
 //
 // Separate labels for silent and interactive because PLAN/12 sets a latency
@@ -604,4 +638,40 @@ func (o authorizeObserver) Authorized(path string, d time.Duration) {
 
 func (o authorizeObserver) Denied(errorCode string) {
 	o.m.AuthorizeTotal.WithLabelValues("denied", errorCode).Inc()
+}
+
+// --- token plumbing -------------------------------------------------------------
+
+// sessionLiveness answers whether the session behind a refresh token is still
+// usable.
+//
+// A refresh token outlives the browser session it came from, but not a revoked
+// one. P3-09 makes that systematic; Phase 1 does the check here.
+type sessionLiveness struct {
+	sessions *session.Manager
+	policy   session.Policy
+}
+
+func (s sessionLiveness) IsLive(ctx context.Context, sessionID string, now time.Time) bool {
+	// Looked up by id rather than by token, because a refresh token carries
+	// the session's identifier and never its cookie — which is PG-14's
+	// separation paying off in a second place.
+	return s.sessions.IsLive(ctx, sessionID, now)
+}
+
+// tokenObserver reports token-endpoint outcomes.
+//
+// Bucketed and labelled by grant, because PLAN/12's targets are for this
+// endpoint as a whole but a client_credentials call and an authorization_code
+// call do very different amounts of work — averaging them would hide a
+// regression in either.
+type tokenObserver struct{ m *observability.Metrics }
+
+func (o tokenObserver) Issued(grant string, d time.Duration) {
+	o.m.TokensIssued.WithLabelValues(grant).Inc()
+	o.m.TokenDuration.WithLabelValues(grant).Observe(d.Seconds())
+}
+
+func (o tokenObserver) Denied(grant, errorCode string) {
+	o.m.TokenErrors.WithLabelValues(grant, errorCode).Inc()
 }

@@ -300,3 +300,26 @@ func TestHasSecret(t *testing.T) {
 		t.Error("Credentials with a hash reported as having none")
 	}
 }
+
+// String and GoString are reachable directly, not only through fmt.
+func TestSecretRedactionMethodsDirectly(t *testing.T) {
+	secret, _, _ := Generate()
+
+	if secret.String() != "[REDACTED]" {
+		t.Errorf("String() = %q", secret.String())
+	}
+	if !strings.Contains(secret.GoString(), "REDACTED") {
+		t.Errorf("GoString() = %q", secret.GoString())
+	}
+	if strings.Contains(secret.String()+secret.GoString(), secret.Reveal()) {
+		t.Error("a redaction method leaked the secret")
+	}
+
+	var zero Secret
+	if !zero.IsZero() {
+		t.Error("the zero Secret does not report itself as zero")
+	}
+	if secret.IsZero() {
+		t.Error("a real secret reports itself as zero")
+	}
+}

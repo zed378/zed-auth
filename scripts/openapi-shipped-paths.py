@@ -29,6 +29,8 @@ SHIPPED = {
     # advertises it from the same commit, which is the only way the document
     # stays true.
     "/oauth/authorize",
+    # P1-07. With this the flow closes: a consumer can complete a login.
+    "/oauth/token",
     "/healthz",
     "/readyz",
     # P1-04. Both are served and both are real; the discovery document itself
