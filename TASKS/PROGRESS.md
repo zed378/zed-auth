@@ -3,8 +3,8 @@
 Single source of truth for where the project stands. Updated in the same commit as the work it describes (`00-TASK-CONVENTIONS.md` global DoD item 8).
 
 **Last updated**: 2026-09-09
-**Current phase**: Phase 1 — MVP Core Auth (7 / 28 done). Phase 0 is 20 / 21; `P0-20` stays WIP pending the pull-based deployment re-read
-**Overall**: 27 / 177 tasks done
+**Current phase**: Phase 1 — MVP Core Auth (8 / 28 done). Phase 0 is 20 / 21; `P0-20` stays WIP pending the pull-based deployment re-read
+**Overall**: 28 / 177 tasks done
 
 Status values: `TODO` · `BLOCKED` · `SPEC` · `WIP` · `REVIEW` · `DONE` · `DROPPED`
 Sizes: `S` under half a day · `M` one to two days · `L` several days · `XL` must be split
@@ -16,7 +16,7 @@ Sizes: `S` under half a day · `M` one to two days · `L` several days · `XL` m
 | Phase | Tasks | Done | Status | Gate to enter |
 |---|---|---|---|---|
 | [Phase 0 — Foundation](./PHASE-0-FOUNDATION.md) | 21 | 20 | **ACTIVE** — `P0-20` only | — |
-| [Phase 1 — MVP: Core Auth + SSO](./PHASE-1-MVP-CORE-AUTH-SSO.md) | 28 | 7 | **ACTIVE** | Phase 0 exit checklist |
+| [Phase 1 — MVP: Core Auth + SSO](./PHASE-1-MVP-CORE-AUTH-SSO.md) | 28 | 8 | **ACTIVE** | Phase 0 exit checklist |
 | [Phase 2 — RBAC & Multi-Tenancy](./PHASE-2-RBAC-MULTITENANCY.md) | 17 | 0 | Not started | Phase 1 exit + `P1-28` |
 | [Phase 3 — Advanced Security](./PHASE-3-ADVANCED-SECURITY.md) | 15 | 0 | Not started | Phase 2 exit + threat model review |
 | [Phase 4 — Enterprise Interop](./PHASE-4-ENTERPRISE-INTEROP.md) | 16 | 0 | Not started | Phase 3 exit + threat model review |
@@ -67,10 +67,10 @@ Sizes: `S` under half a day · `M` one to two days · `L` several days · `XL` m
 | P1-01 | Argon2id password hashing | M | **DONE** | P0-15 |
 | P1-02 | Password policy and breached-password rejection | M | **DONE** — ADR-015 (fail open, loudly); `PG-13` found and closed by `users.password_changed_at` | P1-01 |
 | P1-03 | Signing key management, JWKS, rotation | L | **DONE** | P0-14 |
-| P1-04 | Discovery document and JWKS endpoint | S | **DONE** — two DoD items deliberately deferred to `P1-06`/`P1-07`, which are the tasks that make them true: a client library cannot finish configuring without an authorization and token endpoint, and nothing emits an `iss` claim yet | P1-03 |
+| P1-04 | Discovery document and JWKS endpoint | S | **DONE** — complete. Its two deferred DoD items were ticked by `P1-07`, which is when they became true | P1-03 |
 | P1-05 | Application registration and credentials | M | **DONE** — ADR-016 (SHA-256 for client secrets); redirect matching is exact, with a 15-row rejection table naming each attack | P0-07 |
 | P1-06 | `GET /oauth/authorize` — code + PKCE | L | **DONE** — one item deferred to `P1-27`'s load test. Two-phase validation so a phase-1 error can never redirect; atomic code redemption proven with 32 concurrent racers | P1-05, P1-11 |
-| P1-07 | `POST /oauth/token` | L | TODO | P1-06, P1-03 |
+| P1-07 | `POST /oauth/token` | L | **DONE** — one item deferred to `P1-27`'s load test. The flow closes: a consumer can complete a login, and `P1-04`'s last two DoD items are now true | P1-06, P1-03 |
 | P1-08 | `GET /oauth/userinfo` | S | TODO | P1-07 |
 | P1-09 | `/oauth/introspect` and `/oauth/revoke` | M | TODO | P1-07 |
 | P1-10 | `GET /oidc/logout` | M | TODO | P1-11 |
@@ -357,6 +357,10 @@ Things that are easy to get wrong once and expensive to fix later. Re-check each
 | Assert the absence of the header, not the presence of the status | "Returns 400" would still pass if the handler also set `Location`. "Has no `Location`" is the property, and it is unusual enough to be conspicuous when broken | `P1-06` |
 | A generated router can be the wrong tool for one endpoint | Parameter binding runs before the handler, which defeats ordered validation and collapses duplicate parameters. Excluding one operation and saying why beats bending the endpoint around the generator | `P1-06` |
 | A capability is not one task | The capability audit called single sign-on shipped when `P1-06` landed, while a consumer still had nowhere to exchange a code and no page to log in on. A check that maps a user-visible capability to a single task will eventually make the false claim it exists to prevent | `P1-06`, `P0-19` |
+| A credential's storage form is a decision about the NEXT phase too | The refresh token is opaque rather than a JWT partly because `P1-03` found a JWT's string is non-canonical — so reuse detection keyed on it, which `P3-06` will build, could be defeated by changing one character | `P1-07` |
+| Consume the single-use credential before checking anything else | Leaving the code alive through a failed verifier turns it into an oracle to brute-force against, one request at a time | `P1-07` |
+| A function can check that a credential was supplied and never check it | `AuthenticateClient` returned nil for any secret at all, and every test then written would have passed because none presented a wrong one | `P1-07` |
+| A deferred DoD item has an owner, and the owner ticks it | `P1-04` left two items unticked naming the tasks that would make them true. `P1-07` made them true and ticked them — which only works because the deferral said whose job it was | `P1-04`, `P1-07` |
 | A backup is verified by restoring it | Not by a hardcoded list of tables — that reported "all 14 restored" against a database with 19, and would not have checked a table added by a later migration. Compare the source: table set and per-table row counts | `P0-20` |
 | Tests never skip a missing dependency | A suite that skips when a database is unreachable reports success having run nothing. Integration tests start their own containers and `Fatal` if they cannot — a green suite that skipped its tests is a false statement everyone acts on | `P0-15` |
 | A test harness mirrors production's privilege model | Approximating it produced a harness where the audit log was not append-only, so the suite tested a database nothing would run. Same grants, same order as `deploy/postgres/init` | `P0-15` |

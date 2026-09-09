@@ -40,6 +40,12 @@ const (
 	EventSessionCreated EventType = "session.created"
 	EventSessionRevoked EventType = "session.revoked"
 
+	// EventTokenIssued records a successful exchange at the token endpoint
+	// (P1-07). The payload names the client, the grant and the scope, and
+	// never a token — the whole point of the event is to reconstruct who was
+	// given what authority, which needs none of the credentials themselves.
+	EventTokenIssued EventType = "token.issued"
+
 	EventTokenRevoked EventType = "token.revoked"
 	EventTokenReuse   EventType = "token.reuse_detected"
 )

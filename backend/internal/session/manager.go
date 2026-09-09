@@ -252,3 +252,32 @@ func (m *Manager) hashFor(ctx context.Context, tx *postgres.Tx, sessionID string
 func (m *Manager) Sweep(ctx context.Context, retain time.Duration, limit int, now time.Time) (int, error) {
 	return m.store.Sweep(ctx, m.db, now.Add(-retain), limit)
 }
+
+// IsLive reports whether a session is still usable, by its id.
+//
+// By id rather than by token, because the caller — P1-07's refresh grant —
+// holds a refresh token that records which session authorised it and never
+// the session's cookie. That is PG-14's separation of credential from
+// identifier paying off in a second place: the id is safe to store on another
+// row and to ask about later.
+func (m *Manager) IsLive(ctx context.Context, sessionID string, now time.Time) bool {
+	if sessionID == "" {
+		return false
+	}
+
+	var live bool
+	err := m.db.SQL().QueryRowContext(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM session_live($1, $2)
+		)`, sessionID, now).Scan(&live)
+	if err != nil {
+		// Fail closed: an unverifiable session is not a live one. The cost is
+		// a re-login, which is recoverable; the alternative is honouring a
+		// refresh token for a session that may have been revoked.
+		if m.log != nil {
+			m.log.Warn("checking session liveness failed", "session_id", sessionID, "error", err.Error())
+		}
+		return false
+	}
+	return live
+}

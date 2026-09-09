@@ -22,12 +22,23 @@ output-options:
   skip-prune: true
   nullable-type: true
 
-  # /oauth/authorize is documented here and routed by hand (P1-06).
+  # The OAuth protocol endpoints are documented here and routed by hand.
   #
-  # This is the one exception to ADR-013's "the spec generates the server", and
-  # it is a deliberate one rather than a convenience. The generated wrapper
-  # binds and validates every parameter BEFORE the handler runs, and that is
-  # incompatible with the two properties this endpoint's security rests on:
+  # This is the exception to ADR-013's "the spec generates the server", and it
+  # is deliberate rather than a convenience. The line is between the OAuth
+  # protocol endpoints (/oauth/*), whose shape is dictated by RFCs written for
+  # browsers and form posts, and the management API (/v1/*), which is REST and
+  # will be generated. Both need something the generated strict interface does
+  # not hand over: the raw request.
+  #
+  # /oauth/token needs the Authorization header, because RFC 6749's
+  # client_secret_basic puts the client's credentials there. The strict
+  # interface passes a parsed body and no request, so the handler could not
+  # see it.
+  #
+  # /oauth/authorize needs the raw query, and for two reasons. The generated
+  # wrapper binds and validates every parameter BEFORE the handler runs, which
+  # is incompatible with the two properties its security rests on:
   #
   #   * Two-phase validation. Everything except client_id and redirect_uri must
   #     be reported by redirecting to the validated redirect_uri — and the
@@ -43,6 +54,7 @@ output-options:
   # skipped, and httpserver registers the handler explicitly.
   exclude-operation-ids:
     - authorize
+    - token
 
 generate:
   # Request and response types. The whole point: a field renamed in the spec
