@@ -67,6 +67,11 @@ Format follows Keep a Changelog conventions, grouped by release once releases ex
 
 ## Phase 1 — MVP: Core Authentication and SSO
 
+**Fixed** — the nightly backup had not run since the state relocation
+- **`P0-14` moved runtime state out of the code checkout; the backup unit's `ReadWritePaths` did not follow.** systemd refuses to start a unit whose `ReadWritePaths` names a directory that does not exist, so the service died with `226/NAMESPACE` before `backup.sh` executed one line — every night from 2026-09-08. The failure was maximally quiet: `systemctl list-timers` reported the timer healthy the entire time, because the *timer* was healthy. It fired exactly as configured and the service it triggered died instantly. (`P0-20`)
+- The installed unit had been hand-edited to correct `AUTH_ENV_FILE` while the repo copy had not, so the two had drifted and the repo was the stale one. Both corrected, the unit reinstalled, and a verified backup taken: 90KB, 19 tables, row counts matching the source.
+- **`BL-01` opened.** This is `P0-11`'s lesson arriving somewhere new — a rule that must catch "stopped happening" cannot be a comparison against a value that is never emitted, and a backup that fails to start emits nothing. What is needed is a freshness signal (`time() - last_success > 36h`), not a failure counter.
+
 **Added** — password policy and breached-password rejection ([record](./records/2026-09-09-P1-02-password-policy.md), [spec](./specs/P1-02-password-policy.md))
 - `authn.Evaluate`: a pure function over (password, policy), with `min_length` and `require_uppercase` read from `organizations.settings` rather than compiled in — so `P2-14`'s per-organization editor plugs into a mechanism that exists instead of replacing a hard-coded one. An integration test `UPDATE`s a live row and watches enforcement change with no restart. (`P1-02`)
 - A breached-password check over a k-anonymity API: five hex characters leave the process and nothing else. The outbound-request test asserts the password, its hash suffix and the full hash are absent from the URL, the headers and the body — and a second test proves that assertion can actually fail, against a synthetic leaky request.

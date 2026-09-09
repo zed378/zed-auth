@@ -236,6 +236,26 @@ NULL is treated as **not expired**, deliberately. The alternative — unknown me
 
 ---
 
+## Operational Gaps
+
+Found by running the system rather than by reading the plan.
+
+### BL-01 — Nothing watches for a backup that stops happening
+
+**Affects**: `P0-20`, and `PLAN/15-DISASTER-RECOVERY.md` § Restore Testing.
+
+Between 2026-09-08 and 2026-09-09 the nightly backup did not run once, and nothing said so. `P0-14` moved runtime state out of the code checkout; the systemd unit's `ReadWritePaths` still named `/home/infra/auth/backups`, and systemd refuses to start a unit whose `ReadWritePaths` does not exist — exit `226/NAMESPACE`, before `backup.sh` executed a single line.
+
+The failure was maximally quiet. `systemctl list-timers` reported the timer healthy the entire time, because the **timer** was healthy; it fired every night exactly as configured, and the service it triggered died instantly. The only trace was a `systemctl status` nobody ran.
+
+This is `P0-11`'s lesson in a new place: *rules that must catch "stopped happening" cannot be written as a comparison against a value that is never emitted.* A failed backup emits nothing. An alert on `backup_failures > 0` would never have fired.
+
+**What is needed**: a freshness signal, not a failure signal. Something that answers "when did a verified backup last complete" and alerts on the **absence** of a recent one — a `node_exporter` textfile metric written by `backup.sh` on success and alerted on with `time() - auth_backup_last_success_timestamp > 36h`, or a systemd `OnFailure=` unit, or both. The textfile approach is preferred because it also catches the case where the timer itself is disabled, which `OnFailure=` cannot see.
+
+**Interim**: the unit paths are fixed and a verified backup ran on 2026-09-09 (90KB, 19 tables, row counts matching). Until this is closed, the backup's health is only as good as somebody remembering to look.
+
+---
+
 ## Deferred
 
 Carried over from `PLAN/01-PRODUCT-SCOPE.md` § Out of Scope, recorded here so the deferral is visible during execution rather than only in the scope document.
