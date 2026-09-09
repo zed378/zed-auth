@@ -63,7 +63,10 @@ services:
       AUTH_REDIS_ADDR: ${AUTH_REDIS_ADDR:-redis:6379}
       AUTH_REDIS_PASSWORD: ${AUTH_REDIS_PASSWORD:?required}
       AUTH_REDIS_DB: ${AUTH_REDIS_DB:-0}
-      AUTH_JWT_SIGNING_KEY_REF: ${AUTH_JWT_SIGNING_KEY_REF:?required}
+      # AUTH_JWT_SIGNING_KEY_REF is deliberately absent. Signing keys live in
+      # the signing_keys table since P1-03, and the service now REFUSES to
+      # start if the variable is still set — a stale knob that looks like it
+      # controls key selection is worse than no knob at all.
       AUTH_LOG_LEVEL: ${AUTH_LOG_LEVEL:-info}
       AUTH_LOG_FORMAT: ${AUTH_LOG_FORMAT:-json}
       # Metrics listener. Inside the container it binds all interfaces so the

@@ -22,7 +22,7 @@ Everything below is arrangeable. That is not. A self-managed VM satisfies it tri
 | Secrets (keys, passwords, client secrets) | A **file**, referenced by URI | Environment variables leak: into `docker inspect`, into a crash dump, into a child process, and into any library that logs its environment on startup |
 | Local development | `.env`, git-ignored | Never contains a real credential |
 
-The service reads **references**, not values. `AUTH_JWT_SIGNING_KEY_REF=file:/etc/zed-auth/secrets/jwt-signing.pem` rather than the key itself. `internal/config/secrets.go` resolves them, and the scheme is what changes when the deployment target does — `file:` on the VM today, `vault:` or `awssm:` after the Kubernetes migration (ADR-011).
+The service reads **references**, not values — `file:/etc/zed-auth/secrets/metrics-token` rather than the token itself. Signing keys are the same in kind but no longer configured by an environment variable: since `P1-03` each key's reference lives in a `signing_keys` row, so a rollback of the binary cannot change which key signs. `internal/config/secrets.go` resolves them, and the scheme is what changes when the deployment target does — `file:` on the VM today, `vault:` or `awssm:` after the Kubernetes migration (ADR-011).
 
 The resolver refuses:
 

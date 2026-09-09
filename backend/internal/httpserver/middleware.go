@@ -223,3 +223,34 @@ func Timeout(d time.Duration) func(http.Handler) http.Handler {
 			`{"error":{"code":"TIMEOUT","message":"The request took too long to process."}}`)
 	}
 }
+
+// HeadAsGet routes a HEAD request to the GET handler for the same path.
+//
+// chi matches methods exactly, so a router with only GET routes answers 405 to
+// HEAD. RFC 9110 says a server supporting GET SHOULD support HEAD, and the
+// practical consequences are not theoretical:
+//
+//   - `curl -I` is the first thing anyone reaches for when checking headers,
+//     and a 405 returns the middleware's defaults rather than the handler's.
+//     That is not hypothetical either: it reported `Cache-Control: no-store`
+//     for the JWKS endpoint during P1-04 and briefly looked like a caching bug
+//     in the handler, which was serving `max-age=300` perfectly well on GET.
+//   - Caching proxies and uptime monitors use HEAD to revalidate. Answering
+//     405 makes an intermediary re-fetch the whole body, or drop the resource.
+//
+// The request is CLONED with the method changed rather than mutated in place.
+// That matters: net/http decides whether a body may be written by looking at
+// the ORIGINAL request it captured, so cloning leaves the server correctly
+// suppressing the body while the router sees a GET.
+func HeadAsGet(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodHead {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		asGet := r.Clone(r.Context())
+		asGet.Method = http.MethodGet
+		next.ServeHTTP(w, asGet)
+	})
+}

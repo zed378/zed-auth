@@ -16,6 +16,8 @@ import (
 	"github.com/zed378/zed-auth/backend/internal/api"
 	"github.com/zed378/zed-auth/backend/internal/config"
 	"github.com/zed378/zed-auth/backend/internal/observability"
+	"github.com/zed378/zed-auth/backend/internal/oidc"
+	"github.com/zed378/zed-auth/backend/internal/signing"
 )
 
 func discardLogger() *slog.Logger {
@@ -40,7 +42,11 @@ func testHTTPConfig(addr string) config.HTTPConfig {
 // that serves production traffic, so the generated decoding and status mapping
 // are covered rather than bypassed.
 func probes(h *Health) api.ServerInterface {
-	return api.NewStrictHandler(h, nil)
+	// The generated interface now covers the discovery endpoints too, so the
+	// probe implementation alone no longer satisfies it. `apiRoutes` is the
+	// composite the server actually registers; a nil Handler is fine here
+	// because these tests only ever call the probe methods.
+	return api.NewStrictHandler(apiRoutes{Health: h}, nil)
 }
 
 // The two probes report different words for success: /healthz says "ok" and
@@ -481,4 +487,162 @@ func waitForListener(t *testing.T, port string) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	t.Fatal("server never started listening")
+}
+
+// HEAD must reach the GET handler, with the handler's headers and no body.
+//
+// chi matches methods exactly, so without HeadAsGet every endpoint answers 405
+// to HEAD — and a 405 carries the middleware's default headers rather than the
+// handler's. That briefly looked like a caching bug in the JWKS endpoint during
+// P1-04, when `curl -I` reported `no-store` for a handler serving
+// `max-age=300` on GET.
+func TestHeadIsRoutedToGet(t *testing.T) {
+	srv := New(testHTTPConfig("127.0.0.1:0"), Deps{
+		Logger: discardLogger(),
+		Health: &Health{Checks: []Checker{stubChecker{"postgres", nil}}},
+	})
+
+	for _, path := range []string{"/healthz", "/readyz"} {
+		t.Run(path, func(t *testing.T) {
+			get := httptest.NewRecorder()
+			srv.Handler().ServeHTTP(get, httptest.NewRequest(http.MethodGet, path, nil))
+
+			head := httptest.NewRecorder()
+			srv.Handler().ServeHTTP(head, httptest.NewRequest(http.MethodHead, path, nil))
+
+			if head.Code != get.Code {
+				t.Errorf("HEAD %s = %d, GET = %d", path, head.Code, get.Code)
+			}
+
+			// The headers a client would use to decide whether to re-fetch
+			// must be the handler's, not a 405's.
+			for _, header := range []string{"Cache-Control", "Content-Type"} {
+				if head.Header().Get(header) != get.Header().Get(header) {
+					t.Errorf("HEAD %s %s = %q, GET = %q", path, header,
+						head.Header().Get(header), get.Header().Get(header))
+				}
+			}
+		})
+	}
+}
+
+// A method that genuinely has no handler still fails.
+//
+// Without this, HeadAsGet could have been implemented by answering every
+// method, which would turn a routing gap into a much larger one.
+func TestUnsupportedMethodsStillFail(t *testing.T) {
+	srv := New(testHTTPConfig("127.0.0.1:0"), Deps{
+		Logger: discardLogger(),
+		Health: &Health{},
+	})
+
+	for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodPatch} {
+		rec := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(rec, httptest.NewRequest(method, "/healthz", nil))
+
+		if rec.Code == http.StatusOK {
+			t.Errorf("%s /healthz returned 200; only GET and HEAD are served", method)
+		}
+	}
+}
+
+// --- discovery wiring (P1-04) ---------------------------------------------
+
+// A client configures itself from the discovery document and reaches the key
+// set, using nothing but the document.
+//
+// This is the achievable half of P1-04's first DoD item. The full item — an
+// off-the-shelf OIDC library completing a login from the discovery URL alone —
+// needs the authorization and token endpoints from P1-06 and P1-07, and stays
+// unticked until then. What can be verified now is the part that would rot
+// silently: `jwks_uri` is assembled as a string in main.go while the route it
+// names comes from the generated router, so nothing but a test that follows
+// the advertised URL keeps the two in agreement.
+func TestDiscoveryDocumentLeadsToTheKeySet(t *testing.T) {
+	pair, err := signing.Generate(signing.RS256)
+	if err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	set, err := signing.NewKeySet([]*signing.Key{{
+		KID:       pair.KID,
+		Algorithm: signing.RS256,
+		Status:    signing.StatusCurrent,
+		Public:    pair.Public,
+	}})
+	if err != nil {
+		t.Fatalf("key set: %v", err)
+	}
+	keys := signing.NewCache(func() (*signing.KeySet, error) { return set, nil }, time.Minute)
+
+	// The listener has to exist before the issuer can be known, since the
+	// issuer is an absolute URL. Build the server around a handler that is
+	// filled in once the address is assigned.
+	var handler http.Handler
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		handler.ServeHTTP(w, r)
+	}))
+	defer ts.Close()
+
+	// Assembled exactly as main.go assembles it, so a change there that this
+	// test does not follow is a change this test stops covering.
+	discovery, err := oidc.NewHandler(oidc.Capabilities{
+		Issuer:            ts.URL,
+		JWKSURI:           ts.URL + "/.well-known/jwks.json",
+		SigningAlgorithms: []string{string(signing.RS256)},
+	}, keys)
+	if err != nil {
+		t.Fatalf("discovery handler: %v", err)
+	}
+
+	srv := New(testHTTPConfig("127.0.0.1:0"), Deps{
+		Logger:    discardLogger(),
+		Health:    &Health{},
+		Discovery: discovery,
+	})
+	handler = srv.Handler()
+
+	resp, err := ts.Client().Get(ts.URL + "/.well-known/openid-configuration")
+	if err != nil {
+		t.Fatalf("GET discovery: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var document struct {
+		Issuer  string `json:"issuer"`
+		JWKSURI string `json:"jwks_uri"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&document); err != nil {
+		t.Fatalf("decoding discovery document: %v", err)
+	}
+
+	// The issuer is what a client validates the `iss` claim against, so it is
+	// published verbatim — not normalised, not re-derived from the request.
+	if document.Issuer != ts.URL {
+		t.Errorf("issuer = %q, want the configured %q", document.Issuer, ts.URL)
+	}
+
+	// Follow the advertised URL the way a client library would.
+	jwks, err := ts.Client().Get(document.JWKSURI)
+	if err != nil {
+		t.Fatalf("GET %s (the advertised jwks_uri): %v", document.JWKSURI, err)
+	}
+	defer jwks.Body.Close()
+
+	if jwks.StatusCode != http.StatusOK {
+		t.Fatalf("the advertised jwks_uri %s returned %d; the discovery document "+
+			"names a route this server does not serve", document.JWKSURI, jwks.StatusCode)
+	}
+
+	var keySet struct {
+		Keys []struct {
+			KID string `json:"kid"`
+		} `json:"keys"`
+	}
+	if err := json.NewDecoder(jwks.Body).Decode(&keySet); err != nil {
+		t.Fatalf("decoding JWKS: %v", err)
+	}
+	if len(keySet.Keys) != 1 || keySet.Keys[0].KID != pair.KID {
+		t.Errorf("JWKS reached through discovery = %+v, want the one current key %q",
+			keySet.Keys, pair.KID)
+	}
 }

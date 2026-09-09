@@ -19,6 +19,7 @@ Add a line here as part of writing the record — an unindexed record is a recor
 | 2026-09-08 | P0-15 | [The test harness](./records/2026-09-08-P0-15-test-harness.md) | The integration suite reported success without running — it skipped every database test when none was reachable. Containers started by the tests themselves, all four pyramid layers with real tests, and a harness bug that broke the audit log's append-only guarantee, caught by a test the skip had been hiding |
 | 2026-09-08 | P1-01 | [Argon2id password hashing](./records/2026-09-08-P1-01-password-hashing.md) | Parameters measured on the VM rather than copied — 90ms/hash, bounded by concurrency rather than latency. The not-found path does real work so response time cannot say which addresses have accounts, verified by short-circuiting it. First package the coverage floors applied to |
 | 2026-09-09 | P1-03 | [Signing keys, JWKS and rotation](./records/2026-09-09-P1-03-signing-keys.md) | A four-state key lifecycle whose overlap window is the whole design. Found that 16 distinct token strings decode to the same signature — a trap set for P1-07's reuse detection — and that a runbook is a hypothesis until it is executed |
+| 2026-09-09 | P1-04 | [Discovery document and JWKS endpoint](./records/2026-09-09-P1-04-discovery-jwks.md) | The document is derived from what the router actually serves, so advertising an unbuilt endpoint is not expressible rather than merely discouraged. Two DoD items left deliberately unticked because P1-06/P1-07 are what make them true. `curl -I` reported a caching bug that did not exist — chi answers 405 to HEAD, so the tool was reading a 405's headers |
 | 2026-09-08 | P0-12 | [Audit event writer](./records/2026-09-08-P0-12-audit-writer.md) | Events commit with the action that caused them. Kills the partition time bomb flagged two records ago. Six stdlib vulnerabilities found and fixed. A check script that was silently discarding uncommitted work |
 | 2026-09-08 | P0-08 | [Row-level security](./records/2026-09-08-P0-08-row-level-security.md) | Cross-tenant isolation becomes a database guarantee: 11 policies, a storage API with no unscoped query path, a startup assertion refusing an RLS-bypassing role, and a CI gate. Opens DV-02 |
 | 2026-09-08 | P0-14, P0-20 | [Secrets conventions and VM deployment](./records/2026-09-08-P0-14-P0-20-secrets-and-vm-deployment.md) | OQ-03 answered (self-managed VM). Secret-reference abstraction, rotation runbooks, full VM deploy. Found and fixed an env_file bug handing the service RLS-bypassing owner credentials. Opens DV-01: single VM misses PLAN/14's Multi-AZ requirement |
@@ -44,14 +45,15 @@ Add a line here as part of writing the record — an unindexed record is a recor
 - `P0-18` — [The public site](./records/2026-09-08-P0-18-public-site-skeleton.md) — when two plan documents disagree, the deviation is a decision, not a silence
 - `P0-19` — [Site content and the capability audit](./records/2026-09-08-P0-19-site-content.md) — a governance rule that is only ever read is a rule that erodes
 - `P0-15` — [The test harness](./records/2026-09-08-P0-15-test-harness.md) — a green suite that skipped its tests is a false statement everyone acts on
-- `P1-01` — [Argon2id password hashing](./records/2026-09-08-P1-01-password-hashing.md) — a defence you have not tried to break is a defence you are guessing about
 - `P0-12` — [Audit event writer](./records/2026-09-08-P0-12-audit-writer.md) — append-only log, partition maintenance
 - `P0-08` — [Row-level security](./records/2026-09-08-P0-08-row-level-security.md) — isolation enforced by the database
 - `P0-14`, `P0-20` — [Secrets conventions and VM deployment](./records/2026-09-08-P0-14-P0-20-secrets-and-vm-deployment.md)
 - `P0-21` — [TASKS and MEMORY scaffolding](./records/2026-09-08-P0-21-tasks-and-memory-scaffolding.md)
 
 ### Phase 1 — MVP: Core Auth + SSO
-_No records yet._
+- `P1-01` — [Argon2id password hashing](./records/2026-09-08-P1-01-password-hashing.md) — a defence you have not tried to break is a defence you are guessing about
+- `P1-03` — [Signing keys, JWKS and rotation](./records/2026-09-09-P1-03-signing-keys.md) — the overlap window is the design; a runbook is a hypothesis until executed
+- `P1-04` — [Discovery document and JWKS endpoint](./records/2026-09-09-P1-04-discovery-jwks.md) — a machine-readable document that claims an unshipped capability fails in someone else's logs
 
 ### Phase 2 — RBAC & Multi-Tenancy
 _No records yet._

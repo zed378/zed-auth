@@ -4,6 +4,67 @@
  */
 
 export interface paths {
+    "/.well-known/openid-configuration": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * OpenID Provider configuration
+         * @description The discovery document, per OpenID Connect Discovery 1.0. Point a
+         *     conforming client library at this URL instead of copying endpoint
+         *     values into its configuration by hand.
+         *
+         *     **It lists only what is implemented.** The authorization and token
+         *     endpoints arrive in later phases and are absent until they exist —
+         *     the document is rendered from the service's registered capabilities,
+         *     so it cannot advertise an endpoint that would return 404.
+         *
+         *     `code_challenge_methods_supported` will contain `S256` and never
+         *     `plain`: `plain` transmits the PKCE verifier unprotected, which
+         *     removes the reason PKCE exists.
+         */
+        get: operations["getOpenIDConfiguration"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/.well-known/jwks.json": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * JSON Web Key Set
+         * @description The public keys token signatures are verified against. Public halves
+         *     only — no private parameter ever appears here, which is asserted by a
+         *     test that inspects the JSON rather than trusting the serialiser.
+         *
+         *     Every key that can still verify a token is published, including one
+         *     that has stopped signing. That overlap is what lets a key rotate
+         *     without invalidating tokens issued moments before it
+         *     (`PLAN/09` § Tokens & Keys).
+         *
+         *     Verification is local: fetch this once, cache it, and validating a
+         *     token does not depend on this service being reachable.
+         */
+        get: operations["getJWKS"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/healthz": {
         parameters: {
             query?: never;
@@ -59,6 +120,73 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * @description OpenID Provider metadata. Fields for unimplemented endpoints are
+         *     omitted rather than emitted empty.
+         */
+        OpenIDConfiguration: {
+            /**
+             * @description The identifier clients validate the `iss` claim against. Compared
+             *     byte for byte, so it never carries a trailing slash.
+             * @example https://auth.zedth.my.id
+             */
+            issuer: string;
+            /** @example https://auth.zedth.my.id/.well-known/jwks.json */
+            jwks_uri: string;
+            /** @description Present once the authorization endpoint exists. */
+            authorization_endpoint?: string;
+            /** @description Present once the token endpoint exists. */
+            token_endpoint?: string;
+            userinfo_endpoint?: string;
+            revocation_endpoint?: string;
+            introspection_endpoint?: string;
+            end_session_endpoint?: string;
+            response_types_supported?: string[];
+            /**
+             * @description Never contains `implicit` or `password`: both are ruled out
+             *     permanently by `PLAN/05` § Supported Grant Types, and advertising
+             *     a grant this service refuses invites a client to build against it.
+             */
+            grant_types_supported?: string[];
+            /**
+             * @description `public` only. Pairwise identifiers are a privacy feature this
+             *     service does not implement.
+             */
+            subject_types_supported: string[];
+            id_token_signing_alg_values_supported: string[];
+            scopes_supported?: string[];
+            /** @description `S256` only. Never `plain`. */
+            code_challenge_methods_supported?: string[];
+            claims_supported?: string[];
+        };
+        /**
+         * @description One public key, per RFC 7517. Private parameters (`d`, `p`, `q`, `dp`,
+         *     `dq`, `qi`) never appear.
+         */
+        JWK: {
+            /** @example RSA */
+            kty: string;
+            /**
+             * @description An RFC 7638 thumbprint of the key, so it is stable across restarts
+             *     and cannot be chosen by anyone.
+             */
+            kid: string;
+            /** @example sig */
+            use: string;
+            /** @example RS256 */
+            alg?: string;
+            /** @description RSA modulus, base64url. */
+            n?: string;
+            /** @description RSA public exponent, base64url. */
+            e?: string;
+            /** @description EC curve, for ES256 keys. */
+            crv?: string;
+            x?: string;
+            y?: string;
+        };
+        JWKS: {
+            keys: components["schemas"]["JWK"][];
+        };
         /**
          * @description The complete `/healthz` response. There are no other fields, and none
          *     will be added that name a dependency or a version.
@@ -268,6 +396,71 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    getOpenIDConfiguration: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The provider's configuration. */
+            200: {
+                headers: {
+                    /**
+                     * @description Cacheable for an hour. The document changes when endpoints are
+                     *     added or removed, which is a deploy rather than a routine
+                     *     event.
+                     */
+                    "Cache-Control"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OpenIDConfiguration"];
+                };
+            };
+        };
+    };
+    getJWKS: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The published key set. */
+            200: {
+                headers: {
+                    /**
+                     * @description Cacheable for five minutes — deliberately shorter than the
+                     *     discovery document. A rotation has to reach every consumer
+                     *     inside the overlap window, and this is the bound on how long
+                     *     that takes.
+                     */
+                    "Cache-Control"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/jwk-set+json": components["schemas"]["JWKS"];
+                };
+            };
+            /**
+             * @description The key set could not be read. The body names no dependency: this
+             *     endpoint is public and unauthenticated (`SECURITY/02` §12).
+             */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
     getLiveness: {
         parameters: {
             query?: never;
