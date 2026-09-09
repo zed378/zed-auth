@@ -51,6 +51,24 @@ type Metrics struct {
 	// that refused them (P1-02).
 	PasswordPolicyRejections *prometheus.CounterVec
 
+	// --- Sessions (P1-11) ---
+
+	SessionsCreated *prometheus.CounterVec
+	SessionsRevoked *prometheus.CounterVec
+
+	// SessionLookupDuration is labelled by source, so the cache hit rate is
+	// readable from the same metric that shows the latency. PLAN/12 gives
+	// /oauth/authorize 150ms at p95 for everything, and this is the part of it
+	// that a cache is supposed to make free.
+	SessionLookupDuration *prometheus.HistogramVec
+
+	// SessionCacheInvalidationFailures is load-bearing rather than
+	// informational. A revoked session stops being served immediately only
+	// because the cache entry is deleted; if that delete fails, the session
+	// stays usable until the TTL. This counter is the only signal that
+	// happened.
+	SessionCacheInvalidationFailures prometheus.Counter
+
 	// PasswordBreachChecks counts corpus lookups by outcome: clean, breached,
 	// skipped, disabled.
 	//
@@ -138,6 +156,23 @@ func NewMetrics(service, version string) *Metrics {
 			"auth_login_attempts_total",
 			"Login attempts by outcome. PLAN/13 § Alerting keys the brute-force alert on the failure rate.",
 			"outcome"),
+
+		SessionsCreated: factory.counterVec(
+			"auth_sessions_created_total",
+			"Browser sessions created, by the factors used.",
+			"auth_method"),
+		SessionsRevoked: factory.counterVec(
+			"auth_sessions_revoked_total",
+			"Sessions revoked, by reason. `logout` and `admin` are different facts.",
+			"reason"),
+		SessionLookupDuration: factory.histogramVec(
+			"auth_session_lookup_duration_seconds",
+			"Session lookup latency by source. The cache hit rate is the ratio of the counts.",
+			[]float64{0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1},
+			"source"),
+		SessionCacheInvalidationFailures: factory.counter(
+			"auth_session_cache_invalidation_failures_total",
+			"Revocations that did not reach the cache. Each one is a session that stays usable until its cache entry expires."),
 
 		PasswordPolicyRejections: factory.counterVec(
 			"auth_password_policy_rejections_total",

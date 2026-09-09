@@ -34,26 +34,38 @@ const Redacted = "[REDACTED]"
 // or slash-separated key, so `http.request.authorization` is caught as readily
 // as `authorization`.
 var sensitiveKeys = map[string]struct{}{
-	"password":            {},
-	"password_hash":       {},
-	"new_password":        {},
-	"current_password":    {},
-	"secret":              {},
-	"client_secret":       {},
-	"client_secret_hash":  {},
-	"token":               {},
-	"access_token":        {},
-	"refresh_token":       {},
-	"id_token":            {},
-	"id_token_hint":       {},
-	"token_hash":          {},
+	"password":           {},
+	"password_hash":      {},
+	"new_password":       {},
+	"current_password":   {},
+	"secret":             {},
+	"client_secret":      {},
+	"client_secret_hash": {},
+	"token":              {},
+	"access_token":       {},
+	"refresh_token":      {},
+	"id_token":           {},
+	"id_token_hint":      {},
+	"token_hash":         {},
+
+	// `session_id` is deliberately NOT here, and it was until P1-11.
+	//
+	// PLAN/04 originally had the session cookie carry the row's id, which made
+	// the id a bearer credential and redacting it correct. PG-14 separated the
+	// two: the cookie now carries a token whose hash is stored, and `id` is an
+	// internal identifier that the sessions screen displays and the audit log
+	// must name.
+	//
+	// Redacting it now would defeat the point of that separation — an audit
+	// entry saying a session was revoked without saying WHICH cannot answer the
+	// question it exists for. The credential is `token_hash`, above, and that
+	// stays redacted.
 	"code":                {},
 	"code_verifier":       {},
 	"code_challenge":      {},
 	"authorization":       {},
 	"cookie":              {},
 	"set-cookie":          {},
-	"session_id":          {},
 	"private_key":         {},
 	"privatekey":          {},
 	"totp_secret":         {},

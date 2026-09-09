@@ -20,12 +20,15 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/redis/go-redis/v9"
+
 	"github.com/zed378/zed-auth/backend/internal/audit"
 	"github.com/zed378/zed-auth/backend/internal/authn"
 	"github.com/zed378/zed-auth/backend/internal/config"
 	"github.com/zed378/zed-auth/backend/internal/httpserver"
 	"github.com/zed378/zed-auth/backend/internal/observability"
 	"github.com/zed378/zed-auth/backend/internal/oidc"
+	"github.com/zed378/zed-auth/backend/internal/session"
 	"github.com/zed378/zed-auth/backend/internal/signing"
 	"github.com/zed378/zed-auth/backend/internal/storage/postgres"
 )
@@ -179,9 +182,35 @@ func run() error {
 	// deploy to correlate against (P0-12).
 	go auditor.Run(ctx, partitionMonthsAhead)
 
-	// Redis joins this list in P1-11/P1-13.
+	// Redis: the session lookup cache (P1-11).
+	//
+	// PLAN/12 gives /oauth/authorize 150ms at p95 for the whole silent-SSO
+	// request, and a Redis round trip is how that is met. It is a cache, not a
+	// store: PostgreSQL is authoritative (ADR-003), so Redis being down costs
+	// latency rather than correctness — which is why it is a readiness check
+	// rather than a startup requirement.
+	rdb := redis.NewClient(&redis.Options{
+		Addr:     cfg.Redis.Addr,
+		Password: cfg.Redis.Password,
+		DB:       cfg.Redis.DB,
+	})
+	defer func() { _ = rdb.Close() }()
+
+	sessions := session.NewManager(
+		db,
+		session.NewCache(rdb, sessionObserver{metrics}),
+		auditor,
+		log,
+	)
+
+	// Expired and long-revoked sessions are removed on a schedule rather than
+	// accumulating (P1-11 DoD item 4). Bounded per run, on the same pattern as
+	// the partition maintenance above: a long-neglected table is caught up over
+	// several runs instead of in one enormous transaction.
+	go runSessionSweep(ctx, sessions, log)
+
 	health := &httpserver.Health{
-		Checks:  []httpserver.Checker{db},
+		Checks:  []httpserver.Checker{db, redisChecker{rdb}},
 		Timeout: 2 * time.Second,
 	}
 
@@ -443,4 +472,76 @@ func newPasswordChecks(cfg *config.Config, log *slog.Logger) passwordChecks {
 	checks.breaches = client
 	checks.state = "enabled"
 	return checks
+}
+
+// --- session plumbing --------------------------------------------------------
+
+// sessionSweepInterval is how often expired sessions are removed.
+//
+// Hourly. Expiry is already enforced on every lookup, so this is housekeeping
+// rather than a control — its job is to stop the table growing without bound,
+// and an hour is far more often than that requires.
+const sessionSweepInterval = time.Hour
+
+// sessionRetention is how long an expired or revoked session is kept before
+// deletion.
+//
+// Seven days, because the row is what the sessions screen shows to explain why
+// somebody was signed out, and what an incident investigation reads. Deleting
+// it the moment it expires would remove the evidence at the moment it becomes
+// interesting.
+const sessionRetention = 7 * 24 * time.Hour
+
+// sessionSweepBatch bounds one run.
+const sessionSweepBatch = 1000
+
+func runSessionSweep(ctx context.Context, sessions *session.Manager, log *slog.Logger) {
+	ticker := time.NewTicker(sessionSweepInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			removed, err := sessions.Sweep(ctx, sessionRetention, sessionSweepBatch, time.Now())
+			if err != nil {
+				log.Warn("sweeping expired sessions failed", "error", err.Error())
+				continue
+			}
+			if removed > 0 {
+				log.Info("swept expired sessions", "removed", removed)
+			}
+		}
+	}
+}
+
+// sessionObserver reports session cache behaviour to the metrics registry.
+//
+// A thin adapter rather than importing the metrics package into
+// internal/session: the session package stays usable without it, and the one
+// counter that matters — an invalidation that did not reach the cache — is
+// wired where the alert can see it.
+type sessionObserver struct{ m *observability.Metrics }
+
+func (o sessionObserver) InvalidationFailed() {
+	o.m.SessionCacheInvalidationFailures.Inc()
+}
+
+func (o sessionObserver) Lookup(source string, d time.Duration) {
+	o.m.SessionLookupDuration.WithLabelValues(source).Observe(d.Seconds())
+}
+
+// redisChecker reports Redis health for the readiness probe.
+//
+// Reported, not required. Redis is a cache in front of PostgreSQL, so losing
+// it makes the service slower rather than wrong — but a readiness probe that
+// stayed green through it would hide the latency cliff until somebody noticed
+// the silent-SSO budget being missed.
+type redisChecker struct{ client *redis.Client }
+
+func (redisChecker) Name() string { return "redis" }
+
+func (c redisChecker) Check(ctx context.Context) error {
+	return c.client.Ping(ctx).Err()
 }
