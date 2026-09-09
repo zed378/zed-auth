@@ -12,6 +12,18 @@
 #   docker compose -f deploy/public-site/docker-compose.yml up -d
 
 # `zedauth-site-web-1`. Its own project, for the same reason as the console.
+#
+# Deploying a new build: extract IN PLACE, do not swap the directory.
+#
+# The obvious safe-looking sequence — unpack to `.new`, `mv` the old aside,
+# `mv` the new into place — breaks this mount. A bind mount resolves to an
+# inode, so after the swap the container is still serving the directory that
+# was moved away: every request 404s while the files sit correctly on disk,
+# which reads as a permissions problem and is not one.
+#
+# Either extract over the existing directory, or `up -d --force-recreate`
+# afterwards so the mount is re-resolved. Learned the slow way, 2026-09-09.
+
 name: zedauth-site
 
 services:
