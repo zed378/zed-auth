@@ -98,4 +98,5 @@ Key rotations, DR drills, pentests, load tests, and production incidents — any
 | Date | Event | Record |
 |---|---|---|
 | 2026-09-08 | **Re-clone destroyed the signing key, the metrics token and every backup** — runtime state lived inside the code directory. Recovered; state moved out, so `git pull` is now safe | [record](./records/2026-09-08-clone-based-deploy-and-state-separation.md) |
+| 2026-09-09 | **The nightly backup had been failing silently since 2026-09-08** — `P0-14` moved runtime state out of the checkout and the systemd unit's `ReadWritePaths` did not follow, so systemd refused to start the service before `backup.sh` ran a line. `systemctl list-timers` reported the timer healthy throughout, because the timer was. Paths fixed, a verified backup taken; `BL-01` opened for the freshness alert that would have caught it | [P1-02](./records/2026-09-09-P1-02-password-policy.md) |
 | 2026-09-08 | **Backup restore verified** — staging dump restored into a throwaway database, 19 tables and every row count matching the source. Backups now run daily by timer | [P0-20](./records/2026-09-08-P0-20-backup-verification.md) |
