@@ -311,3 +311,79 @@ func TestRotateWithoutANextKeyFails(t *testing.T) {
 		t.Fatal("rotating with no next key must fail")
 	}
 }
+
+// List is what the operator sees. Untested, it is the command most likely to
+// misreport during an incident — which is exactly when someone is reading it
+// to decide whether a rotation worked.
+func TestListReportsEveryKeyAndItsTimestamps(t *testing.T) {
+	store, files, _ := newStore(t)
+	ctx := context.Background()
+
+	addKey(t, store, files, RS256)
+	first, err := store.Rotate(ctx)
+	if err != nil {
+		t.Fatalf("rotate: %v", err)
+	}
+
+	addKey(t, store, files, ES256)
+	second, err := store.Rotate(ctx)
+	if err != nil {
+		t.Fatalf("rotate: %v", err)
+	}
+
+	keys, err := store.List(ctx)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(keys) != 2 {
+		t.Fatalf("list returned %d keys, want 2", len(keys))
+	}
+
+	byKID := map[string]KeyInfo{}
+	for _, k := range keys {
+		byKID[k.KID] = k
+	}
+
+	demoted, ok := byKID[first.Promoted]
+	if !ok {
+		t.Fatalf("the demoted key %q is missing from the list", first.Promoted)
+	}
+	if demoted.Status != string(StatusPrevious) {
+		t.Errorf("demoted key status = %q, want previous", demoted.Status)
+	}
+	if !demoted.ActivatedAt.Valid {
+		t.Error("a key that has been current must carry an activated_at")
+	}
+	if demoted.RetiredAt.Valid {
+		t.Error("a previous key must not carry a retired_at")
+	}
+
+	current, ok := byKID[second.Promoted]
+	if !ok {
+		t.Fatalf("the promoted key %q is missing from the list", second.Promoted)
+	}
+	if current.Status != string(StatusCurrent) {
+		t.Errorf("promoted key status = %q, want current", current.Status)
+	}
+	if current.Algorithm != string(ES256) {
+		t.Errorf("algorithm = %q, want ES256 — the list must report what was stored", current.Algorithm)
+	}
+
+	// Retiring sets the timestamp, so the operator can see when a key's
+	// tokens stopped being accepted.
+	if err := store.Retire(ctx, first.Promoted); err != nil {
+		t.Fatalf("retire: %v", err)
+	}
+	after, err := store.List(ctx)
+	if err != nil {
+		t.Fatalf("list after retire: %v", err)
+	}
+	for _, k := range after {
+		if k.KID == first.Promoted {
+			if k.Status != string(StatusRetired) || !k.RetiredAt.Valid {
+				t.Errorf("retired key reports status=%q retired_at.valid=%v",
+					k.Status, k.RetiredAt.Valid)
+			}
+		}
+	}
+}
