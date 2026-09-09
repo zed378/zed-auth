@@ -348,3 +348,28 @@ func TestIsLoopbackAddr(t *testing.T) {
 		}
 	}
 }
+
+// A retired variable is refused, not ignored.
+//
+// AUTH_JWT_SIGNING_KEY_REF configured a single signing key before P1-03. Keys
+// now live in the signing_keys table, which is what makes an application
+// rollback safe — key state must not be part of the thing being rolled back.
+//
+// Ignoring it would be worse than removing it: an operator rotating a key by
+// editing the variable would believe they had, and nothing would contradict
+// them until a token failed to verify somewhere else entirely.
+func TestRetiredSigningKeyVariableIsRefused(t *testing.T) {
+	m := valid()
+	m["AUTH_JWT_SIGNING_KEY_REF"] = "file:/etc/zed-auth/secrets/jwt-signing.pem"
+
+	_, err := LoadFrom(env(m))
+	if err == nil {
+		t.Fatal("AUTH_JWT_SIGNING_KEY_REF must be refused, not silently ignored")
+	}
+	if !strings.Contains(err.Error(), "signing_keys") {
+		t.Errorf("the error should say where keys live now, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "keyctl") {
+		t.Errorf("the error should name the tool that replaced it, got: %v", err)
+	}
+}
