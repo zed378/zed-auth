@@ -67,6 +67,17 @@ Format follows Keep a Changelog conventions, grouped by release once releases ex
 
 ## Phase 1 — MVP: Core Authentication and SSO
 
+**Added** — signing keys, JWKS and rotation ([record](./records/2026-09-09-P1-03-signing-keys.md))
+- `internal/signing`: a four-state key lifecycle (`next` → `current` → `previous` → `retired`), signing, verification, JWKS and a bounded cache. No schema change — `P0-07` had already written the table for this, including the partial unique index that makes two simultaneous signing keys unrepresentable. (`P1-03`)
+- **The overlap window is the whole design.** A key is published before it signs, because consumers cache JWKS and would otherwise reject a valid token signed with a key they have not fetched. A key keeps verifying after it stops signing, because a token issued a second before a rotation is valid for its full lifetime. Two states would have been simpler and wrong in both directions.
+- The `kid` is an RFC 7638 thumbprint rather than a generated value: stable across restarts so consumer caches survive a deploy, and impossible to collide with deliberately.
+- Verification pins the algorithm from a fixed server-side list, which defeats `alg:none` and HS256-signed-with-the-RSA-public-key before a key is even looked up. Both tested with properly constructed forgeries.
+- `cmd/keyctl` and a rotation runbook. Rotation is an operator command, not a timer — the failure modes want a person watching.
+
+**Learned**
+- **Token strings are malleable; token identity is not.** An RSA-2048 signature base64url-encodes with four bits that decode away, so **16 distinct token strings decode to the same signature and all verify**. Not a forgery risk — the signature must still be valid. It is a token *identity* risk: refresh-token reuse detection that hashes the presented string can be defeated by mutating one character, which would silently disable the whole mechanism. `P1-07` and `P3-02` must key on `jti` or the decoded signature. Pinned as a test so it is a constraint rather than a discovery. (`P1-03`)
+- **A runbook is a hypothesis until executed.** `P1-03`'s DoD requires running it against staging, and doing so found two things reading could not: there is no Go toolchain on the VM, and `keyctl` recorded a key reference pointing at a path only *it* could see. The service mounts the same directory elsewhere, so the database held a reference that resolved for the tool and not for the service — harmless today, a refusal to start at the next restart after `P1-07`. Fixed by mounting at the service's own path, so the reference is right by construction rather than by remembering.
+
 **Added** — Argon2id password hashing ([record](./records/2026-09-08-P1-01-password-hashing.md), [spec](./specs/P1-01-password-hashing.md))
 - `internal/authn`: Argon2id with PHC encoding, so every row records the cost it was hashed at and raising parameters is a deploy rather than a migration. (`P1-01`)
 - **Parameters measured, not copied**: 64 MiB / t=3 / p=4, giving 90ms per hash on the staging VM and 63ms on a development laptop. The binding constraint is concurrency rather than latency — memory cost multiplies by simultaneous logins, and the VM runs five other things. On four cores that is roughly 44 logins/second before latency climbs, which is a number `P1-13`'s rate limiting should sit below.

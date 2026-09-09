@@ -66,7 +66,7 @@ Sizes: `S` under half a day · `M` one to two days · `L` several days · `XL` m
 |---|---|---|---|---|
 | P1-01 | Argon2id password hashing | M | **DONE** | P0-15 |
 | P1-02 | Password policy and breached-password rejection | M | TODO | P1-01 |
-| P1-03 | Signing key management, JWKS, rotation | L | TODO | P0-14 |
+| P1-03 | Signing key management, JWKS, rotation | L | **DONE** | P0-14 |
 | P1-04 | Discovery document and JWKS endpoint | S | TODO | P1-03 |
 | P1-05 | Application registration and credentials | M | TODO | P0-07 |
 | P1-06 | `GET /oauth/authorize` — code + PKCE | L | TODO | P1-05, P1-11 |
@@ -328,6 +328,12 @@ Things that are easy to get wrong once and expensive to fix later. Re-check each
 | Credential verification is not authorization | `internal/authn` answers whether a password matches a hash and nothing about what that permits. A package answering both is one where "the password matched" quietly becomes "the request is allowed" | `P1-01` |
 | The not-found path costs what the found path costs | Otherwise response time is an oracle for which addresses have accounts. A real hash, not a sleep — a sleep guesses a duration and does not consume the CPU that makes timings match under load | `P1-01` |
 | Hash parameters are measured on the target | 90ms on the VM against 63ms on a laptop. The binding constraint is concurrency, not latency: memory cost multiplies by simultaneous logins | `P1-01` |
+| Integration packages run one binary at a time | Each starts its own containers; four providers initialising at once races and fails in a different package each run. `-p 1`. A suite whose failures nobody believes is worse than a slower one | `P1-03` |
+| Coverage floors measure the tests that actually run | `internal/signing` reads 44% from unit tests and 83% with integration. A floor against the smaller number rewards testing pure functions and skipping the rotation logic — the part where a bug logs everyone out | `P1-03`, `P0-15` |
+| The algorithm is server policy, never the token header | `alg:none` and HS256-with-the-RSA-public-key are both defeated by passing a fixed algorithm list to the parser, which rejects before a key is looked up | `P1-03` |
+| A `kid` is derived from the key, not generated | RFC 7638 thumbprint: stable across restarts so consumer caches survive a deploy, and uncrackable so a collision cannot be chosen | `P1-03` |
+| Token strings are malleable; token identity is not | 16 distinct encodings of one signature all verify. Reuse detection, denylists and replay caches must key on `jti` or the decoded signature, never the raw string | `P1-03` |
+| A runbook is a hypothesis until executed | Running this one found no Go on the VM and a key reference pointing at a path only the tool could see | `P1-03` |
 | A backup is verified by restoring it | Not by a hardcoded list of tables — that reported "all 14 restored" against a database with 19, and would not have checked a table added by a later migration. Compare the source: table set and per-table row counts | `P0-20` |
 | Tests never skip a missing dependency | A suite that skips when a database is unreachable reports success having run nothing. Integration tests start their own containers and `Fatal` if they cannot — a green suite that skipped its tests is a false statement everyone acts on | `P0-15` |
 | A test harness mirrors production's privilege model | Approximating it produced a harness where the audit log was not append-only, so the suite tested a database nothing would run. Same grants, same order as `deploy/postgres/init` | `P0-15` |

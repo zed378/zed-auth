@@ -27,7 +27,8 @@ FLOOR=80
 # number for token verification is not obviously the right number for
 # configuration, and a single constant invites nobody to think about it.
 PACKAGES="
-internal/authn:$FLOOR:P1-04
+internal/authn:$FLOOR:P1-01
+internal/signing:$FLOOR:P1-03
 internal/authz:$FLOOR:P2-06
 internal/oidc:$FLOOR:P1-06
 "
@@ -61,7 +62,15 @@ for entry in $PACKAGES; do
 
   checked=$((checked + 1))
 
-  if ! (cd backend && go test -coverprofile="$profile" -covermode=atomic "./$pkg/..." >/dev/null 2>&1); then
+  # -tags=integration, because that is how these packages are actually tested.
+  #
+  # internal/signing measures 44% from unit tests alone and 83% with its
+  # integration tests, and the second number is the real one — the store, the
+  # rotation state machine and the database constraints are the parts most
+  # worth a floor. Measuring a subset of the suite is measuring the wrong
+  # thing, the same mistake as testing a compiler's input instead of its
+  # output.
+  if ! (cd backend && go test -tags=integration -coverprofile="$profile" -covermode=atomic "./$pkg/..." >/dev/null 2>&1); then
     printf '  ✗  %-20s tests failed\n' "$pkg"
     failed=$((failed + 1))
     continue
