@@ -121,6 +121,43 @@ groups:
             whether failures concentrate on one IP or one account
             (SECURITY/02 §13).
 
+      - alert: PasswordBreachCheckFailingOpen
+        # ADR-015: an unreachable breach corpus admits the password rather
+        # than blocking the change. That is only defensible because this fires.
+        #
+        # Without it, "the breach check has been down for three weeks" is an
+        # archaeology finding rather than a page, and every password set in
+        # those three weeks went in unchecked.
+        expr: |
+          sum(rate(auth_password_breach_checks_total{outcome="skipped"}[15m]))
+          /
+          clamp_min(sum(rate(auth_password_breach_checks_total[15m])), 0.001) > 0.1
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Breached-password checks are failing open"
+          description: >-
+            More than a tenth of password checks are being accepted without
+            consulting the corpus (ADR-015). Passwords set during this window
+            are unvalidated against known breaches and should be re-checked.
+            Look for a corpus-service outage, rate limiting, or lost outbound
+            connectivity.
+
+      - alert: PasswordBreachCheckDisabled
+        # A distinct outcome rather than an absence of data, so switching the
+        # check off looks different from it breaking — and neither is silent.
+        expr: sum(rate(auth_password_breach_checks_total{outcome="disabled"}[1h])) > 0
+        for: 1h
+        labels:
+          severity: info
+        annotations:
+          summary: "Breached-password checking is turned off"
+          description: >-
+            Passwords are being accepted without any corpus check. Deliberate
+            if someone disabled it; worth confirming that they meant to and
+            that it gets turned back on.
+
       - alert: LockoutSpike
         expr: sum(increase(auth_lockouts_total[15m])) > 20
         for: 5m

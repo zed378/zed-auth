@@ -52,6 +52,20 @@ const (
 	EventUserInvited       EventType = "user.invited"
 	EventPasswordChanged   EventType = "user.password.changed"
 	EventPasswordResetSent EventType = "user.password.reset_requested"
+
+	// EventPasswordRejected records a password refused by policy or by the
+	// breach corpus (P1-02). The payload names the rules, never the password.
+	EventPasswordRejected EventType = "user.password.rejected"
+
+	// EventPasswordBreachCheckSkipped records a password accepted without a
+	// corpus check because the corpus could not be reached.
+	//
+	// This is the audit half of ADR-015. Failing open is defensible because
+	// each occurrence leaves a record naming the user whose password was not
+	// checked — which is what makes a later re-check possible, and what makes
+	// "the breach check has been down for three weeks" a finding rather than
+	// an archaeology project.
+	EventPasswordBreachCheckSkipped EventType = "user.password.breach_check_skipped"
 )
 
 // Authorization (P2-01, P2-03, P4-01, P4-02).

@@ -56,6 +56,11 @@ type Config struct {
 	Postgres PostgresConfig
 	Redis    RedisConfig
 	Log      LogConfig
+
+	// Password holds the P1-02 password-policy knobs. The policy VALUES are
+	// per organization and live in the database; these are the deployment-wide
+	// switches that policy cannot express.
+	Password PasswordConfig
 	Tracing  TracingConfig
 
 	// Issuer is the OIDC issuer identifier. It must exactly match the `iss`
@@ -178,6 +183,33 @@ type Getenv func(key string) string
 // Load reads configuration using the process environment.
 func Load() (*Config, error) { return LoadFrom(os.Getenv) }
 
+// PasswordConfig covers what a per-organization policy cannot decide.
+//
+// Deliberately small. min_length and the rest belong to the organization
+// (PLAN/08 Part B) and are read from the database, so nothing here duplicates
+// a policy value — a knob that could disagree with the database would be a
+// second source of truth for the same rule.
+type PasswordConfig struct {
+	// BreachCheckEnabled turns the corpus lookup on and off.
+	//
+	// ADR-015's rollback path: the check can be disabled without a deploy if
+	// the corpus service becomes a problem. Turning it off is visible in the
+	// same metric as it failing, because `disabled` is its own outcome rather
+	// than an absence of data — "somebody switched it off" and "it has been
+	// broken for three weeks" must not look alike.
+	BreachCheckEnabled bool
+
+	// BreachAPI overrides the corpus endpoint. Empty means the default.
+	//
+	// Exists for a self-hosted corpus later (ADR-015 § Alternatives), and for
+	// a deployment that must reach the service through a specific egress.
+	BreachAPI string
+
+	// BreachTimeout bounds one lookup. Measured at 273ms against the live
+	// service from the staging VM.
+	BreachTimeout time.Duration
+}
+
 // LoadFrom reads configuration using the supplied lookup function, validates it,
 // and returns either a usable Config or a *LoadError listing every problem.
 func LoadFrom(getenv Getenv) (*Config, error) {
@@ -219,6 +251,11 @@ func LoadFrom(getenv Getenv) (*Config, error) {
 		Log: LogConfig{
 			Level:  l.optional("AUTH_LOG_LEVEL", "info"),
 			Format: l.optional("AUTH_LOG_FORMAT", "json"),
+		},
+		Password: PasswordConfig{
+			BreachCheckEnabled: l.boolean("AUTH_PASSWORD_BREACH_CHECK_ENABLED", true),
+			BreachAPI:          l.optional("AUTH_PASSWORD_BREACH_API", ""),
+			BreachTimeout:      l.duration("AUTH_PASSWORD_BREACH_TIMEOUT", 2*time.Second),
 		},
 	}
 
