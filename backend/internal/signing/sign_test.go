@@ -5,6 +5,7 @@ import (
 	"crypto/rsa"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -58,7 +59,7 @@ func TestSignAndVerifyRoundTrip(t *testing.T) {
 				t.Fatalf("sign: %v", err)
 			}
 
-			got, err := NewVerifier(cache).Verify(token)
+			got, err := NewVerifier(cache).Verify(token, TypeJWT)
 			if err != nil {
 				t.Fatalf("verify: %v", err)
 			}
@@ -115,7 +116,7 @@ func TestTokenSignedByPreviousKeyStillVerifies(t *testing.T) {
 	}
 	after := testCache(t, demoted, newKey(t, RS256, StatusCurrent))
 
-	if _, err := NewVerifier(after).Verify(token); err != nil {
+	if _, err := NewVerifier(after).Verify(token, TypeJWT); err != nil {
 		t.Fatalf("a token signed before rotation must still verify: %v", err)
 	}
 }
@@ -135,7 +136,7 @@ func TestTokenSignedByRetiredKeyIsRejected(t *testing.T) {
 	}
 	after := testCache(t, retired, newKey(t, RS256, StatusCurrent))
 
-	_, err = NewVerifier(after).Verify(token)
+	_, err = NewVerifier(after).Verify(token, TypeJWT)
 	if err == nil {
 		t.Fatal("a token signed by a retired key must not verify")
 	}
@@ -174,7 +175,7 @@ func TestAlgNoneIsRejected(t *testing.T) {
 	payload := base64.RawURLEncoding.EncodeToString([]byte(`{"sub":"attacker"}`))
 	forged := header + "." + payload + "." // empty signature
 
-	_, err := NewVerifier(cache).Verify(forged)
+	_, err := NewVerifier(cache).Verify(forged, TypeJWT)
 	if err == nil {
 		t.Fatal("SECURITY: a token with alg:none was accepted")
 	}
@@ -214,7 +215,7 @@ func TestAlgorithmConfusionIsRejected(t *testing.T) {
 		t.Fatalf("serializing: %v", err)
 	}
 
-	_, err = NewVerifier(cache).Verify(forged)
+	_, err = NewVerifier(cache).Verify(forged, TypeJWT)
 	if err == nil {
 		t.Fatal("SECURITY: an HS256 token signed with the RSA public key was accepted")
 	}
@@ -254,7 +255,7 @@ func TestForgedTokenWithLegitimateKIDIsRejected(t *testing.T) {
 		t.Fatalf("serializing: %v", err)
 	}
 
-	if _, err := NewVerifier(cache).Verify(forged); err == nil {
+	if _, err := NewVerifier(cache).Verify(forged, TypeJWT); err == nil {
 		t.Fatal("SECURITY: a token signed by an unknown key but carrying a valid kid was accepted")
 	}
 }
@@ -282,7 +283,7 @@ func TestTamperedSignatureIsRejected(t *testing.T) {
 
 	for name, forged := range tests {
 		t.Run(name, func(t *testing.T) {
-			if _, err := NewVerifier(cache).Verify(forged); err == nil {
+			if _, err := NewVerifier(cache).Verify(forged, TypeJWT); err == nil {
 				t.Fatalf("SECURITY: %s was accepted", name)
 			}
 		})
@@ -311,7 +312,7 @@ func TestTokenWithoutKIDIsRejected(t *testing.T) {
 	signed, _ := signer.Sign([]byte(`{}`))
 	compact, _ := signed.CompactSerialize()
 
-	_, err = NewVerifier(cache).Verify(compact)
+	_, err = NewVerifier(cache).Verify(compact, TypeJWT)
 	if err == nil {
 		t.Fatal("a token without a kid must be rejected")
 	}
@@ -497,7 +498,7 @@ func TestSignatureEncodingIsMalleable(t *testing.T) {
 
 		variants++
 
-		if _, err := verifier.Verify(parts[0] + "." + parts[1] + "." + mutated); err != nil {
+		if _, err := verifier.Verify(parts[0]+"."+parts[1]+"."+mutated, TypeJWT); err != nil {
 			t.Fatalf("a variant decoding to the same signature should verify, got: %v", err)
 		}
 	}
@@ -509,4 +510,76 @@ func TestSignatureEncodingIsMalleable(t *testing.T) {
 	t.Logf("%d distinct token strings decode to the same signature and all verify. "+
 		"P1-07 and P3-02 must key reuse detection on jti or the decoded "+
 		"signature, never on the token string.", variants+1)
+}
+
+// --- the type header -------------------------------------------------------
+
+// Abuse case A-5, at the layer that can actually stop it. An ID token and an
+// access token are both signed by this service with the same key; `typ` is the
+// only thing in the envelope that distinguishes them, which is why P1-07 sets
+// it and why Verify requires the caller to say what it expects.
+func TestATokenOfTheWrongTypeIsRefused(t *testing.T) {
+	cache := testCache(t, newKey(t, RS256, StatusCurrent))
+	payload := []byte(`{"sub":"usr_1"}`)
+
+	idToken, err := NewSigner(cache).SignWithType(payload, TypeJWT)
+	if err != nil {
+		t.Fatalf("sign: %v", err)
+	}
+
+	// Presented where an access token belongs.
+	if _, err := NewVerifier(cache).Verify(idToken, TypeAccessToken); !errors.Is(err, ErrWrongType) {
+		t.Errorf("an id_token verified as an access token: %v", err)
+	}
+
+	// And the reverse, which is the direction a client has to defend.
+	accessToken, err := NewSigner(cache).SignWithType(payload, TypeAccessToken)
+	if err != nil {
+		t.Fatalf("sign: %v", err)
+	}
+	if _, err := NewVerifier(cache).Verify(accessToken, TypeJWT); !errors.Is(err, ErrWrongType) {
+		t.Errorf("an access token verified as an id_token: %v", err)
+	}
+
+	// The control: each verifies as itself, so the two assertions above are
+	// not passing because verification is broken outright.
+	if _, err := NewVerifier(cache).Verify(idToken, TypeJWT); err != nil {
+		t.Errorf("an id_token did not verify as itself: %v", err)
+	}
+	if _, err := NewVerifier(cache).Verify(accessToken, TypeAccessToken); err != nil {
+		t.Errorf("an access token did not verify as itself: %v", err)
+	}
+}
+
+// A token with no `typ` at all is not an access token. go-jose yields nil for
+// the missing header, and the comparison has to treat that as a mismatch
+// rather than panicking or — worse — reading it as an empty string that some
+// caller passed as wantType.
+func TestAnUntypedTokenIsRefused(t *testing.T) {
+	cache := testCache(t, newKey(t, RS256, StatusCurrent))
+
+	untyped, err := NewSigner(cache).SignWithType([]byte(`{"sub":"usr_1"}`), "")
+	if err != nil {
+		t.Fatalf("sign: %v", err)
+	}
+
+	if _, err := NewVerifier(cache).Verify(untyped, TypeAccessToken); !errors.Is(err, ErrWrongType) {
+		t.Errorf("an untyped token verified as an access token: %v", err)
+	}
+}
+
+// Verify refuses to be called without a wanted type, so a caller cannot get
+// the permissive behaviour back by passing "".
+func TestVerifyRequiresAWantedType(t *testing.T) {
+	cache := testCache(t, newKey(t, RS256, StatusCurrent))
+
+	token, err := NewSigner(cache).Sign([]byte(`{"sub":"usr_1"}`))
+	if err != nil {
+		t.Fatalf("sign: %v", err)
+	}
+
+	if _, err := NewVerifier(cache).Verify(token, ""); err == nil {
+		t.Error("Verify accepted an empty wantType, which is the permissive " +
+			"behaviour the parameter exists to remove")
+	}
 }
