@@ -234,6 +234,24 @@ NULL is treated as **not expired**, deliberately. The alternative — unknown me
 
 ---
 
+### PG-14 — The session cookie must not carry the row's primary key
+
+**Affects**: `P1-11`, and every surface that displays or records a session id — `P1-19`'s sessions endpoint, Phase 3's self-service screen, `refresh_tokens.session_id`, and any audit payload.
+
+`PLAN/04` § `sessions` and `P0-07`'s migration comment both say the cookie carries the row's `id`: *"Stored as an opaque cookie ID in the browser."* Opaque it is. Safe to expose it is not, and the data model already contains the places it gets exposed.
+
+`PLAN/05` Part B routes `/v1/organizations/{org_id}/users/{user_id}/sessions`. An organization administrator listing another user's sessions would receive, for each row, the exact string that authenticates as that user. A screen whose entire purpose is to be looked at would be a credential-disclosure endpoint.
+
+It does not stop there. `refresh_tokens.session_id` is a foreign key, so a token row carries a live session credential. A revocation audit event naming its `session_id` writes one into an append-only table with 24-month retention. A support ticket quoting a session id from a screen hands over the account.
+
+**Resolved in `P1-11`** by an additive `sessions.token_hash text` with a unique index. The cookie carries a fresh 256-bit token, the database stores only `sha256(token)`, and `id` stays an internal identifier that is safe to display, join on and audit — the same separation `P1-05` applies to client secrets.
+
+Reusing `id` and simply never displaying it was considered and rejected: that is a rule every future endpoint, screen and log line has to remember, and one of them will not. Separating the credential from the identifier makes the rule unnecessary.
+
+**`PLAN/04` should be amended** to describe the column and to stop describing the cookie as carrying the id, through the deliberate plan-change process (`AGENTS.md` rule 9). Raised rather than made, since `PLAN/` is reference material during feature work (`CLAUDE.md`).
+
+---
+
 ---
 
 ## Operational Gaps

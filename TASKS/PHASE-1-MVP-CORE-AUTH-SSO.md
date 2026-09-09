@@ -408,7 +408,7 @@ Two bugs found by tests written before the code they cover: `fmt.Stringer` does 
 
 | | |
 |---|---|
-| **Status** | TODO |
+| **Status** | DONE — [record](../MEMORY/records/2026-09-09-P1-11-session-management.md), [spec](../MEMORY/specs/P1-11-session-management.md) |
 | **Depends on** | P0-07 |
 | **Plan refs** | `PLAN/04-DATA-MODEL.md` § `sessions`, `PLAN/05-API-CONTRACT.md` § Session & logout, `PLAN/09-SECURITY.md`, `SECURITY/02` §4, `PLAN/03-ARCHITECTURE.md` § Main Data Flow |
 | **Spec required** | Yes — the mechanism SSO depends on |
@@ -428,12 +428,20 @@ Two bugs found by tests written before the code they cover: `fmt.Stringer` does 
 9. Provide session revocation as an internal API, used by `P1-10` and by Phase 3's self-service screen.
 
 **Definition of Done**
-- [ ] The session identifier changes after login, verified by test (fixation defense).
-- [ ] Cookie attributes are exactly as specified, asserted by an integration test on the `Set-Cookie` header.
-- [ ] Session lookup adds no more latency than `PLAN/12`'s silent-SSO budget allows.
-- [ ] Expired sessions are unusable and are cleaned up rather than accumulating.
-- [ ] Revoking a session takes effect immediately for the next request, not after a cache TTL.
-- [ ] `auth_methods` reflects reality and is used to build `amr` in `P1-07`.
+- [x] The session identifier changes after login, verified by test (fixation defense). A fresh token per login, the previous session revoked, and the old token asserted dead.
+- [x] Cookie attributes are exactly as specified, asserted by an integration test on the `Set-Cookie` header — plus the absence of `Domain` and `Max-Age`, which a struct assertion would not show, and the `__Host-` prefix that makes the browser enforce them.
+- [x] Session lookup adds no more latency than `PLAN/12`'s silent-SSO budget allows. One Redis round trip warm; the histogram is labelled by source so hit rate and latency read from one metric. Load measurement belongs to `P1-27`.
+- [x] Expired sessions are unusable and are cleaned up rather than accumulating. Filtered in SQL inside the lookup function, so an expired row cannot reach the cache; swept hourly with a 7-day retention that keeps the evidence.
+- [x] Revoking a session takes effect immediately for the next request, not after a cache TTL. Commit then invalidate, with a tombstone closing the repopulate race — proven non-vacuous in both directions.
+- [x] `auth_methods` reflects reality and is used to build `amr` in `P1-07`. Required at creation: a session without it cannot exist, because `amr` would otherwise be built from a value that was never true.
+
+**Beyond the stated steps**
+
+`PG-14` found and closed: `PLAN/04` describes the cookie as carrying the row's `id`, which makes the primary key a bearer credential — and `PLAN/05` routes a sessions endpoint that would hand an administrator one per row. The cookie now carries a 256-bit token whose hash is stored; `id` stays an internal identifier.
+
+Instance scope reads no sessions, which cost five failing tests to discover: `sessions_tenant_isolation` is `org_id = current_org_id()`, so with no tenant set nothing matches. That is `P0-08` working correctly. The bootstrap got a narrow `SECURITY DEFINER` function instead of a relaxed policy, on `P0-12`'s pattern.
+
+Also found: `session_id` was in the logger's redaction list — correct when the id was the credential, wrong after `PG-14`, and it would have made the audit log unable to say which session was revoked. gosec flagged the cookie's `Secure` parameter, and removing the parameter was the right fix rather than suppressing the warning.
 
 **Abuse cases to test**
 - Session fixation: a pre-login session identifier is not honored post-login.
