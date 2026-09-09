@@ -51,6 +51,19 @@ type Metrics struct {
 	// that refused them (P1-02).
 	PasswordPolicyRejections *prometheus.CounterVec
 
+	// --- Token endpoint (P1-07) ---
+
+	// TokenErrors is labelled by grant and OAuth error code. "token requests
+	// are failing" is not actionable; "invalid_client on client_credentials"
+	// names a misconfigured service account.
+	TokenErrors *prometheus.CounterVec
+
+	// TokenDuration is bucketed on PLAN/12's targets (p50 < 50ms, p95 < 200ms,
+	// p99 < 400ms) so a quantile query answers "did we meet it" without
+	// interpolating across a wide bucket — the same reasoning P0-11 applied to
+	// the request histogram.
+	TokenDuration *prometheus.HistogramVec
+
 	// --- Authorization endpoint (P1-06) ---
 
 	// AuthorizeTotal is labelled by outcome and path. The second label carries
@@ -168,6 +181,16 @@ func NewMetrics(service, version string) *Metrics {
 			"auth_login_attempts_total",
 			"Login attempts by outcome. PLAN/13 § Alerting keys the brute-force alert on the failure rate.",
 			"outcome"),
+
+		TokenErrors: factory.counterVec(
+			"auth_token_errors_total",
+			"Token endpoint failures by grant and OAuth error code.",
+			"grant", "error"),
+		TokenDuration: factory.histogramVec(
+			"auth_token_duration_seconds",
+			"Token endpoint latency by grant, bucketed on PLAN/12's targets.",
+			[]float64{0.01, 0.025, 0.05, 0.1, 0.2, 0.4, 0.8},
+			"grant"),
 
 		AuthorizeTotal: factory.counterVec(
 			"auth_authorize_total",

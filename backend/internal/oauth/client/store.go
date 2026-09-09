@@ -461,3 +461,41 @@ func (s *Store) ByClientID(ctx context.Context, db *postgres.DB, clientID string
 	app.GrantTypes = grants
 	return app, nil
 }
+
+// CredentialsFor reads an application's secret state.
+//
+// Takes the already-resolved Application rather than a bare client_id, and
+// that is the point: ByClientID has established which organization the client
+// belongs to, so this read can be tenant-scoped like every other. The
+// bootstrap function deliberately returns no secret columns, and this is why
+// it does not need to — by the time a secret is wanted, the tenant is known.
+func (s *Store) CredentialsFor(
+	ctx context.Context, db *postgres.DB, app Application,
+) (Credentials, error) {
+	var (
+		creds         Credentials
+		secretHash    sql.NullString
+		previousHash  sql.NullString
+		previousUntil sql.NullTime
+	)
+
+	err := db.WithTenant(ctx, app.OrgID, func(tx *postgres.Tx) error {
+		return tx.QueryRow(ctx, `
+			SELECT client_secret_hash, previous_client_secret_hash,
+			       previous_client_secret_expires_at
+			  FROM applications WHERE id = $1`, app.ID,
+		).Scan(&secretHash, &previousHash, &previousUntil)
+	})
+
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return Credentials{}, fmt.Errorf("%w: %s", ErrNotFound, app.ID)
+	case err != nil:
+		return Credentials{}, fmt.Errorf("client: reading credentials: %w", err)
+	}
+
+	creds.Hash = secretHash.String
+	creds.PreviousHash = previousHash.String
+	creds.PreviousExpiresAt = previousUntil.Time
+	return creds, nil
+}

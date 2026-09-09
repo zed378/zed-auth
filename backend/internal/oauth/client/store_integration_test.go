@@ -543,3 +543,71 @@ func TestByClientIDOnAnUnknownID(t *testing.T) {
 		t.Errorf("ByClientID on an unknown id = %v, want ErrNotFound", err)
 	}
 }
+
+// CredentialsFor takes the resolved application rather than a bare client_id,
+// so the secret hash is read on the tenant-scoped path — which is why the
+// bootstrap function does not need to return one.
+func TestCredentialsForReadsTheSecretState(t *testing.T) {
+	f := setup(t)
+
+	var rec Record
+	var secret Secret
+	if err := f.tx(t, func(tx *postgres.Tx) error {
+		var err error
+		rec, secret, err = f.store.Create(context.Background(), tx, f.webApp("billing"), "")
+		return err
+	}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	app, err := f.store.ByClientID(context.Background(), f.db, rec.ID)
+	if err != nil {
+		t.Fatalf("ByClientID: %v", err)
+	}
+
+	creds, err := f.store.CredentialsFor(context.Background(), f.db, app)
+	if err != nil {
+		t.Fatalf("CredentialsFor: %v", err)
+	}
+
+	if !creds.HasSecret() {
+		t.Fatal("no secret state was returned for a confidential client")
+	}
+	if !creds.Verify(secret.Reveal(), time.Now()) {
+		t.Error("the issued secret does not verify against the credentials read back")
+	}
+	if creds.Verify("wrong", time.Now()) {
+		t.Error("an unrelated secret verified")
+	}
+}
+
+// A public client has no secret state to read, and that must be reported as
+// absence rather than as an error.
+func TestCredentialsForAPublicClient(t *testing.T) {
+	f := setup(t)
+
+	spa := f.webApp("spa")
+	spa.Type = TypeSPA
+
+	var rec Record
+	if err := f.tx(t, func(tx *postgres.Tx) error {
+		var err error
+		rec, _, err = f.store.Create(context.Background(), tx, spa, "")
+		return err
+	}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	app, err := f.store.ByClientID(context.Background(), f.db, rec.ID)
+	if err != nil {
+		t.Fatalf("ByClientID: %v", err)
+	}
+
+	creds, err := f.store.CredentialsFor(context.Background(), f.db, app)
+	if err != nil {
+		t.Fatalf("CredentialsFor on a public client: %v", err)
+	}
+	if creds.HasSecret() {
+		t.Error("a public client reported a secret")
+	}
+}

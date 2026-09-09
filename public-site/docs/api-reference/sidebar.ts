@@ -60,6 +60,12 @@ const sidebar: SidebarsConfig = {
           label: "Authorization endpoint (authorization code + PKCE)",
           className: "api-method get",
         },
+        {
+          type: "doc",
+          id: "api-reference/token",
+          label: "Token endpoint",
+          className: "api-method post",
+        },
       ],
     },
   ],
