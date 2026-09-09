@@ -3,6 +3,7 @@ package authorize
 import (
 	"context"
 	"errors"
+	"fmt"
 	"html/template"
 	"log/slog"
 	"net/http"
@@ -41,6 +42,12 @@ type Sessions interface {
 type CodeStore interface {
 	IssueCode(ctx context.Context, c Code, ttl time.Duration) (string, error)
 	SavePending(ctx context.Context, r Request, ttl time.Duration) (string, error)
+
+	// PeekPending reads without consuming; LoadPending consumes. The login
+	// page (P1-12) renders from the first and finishes with the second, so
+	// only a successful authentication spends the request.
+	PeekPending(ctx context.Context, id string) (Request, error)
+	LoadPending(ctx context.Context, id string) (Request, error)
 }
 
 // Observer records which path a request took.
@@ -150,7 +157,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	switch {
 	case hasSession:
-		h.issue(w, r, req, app, current, start)
+		h.issue(w, r, req, app, current, start, "silent")
 
 	case req.HasPrompt(PromptNone):
 		// An SPA renewing silently in a hidden iframe needs a machine-readable
@@ -212,9 +219,14 @@ func (h *Handler) session(
 }
 
 // issue mints a code and redirects to the client.
+//
+// `path` is which route got here — "silent" for an existing session, "login"
+// for one just established by P1-12. Recorded separately because PLAN/12 sets
+// a latency target for the silent path specifically, and averaging it with a
+// path that includes a human typing a password would hide it entirely.
 func (h *Handler) issue(
 	w http.ResponseWriter, r *http.Request,
-	req Request, app client.Application, current session.Session, start time.Time,
+	req Request, app client.Application, current session.Session, start time.Time, path string,
 ) {
 	now := h.now()
 
@@ -256,7 +268,7 @@ func (h *Handler) issue(
 	target.RawQuery = query.Encode()
 
 	if h.Observer != nil {
-		h.Observer.Authorized("silent", h.now().Sub(start))
+		h.Observer.Authorized(path, h.now().Sub(start))
 	}
 
 	http.Redirect(w, r, target.String(), http.StatusFound)
@@ -368,4 +380,96 @@ func (h *Handler) renderError(w http.ResponseWriter, message, detail string) {
 	w.WriteHeader(http.StatusBadRequest)
 
 	_ = errorPage.Execute(w, struct{ Message, Detail string }{Message: message, Detail: detail})
+}
+
+// --- the seam the login page finishes through -----------------------------------
+
+// Pending is an interrupted authorization request, as the login page needs it.
+//
+// The Request and the Application together, because both were resolved once
+// already and re-deriving either on the way back would be a second place for
+// the exact-match rule to be got wrong.
+type Pending struct {
+	ID      string
+	Request Request
+	App     client.Application
+}
+
+// Peek reads a pending request without consuming it.
+//
+// For rendering: the login page needs the organization (for branding and for
+// which users it may authenticate) and the application's name, and it must be
+// able to render more than once — a refresh, a back button, a mistyped
+// password. Nothing here is echoed to the browser except the application's
+// registered name.
+func (h *Handler) Peek(ctx context.Context, id string) (Pending, error) {
+	req, err := h.Store.PeekPending(ctx, id)
+	if err != nil {
+		return Pending{}, err
+	}
+
+	app, err := h.Clients.ByClientID(ctx, req.ClientID)
+	if err != nil {
+		// The request was stored after this client resolved, so the client has
+		// been deleted since, or the database is unreachable. Either way the
+		// flow cannot continue and there is nowhere to send an OAuth error:
+		// req.RedirectURI was validated against a registration that no longer
+		// exists, so redirecting to it now would be redirecting to an address
+		// nothing currently registers.
+		return Pending{}, fmt.Errorf("authorize: resolving the client of a pending request: %w", err)
+	}
+
+	return Pending{ID: id, Request: req, App: app}, nil
+}
+
+// Resume completes a pending authorization with a session that has just been
+// established.
+//
+// This is the seam P1-12 needs, and what it deliberately does NOT do is as
+// important as what it does. It does not re-parse parameters, re-check the
+// client's grant types, or re-match the redirect URI: all of that happened in
+// ServeHTTP before the request was stored, on the values that were stored.
+// Doing it twice would put the exact-match rule in two places, and two places
+// is how one of them ends up subtly different.
+//
+// What it does do is consume the request — this is the single-use point — and
+// verify that the session belongs to the client's organization.
+func (h *Handler) Resume(w http.ResponseWriter, r *http.Request, id string, current session.Session) {
+	start := h.now()
+
+	// GETDEL. From here the id is spent, so a second tab arriving with the
+	// same id gets the expired page rather than a second code.
+	req, err := h.Store.LoadPending(r.Context(), id)
+	if err != nil {
+		if !errors.Is(err, ErrPendingNotFound) && h.Log != nil {
+			h.Log.Error("loading a pending authorization request failed", "error", err.Error())
+		}
+		h.renderError(w,
+			"This sign-in took too long, or has already been completed.",
+			"the pending authorization request is no longer available")
+		return
+	}
+
+	app, err := h.Clients.ByClientID(r.Context(), req.ClientID)
+	if err != nil {
+		h.renderError(w, "Something went wrong completing your sign-in.",
+			"the application could not be resolved")
+		return
+	}
+
+	// The login page authenticated against the organization it read from this
+	// same client, so a mismatch is a bug or a swapped request id rather than
+	// an ordinary condition. Checked anyway: the cost is one comparison and
+	// the failure it prevents is a code issued across tenants.
+	if current.OrgID != app.OrgID {
+		if h.Log != nil {
+			h.Log.Error("a session was presented to resume a request for another organization",
+				"session_org_id", current.OrgID, "client_org_id", app.OrgID)
+		}
+		h.renderError(w, "Something went wrong completing your sign-in.",
+			"the session does not belong to this application's organization")
+		return
+	}
+
+	h.issue(w, r, req, app, current, start, "login")
 }

@@ -266,6 +266,28 @@ Reusing `id` and simply never displaying it was considered and rejected: that is
 
 ---
 
+### PG-16 — Organization branding is specified, designed and half-implemented, and has nowhere to live
+
+**Affects**: `P1-12` step 7, `P2-14` (organization settings), and `console/src/branding/branding.ts`, which already applies branding that nothing can supply.
+
+`PLAN/01-PRODUCT-SCOPE.md` lists per-organization branding as in scope. `UI-UX/05-DESIGN-SYSTEM.md` bounds it precisely — an organization may override the accent and supply a logo, and nothing else — and `UI-UX/08` gives it a settings screen. `P0-17` implemented the applying half: a closed union of overridable tokens, written that way so an organization can never re-point `color-danger`.
+
+`PLAN/04` § `organizations` has `settings jsonb`, and `PLAN/08` Part B enumerates its four keys: `password_policy`, `mfa_required`, `session_lifetime_hours`, `allowed_login_methods`. Branding is not among them, and no other column or table holds it. So the console can apply branding, the design system says what branding may be, and there is no place any of it is read from — which is how a specified capability becomes a thing each reader invents a shape for.
+
+**Resolved in `P1-12`** with no schema change, by documenting `settings.branding` as a fifth key of the existing `jsonb`:
+
+```json
+"branding": { "logo_url": "https://…", "accent_color": "#1d4ed8" }
+```
+
+`settings` is already where per-organization policy lives and is already `jsonb`, so the gap is not a missing column — it is a missing specification. A new `organization_branding` table was considered and rejected: it would be a one-row-per-org table holding two nullable strings, joined on every login page render, to hold data that is by definition per-organization configuration.
+
+**Nothing writes it yet.** `P2-14` makes it editable; until then every organization renders unbranded, which `P1-12`'s record states rather than implies.
+
+**`PLAN/08` Part B should be amended** to list the key and its shape, through the deliberate plan-change process (`AGENTS.md` rule 9).
+
+---
+
 ---
 
 ## Operational Gaps

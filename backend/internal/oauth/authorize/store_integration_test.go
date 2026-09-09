@@ -259,3 +259,47 @@ func TestUnknownPendingRequests(t *testing.T) {
 		}
 	}
 }
+
+// PeekPending reads without consuming; LoadPending consumes. They are two
+// methods rather than one with a flag, and this is the test that they behave
+// differently — a PeekPending implemented as GETDEL would give every account
+// exactly one attempt at its password.
+func TestPeekPendingDoesNotConsume(t *testing.T) {
+	s := store(t)
+	ctx := context.Background()
+
+	id, err := s.SavePending(ctx, Request{
+		ClientID: "client", RedirectURI: "https://app.example/cb", State: "xyz",
+	}, PendingTTL)
+	if err != nil {
+		t.Fatalf("SavePending: %v", err)
+	}
+
+	for i := range 3 {
+		got, err := s.PeekPending(ctx, id)
+		if err != nil {
+			t.Fatalf("peek %d: %v", i+1, err)
+		}
+		if got.State != "xyz" {
+			t.Errorf("peek %d lost detail: %+v", i+1, got)
+		}
+	}
+
+	// And it is still there for the one call that is meant to spend it.
+	if _, err := s.LoadPending(ctx, id); err != nil {
+		t.Fatalf("LoadPending after three peeks: %v", err)
+	}
+	if _, err := s.PeekPending(ctx, id); !errors.Is(err, ErrPendingNotFound) {
+		t.Errorf("the request survived LoadPending: %v", err)
+	}
+}
+
+func TestPeekPendingOnUnknownRequests(t *testing.T) {
+	s := store(t)
+
+	for _, id := range []string{"", "nope"} {
+		if _, err := s.PeekPending(context.Background(), id); !errors.Is(err, ErrPendingNotFound) {
+			t.Errorf("PeekPending(%q) = %v, want ErrPendingNotFound", id, err)
+		}
+	}
+}
