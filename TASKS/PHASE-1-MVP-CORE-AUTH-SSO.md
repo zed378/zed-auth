@@ -78,7 +78,7 @@
 
 | | |
 |---|---|
-| **Status** | TODO |
+| **Status** | DONE — [record](../MEMORY/records/2026-09-09-P1-02-password-policy.md), [spec](../MEMORY/specs/P1-02-password-policy.md) |
 | **Depends on** | P1-01 |
 | **Plan refs** | `PLAN/09-SECURITY.md` § Passwords & Credentials, `PLAN/08-AUTHORIZATION.md` Part B § Policies per Organization, `UI-UX/15-FORM-UX.md` |
 | **Spec required** | Yes — authentication |
@@ -95,11 +95,19 @@
 6. Never state which specific rule failed in a way that reveals policy detail to an unauthenticated caller during login; full detail is fine on an authenticated password-change form.
 
 **Definition of Done**
-- [ ] Policy evaluation is a pure function with table-driven unit tests, including boundary lengths.
-- [ ] The breached-password check transmits only a hash prefix, verified by an outbound-request test.
-- [ ] The fail-open/fail-closed decision is recorded in `MEMORY/DECISIONS.md`.
-- [ ] Validation errors match `PLAN/05`'s error schema exactly.
-- [ ] Changing `organizations.settings.password_policy` changes enforcement with no code change.
+- [x] Policy evaluation is a pure function with table-driven unit tests, including boundary lengths. Both sides of every boundary — a test that only checks that 11 characters is rejected passes against an implementation that rejects everything.
+- [x] The breached-password check transmits only a hash prefix, verified by an outbound-request test. The assertion is itself checked against a synthetic leaky request, so it is known to be able to fail.
+- [x] The fail-open/fail-closed decision is recorded in `MEMORY/DECISIONS.md` — **ADR-015**: fail open, with an audit event, a metric label and an alert on every skip.
+- [x] Validation errors match `PLAN/05`'s error schema exactly. Asserted on the serialized JSON rather than the Go struct, which would pass against wrong `json` tags.
+- [x] Changing `organizations.settings.password_policy` changes enforcement with no code change. An integration test `UPDATE`s a live row and re-reads through the same process, for two different fields.
+
+**Beyond the stated steps**
+
+`PG-13` found and registered: `max_age_days` has been in the specified policy since `PLAN/08` with nothing in the schema to evaluate it against. Closed by an additive `users.password_changed_at`, where NULL means *not* expired — the alternative makes deploying the migration a mass lockout.
+
+An 8-character floor no configuration can go below, because otherwise `"min_length": 1` is valid and the control an administrator was given is the control they can silently remove. Length counted in runes over NFC, since a byte count is a different policy per language.
+
+**One real bug, found by a test written before the code it tests**: the corpus response parser counted lines, and an HTML error page is one line — so a proxy answering `200` with "Access denied" produced a `clean` verdict and admitted the password with nothing recording that no check had happened. An always-open path the ADR's own metric would have shown as healthy. It now counts well-formed entries.
 
 ---
 

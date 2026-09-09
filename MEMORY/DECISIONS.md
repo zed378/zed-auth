@@ -45,7 +45,7 @@ Decisions `TASKS/` has identified as needing an ADR, listed here so they are not
 |---|---|---|
 | ~~P0-01~~ | ~~Backend stack~~ — **decided 2026-09-08**, ADR-006. The **OIDC provider library** is deliberately still open: confirming JWKS rotation with overlap and refresh-token reuse detection requires building against it, so it moves to `P1-03` | `PLAN/07` labels these "initial recommendations, not final decisions" |
 | P0-12 | Audit write semantics: inside the business transaction, or after it | Determines whether a failed audit write blocks the action it records |
-| P1-02 | Breached-password check: fail open or fail closed when the service is unreachable | Failing closed blocks legitimate password changes during a third-party outage |
+| ~~P1-02~~ | ~~Breached-password check: fail open or fail closed~~ — **decided 2026-09-09**, ADR-015: fail open, with an audit event, a counter and an alert on every skip | Failing closed blocks legitimate password changes during a third-party outage |
 | P1-13 | Rate limiting behavior when Redis is unavailable | Fail open means no rate limiting; fail closed means no logins at all |
 | P1-21 | Console token storage: in-memory with silent renewal, or `localStorage` | In-memory resists XSS token theft but depends on silent renewal being solid |
 | P2-04 | Token bloat mitigation for a heavily-granted user | An oversized token breaks at the HTTP header limit, in production, under load |
@@ -620,3 +620,56 @@ The cost is a heavier landing page than a purpose-built marketing SSG would prod
 **Plan impact**
 
 `PLAN/20` § Recommended Stack's first two rows now describe an option that was considered and not taken. The document is not wrong about the concerns; it is one implementation short of describing what was built. If the single-project arrangement survives Phase 1, that table is worth amending to say so — and `UI-UX/20` § Cross-Page Requirements is worth citing there as the reason.
+
+---
+
+### ADR-015 — The breached-password check fails open, and says so every time
+
+| | |
+|---|---|
+| **Date** | 2026-09-09 |
+| **Status** | Accepted |
+| **Task** | `P1-02` |
+| **Deciders** | Zed |
+
+**Context**
+
+`PLAN/09` § Passwords & Credentials requires new passwords to be checked against a breached-password corpus. The corpus is a third-party HTTP service outside our trust boundary (`SECURITY/00`), so it will sometimes be slow, rate-limited, or unreachable. `P1-02` step 4 makes the behaviour in that case an explicit decision rather than whatever the code happens to do.
+
+The two options are not symmetrical, and the asymmetry is not about which risk is larger in the abstract. It is about *when* each one bites.
+
+Failing closed makes a third party a hard dependency of password changes. The moment that dependency matters most is the worst possible moment for it to be down: during a credential incident, users are told to rotate their passwords, traffic to this exact path spikes, and if the corpus service is rate-limiting us — which a spike makes more likely, not less — fail-closed blocks the specific remediation the incident calls for. We would convert someone else's outage into our own, in the direction of keeping known-compromised passwords in place.
+
+This differs from an authorization decision, where failing closed is almost always right. A denied authorization leaves the system in its previous, safe state. A blocked password change leaves the user holding the password they were trying to replace.
+
+**Decision**
+
+**Fail open, never silently.** When the corpus cannot be consulted, the password is accepted — subject to every composition rule, and hashed with Argon2id as always — and the skip is recorded three ways: an audit event naming the user whose password went unchecked, a counter labelled `skipped`, and an alert that fires when the skip rate exceeds a tenth over fifteen minutes.
+
+Fail-open covers **service failure only**. A definitive "this password is in the corpus" is always a rejection. A malformed or empty response is a service failure, not an answer — a body that does not look like a range response has not answered the question, and reading it as clean would be an always-open path wearing a fail-open's clothes.
+
+The three accepting outcomes (`clean`, `skipped`, `disabled`) are distinct metric values, and a test asserts they stay distinct. Collapsing any two removes exactly the signal this decision rests on.
+
+**Alternatives considered**
+
+*Fail closed.* Rejected for the reason above: it turns a third-party outage into a block on the operation users perform during an incident. It is also the option that looks more secure on a checklist and is worse in the situation that matters.
+
+*Fail open silently.* Rejected, and it is the option worth naming because it is what fail-open becomes without deliberate effort. A skipped check that increments nothing is indistinguishable from a breach check that was never wired up, and this project has already found several checks that passed vacuously (`MEMORY/MEMORY-INDEX.md` § lessons). The observability is not a nicety attached to the decision; it is the half that makes it defensible.
+
+*Queue the password for re-checking when the service returns.* Attractive and deferred. It requires storing something derived from the password until the check runs, which is a new place a password-derived value lives, for a benefit that the audit event already mostly delivers — the event names the user, so a re-check campaign can be driven from it at the cost of asking those users to rotate. Worth revisiting if the skip rate is ever material.
+
+*Cache a local corpus.* The right answer at scale and disproportionate now: hundreds of millions of hashes to host, update and operate, to remove a dependency that is currently 273ms and available. The `BreachChecker` interface exists so this becomes one new implementation rather than a refactor.
+
+**Consequences**
+
+Easier: password changes keep working when the corpus does not, and a corpus outage cannot be used to deny password rotation.
+
+Harder: a window exists in which breached passwords are accepted. It is bounded by the alert's fifteen minutes plus response time, and every password admitted in it is individually identified in the audit log.
+
+Foreclosed: nothing. Moving to fail-closed later is a one-line change, and the metric would tell us how much it would have cost.
+
+The alert is load-bearing. If it is ever silenced or the metric stops being scraped, this decision quietly becomes "no breach checking", and the code will not complain. That is the thing to watch.
+
+**Plan impact**
+
+None. `PLAN/09` requires the check and does not specify the failure behaviour, which is why `P1-02` asked for this ADR.

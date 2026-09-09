@@ -3,8 +3,8 @@
 Single source of truth for where the project stands. Updated in the same commit as the work it describes (`00-TASK-CONVENTIONS.md` global DoD item 8).
 
 **Last updated**: 2026-09-09
-**Current phase**: Phase 1 — MVP Core Auth (3 / 28 done). Phase 0 is 20 / 21; `P0-20` stays WIP pending the pull-based deployment re-read
-**Overall**: 23 / 177 tasks done
+**Current phase**: Phase 1 — MVP Core Auth (4 / 28 done). Phase 0 is 20 / 21; `P0-20` stays WIP pending the pull-based deployment re-read
+**Overall**: 24 / 177 tasks done
 
 Status values: `TODO` · `BLOCKED` · `SPEC` · `WIP` · `REVIEW` · `DONE` · `DROPPED`
 Sizes: `S` under half a day · `M` one to two days · `L` several days · `XL` must be split
@@ -16,7 +16,7 @@ Sizes: `S` under half a day · `M` one to two days · `L` several days · `XL` m
 | Phase | Tasks | Done | Status | Gate to enter |
 |---|---|---|---|---|
 | [Phase 0 — Foundation](./PHASE-0-FOUNDATION.md) | 21 | 20 | **ACTIVE** — `P0-20` only | — |
-| [Phase 1 — MVP: Core Auth + SSO](./PHASE-1-MVP-CORE-AUTH-SSO.md) | 28 | 3 | **ACTIVE** | Phase 0 exit checklist |
+| [Phase 1 — MVP: Core Auth + SSO](./PHASE-1-MVP-CORE-AUTH-SSO.md) | 28 | 4 | **ACTIVE** | Phase 0 exit checklist |
 | [Phase 2 — RBAC & Multi-Tenancy](./PHASE-2-RBAC-MULTITENANCY.md) | 17 | 0 | Not started | Phase 1 exit + `P1-28` |
 | [Phase 3 — Advanced Security](./PHASE-3-ADVANCED-SECURITY.md) | 15 | 0 | Not started | Phase 2 exit + threat model review |
 | [Phase 4 — Enterprise Interop](./PHASE-4-ENTERPRISE-INTEROP.md) | 16 | 0 | Not started | Phase 3 exit + threat model review |
@@ -65,7 +65,7 @@ Sizes: `S` under half a day · `M` one to two days · `L` several days · `XL` m
 | ID | Task | Size | Status | Depends on |
 |---|---|---|---|---|
 | P1-01 | Argon2id password hashing | M | **DONE** | P0-15 |
-| P1-02 | Password policy and breached-password rejection | M | TODO | P1-01 |
+| P1-02 | Password policy and breached-password rejection | M | **DONE** — ADR-015 (fail open, loudly); `PG-13` found and closed by `users.password_changed_at` | P1-01 |
 | P1-03 | Signing key management, JWKS, rotation | L | **DONE** | P0-14 |
 | P1-04 | Discovery document and JWKS endpoint | S | **DONE** — two DoD items deliberately deferred to `P1-06`/`P1-07`, which are the tasks that make them true: a client library cannot finish configuring without an authorization and token endpoint, and nothing emits an `iss` claim yet | P1-03 |
 | P1-05 | Application registration and credentials | M | TODO | P0-07 |
@@ -338,6 +338,11 @@ Things that are easy to get wrong once and expensive to fix later. Re-check each
 | Derive the document from the router, never write it out | A JSON literal is a second source of truth that starts correct and drifts on the first release where an endpoint moves. Deriving makes the false claim unrepresentable rather than merely discouraged | `P1-04` |
 | A DoD item that a later task makes true is left unticked | Two of `P1-04`'s five need an authorization endpoint and a token issuer. Ticking them would have been the exact false claim the task exists to prevent; `P1-06`/`P1-07` tick them | `P1-04` |
 | A tool can lie about the service | `curl -I` reported `no-store` on an endpoint serving `max-age=300`. chi matches methods exactly, so HEAD reached no route and returned a 405's headers. Check what the server does before believing what the client says it did | `P1-04` |
+| A parser's success condition can be satisfied by a failure | The corpus check counted lines; an HTML error page is one line, so a proxy's "Access denied" read as a clean answer and admitted the password. Not a test that did not run — a check whose definition of success was wrong | `P1-02` |
+| Configurable security needs a floor the configuration cannot cross | Without one, `"min_length": 1` is valid and the control an administrator was given is the control they can silently remove | `P1-02` |
+| Fail open is only defensible when the skip is loud | ADR-015 accepts an unchecked password rather than blocking rotation during an incident. The audit event, the metric label and the alert are not extras — they are the half that makes the trade honest | `P1-02` |
+| A length rule in bytes is a different rule per language | Twelve characters means twelve in English and four in Japanese. Runes over NFC, and normalization can only make it stricter | `P1-02` |
+| Absent and false must stay distinguishable in a settings document | A plain `bool` collapses them and the default silently wins — a failure in the insecure direction | `P1-02` |
 | A backup is verified by restoring it | Not by a hardcoded list of tables — that reported "all 14 restored" against a database with 19, and would not have checked a table added by a later migration. Compare the source: table set and per-table row counts | `P0-20` |
 | Tests never skip a missing dependency | A suite that skips when a database is unreachable reports success having run nothing. Integration tests start their own containers and `Fatal` if they cannot — a green suite that skipped its tests is a false statement everyone acts on | `P0-15` |
 | A test harness mirrors production's privilege model | Approximating it produced a harness where the audit log was not append-only, so the suite tested a database nothing would run. Same grants, same order as `deploy/postgres/init` | `P0-15` |

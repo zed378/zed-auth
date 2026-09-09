@@ -218,6 +218,22 @@ The original eleven were closed on 2026-09-08 by amending the plan documents. Th
 
 **Until then**: no screen may introduce its own lighter divider colour. That would be a raw value, the lint rule rejects it, and the rejection is correct — the fix is the token, not the exception.
 
+### PG-13 — `max_age_days` is specified as policy but nothing records when a password changed
+
+**Affects**: `P1-02`, and `P1-11`/`P1-12` which would enforce expiry at login.
+
+`PLAN/08-AUTHORIZATION.md` Part B § Policies per Organization specifies the password policy shape as `{ "min_length", "require_uppercase", "max_age_days" }`, and `P0-07`'s migration writes exactly that as the default for every organization. `PLAN/04-DATA-MODEL.md` § `users` lists nine columns and none of them is when the password was last set.
+
+So `max_age_days` is, as specified, unenforceable. Two of the three policy fields can be evaluated against a candidate password; the third can only be evaluated against a fact the schema does not hold. A policy value an administrator can set and the system can never act on is worse than an absent one — it reads as a control and is not.
+
+**Resolved in `P1-02`** by an additive migration adding `users.password_changed_at timestamptz` (nullable, no backfill). Added now rather than with the login work that enforces it, because the column accumulates data: every password set before it exists is a row where "never recorded" and "set long ago" are the same NULL.
+
+NULL is treated as **not expired**, deliberately. The alternative — unknown means infinitely old — makes deploying the migration a mass lockout, which is an outage wearing a security control's clothes.
+
+**`PLAN/04` should be amended** to list the column, through the deliberate plan-change process (`AGENTS.md` rule 9). Raised rather than made, since `PLAN/` is reference material during feature work (`CLAUDE.md`).
+
+---
+
 ---
 
 ## Deferred
