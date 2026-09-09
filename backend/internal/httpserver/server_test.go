@@ -486,3 +486,60 @@ func waitForListener(t *testing.T, port string) {
 	}
 	t.Fatal("server never started listening")
 }
+
+// HEAD must reach the GET handler, with the handler's headers and no body.
+//
+// chi matches methods exactly, so without HeadAsGet every endpoint answers 405
+// to HEAD — and a 405 carries the middleware's default headers rather than the
+// handler's. That briefly looked like a caching bug in the JWKS endpoint during
+// P1-04, when `curl -I` reported `no-store` for a handler serving
+// `max-age=300` on GET.
+func TestHeadIsRoutedToGet(t *testing.T) {
+	srv := New(testHTTPConfig("127.0.0.1:0"), Deps{
+		Logger: discardLogger(),
+		Health: &Health{Checks: []Checker{stubChecker{"postgres", nil}}},
+	})
+
+	for _, path := range []string{"/healthz", "/readyz"} {
+		t.Run(path, func(t *testing.T) {
+			get := httptest.NewRecorder()
+			srv.Handler().ServeHTTP(get, httptest.NewRequest(http.MethodGet, path, nil))
+
+			head := httptest.NewRecorder()
+			srv.Handler().ServeHTTP(head, httptest.NewRequest(http.MethodHead, path, nil))
+
+			if head.Code != get.Code {
+				t.Errorf("HEAD %s = %d, GET = %d", path, head.Code, get.Code)
+			}
+
+			// The headers a client would use to decide whether to re-fetch
+			// must be the handler's, not a 405's.
+			for _, header := range []string{"Cache-Control", "Content-Type"} {
+				if head.Header().Get(header) != get.Header().Get(header) {
+					t.Errorf("HEAD %s %s = %q, GET = %q", path, header,
+						head.Header().Get(header), get.Header().Get(header))
+				}
+			}
+		})
+	}
+}
+
+// A method that genuinely has no handler still fails.
+//
+// Without this, HeadAsGet could have been implemented by answering every
+// method, which would turn a routing gap into a much larger one.
+func TestUnsupportedMethodsStillFail(t *testing.T) {
+	srv := New(testHTTPConfig("127.0.0.1:0"), Deps{
+		Logger: discardLogger(),
+		Health: &Health{},
+	})
+
+	for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodPatch} {
+		rec := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(rec, httptest.NewRequest(method, "/healthz", nil))
+
+		if rec.Code == http.StatusOK {
+			t.Errorf("%s /healthz returned 200; only GET and HEAD are served", method)
+		}
+	}
+}

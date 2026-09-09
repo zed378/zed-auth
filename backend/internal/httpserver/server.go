@@ -127,8 +127,11 @@ func New(cfg config.HTTPConfig, deps Deps) *Server {
 	mux.Mount("/", health)
 
 	srv := &http.Server{
-		Addr:              cfg.Addr,
-		Handler:           mux,
+		Addr: cfg.Addr,
+		// Wrapped OUTSIDE the router, not registered as chi middleware: chi
+		// runs middleware after matching a route, and the whole point is that
+		// a HEAD request never matches a GET-only route in the first place.
+		Handler:           HeadAsGet(mux),
 		ReadHeaderTimeout: cfg.ReadHeaderTimeout,
 		ReadTimeout:       cfg.ReadTimeout,
 		WriteTimeout:      cfg.WriteTimeout,
@@ -154,9 +157,18 @@ type apiRoutes struct {
 
 var _ api.StrictServerInterface = apiRoutes{}
 
-// Handler exposes the router, for tests and for mounting additional routes in
-// later phases.
-func (s *Server) Handler() http.Handler { return s.mux }
+// Handler returns what the server actually serves.
+//
+// The SERVED handler, not the bare router. They differ — HeadAsGet wraps the
+// router outside chi — and a test exercising the router while production
+// serves the wrapper is testing something nobody deploys. That distinction is
+// not hypothetical: the first version of this returned s.mux, and the HEAD
+// routing test failed against a server that handles HEAD correctly.
+//
+// Additional routes are supplied through Deps at construction rather than
+// mounted onto this afterwards, so that every served path goes through the
+// same middleware chain.
+func (s *Server) Handler() http.Handler { return s.http.Handler }
 
 // Run serves until ctx is cancelled, then shuts down gracefully.
 //
