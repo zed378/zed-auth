@@ -20,7 +20,10 @@ Type=oneshot
 User=infra
 WorkingDirectory=/home/infra/auth/deploy/vm
 
-Environment=AUTH_ENV_FILE=/home/infra/auth/.env
+# Runtime state lives OUTSIDE the code checkout, so `git pull` and a re-clone
+# cannot destroy it (P0-14). Every path below must point there — a path under
+# ~/auth is a path a redeploy can delete.
+Environment=AUTH_ENV_FILE=/home/infra/auth-state/.env
 Environment=AUTH_COMPOSE_FILE=docker-compose.tunnel.yml
 
 ExecStart=/home/infra/auth/deploy/vm/backup.sh
@@ -39,4 +42,13 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=full
 ProtectHome=read-only
-ReadWritePaths=/home/infra/auth/backups
+
+# Must match AUTH_BACKUP_DEST. A ReadWritePaths naming a directory that does
+# not exist makes systemd refuse to start the unit at all — exit 226/NAMESPACE,
+# before backup.sh runs a single line. That is what happened between the P0-14
+# state relocation and 2026-09-09: this path still said ~/auth/backups, the
+# service failed instantly every night, and `systemctl list-timers` went on
+# reporting the timer as healthy because the TIMER was fine. A backup that
+# stops happening is silent unless something is watching for the absence
+# (BL-01).
+ReadWritePaths=/home/infra/auth-state/backups
