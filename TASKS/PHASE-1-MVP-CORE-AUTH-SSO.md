@@ -149,7 +149,7 @@
 
 | | |
 |---|---|
-| **Status** | TODO |
+| **Status** | DONE (two items deferred) — [record](../MEMORY/records/2026-09-09-P1-04-discovery-jwks.md) |
 | **Depends on** | P1-03 |
 | **Plan refs** | `PLAN/05-API-CONTRACT.md` § Core Endpoints, `PLAN/03-ARCHITECTURE.md` § OIDC/OAuth2 Provider |
 | **Spec required** | No |
@@ -165,11 +165,15 @@
 5. Ensure the `issuer` value exactly matches the `iss` claim the token issuer emits — a mismatch here breaks every conforming client library, and it is a classic misconfiguration.
 
 **Definition of Done**
-- [ ] An off-the-shelf OIDC client library configures successfully from the discovery URL alone.
-- [ ] `code_challenge_methods_supported` contains `S256` and does not contain `plain`.
-- [ ] Neither `implicit` nor `password` appears in `grant_types_supported` (`PLAN/05`: both explicitly unsupported).
-- [ ] `issuer` matches the `iss` claim, asserted by an integration test.
-- [ ] JWKS exposes no private key parameters, asserted by a test that inspects the JSON keys.
+- [ ] An off-the-shelf OIDC client library configures successfully from the discovery URL alone. **Deferred to P1-07, deliberately unticked.** A conforming library needs `authorization_endpoint` and `token_endpoint` to finish configuring, and neither exists yet. Claiming this now would be the exact false claim step 2 of this task exists to prevent. The half that can be verified today is covered: `TestDiscoveryDocumentLeadsToTheKeySet` follows `jwks_uri` out of the document the way a client library would and asserts it reaches the current key.
+- [x] `code_challenge_methods_supported` contains `S256` and does not contain `plain`. Also absent entirely until there is an authorization endpoint to apply it to.
+- [x] Neither `implicit` nor `password` appears in `grant_types_supported` (`PLAN/05`: both explicitly unsupported). Enforced at construction, not just left out — `Capabilities.Validate` refuses to build a handler that would advertise either.
+- [ ] `issuer` matches the `iss` claim, asserted by an integration test. **Deferred to P1-07, deliberately unticked** — nothing emits an `iss` claim yet. What holds today is the single-source property: the document publishes `cfg.Issuer` verbatim and unnormalised.
+- [x] JWKS exposes no private key parameters, asserted by a test that inspects the JSON keys.
+
+**Beyond the stated steps**
+
+Serving these two endpoints through the generated strict router rather than beside it made the split-interface problem visible: `httpserver.apiRoutes` now embeds both implementations and carries the compile-time assertion. Two bugs surfaced while verifying the cache headers — every endpoint answered 405 to HEAD (chi matches methods exactly), and `Server.Handler()` returned the bare mux rather than the served handler, so the first HEAD test passed against a server that was broken. Both fixed; see the record.
 
 ---
 
