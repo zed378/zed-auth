@@ -27,6 +27,11 @@ from pathlib import Path
 SHIPPED = {
     "/healthz",
     "/readyz",
+    # P1-04. Both are served and both are real; the discovery document itself
+    # lists only the endpoints that exist, so publishing it does not claim the
+    # OIDC endpoints that arrive in P1-06 and P1-07.
+    "/.well-known/openid-configuration",
+    "/.well-known/jwks.json",
 }
 
 SPEC = Path(__file__).resolve().parent.parent / "openapi" / "openapi.yaml"

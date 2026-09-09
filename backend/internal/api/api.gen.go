@@ -79,6 +79,34 @@ type ErrorDetail struct {
 	Issue string `json:"issue"`
 }
 
+// JWK One public key, per RFC 7517. Private parameters (`d`, `p`, `q`, `dp`,
+// `dq`, `qi`) never appear.
+type JWK struct {
+	Alg *string `json:"alg,omitempty"`
+
+	// Crv EC curve, for ES256 keys.
+	Crv *string `json:"crv,omitempty"`
+
+	// E RSA public exponent, base64url.
+	E *string `json:"e,omitempty"`
+
+	// Kid An RFC 7638 thumbprint of the key, so it is stable across restarts
+	// and cannot be chosen by anyone.
+	Kid string `json:"kid"`
+	Kty string `json:"kty"`
+
+	// N RSA modulus, base64url.
+	N   *string `json:"n,omitempty"`
+	Use string  `json:"use"`
+	X   *string `json:"x,omitempty"`
+	Y   *string `json:"y,omitempty"`
+}
+
+// JWKS defines model for JWKS.
+type JWKS struct {
+	Keys []JWK `json:"keys"`
+}
+
 // LivenessStatus The complete `/healthz` response. There are no other fields, and none
 // will be added that name a dependency or a version.
 type LivenessStatus struct {
@@ -87,6 +115,41 @@ type LivenessStatus struct {
 
 // LivenessStatusStatus defines model for LivenessStatus.Status.
 type LivenessStatusStatus string
+
+// OpenIDConfiguration OpenID Provider metadata. Fields for unimplemented endpoints are
+// omitted rather than emitted empty.
+type OpenIDConfiguration struct {
+	// AuthorizationEndpoint Present once the authorization endpoint exists.
+	AuthorizationEndpoint *string   `json:"authorization_endpoint,omitempty"`
+	ClaimsSupported       *[]string `json:"claims_supported,omitempty"`
+
+	// CodeChallengeMethodsSupported `S256` only. Never `plain`.
+	CodeChallengeMethodsSupported *[]string `json:"code_challenge_methods_supported,omitempty"`
+	EndSessionEndpoint            *string   `json:"end_session_endpoint,omitempty"`
+
+	// GrantTypesSupported Never contains `implicit` or `password`: both are ruled out
+	// permanently by `PLAN/05` § Supported Grant Types, and advertising
+	// a grant this service refuses invites a client to build against it.
+	GrantTypesSupported              *[]string `json:"grant_types_supported,omitempty"`
+	IdTokenSigningAlgValuesSupported []string  `json:"id_token_signing_alg_values_supported"`
+	IntrospectionEndpoint            *string   `json:"introspection_endpoint,omitempty"`
+
+	// Issuer The identifier clients validate the `iss` claim against. Compared
+	// byte for byte, so it never carries a trailing slash.
+	Issuer                 string    `json:"issuer"`
+	JwksUri                string    `json:"jwks_uri"`
+	ResponseTypesSupported *[]string `json:"response_types_supported,omitempty"`
+	RevocationEndpoint     *string   `json:"revocation_endpoint,omitempty"`
+	ScopesSupported        *[]string `json:"scopes_supported,omitempty"`
+
+	// SubjectTypesSupported `public` only. Pairwise identifiers are a privacy feature this
+	// service does not implement.
+	SubjectTypesSupported []string `json:"subject_types_supported"`
+
+	// TokenEndpoint Present once the token endpoint exists.
+	TokenEndpoint    *string `json:"token_endpoint,omitempty"`
+	UserinfoEndpoint *string `json:"userinfo_endpoint,omitempty"`
+}
 
 // PageInfo The pagination envelope every collection response embeds.
 //
@@ -175,6 +238,12 @@ type Unauthorized = Error
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
+	// JSON Web Key Set
+	// (GET /.well-known/jwks.json)
+	GetJWKS(w http.ResponseWriter, r *http.Request)
+	// OpenID Provider configuration
+	// (GET /.well-known/openid-configuration)
+	GetOpenIDConfiguration(w http.ResponseWriter, r *http.Request)
 	// Liveness probe
 	// (GET /healthz)
 	GetLiveness(w http.ResponseWriter, r *http.Request)
@@ -186,6 +255,18 @@ type ServerInterface interface {
 // Unimplemented server implementation that returns http.StatusNotImplemented for each endpoint.
 
 type Unimplemented struct{}
+
+// JSON Web Key Set
+// (GET /.well-known/jwks.json)
+func (_ Unimplemented) GetJWKS(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// OpenID Provider configuration
+// (GET /.well-known/openid-configuration)
+func (_ Unimplemented) GetOpenIDConfiguration(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
 
 // Liveness probe
 // (GET /healthz)
@@ -207,6 +288,34 @@ type ServerInterfaceWrapper struct {
 }
 
 type MiddlewareFunc func(http.Handler) http.Handler
+
+// GetJWKS operation middleware
+func (siw *ServerInterfaceWrapper) GetJWKS(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetJWKS(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetOpenIDConfiguration operation middleware
+func (siw *ServerInterfaceWrapper) GetOpenIDConfiguration(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetOpenIDConfiguration(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
 
 // GetLiveness operation middleware
 func (siw *ServerInterfaceWrapper) GetLiveness(w http.ResponseWriter, r *http.Request) {
@@ -350,6 +459,12 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	}
 
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/.well-known/jwks.json", wrapper.GetJWKS)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/.well-known/openid-configuration", wrapper.GetOpenIDConfiguration)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/healthz", wrapper.GetLiveness)
 	})
 	r.Group(func(r chi.Router) {
@@ -382,6 +497,63 @@ type RateLimitedJSONResponse struct {
 }
 
 type UnauthorizedJSONResponse Error
+
+type GetJWKSRequestObject struct {
+}
+
+type GetJWKSResponseObject interface {
+	VisitGetJWKSResponse(w http.ResponseWriter) error
+}
+
+type GetJWKS200ResponseHeaders struct {
+	CacheControl string
+}
+
+type GetJWKS200ApplicationJwkSetPlusJSONResponse struct {
+	Body    JWKS
+	Headers GetJWKS200ResponseHeaders
+}
+
+func (response GetJWKS200ApplicationJwkSetPlusJSONResponse) VisitGetJWKSResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/jwk-set+json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type GetJWKS503JSONResponse Error
+
+func (response GetJWKS503JSONResponse) VisitGetJWKSResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetOpenIDConfigurationRequestObject struct {
+}
+
+type GetOpenIDConfigurationResponseObject interface {
+	VisitGetOpenIDConfigurationResponse(w http.ResponseWriter) error
+}
+
+type GetOpenIDConfiguration200ResponseHeaders struct {
+	CacheControl string
+}
+
+type GetOpenIDConfiguration200JSONResponse struct {
+	Body    OpenIDConfiguration
+	Headers GetOpenIDConfiguration200ResponseHeaders
+}
+
+func (response GetOpenIDConfiguration200JSONResponse) VisitGetOpenIDConfigurationResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
 
 type GetLivenessRequestObject struct {
 }
@@ -426,6 +598,12 @@ func (response GetReadiness503JSONResponse) VisitGetReadinessResponse(w http.Res
 
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
+	// JSON Web Key Set
+	// (GET /.well-known/jwks.json)
+	GetJWKS(ctx context.Context, request GetJWKSRequestObject) (GetJWKSResponseObject, error)
+	// OpenID Provider configuration
+	// (GET /.well-known/openid-configuration)
+	GetOpenIDConfiguration(ctx context.Context, request GetOpenIDConfigurationRequestObject) (GetOpenIDConfigurationResponseObject, error)
 	// Liveness probe
 	// (GET /healthz)
 	GetLiveness(ctx context.Context, request GetLivenessRequestObject) (GetLivenessResponseObject, error)
@@ -461,6 +639,54 @@ type strictHandler struct {
 	ssi         StrictServerInterface
 	middlewares []StrictMiddlewareFunc
 	options     StrictHTTPServerOptions
+}
+
+// GetJWKS operation middleware
+func (sh *strictHandler) GetJWKS(w http.ResponseWriter, r *http.Request) {
+	var request GetJWKSRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetJWKS(ctx, request.(GetJWKSRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetJWKS")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetJWKSResponseObject); ok {
+		if err := validResponse.VisitGetJWKSResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetOpenIDConfiguration operation middleware
+func (sh *strictHandler) GetOpenIDConfiguration(w http.ResponseWriter, r *http.Request) {
+	var request GetOpenIDConfigurationRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetOpenIDConfiguration(ctx, request.(GetOpenIDConfigurationRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetOpenIDConfiguration")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetOpenIDConfigurationResponseObject); ok {
+		if err := validResponse.VisitGetOpenIDConfigurationResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
 }
 
 // GetLiveness operation middleware
