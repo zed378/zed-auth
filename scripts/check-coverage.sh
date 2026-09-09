@@ -31,6 +31,7 @@ internal/authn:$FLOOR:P1-01
 internal/signing:$FLOOR:P1-03
 internal/authz:$FLOOR:P2-06
 internal/oidc:$FLOOR:P1-06
+internal/oauth/client:$FLOOR:P1-05
 "
 
 profile=$(mktemp)
