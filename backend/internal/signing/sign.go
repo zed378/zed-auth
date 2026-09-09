@@ -34,7 +34,25 @@ func NewSigner(cache *Cache) *Signer { return &Signer{cache: cache} }
 // it before it is used, and a `previous` key exists so old tokens still
 // verify — neither is allowed to produce a new signature, and the key set
 // enforces that rather than the caller remembering.
+// TypeJWT and TypeAccessToken are the `typ` header values this service issues.
+//
+// The distinction is a security control rather than bookkeeping (P1-07): an
+// access token is marked at+jwt per RFC 9068 so a resource server can refuse
+// an ID token presented as a bearer credential, and a client can refuse the
+// reverse. Two tokens that differ only in their claims are two tokens somebody
+// eventually swaps.
+const (
+	TypeJWT         = "JWT"
+	TypeAccessToken = "at+jwt"
+)
+
+// Sign produces a compact JWS with `typ: JWT`.
 func (s *Signer) Sign(payload []byte) (string, error) {
+	return s.SignWithType(payload, TypeJWT)
+}
+
+// SignWithType produces a compact JWS with an explicit `typ` header.
+func (s *Signer) SignWithType(payload []byte, typ string) (string, error) {
 	set, err := s.cache.Get()
 	if err != nil {
 		return "", err
@@ -51,7 +69,7 @@ func (s *Signer) Sign(payload []byte) (string, error) {
 		// without guessing. Guessing — trying every key until one works — is
 		// both slower and an oracle: response timing would reveal how many
 		// keys the service holds.
-		(&jose.SignerOptions{}).WithType("JWT").WithHeader("kid", key.KID),
+		(&jose.SignerOptions{}).WithType(jose.ContentType(typ)).WithHeader("kid", key.KID),
 	)
 	if err != nil {
 		return "", fmt.Errorf("creating signer: %w", err)

@@ -234,6 +234,20 @@ NULL is treated as **not expired**, deliberately. The alternative — unknown me
 
 ---
 
+### PG-15 — `refresh_tokens` has no scope column, so a refresh cannot know what was granted
+
+**Affects**: `P1-07`, and `P3-06` when it adds rotation.
+
+`PLAN/04` § `refresh_tokens` lists eleven columns and none of them records the scope the token was issued for. A refresh therefore has nothing to reproduce: it can carry no scope at all, or re-derive one from the client's registration — and those are different things. Scope is what the **user** consented to at the authorization endpoint; the client's `grant_types` is only what the client is permitted to ask for.
+
+The rule that needs it is that a refresh may narrow scope and never widen it. Widening would make the refresh token more powerful than the consent that created it, which is exactly what a refresh token must not be — and narrowing needs an original to narrow from.
+
+**Resolved in `P1-07`** by an additive `refresh_tokens.scope text[] NOT NULL DEFAULT '{}'`.
+
+**`PLAN/04` should be amended** to list the column, through the deliberate plan-change process (`AGENTS.md` rule 9).
+
+---
+
 ### PG-14 — The session cookie must not carry the row's primary key
 
 **Affects**: `P1-11`, and every surface that displays or records a session id — `P1-19`'s sessions endpoint, Phase 3's self-service screen, `refresh_tokens.session_id`, and any audit payload.

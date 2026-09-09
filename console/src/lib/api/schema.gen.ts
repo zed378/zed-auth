@@ -108,6 +108,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/oauth/token": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Token endpoint
+         * @description Exchanges an authorization code, a refresh token, or client
+         *     credentials for tokens. `PLAN/12` calls this the highest-volume,
+         *     most latency-sensitive endpoint in the system.
+         *
+         *     **This endpoint does not use the standard error envelope.** OAuth 2.1
+         *     defines its own JSON error shape — `{"error": "...",
+         *     "error_description": "..."}` — and that is what a consumer library
+         *     parses.
+         *
+         *     **Three grants, and two refused by name.** `authorization_code`,
+         *     `refresh_token` and `client_credentials` are supported. `password` and
+         *     `implicit` return `unsupported_grant_type` with a description saying
+         *     the service will never support them, rather than falling through to an
+         *     unknown-grant message that leaves an integrator wondering whether they
+         *     typed the name wrong.
+         *
+         *     **Client authentication** is `client_secret_basic` or
+         *     `client_secret_post` for confidential clients. Presenting both is
+         *     refused. A public client presents only `client_id` and is
+         *     authenticated by the PKCE verifier; a confidential client that
+         *     presents no secret is `invalid_client` and is never treated as public.
+         *
+         *     **Every failure to redeem a code returns the same `invalid_grant`.** An
+         *     error distinguishing "unknown code" from "wrong redirect_uri" would
+         *     tell a holder of a code that the code is real.
+         *
+         *     The three token types are deliberately different. The ID token is an
+         *     assertion about the user with `aud` = your `client_id`; the access
+         *     token is a capability at a resource server, carries `typ: at+jwt`
+         *     (RFC 9068), and has a different `aud`. A resource server should refuse
+         *     an ID token presented as a bearer credential, and the two fields are
+         *     what let it.
+         */
+        post: operations["token"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/healthz": {
         parameters: {
             query?: never;
@@ -287,6 +338,46 @@ export interface components {
              * @example email format is not valid
              */
             issue: string;
+        };
+        /** @description A successful token response (RFC 6749 § 5.1). */
+        TokenResponse: {
+            /**
+             * @description A JWT with `typ: at+jwt`. Verify it against the JWKS at
+             *     `/.well-known/jwks.json` and check `aud` against yourself.
+             */
+            access_token: string;
+            /** @enum {string} */
+            token_type: "Bearer";
+            /** @description Seconds until the access token expires. */
+            expires_in: number;
+            /**
+             * @description Present when the `openid` scope was granted and a user
+             *     authenticated. Absent on a refresh: nothing was authenticated just
+             *     now, and an assertion that one had been would be a false statement
+             *     with a fresh timestamp on it.
+             */
+            id_token?: string;
+            /**
+             * @description Present when the `offline_access` scope was granted. Opaque, not a
+             *     JWT — it must be revocable, which a stateless token cannot be.
+             */
+            refresh_token?: string;
+            /** @description The granted scope, space-delimited. */
+            scope?: string;
+        };
+        /**
+         * @description OAuth 2.1's error shape (RFC 6749 § 5.2), used by the protocol
+         *     endpoints. Distinct from the `Error` envelope every other endpoint
+         *     returns, because this is what a consumer's OAuth library parses.
+         */
+        OAuthError: {
+            /** @enum {string} */
+            error: "invalid_request" | "invalid_client" | "invalid_grant" | "unauthorized_client" | "unsupported_grant_type" | "invalid_scope" | "server_error";
+            /**
+             * @description Human-readable, and deliberately terse about specifics. It names
+             *     what was wrong, never what the correct value would have been.
+             */
+            error_description?: string;
         };
         /**
          * @description The error envelope for every non-2xx response, without exception
@@ -582,6 +673,87 @@ export interface operations {
                 };
                 content: {
                     "text/html": string;
+                };
+            };
+        };
+    };
+    token: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/x-www-form-urlencoded": {
+                    /** @enum {string} */
+                    grant_type: "authorization_code" | "refresh_token" | "client_credentials";
+                    /** @description The authorization code. Required for `authorization_code`. */
+                    code?: string;
+                    /**
+                     * Format: uri
+                     * @description Must equal the `redirect_uri` the code was issued for,
+                     *     by exact string comparison.
+                     */
+                    redirect_uri?: string;
+                    /**
+                     * @description The PKCE verifier. Required for `authorization_code` for
+                     *     every client type, including confidential ones.
+                     */
+                    code_verifier?: string;
+                    /** @description Required for `refresh_token`. */
+                    refresh_token?: string;
+                    /**
+                     * @description On a refresh this may narrow the granted scope and may
+                     *     never widen it — widening would make the refresh token
+                     *     more powerful than the consent that created it.
+                     */
+                    scope?: string;
+                    /** Format: uuid */
+                    client_id?: string;
+                    /**
+                     * @description `client_secret_post`. Use the Authorization header
+                     *     instead where you can; presenting both is refused.
+                     */
+                    client_secret?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Tokens. */
+            200: {
+                headers: {
+                    /** @description Always `no-store`. A cached token response is a token handed to whoever asks the cache next. */
+                    "Cache-Control"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TokenResponse"];
+                };
+            };
+            /**
+             * @description `invalid_request`, `invalid_grant`, `unauthorized_client`,
+             *     `unsupported_grant_type` or `invalid_scope`.
+             */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OAuthError"];
+                };
+            };
+            /**
+             * @description `invalid_client`. Carries `WWW-Authenticate: Basic` when Basic
+             *     authentication was attempted.
+             */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OAuthError"];
                 };
             };
         };

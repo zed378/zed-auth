@@ -29,10 +29,26 @@ const (
 	Ok LivenessStatusStatus = "ok"
 )
 
+// Defines values for OAuthErrorError.
+const (
+	InvalidClient        OAuthErrorError = "invalid_client"
+	InvalidGrant         OAuthErrorError = "invalid_grant"
+	InvalidRequest       OAuthErrorError = "invalid_request"
+	InvalidScope         OAuthErrorError = "invalid_scope"
+	ServerError          OAuthErrorError = "server_error"
+	UnauthorizedClient   OAuthErrorError = "unauthorized_client"
+	UnsupportedGrantType OAuthErrorError = "unsupported_grant_type"
+)
+
 // Defines values for ReadinessStatusStatus.
 const (
 	Ready       ReadinessStatusStatus = "ready"
 	Unavailable ReadinessStatusStatus = "unavailable"
+)
+
+// Defines values for TokenResponseTokenType.
+const (
+	Bearer TokenResponseTokenType = "Bearer"
 )
 
 // Error The error envelope for every non-2xx response, without exception
@@ -116,6 +132,20 @@ type LivenessStatus struct {
 // LivenessStatusStatus defines model for LivenessStatus.Status.
 type LivenessStatusStatus string
 
+// OAuthError OAuth 2.1's error shape (RFC 6749 § 5.2), used by the protocol
+// endpoints. Distinct from the `Error` envelope every other endpoint
+// returns, because this is what a consumer's OAuth library parses.
+type OAuthError struct {
+	Error OAuthErrorError `json:"error"`
+
+	// ErrorDescription Human-readable, and deliberately terse about specifics. It names
+	// what was wrong, never what the correct value would have been.
+	ErrorDescription *string `json:"error_description,omitempty"`
+}
+
+// OAuthErrorError defines model for OAuthError.Error.
+type OAuthErrorError string
+
 // OpenIDConfiguration OpenID Provider metadata. Fields for unimplemented endpoints are
 // omitted rather than emitted empty.
 type OpenIDConfiguration struct {
@@ -185,6 +215,33 @@ type ReadinessStatusStatus string
 // ticket self-describing, and makes passing a project id where a user id
 // belongs visible on sight rather than at the database.
 type ResourceId = string
+
+// TokenResponse A successful token response (RFC 6749 § 5.1).
+type TokenResponse struct {
+	// AccessToken A JWT with `typ: at+jwt`. Verify it against the JWKS at
+	// `/.well-known/jwks.json` and check `aud` against yourself.
+	AccessToken string `json:"access_token"`
+
+	// ExpiresIn Seconds until the access token expires.
+	ExpiresIn int `json:"expires_in"`
+
+	// IdToken Present when the `openid` scope was granted and a user
+	// authenticated. Absent on a refresh: nothing was authenticated just
+	// now, and an assertion that one had been would be a false statement
+	// with a fresh timestamp on it.
+	IdToken *string `json:"id_token,omitempty"`
+
+	// RefreshToken Present when the `offline_access` scope was granted. Opaque, not a
+	// JWT — it must be revocable, which a stateless token cannot be.
+	RefreshToken *string `json:"refresh_token,omitempty"`
+
+	// Scope The granted scope, space-delimited.
+	Scope     *string                `json:"scope,omitempty"`
+	TokenType TokenResponseTokenType `json:"token_type"`
+}
+
+// TokenResponseTokenType defines model for TokenResponse.TokenType.
+type TokenResponseTokenType string
 
 // IdempotencyKey defines model for IdempotencyKey.
 type IdempotencyKey = string
