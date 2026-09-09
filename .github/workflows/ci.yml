@@ -266,7 +266,11 @@ jobs:
         # Docker installed" true, and it removed a worse problem: these tests
         # used to call t.Skipf when nothing answered at the configured DSN, so
         # a misconfigured runner reported success having run nothing.
-        run: go test -race -shuffle=on -tags=integration ./...
+        # -p 1: one package's test binary at a time. Each starts its own
+          # containers, and four sets initialising the testcontainers provider
+          # concurrently races — surfacing as "rootless Docker is not
+          # supported", in a different package on each run.
+          run: go test -race -shuffle=on -p 1 -tags=integration ./...
 
   # --- API contract ---------------------------------------------------------
   api-contract:

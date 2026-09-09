@@ -99,7 +99,19 @@ if [ "$RUN_INTEGRATION" != "1" ]; then
 elif ! docker compose -f deploy/docker-compose.yml ps postgres 2>/dev/null | grep -q "Up"; then
   skip "integration tests" "postgres not running — make up && make migrate-up"
 else
-  if (cd backend && go test -tags=integration -count=1 ./... 2>&1 | grep -v "no test files"); then
+  # -p 1: one package's test binary at a time.
+  #
+  # Each integration package starts its own PostgreSQL and Redis through
+  # testcontainers (P0-15), which is correct — separate test binaries cannot
+  # share a container. Starting four sets concurrently is what breaks: the
+  # provider initialises in several processes at once and one fails with
+  # "rootless Docker is not supported on Windows", which is a race wearing a
+  # configuration error's clothes.
+  #
+  # It failed in exactly one package out of four, a different one each run —
+  # the shape of an intermittent failure people learn to re-run rather than
+  # read. Pinned rather than tolerated.
+  if (cd backend && go test -tags=integration -count=1 -p 1 ./... 2>&1 | grep -v "no test files"); then
     pass "integration tests"
   else
     fail "integration tests"

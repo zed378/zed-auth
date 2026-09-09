@@ -29,17 +29,52 @@ generate ──▶ next ──rotate──▶ current ──rotate──▶ prev
 
 ## Before you start
 
+There is no Go toolchain on the VM, so `keyctl` runs from a container. Build it
+once after a `git pull`:
+
 ```bash
 cd ~/auth
-export AUTH_MIGRATE_DSN="postgres://auth_owner:REPLACE_ME@127.0.0.1:5432/auth?sslmode=disable"
-export AUTH_SECRETS_DIR=/home/infra/auth-state/secrets
+docker run --rm -v "$PWD:/src" -w /src/backend \
+  -v /home/infra/auth-state/bin:/out \
+  -v /home/infra/auth-state/gocache:/gocache -e GOCACHE=/gocache -e GOMODCACHE=/gocache/mod \
+  golang:1.26.6 go build -buildvcs=false -o /out/keyctl ./cmd/keyctl
 ```
+
+Then define the wrapper. **Read the mount paths before you paste this** — they
+are the whole correctness of the procedure:
+
+```bash
+set -a && . /home/infra/auth-state/.env && set +a
+
+kc() {
+  docker run --rm --network zedauth_default \
+    -v /home/infra/auth-state/bin:/bin/kc \
+    -v /home/infra/auth-state/secrets:/etc/zed-auth/secrets \
+    -e AUTH_MIGRATE_DSN="postgres://auth_owner:${AUTH_POSTGRES_OWNER_PASSWORD}@postgres:5432/auth?sslmode=disable" \
+    -e AUTH_SECRETS_DIR=/etc/zed-auth/secrets \
+    debian:12-slim /bin/kc/keyctl "$@"
+}
+```
+
+**`/etc/zed-auth/secrets` is not decoration.** `keyctl generate` records the
+path it wrote to, and the *service* is what later reads it. Mounting the
+secrets anywhere else produces a reference that resolves for the tool and not
+for the service — a row pointing at a file that does not exist, and a service
+that refuses to start at the next restart with no obvious connection to a
+rotation performed hours earlier.
+
+The first execution of this runbook did exactly that, with the secrets mounted
+at `/secrets`. Matching the service's own mount point makes the reference
+correct by construction rather than by remembering.
+
+If the reference is already wrong, it is a one-line repair — see
+**Fixing a wrong key reference** below.
 
 **Pre-checks.**
 
 ```bash
 # 1. What exists now. Expect exactly one `current`.
-go run ./backend/cmd/keyctl list
+kc list
 
 # 2. The service is healthy before you change anything.
 curl -sf https://auth.zedth.my.id/healthz
@@ -55,7 +90,7 @@ If `list` shows anything other than exactly one `current`, **stop** and work out
 ## Step 1 — Generate
 
 ```bash
-go run ./backend/cmd/keyctl generate
+kc generate
 sudo ~/auth/deploy/vm/secrets.sh fix     # ownership: the service reads it, you do not
 ```
 
@@ -82,7 +117,7 @@ This wait is the step people skip, and skipping it is what turns a rotation into
 ## Step 3 — Rotate
 
 ```bash
-go run ./backend/cmd/keyctl rotate
+kc rotate
 ```
 
 The new key is now `current` and signs. The old one is `previous` and still verifies.
@@ -108,10 +143,32 @@ curl -sf https://auth.zedth.my.id/healthz
 Leave the old key in `previous` for **at least one full access-token lifetime plus a margin**. With 15-minute tokens, an hour is comfortable. There is no cost to waiting longer, and retiring early kills tokens that are still legitimately in use.
 
 ```bash
-go run ./backend/cmd/keyctl retire <old-kid>
+kc retire <old-kid>
 ```
 
 After this, tokens signed by that key stop verifying. That is the intended effect and it is not reversible in practice — a client still holding such a token now has a dead one.
+
+---
+
+## Fixing a wrong key reference
+
+If `private_key_ref` points at a path the service cannot see — the mistake
+above — the key material is fine and only the reference is wrong:
+
+```sql
+UPDATE signing_keys
+SET private_key_ref = replace(private_key_ref, 'file:/secrets/', 'file:/etc/zed-auth/secrets/')
+WHERE private_key_ref LIKE 'file:/secrets/%';
+```
+
+Then confirm the service can start:
+
+```bash
+docker restart zedauth-authservice-1 && sleep 15
+docker logs zedauth-authservice-1 2>&1 | tail -5
+```
+
+Nothing is lost by this: the reference is metadata, the key itself never moved.
 
 ---
 
@@ -144,6 +201,7 @@ docker logs zedauth-authservice-1 2>&1 | tail -20
 |---|---|---|
 | `no current signing key` | The rotation did not commit | `keyctl list`, rotate again |
 | `resolving private key for ...` | The key file is missing or unreadable | `sudo secrets.sh fix` — usually ownership |
+| `resolving private key ... no such file` | `private_key_ref` records a path the service cannot see | See **Fixing a wrong key reference** |
 | `signing key is too short` | An RSA key below 2048 bits | Generate a new one; do not lower the bound |
 | `recorded as RS256 but is an ES256 key` | Row edited by hand | Correct the `algorithm` column |
 
