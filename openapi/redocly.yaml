@@ -38,7 +38,20 @@ rules:
   operation-operationId-unique: error
 
   # A described endpoint that nobody can call is a documentation bug.
-  operation-2xx-response: error
+  #
+  # Downgraded to `warn` rather than exempting /oauth/authorize by hand.
+  #
+  # That endpoint genuinely never returns 2xx: it redirects on success, it
+  # redirects on most errors, and it renders a 400 when it must not redirect.
+  # Documenting a 200 to satisfy the rule would be inventing a response the
+  # endpoint cannot produce, which is the failure the rule exists to catch,
+  # arrived at from the other direction.
+  #
+  # A warning rather than off, because for every other endpoint the rule is
+  # still right — and there is exactly one exception today, so a single warning
+  # is still readable. If a second appears, this needs a per-operation
+  # exemption instead of a blanket downgrade.
+  operation-2xx-response: warn
 
   # The public API reference renders these directly. An endpoint with no
   # summary renders as a bare path, which is how hand-written docs start

@@ -50,6 +50,18 @@ const sidebar: SidebarsConfig = {
         },
       ],
     },
+    {
+      type: "category",
+      label: "OAuth",
+      items: [
+        {
+          type: "doc",
+          id: "api-reference/authorize",
+          label: "Authorization endpoint (authorization code + PKCE)",
+          className: "api-method get",
+        },
+      ],
+    },
   ],
 };
 

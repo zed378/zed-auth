@@ -423,3 +423,41 @@ func firstNonEmpty(a, b string) string {
 	}
 	return b
 }
+
+// ByClientID resolves a public client_id, before a tenant is known.
+//
+// /oauth/authorize receives a client_id in a URL and must resolve it to decide
+// which organization the request belongs to, so this read cannot be
+// tenant-scoped — the same bootstrap problem sessions have, reached from the
+// other direction, and given the same narrow SECURITY DEFINER door.
+//
+// The function it calls returns no secret columns at all, so the Record it
+// produces has empty Credentials by construction. That is not an omission to
+// remember: there is nothing for the query to return.
+func (s *Store) ByClientID(ctx context.Context, db *postgres.DB, clientID string) (Application, error) {
+	var (
+		app        Application
+		redirects  jsonStrings
+		postLogout jsonStrings
+		grants     jsonStrings
+	)
+
+	err := db.SQL().QueryRowContext(ctx, `
+		SELECT id, org_id, project_id, name, type,
+		       redirect_uris, post_logout_redirect_uris, grant_types
+		  FROM application_by_client_id($1)`, clientID,
+	).Scan(&app.ID, &app.OrgID, &app.ProjectID, &app.Name, &app.Type,
+		&redirects, &postLogout, &grants)
+
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return Application{}, fmt.Errorf("%w: %s", ErrNotFound, clientID)
+	case err != nil:
+		return Application{}, fmt.Errorf("client: resolving client_id: %w", err)
+	}
+
+	app.RedirectURIs = redirects
+	app.PostLogoutRedirectURIs = postLogout
+	app.GrantTypes = grants
+	return app, nil
+}
