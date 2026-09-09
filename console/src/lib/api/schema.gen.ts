@@ -65,6 +65,49 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/oauth/authorize": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Authorization endpoint (authorization code + PKCE)
+         * @description Where single sign-on becomes visible. With a live session this issues
+         *     an authorization code and redirects, with nothing rendered; without
+         *     one it routes to the hosted login page and resumes afterwards.
+         *
+         *     **This endpoint does not use the standard error envelope.** OAuth 2.1
+         *     defines its own error vocabulary, delivered as query parameters on a
+         *     redirect, and that is what a consumer library parses. Every other
+         *     endpoint here answers with the `Error` schema; this one answers with
+         *     `?error=invalid_request&error_description=...&state=...`.
+         *
+         *     **PKCE is mandatory for every client type**, public and confidential
+         *     alike. `PLAN/05` states this explicitly and it is stricter than OAuth
+         *     2.1's baseline: a confidential client's secret protects the token
+         *     request, not the code in transit, and a code intercepted from a browser
+         *     redirect is useless without the verifier regardless of what the client
+         *     can prove later.
+         *
+         *     `code_challenge_method` must be `S256`. `plain` transmits the verifier
+         *     unprotected, which removes the reason PKCE exists.
+         *
+         *     An invalid `client_id` or an unregistered `redirect_uri` produces a
+         *     `400` with an HTML error page and **no redirect at all** — redirecting
+         *     to an unvalidated URI to report an error is the open-redirect
+         *     vulnerability itself.
+         */
+        get: operations["authorize"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/healthz": {
         parameters: {
             query?: never;
@@ -457,6 +500,88 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    authorize: {
+        parameters: {
+            query: {
+                /** @description The application's identifier, which is its `id`. */
+                client_id: string;
+                /**
+                 * @description Where to return. Matched against the client's registered URIs by
+                 *     **exact string comparison** — a trailing slash, an added query
+                 *     parameter or a different case is a different URI. Not defaulted
+                 *     when omitted, even for a client with exactly one registered URI.
+                 */
+                redirect_uri: string;
+                /** @description Only `code` is supported. */
+                response_type: "code";
+                /**
+                 * @description Space-delimited. `openid` is required. `offline_access` requires
+                 *     the client to hold the `refresh_token` grant.
+                 * @example openid profile email
+                 */
+                scope: string;
+                /**
+                 * @description Returned unchanged on every response. Required, which is stricter
+                 *     than OAuth demands: this service cannot verify it — only your
+                 *     application knows what it sent — so requiring it means a client
+                 *     that forgot its CSRF defence finds out at integration time rather
+                 *     than in production.
+                 */
+                state: string;
+                /** @description PKCE challenge, base64url, 43-128 characters. */
+                code_challenge: string;
+                code_challenge_method: "S256";
+                /** @description Returned in the `id_token`, for replay detection by the client. */
+                nonce?: string;
+                /**
+                 * @description Space-delimited. `none` never renders UI and returns
+                 *     `login_required` instead — which is what a silent renewal in a
+                 *     hidden iframe needs. `login` forces re-authentication even with a
+                 *     live session, without ending it. `none` cannot be combined with
+                 *     any other value.
+                 */
+                prompt?: string;
+                /**
+                 * @description Seconds. How recently the user must have **authenticated**, which
+                 *     is not the same as how recently they were active.
+                 */
+                max_age?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /**
+             * @description Redirect to `redirect_uri` with `code` and `state`, to the same
+             *     place with `error` and `state`, or to the hosted login page.
+             */
+            302: {
+                headers: {
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /**
+             * @description `client_id` or `redirect_uri` is not valid. An HTML page, and
+             *     deliberately **not** a redirect: there is no validated address to
+             *     redirect to, and inventing one is the vulnerability.
+             *
+             *     The two causes are reported identically, so this cannot be used to
+             *     discover which client ids exist (`SECURITY/02` §12).
+             */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": string;
                 };
             };
         };

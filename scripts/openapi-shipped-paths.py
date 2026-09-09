@@ -25,6 +25,10 @@ from pathlib import Path
 # Phase 0 ships the operational probes. The identity and authorization
 # endpoints arrive in Phase 1 (P1-05 onward).
 SHIPPED = {
+    # P1-06. The authorization endpoint is served and real; discovery
+    # advertises it from the same commit, which is the only way the document
+    # stays true.
+    "/oauth/authorize",
     "/healthz",
     "/readyz",
     # P1-04. Both are served and both are real; the discovery document itself

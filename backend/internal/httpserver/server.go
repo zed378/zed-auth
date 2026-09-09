@@ -38,6 +38,21 @@ type Deps struct {
 	// deployment that does not serve them.
 	Discovery *oidc.Handler
 
+	// Authorize serves GET /oauth/authorize.
+	//
+	// Registered by hand rather than through the generated router, and that is
+	// the one exception to ADR-013 in this file. The generated wrapper binds
+	// every parameter before the handler runs, which would defeat two-phase
+	// validation (a missing `state` rejected before `redirect_uri` is checked,
+	// so the error takes the wrong channel) and would silently collapse
+	// duplicate parameters. The reasoning is in internal/api/oapi-codegen.yaml,
+	// where the exclusion lives.
+	//
+	// The endpoint is still in openapi.yaml, so it is documented, generated
+	// into the public API reference, and checked by openapi-shipped-paths.py.
+	// Only the code generation is skipped.
+	Authorize http.Handler
+
 	// TrustProxyHeaders must be true only when a proxy in front of this service
 	// strips client-supplied correlation headers. See RequestID.
 	TrustProxyHeaders bool
@@ -122,6 +137,13 @@ func New(cfg config.HTTPConfig, deps Deps) *Server {
 	// would have put these two endpoints outside that guarantee — which is
 	// precisely where they must not be, since a consumer's only view of this
 	// service is what the spec says.
+	// The hand-routed endpoint, registered on the main router before the
+	// generated one is mounted at "/" so it carries the access log, the
+	// metrics and the security headers like everything else.
+	if deps.Authorize != nil {
+		mux.Method(http.MethodGet, "/oauth/authorize", deps.Authorize)
+	}
+
 	routes := apiRoutes{Health: deps.Health, Handler: deps.Discovery}
 	api.HandlerFromMux(api.NewStrictHandler(routes, nil), health)
 	mux.Mount("/", health)

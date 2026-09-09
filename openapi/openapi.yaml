@@ -173,6 +173,126 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /oauth/authorize:
+    get:
+      tags: [OAuth]
+      operationId: authorize
+      summary: Authorization endpoint (authorization code + PKCE)
+      description: |
+        Where single sign-on becomes visible. With a live session this issues
+        an authorization code and redirects, with nothing rendered; without
+        one it routes to the hosted login page and resumes afterwards.
+
+        **This endpoint does not use the standard error envelope.** OAuth 2.1
+        defines its own error vocabulary, delivered as query parameters on a
+        redirect, and that is what a consumer library parses. Every other
+        endpoint here answers with the `Error` schema; this one answers with
+        `?error=invalid_request&error_description=...&state=...`.
+
+        **PKCE is mandatory for every client type**, public and confidential
+        alike. `PLAN/05` states this explicitly and it is stricter than OAuth
+        2.1's baseline: a confidential client's secret protects the token
+        request, not the code in transit, and a code intercepted from a browser
+        redirect is useless without the verifier regardless of what the client
+        can prove later.
+
+        `code_challenge_method` must be `S256`. `plain` transmits the verifier
+        unprotected, which removes the reason PKCE exists.
+
+        An invalid `client_id` or an unregistered `redirect_uri` produces a
+        `400` with an HTML error page and **no redirect at all** — redirecting
+        to an unvalidated URI to report an error is the open-redirect
+        vulnerability itself.
+      security: []
+      parameters:
+        - name: client_id
+          in: query
+          required: true
+          description: The application's identifier, which is its `id`.
+          schema: { type: string, format: uuid }
+        - name: redirect_uri
+          in: query
+          required: true
+          description: |
+            Where to return. Matched against the client's registered URIs by
+            **exact string comparison** — a trailing slash, an added query
+            parameter or a different case is a different URI. Not defaulted
+            when omitted, even for a client with exactly one registered URI.
+          schema: { type: string, format: uri }
+        - name: response_type
+          in: query
+          required: true
+          description: Only `code` is supported.
+          schema: { type: string, enum: [code] }
+        - name: scope
+          in: query
+          required: true
+          description: |
+            Space-delimited. `openid` is required. `offline_access` requires
+            the client to hold the `refresh_token` grant.
+          schema: { type: string }
+          example: openid profile email
+        - name: state
+          in: query
+          required: true
+          description: |
+            Returned unchanged on every response. Required, which is stricter
+            than OAuth demands: this service cannot verify it — only your
+            application knows what it sent — so requiring it means a client
+            that forgot its CSRF defence finds out at integration time rather
+            than in production.
+          schema: { type: string, maxLength: 1024 }
+        - name: code_challenge
+          in: query
+          required: true
+          description: PKCE challenge, base64url, 43-128 characters.
+          schema: { type: string, minLength: 43, maxLength: 128 }
+        - name: code_challenge_method
+          in: query
+          required: true
+          schema: { type: string, enum: [S256] }
+        - name: nonce
+          in: query
+          required: false
+          description: Returned in the `id_token`, for replay detection by the client.
+          schema: { type: string, maxLength: 1024 }
+        - name: prompt
+          in: query
+          required: false
+          description: |
+            Space-delimited. `none` never renders UI and returns
+            `login_required` instead — which is what a silent renewal in a
+            hidden iframe needs. `login` forces re-authentication even with a
+            live session, without ending it. `none` cannot be combined with
+            any other value.
+          schema: { type: string }
+        - name: max_age
+          in: query
+          required: false
+          description: |
+            Seconds. How recently the user must have **authenticated**, which
+            is not the same as how recently they were active.
+          schema: { type: integer, minimum: 0 }
+      responses:
+        "302":
+          description: |
+            Redirect to `redirect_uri` with `code` and `state`, to the same
+            place with `error` and `state`, or to the hosted login page.
+          headers:
+            Location:
+              schema: { type: string, format: uri }
+        "400":
+          description: |
+            `client_id` or `redirect_uri` is not valid. An HTML page, and
+            deliberately **not** a redirect: there is no validated address to
+            redirect to, and inventing one is the vulnerability.
+
+            The two causes are reported identically, so this cannot be used to
+            discover which client ids exist (`SECURITY/02` §12).
+          content:
+            text/html:
+              schema: { type: string }
+
   /healthz:
     get:
       tags: [Operations]
