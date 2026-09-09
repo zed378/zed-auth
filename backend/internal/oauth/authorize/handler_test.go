@@ -77,6 +77,28 @@ func (m *memStore) SavePending(_ context.Context, r Request, _ time.Duration) (s
 	return id, nil
 }
 
+func (m *memStore) PeekPending(_ context.Context, id string) (Request, error) {
+	if m.failing {
+		return Request{}, errors.New("redis is down")
+	}
+	r, ok := m.pending[id]
+	if !ok {
+		return Request{}, ErrPendingNotFound
+	}
+	return r, nil
+}
+
+// LoadPending consumes, like the real one. The fake would be useless for
+// P1-12's single-use test if it did not.
+func (m *memStore) LoadPending(_ context.Context, id string) (Request, error) {
+	r, err := m.PeekPending(context.Background(), id)
+	if err != nil {
+		return Request{}, err
+	}
+	delete(m.pending, id)
+	return r, nil
+}
+
 func webApp() client.Application {
 	return client.Application{
 		ID:           testClientID,
@@ -545,5 +567,165 @@ func TestTheRedirectCarriesNothingItShouldNot(t *testing.T) {
 		if strings.Contains(location, leaked) {
 			t.Errorf("the redirect URL carries %q, which belongs only on the server", leaked)
 		}
+	}
+}
+
+// --- the seam P1-12 finishes through --------------------------------------------
+
+// Peek reads without consuming, so the login page can render more than once —
+// a refresh, a back button, a mistyped password.
+func TestPeekDoesNotConsume(t *testing.T) {
+	store := newStoreForTest(t)
+	h := handler(t, fakeClients{app: webApp()}, fakeSessions{err: session.ErrNotFound}, store)
+
+	rec := do(h, validQuery(), "")
+	target, _ := url.Parse(rec.Header().Get("Location"))
+	id := target.Query().Get("request")
+	if id == "" {
+		t.Fatal("no pending request was stored")
+	}
+
+	for i := range 3 {
+		pending, err := h.Peek(context.Background(), id)
+		if err != nil {
+			t.Fatalf("peek %d: %v", i+1, err)
+		}
+		if pending.App.ID != testClientID || pending.Request.State != "xyz" {
+			t.Errorf("peek %d returned %+v", i+1, pending)
+		}
+	}
+}
+
+func TestPeekOnAnUnknownRequest(t *testing.T) {
+	h := handler(t, fakeClients{app: webApp()}, fakeSessions{}, newStoreForTest(t))
+
+	if _, err := h.Peek(context.Background(), "no-such-request"); !errors.Is(err, ErrPendingNotFound) {
+		t.Errorf("Peek = %v, want ErrPendingNotFound", err)
+	}
+}
+
+// A client deleted between the redirect and the login cannot be resumed. There
+// is nowhere to send an OAuth error either: the stored redirect_uri was
+// validated against a registration that no longer exists, so redirecting to it
+// now would be redirecting to an address nothing currently registers.
+func TestPeekWhenTheClientIsGone(t *testing.T) {
+	store := newStoreForTest(t)
+	h := handler(t, fakeClients{app: webApp()}, fakeSessions{err: session.ErrNotFound}, store)
+
+	rec := do(h, validQuery(), "")
+	target, _ := url.Parse(rec.Header().Get("Location"))
+	id := target.Query().Get("request")
+
+	h.Clients = fakeClients{err: errors.New("no such client")}
+
+	if _, err := h.Peek(context.Background(), id); err == nil {
+		t.Error("a pending request resolved against a client that no longer exists")
+	}
+}
+
+// Resume is the single-use point. Exactly one code per pending request, so a
+// second tab arriving with the same id gets the expired page rather than a
+// second code.
+func TestResumeIssuesExactlyOneCode(t *testing.T) {
+	store := newStoreForTest(t)
+	h := handler(t, fakeClients{app: webApp()}, fakeSessions{err: session.ErrNotFound}, store)
+
+	rec := do(h, validQuery(), "")
+	target, _ := url.Parse(rec.Header().Get("Location"))
+	id := target.Query().Get("request")
+
+	first := httptest.NewRecorder()
+	h.Resume(first, httptest.NewRequest(http.MethodPost, "/login", nil), id, liveSession())
+
+	if first.Code != http.StatusFound {
+		t.Fatalf("Resume answered %d:\n%s", first.Code, first.Body.String())
+	}
+	back, _ := url.Parse(first.Header().Get("Location"))
+	if back.Query().Get("code") == "" {
+		t.Error("no code was issued")
+	}
+	if got := back.Query().Get("state"); got != "xyz" {
+		t.Errorf("state = %q, want the value the client sent", got)
+	}
+
+	second := httptest.NewRecorder()
+	h.Resume(second, httptest.NewRequest(http.MethodPost, "/login", nil), id, liveSession())
+
+	if second.Code == http.StatusFound {
+		t.Fatal("the same pending request issued a second code")
+	}
+	if second.Header().Get("Location") != "" {
+		t.Errorf("the second attempt redirected to %q", second.Header().Get("Location"))
+	}
+}
+
+// The code Resume issues binds the session that was just established, not the
+// one that was absent when the request was stored.
+func TestResumeBindsTheNewSession(t *testing.T) {
+	store := newStoreForTest(t)
+	h := handler(t, fakeClients{app: webApp()}, fakeSessions{err: session.ErrNotFound}, store)
+
+	rec := do(h, validQuery(), "")
+	target, _ := url.Parse(rec.Header().Get("Location"))
+	id := target.Query().Get("request")
+
+	current := liveSession()
+	out := httptest.NewRecorder()
+	h.Resume(out, httptest.NewRequest(http.MethodPost, "/login", nil), id, current)
+
+	back, _ := url.Parse(out.Header().Get("Location"))
+	bound := store.codes[back.Query().Get("code")]
+
+	if bound.UserID != current.UserID || bound.SessionID != current.ID {
+		t.Errorf("the code binds %s/%s, want the session just created", bound.UserID, bound.SessionID)
+	}
+	if bound.CodeChallenge != testChallenge {
+		t.Error("the PKCE challenge from the original request was lost")
+	}
+	if len(bound.AuthMethods) == 0 {
+		t.Error("the code carries no auth_methods, so the id_token's amr would be a lie")
+	}
+}
+
+// A session for another organization is not a session for this client, however
+// live it is. Unreachable through the login page — it authenticates against
+// the organization it read from this same client — and checked anyway, because
+// the cost is one comparison and the failure it prevents is a code issued
+// across tenants.
+func TestResumeRefusesASessionFromAnotherOrganization(t *testing.T) {
+	store := newStoreForTest(t)
+	h := handler(t, fakeClients{app: webApp()}, fakeSessions{err: session.ErrNotFound}, store)
+
+	rec := do(h, validQuery(), "")
+	target, _ := url.Parse(rec.Header().Get("Location"))
+	id := target.Query().Get("request")
+
+	elsewhere := liveSession()
+	elsewhere.OrgID = "99999999-9999-9999-9999-999999999999"
+
+	out := httptest.NewRecorder()
+	h.Resume(out, httptest.NewRequest(http.MethodPost, "/login", nil), id, elsewhere)
+
+	if out.Code == http.StatusFound {
+		t.Fatal("a session from another organization was issued a code")
+	}
+	if out.Header().Get("Location") != "" {
+		t.Errorf("it redirected to %q", out.Header().Get("Location"))
+	}
+}
+
+// An unknown or expired id is answered without a redirect. There is nothing to
+// redirect to: the request that held the validated URI is gone.
+func TestResumeOnAnExpiredRequest(t *testing.T) {
+	h := handler(t, fakeClients{app: webApp()}, fakeSessions{}, newStoreForTest(t))
+
+	out := httptest.NewRecorder()
+	h.Resume(out, httptest.NewRequest(http.MethodPost, "/login", nil), "gone", liveSession())
+
+	if out.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", out.Code)
+	}
+	if out.Header().Get("Location") != "" {
+		t.Errorf("it redirected to %q", out.Header().Get("Location"))
 	}
 }

@@ -62,10 +62,21 @@ const CAPABILITY_CLAIMS = [
   {
     label: "Single sign-on",
     phase: "Phase 1",
-    // Authorize issues the code, token exchanges it, the hosted page is where
-    // a user without a session actually logs in. Any one missing means a
-    // consumer cannot complete a login.
-    tasks: ["P1-06", "P1-07", "P1-12"],
+    // The list grew a second time, and for the same reason it grew the first.
+    //
+    // `P1-06` issues the code, `P1-07` exchanges it, `P1-12` is where a user
+    // without a session actually logs in. With those three the PROTOCOL is
+    // complete — and this check fired anyway on the day `P1-12` landed, saying
+    // the capability had shipped and the card should stop saying "Phase 1".
+    //
+    // It had not shipped. A visitor cannot register an application (`P1-18`)
+    // or create a user with a password (`P1-19`), so there is nothing to sign
+    // in to and nobody to sign in as. "A consumer can complete a login" was
+    // being measured against a database somebody else populated by hand.
+    //
+    // The distinction the list has to encode is *usable by a visitor*, not
+    // *implemented*. That is what a capability card promises.
+    tasks: ["P1-06", "P1-07", "P1-12", "P1-18", "P1-19"],
   },
   {
     label: "A complete REST API",
@@ -109,6 +120,33 @@ const problems = [];
 // matches.
 const landingText = landing.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
 
+/**
+ * The capability cards, split apart and keyed by their title.
+ *
+ * Split rather than searched as one string, because two cards share the label
+ * "Phase 1": a check that asked whether "Phase 1" appears ANYWHERE on the page
+ * was satisfied by either of them, so deleting the label from one card would
+ * have passed. The label has to be found inside the card it belongs to.
+ */
+function capabilityCards(html) {
+  const cards = new Map();
+  for (const [, block] of html.matchAll(/<article[^>]*class="[^"]*site-card[^"]*"[^>]*>([\s\S]*?)<\/article>/g)) {
+    const text = block.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+    const title = (block.match(/class="[^"]*site-card__title[^"]*"[^>]*>([^<]*)</) || [])[1];
+    if (title) cards.set(title.trim(), text);
+  }
+  return cards;
+}
+
+const cards = capabilityCards(landing);
+
+if (cards.size === 0) {
+  problems.push(
+    "no capability cards were found on the landing page — the markup changed " +
+      "and this audit is now checking nothing",
+  );
+}
+
 for (const claim of CAPABILITY_CLAIMS) {
   if (!landingText.includes(claim.label)) {
     problems.push(
@@ -118,9 +156,18 @@ for (const claim of CAPABILITY_CLAIMS) {
     continue;
   }
 
-  if (!landingText.includes(claim.phase)) {
+  const card = cards.get(claim.label);
+  if (card === undefined) {
     problems.push(
-      `"${claim.label}" appears without its phase label "${claim.phase}" — ` +
+      `"${claim.label}" is on the page but not as a capability card, so its ` +
+        `phase label cannot be checked against it`,
+    );
+    continue;
+  }
+
+  if (!card.includes(claim.phase)) {
+    problems.push(
+      `the "${claim.label}" card does not carry its phase label "${claim.phase}" — ` +
         `an unlabelled capability reads as available`,
     );
   }

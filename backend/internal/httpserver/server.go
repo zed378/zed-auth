@@ -58,6 +58,17 @@ type Deps struct {
 	// generated strict interface passes a parsed body and no request.
 	Token http.Handler
 
+	// Login serves GET and POST /login, and Forgot serves /login/forgot
+	// (P1-12). Hand-registered because they answer with HTML rather than with
+	// PLAN/05's JSON envelope, which is what the generated interface produces.
+	//
+	// They are also the two routes in this service that are not part of the
+	// API contract at all: a browser is the only client, and no consumer ever
+	// codes against them. openapi.yaml documents them so the served surface is
+	// still fully described, and nothing is generated from them.
+	Login  http.Handler
+	Forgot http.Handler
+
 	// TrustProxyHeaders must be true only when a proxy in front of this service
 	// strips client-supplied correlation headers. See RequestID.
 	TrustProxyHeaders bool
@@ -150,6 +161,16 @@ func New(cfg config.HTTPConfig, deps Deps) *Server {
 	}
 	if deps.Token != nil {
 		mux.Method(http.MethodPost, "/oauth/token", deps.Token)
+	}
+	if deps.Login != nil {
+		// One handler for both methods: the page and its submission share the
+		// pending request, the branding and the CSRF token, and splitting them
+		// across two registrations would be two places to keep those in step.
+		mux.Method(http.MethodGet, "/login", deps.Login)
+		mux.Method(http.MethodPost, "/login", deps.Login)
+	}
+	if deps.Forgot != nil {
+		mux.Method(http.MethodGet, "/login/forgot", deps.Forgot)
 	}
 
 	routes := apiRoutes{Health: deps.Health, Handler: deps.Discovery}

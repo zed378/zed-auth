@@ -26,6 +26,7 @@ import (
 	"github.com/zed378/zed-auth/backend/internal/authn"
 	"github.com/zed378/zed-auth/backend/internal/config"
 	"github.com/zed378/zed-auth/backend/internal/httpserver"
+	"github.com/zed378/zed-auth/backend/internal/login"
 	"github.com/zed378/zed-auth/backend/internal/oauth/authorize"
 	"github.com/zed378/zed-auth/backend/internal/oauth/client"
 	"github.com/zed378/zed-auth/backend/internal/oauth/token"
@@ -306,6 +307,22 @@ func run() error {
 		Log:      log,
 	}
 
+	// The hosted login page (P1-12). It closes the loop: /oauth/authorize
+	// sends a browser here when there is no session, and Resume sends it back
+	// with a code once there is one.
+	loginHandler := &login.Handler{
+		Authorization: authorizeHandler,
+		Sessions:      sessions,
+		Users:         authn.NewUserStore(),
+		Policies:      authn.NewPolicyStore(log),
+		Brandings:     login.NewBrandingStore(),
+		DB:            db,
+		Audit:         auditor,
+		Observer:      loginObserver{metrics},
+		Log:           log,
+		Policy:        session.DefaultPolicy,
+	}
+
 	discoveryCapabilities := oidc.Capabilities{
 		Issuer:  cfg.Issuer,
 		JWKSURI: cfg.Issuer + "/.well-known/jwks.json",
@@ -360,6 +377,8 @@ func run() error {
 		Discovery: discovery,
 		Authorize: authorizeHandler,
 		Token:     tokenHandler,
+		Login:     loginHandler,
+		Forgot:    http.HandlerFunc(loginHandler.Forgot),
 		// Explicit configuration, not inferred from the environment: see the
 		// comment on config.HTTPConfig.TrustProxyHeaders. Defaults to false,
 		// so a deployment behind a proxy that forwards client headers
@@ -657,6 +676,21 @@ func (s sessionLiveness) IsLive(ctx context.Context, sessionID string, now time.
 	// the session's identifier and never its cookie — which is PG-14's
 	// separation paying off in a second place.
 	return s.sessions.IsLive(ctx, sessionID, now)
+}
+
+// loginObserver counts login attempts.
+//
+// The outcome label is coarse on purpose — "failed" covers a wrong password,
+// an unknown address and a locked account alike. Splitting them would move
+// SECURITY/02 §12's enumeration disclosure from the response body into
+// /metrics, which is scraped, retained and usually more widely readable than
+// the audit log.
+type loginObserver struct{ m *observability.Metrics }
+
+func (o loginObserver) LoginAttempt(outcome string) {
+	if o.m != nil {
+		o.m.LoginAttempts.WithLabelValues(outcome).Inc()
+	}
 }
 
 // tokenObserver reports token-endpoint outcomes.
