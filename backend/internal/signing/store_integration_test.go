@@ -136,7 +136,7 @@ func TestRotationKeepsOlderTokensValid(t *testing.T) {
 	cache.Invalidate()
 
 	// The property that matters.
-	if _, err := NewVerifier(cache).Verify(token); err != nil {
+	if _, err := NewVerifier(cache).Verify(token, TypeJWT); err != nil {
 		t.Fatalf("a token signed before the rotation must still verify: %v", err)
 	}
 
@@ -171,7 +171,7 @@ func TestRetireRemovesAKeyFromVerification(t *testing.T) {
 	cache.Invalidate()
 
 	// Still valid while previous.
-	if _, err := NewVerifier(cache).Verify(token); err != nil {
+	if _, err := NewVerifier(cache).Verify(token, TypeJWT); err != nil {
 		t.Fatalf("token should verify while its key is previous: %v", err)
 	}
 
@@ -180,7 +180,7 @@ func TestRetireRemovesAKeyFromVerification(t *testing.T) {
 	}
 	cache.Invalidate()
 
-	if _, err := NewVerifier(cache).Verify(token); err == nil {
+	if _, err := NewVerifier(cache).Verify(token, TypeJWT); err == nil {
 		t.Fatal("a token signed by a retired key must stop verifying")
 	}
 }
