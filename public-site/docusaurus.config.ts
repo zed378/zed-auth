@@ -209,6 +209,10 @@ const config: Config = {
       logo: {
         alt: "Zed Auth",
         src: "img/logo.svg",
+        // The mark's hub ring lightens on dark, per the concept. Without
+        // srcDark the light variant's #4655F5 ring sits on the dark navbar at
+        // 3.46:1 — legible, but not what was designed.
+        srcDark: "img/logo-dark.svg",
       },
       items: [
         { to: "/docs", label: "Docs", position: "left" },

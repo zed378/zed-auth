@@ -13,20 +13,20 @@
     <meta name="robots" content="noindex, nofollow" />
 
     <!--
-      An inline favicon rather than a file. The browser requests /favicon.ico
-      unconditionally, and a static host answers 404 — a console error on every
-      page load that means nothing and trains people to ignore the console.
-      A data URI answers the request without a round trip.
+      A real file rather than a data URI.
 
-      The mark is a keyhole, and the colour is --color-accent's value. It is
-      the one place a token value is duplicated: an <svg> in a data URI cannot
-      read a CSS custom property, because it is parsed before the stylesheet
-      exists.
+      The URI existed to answer the browser's unconditional /favicon.ico
+      request without a 404, and an explicit rel="icon" does that just as well
+      — a browser that is told where the icon is does not go looking for
+      favicon.ico. It also stops the mark being duplicated as escaped markup
+      in an HTML file, where brand/check.py could not see it drift.
+
+      The asset is a copy of brand/favicon.svg. The copy is deliberate: the
+      console and the public site share the visual language and no code
+      (PLAN/20), so each keeps its own. brand/check.py fails if a copy stops
+      matching its source.
     -->
-    <link
-      rel="icon"
-      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%231d4ed8'/%3E%3Cpath d='M16 8a4.5 4.5 0 0 0-2.2 8.4L12.5 24h7l-1.3-7.6A4.5 4.5 0 0 0 16 8z' fill='%23fff'/%3E%3C/svg%3E"
-    />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
 
     <title>Zed Auth Console</title>
   </head>
