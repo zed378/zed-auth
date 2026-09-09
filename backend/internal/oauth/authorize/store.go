@@ -176,6 +176,41 @@ func (s *Store) SavePending(ctx context.Context, r Request, ttl time.Duration) (
 	return id, nil
 }
 
+// PeekPending reads a pending request WITHOUT consuming it.
+//
+// The login page needs this and LoadPending needs to stay single-use, so they
+// are two methods rather than one with a flag.
+//
+// Rendering the form must not consume the request: a page refresh, a browser's
+// back button, or a mistyped password would otherwise destroy the flow and
+// leave the user at a dead end with no way back to the application. Neither
+// may a failed submission consume it, or every account would get exactly one
+// attempt at its password.
+//
+// So the read is free and the SUCCESS is what consumes. LoadPending is called
+// once, after authentication, immediately before a code is issued — which is
+// the only moment where single-use is the property that matters, and it stays
+// atomic there.
+func (s *Store) PeekPending(ctx context.Context, id string) (Request, error) {
+	if id == "" {
+		return Request{}, ErrPendingNotFound
+	}
+
+	raw, err := s.client.Get(ctx, pendingKey(id)).Bytes()
+	switch {
+	case errors.Is(err, redis.Nil):
+		return Request{}, ErrPendingNotFound
+	case err != nil:
+		return Request{}, fmt.Errorf("authorize: reading pending request: %w", err)
+	}
+
+	var r Request
+	if err := json.Unmarshal(raw, &r); err != nil {
+		return Request{}, fmt.Errorf("authorize: decoding pending request: %w", err)
+	}
+	return r, nil
+}
+
 // LoadPending consumes a pending request.
 //
 // Single-use, by the same GETDEL. A resumable-twice request would let one
