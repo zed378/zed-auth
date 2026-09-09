@@ -47,6 +47,19 @@ type Metrics struct {
 	TokensIssued  *prometheus.CounterVec
 	Lockouts      prometheus.Counter
 
+	// PasswordPolicyRejections counts refused passwords, labelled by the rule
+	// that refused them (P1-02).
+	PasswordPolicyRejections *prometheus.CounterVec
+
+	// PasswordBreachChecks counts corpus lookups by outcome: clean, breached,
+	// skipped, disabled.
+	//
+	// This counter is not decoration — it is half of ADR-015. The fail-open
+	// decision is defensible only because a skipped check is visible, so a
+	// deployment where `skipped` climbs is a deployment where breached
+	// passwords are being accepted, and nothing else would say so.
+	PasswordBreachChecks *prometheus.CounterVec
+
 	// --- Authorization (P2-06, P4B-02) ---
 
 	AuthzCheckDuration *prometheus.HistogramVec
@@ -124,6 +137,15 @@ func NewMetrics(service, version string) *Metrics {
 		LoginAttempts: factory.counterVec(
 			"auth_login_attempts_total",
 			"Login attempts by outcome. PLAN/13 § Alerting keys the brute-force alert on the failure rate.",
+			"outcome"),
+
+		PasswordPolicyRejections: factory.counterVec(
+			"auth_password_policy_rejections_total",
+			"Passwords refused by policy, by the rule that refused them.",
+			"rule"),
+		PasswordBreachChecks: factory.counterVec(
+			"auth_password_breach_checks_total",
+			"Breached-password corpus lookups by outcome. A rising `skipped` means ADR-015 is failing open and unchecked passwords are being accepted.",
 			"outcome"),
 
 		TokensIssued: factory.counterVec(

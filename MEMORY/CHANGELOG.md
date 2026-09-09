@@ -67,6 +67,21 @@ Format follows Keep a Changelog conventions, grouped by release once releases ex
 
 ## Phase 1 — MVP: Core Authentication and SSO
 
+**Added** — password policy and breached-password rejection ([record](./records/2026-09-09-P1-02-password-policy.md), [spec](./specs/P1-02-password-policy.md))
+- `authn.Evaluate`: a pure function over (password, policy), with `min_length` and `require_uppercase` read from `organizations.settings` rather than compiled in — so `P2-14`'s per-organization editor plugs into a mechanism that exists instead of replacing a hard-coded one. An integration test `UPDATE`s a live row and watches enforcement change with no restart. (`P1-02`)
+- A breached-password check over a k-anonymity API: five hex characters leave the process and nothing else. The outbound-request test asserts the password, its hash suffix and the full hash are absent from the URL, the headers and the body — and a second test proves that assertion can actually fail, against a synthetic leaky request.
+- **An 8-character floor no configuration can cross.** Without one, `"min_length": 1` is a valid policy and the control an administrator was given is the control they can silently remove. Every clamp is reported and logged, because a silent correction leaves the gap between the configured and the enforced policy discoverable only by experiment.
+- Length counted in **runes over NFC**, not bytes: twelve characters otherwise means twelve in English and four in Japanese. Normalization touches only the count, never the string that reaches the hasher.
+- `users.password_changed_at`, closing **`PG-13`** — `max_age_days` has been in the specified policy since `PLAN/08` with nothing in the schema to evaluate it against. NULL means *not* expired; the alternative turns deploying the migration into a mass lockout.
+- Two audit event types, two metrics, and two alert rules (17 total, promtool-validated).
+
+**Decided**
+- **ADR-015: the breach check fails open, and says so every time.** Failing closed makes a third party a hard dependency of password changes, and the moment that matters most is the worst one for it — during an incident users are told to rotate passwords, this path spikes, and a rate-limited corpus would block the exact remediation the incident calls for. The risk accepted is bounded and identified per user in the audit log; the risk refused has no ceiling. Fail-open covers service failure only: a definitive match always rejects, and an unparseable response is a failure rather than an answer. (`P1-02`)
+
+**Found**
+- **A parser whose success condition was satisfied by a failure.** The corpus check counted response lines, and an HTML error page is one line — so a proxy answering `200` with "Access denied" produced zero matches, one line, and therefore `clean`. The password was admitted with `OutcomeClean` and nothing recorded that no check had happened: an always-open path that ADR-015's own metric would have shown as healthy. Caught by a test written before the parser was finished; it now counts well-formed 35-character hex entries, and a body with none of them has not answered the question. A new shape of the vacuous-check failure this project keeps finding — not a test that did not run, but a check that was wrong about what success means. (`P1-02`)
+- `PG-13`, above.
+
 **Added** — discovery document and JWKS endpoint ([record](./records/2026-09-09-P1-04-discovery-jwks.md))
 - `GET /.well-known/openid-configuration` and `GET /.well-known/jwks.json`, both declared in the OpenAPI spec and served through the generated strict router rather than registered beside it — so ADR-013's guarantee that served paths equal documented paths covers the two endpoints whose entire purpose is discoverability. (`P1-04`)
 - **The document is derived, never written out.** `internal/oidc.Capabilities` is a struct of facts about running code; an endpoint that does not exist leaves its field empty and is absent from the JSON. Advertising `/oauth/token` before `P1-07` builds it is not a discipline anyone has to remember — it is not expressible.

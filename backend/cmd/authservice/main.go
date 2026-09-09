@@ -11,6 +11,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -20,6 +21,7 @@ import (
 	"time"
 
 	"github.com/zed378/zed-auth/backend/internal/audit"
+	"github.com/zed378/zed-auth/backend/internal/authn"
 	"github.com/zed378/zed-auth/backend/internal/config"
 	"github.com/zed378/zed-auth/backend/internal/httpserver"
 	"github.com/zed378/zed-auth/backend/internal/observability"
@@ -196,6 +198,27 @@ func run() error {
 			log.Error("admin listener stopped", "error", aerr.Error())
 		}
 	}()
+
+	// Password policy (P1-02).
+	//
+	// The policy VALUES are not here — they are read per organization from
+	// organizations.settings, which is what lets P2-14 make them editable
+	// without touching enforcement. What is built here is the breach-corpus
+	// client, because it is a network dependency and those belong in main.
+	//
+	// A nil checker is a first-class state, not an oversight: authn.CheckBreach
+	// reports OutcomeDisabled for it, which lands in the same metric as a
+	// failure. "Somebody turned it off" and "it has been broken for three
+	// weeks" must be visible in the same place (ADR-015).
+	//
+	// Nothing consumes these yet, and the startup log says so rather than
+	// leaving an operator to infer from a quiet metric that the check is
+	// working. The first password-set path is P1-12's hosted form; P1-19's
+	// user-creation endpoint is the second.
+	passwords := newPasswordChecks(cfg, log)
+	log.Info("password policy ready",
+		"breach_check", passwords.state,
+		"enforced_at", "no password-set path exists yet (P1-12, P1-19)")
 
 	// The signing key set, read from the database rather than from a
 	// configured path (P1-03).
@@ -383,4 +406,41 @@ func resolveSecrets(cfg *config.Config) (serviceSecrets, error) {
 	}
 
 	return out, nil
+}
+
+// passwordChecks bundles the P1-02 pieces a password-set path needs.
+//
+// Built here because the breach client is a network dependency and those are
+// assembled in main, and returned as one value so the wiring is a single thing
+// to pass to P1-12 and P1-19 rather than two that can drift apart.
+type passwordChecks struct {
+	policies *authn.PolicyStore
+	breaches authn.BreachChecker
+
+	// state is what the startup log reports: "enabled" or "disabled".
+	state string
+}
+
+func newPasswordChecks(cfg *config.Config, log *slog.Logger) passwordChecks {
+	checks := passwordChecks{
+		policies: authn.NewPolicyStore(log),
+		state:    "disabled",
+	}
+
+	if !cfg.Password.BreachCheckEnabled {
+		log.Warn("breached-password checking is disabled",
+			"consequence", "passwords will be accepted without any corpus check",
+			"remedy", "remove AUTH_PASSWORD_BREACH_CHECK_ENABLED=false")
+		return checks
+	}
+
+	client := authn.NewBreachClient()
+	if cfg.Password.BreachAPI != "" {
+		client.Endpoint = cfg.Password.BreachAPI
+	}
+	client.HTTP.Timeout = cfg.Password.BreachTimeout
+
+	checks.breaches = client
+	checks.state = "enabled"
+	return checks
 }
