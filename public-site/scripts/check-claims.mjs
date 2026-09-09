@@ -44,11 +44,44 @@ const PROGRESS = resolve(here, "../../TASKS/PROGRESS.md");
  * card means making a claim about its status in a file a reviewer reads —
  * which is the point of the audit.
  */
+/**
+ * Each capability lists EVERY task that has to ship before a visitor could use
+ * it, not just the most representative one.
+ *
+ * This started as one task per capability and was wrong the first time it
+ * mattered. `P1-06` shipped the authorization endpoint and the audit declared
+ * single sign-on shipped — but a consumer application still could not complete
+ * a login, because there was no token endpoint to exchange the code at and no
+ * page to log in on. Marking the card "available" then would have been exactly
+ * the false claim this check exists to prevent, produced by the check itself.
+ *
+ * So a capability is shipped when all of its tasks are, and the audit says
+ * which ones are outstanding.
+ */
 const CAPABILITY_CLAIMS = [
-  { label: "Single sign-on", phase: "Phase 1", task: "P1-06" },
-  { label: "A complete REST API", phase: "Phase 1", task: "P1-15" },
-  { label: "Roles that scale to delegation", phase: "Phase 4", task: "P4-01" },
-  { label: "Policies when roles are not enough", phase: "Phase 4b", task: "P4B-02" },
+  {
+    label: "Single sign-on",
+    phase: "Phase 1",
+    // Authorize issues the code, token exchanges it, the hosted page is where
+    // a user without a session actually logs in. Any one missing means a
+    // consumer cannot complete a login.
+    tasks: ["P1-06", "P1-07", "P1-12"],
+  },
+  {
+    label: "A complete REST API",
+    phase: "Phase 1",
+    tasks: ["P1-15"],
+  },
+  {
+    label: "Roles that scale to delegation",
+    phase: "Phase 4",
+    tasks: ["P4-01"],
+  },
+  {
+    label: "Policies when roles are not enough",
+    phase: "Phase 4b",
+    tasks: ["P4B-02"],
+  },
 ];
 
 function fail(lines) {
@@ -107,19 +140,21 @@ function statusOf(taskId) {
 }
 
 for (const claim of CAPABILITY_CLAIMS) {
-  const status = statusOf(claim.task);
-
-  if (status === null) {
+  const missing = claim.tasks.filter((task) => statusOf(task) === null);
+  if (missing.length > 0) {
     problems.push(
-      `"${claim.label}" maps to ${claim.task}, which is not on the PROGRESS board`,
+      `"${claim.label}" maps to ${missing.join(", ")}, which is not on the PROGRESS board`,
     );
     continue;
   }
 
-  if (status === "DONE") {
+  const outstanding = claim.tasks.filter((task) => statusOf(task) !== "DONE");
+
+  if (outstanding.length === 0) {
     problems.push(
-      `"${claim.label}" is labelled "${claim.phase}" but ${claim.task} is DONE — ` +
-        `it has shipped, and describing it as planned is now the inaccuracy`,
+      `"${claim.label}" is labelled "${claim.phase}" but every task it needs ` +
+        `(${claim.tasks.join(", ")}) is DONE — it has shipped, and describing ` +
+        `it as planned is now the inaccuracy`,
     );
   }
 }
@@ -137,6 +172,12 @@ if (!landingText.includes("Status: in development")) {
 
 if (problems.length > 0) fail(problems);
 
+const remaining = CAPABILITY_CLAIMS.map(
+  (claim) =>
+    `${claim.label} (${claim.tasks.filter((t) => statusOf(t) !== "DONE").join(", ")})`,
+);
+
 console.log(
-  `${CAPABILITY_CLAIMS.length} capability claims audited; each labelled and unshipped.`,
+  `${CAPABILITY_CLAIMS.length} capability claims audited; each labelled and unshipped.\n` +
+    `  still outstanding: ${remaining.join("; ")}`,
 );

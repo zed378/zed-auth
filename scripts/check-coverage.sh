@@ -33,6 +33,7 @@ internal/authz:$FLOOR:P2-06
 internal/oidc:$FLOOR:P1-06
 internal/oauth/client:$FLOOR:P1-05
 internal/session:$FLOOR:P1-11
+internal/oauth/authorize:$FLOOR:P1-06
 "
 
 profile=$(mktemp)

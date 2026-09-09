@@ -233,7 +233,7 @@ Two bugs found by tests written before the code they cover: `fmt.Stringer` does 
 
 | | |
 |---|---|
-| **Status** | TODO |
+| **Status** | DONE (one item deferred to `P1-27`) — [record](../MEMORY/records/2026-09-09-P1-06-authorize.md), [spec](../MEMORY/specs/P1-06-authorize.md) |
 | **Depends on** | P1-05, P1-11 |
 | **Plan refs** | `PLAN/05-API-CONTRACT.md` Part A, `PLAN/03-ARCHITECTURE.md` § Main Data Flow (SSO), `PLAN/09-SECURITY.md`, `PLAN/12-PERFORMANCE.md` |
 | **Spec required** | Yes — authentication core |
@@ -253,13 +253,21 @@ Two bugs found by tests written before the code they cover: `fmt.Stringer` does 
 9. Emit metrics distinguishing the silent-SSO path from the login-required path, since `PLAN/12` sets a separate latency target for the former.
 
 **Definition of Done**
-- [ ] A request missing `code_challenge` is rejected for every client type, including confidential ones.
-- [ ] `code_challenge_method=plain` is rejected.
-- [ ] An invalid `client_id` or `redirect_uri` produces an error page and no redirect whatsoever.
-- [ ] With a valid session, the endpoint returns a code with no user interaction.
-- [ ] `prompt=none` without a session returns `login_required` to the client rather than rendering a login page.
-- [ ] Codes are single-use, expire within 60 seconds, and are bound to the issuing client and redirect URI.
-- [ ] The silent-SSO path meets `PLAN/12`'s p95 target under the load test.
+- [x] A request missing `code_challenge` is rejected for every client type, including confidential ones. The test iterates `client.Types` rather than naming the ones somebody remembered.
+- [x] `code_challenge_method=plain` is rejected, as is an absent method.
+- [x] An invalid `client_id` or `redirect_uri` produces an error page and no redirect whatsoever. Asserted as the **absence of a `Location` header** — an unusual assertion, and therefore a conspicuous one to break. Both causes are reported identically so the endpoint cannot be used to discover which client ids exist.
+- [x] With a valid session, the endpoint returns a code with no user interaction, bound to client, redirect URI, challenge, session and `auth_methods`.
+- [x] `prompt=none` without a session returns `login_required` rather than rendering a login page — asserted on the error code *and* the absence of HTML, since a hidden iframe cannot show a form.
+- [x] Codes are single-use, expire within 60 seconds, and are bound to the issuing client and redirect URI. 30 seconds, with the bound enforced in `IssueCode` rather than trusted to callers.
+- [ ] The silent-SSO path meets `PLAN/12`'s p95 target under the load test. **Deferred to `P1-27`, which owns the load test.** What ships here is the metric that measures it, labelled so the silent path is separable — an average across both paths would hide it behind the time a human spends typing a password.
+
+**Beyond the stated steps**
+
+The atomicity `PLAN/04` requires is demonstrated rather than asserted: 32 goroutines across 25 rounds yield exactly one success, and replacing `GETDEL` with `GET`-then-`DEL` makes that test fail with 32 successes while the sequential single-use test stays green.
+
+**One deviation from ADR-013, deliberate and documented.** The generated router binds every parameter before the handler runs, which would reject a missing `state` before `redirect_uri` was validated — sending the error down the wrong channel — and would silently collapse duplicated parameters. The operation is excluded from code generation and registered by hand; it stays in `openapi.yaml`, so it is still documented, still generated into the public API reference, and still checked by `openapi-shipped-paths.py`.
+
+Discovery now advertises `authorization_endpoint` and `code_challenge_methods_supported`, because both became true. `token_endpoint` is still absent, which is also true — so `P1-04`'s first DoD item stays unticked until `P1-07`.
 
 **Abuse cases to test**
 - Authorization code interception without the verifier (`PLAN/10` § High-Priority Abuse Scenarios).

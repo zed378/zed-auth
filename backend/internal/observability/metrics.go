@@ -51,6 +51,18 @@ type Metrics struct {
 	// that refused them (P1-02).
 	PasswordPolicyRejections *prometheus.CounterVec
 
+	// --- Authorization endpoint (P1-06) ---
+
+	// AuthorizeTotal is labelled by outcome and path. The second label carries
+	// the OAuth error code on a denial, which is what turns "authorization is
+	// failing" into "this client is sending the wrong redirect_uri".
+	AuthorizeTotal *prometheus.CounterVec
+
+	// AuthorizeDuration measures the silent path only. PLAN/12 sets a target
+	// for it specifically (p95 < 150ms), and including the interactive path
+	// would average in the time a human spends typing a password.
+	AuthorizeDuration *prometheus.HistogramVec
+
 	// --- Sessions (P1-11) ---
 
 	SessionsCreated *prometheus.CounterVec
@@ -156,6 +168,16 @@ func NewMetrics(service, version string) *Metrics {
 			"auth_login_attempts_total",
 			"Login attempts by outcome. PLAN/13 § Alerting keys the brute-force alert on the failure rate.",
 			"outcome"),
+
+		AuthorizeTotal: factory.counterVec(
+			"auth_authorize_total",
+			"Authorization requests by outcome and path. On a denial the second label is the OAuth error code.",
+			"outcome", "path"),
+		AuthorizeDuration: factory.histogramVec(
+			"auth_authorize_duration_seconds",
+			"Silent-SSO latency. PLAN/12 targets p95 < 150ms for this path specifically.",
+			[]float64{0.005, 0.01, 0.025, 0.05, 0.1, 0.15, 0.3, 0.6},
+			"path"),
 
 		SessionsCreated: factory.counterVec(
 			"auth_sessions_created_total",

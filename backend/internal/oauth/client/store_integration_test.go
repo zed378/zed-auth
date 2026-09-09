@@ -453,3 +453,93 @@ func TestRedirectURIsAreStoredCanonically(t *testing.T) {
 		t.Error("the pre-canonical form still matches; comparison is not exact against the stored value")
 	}
 }
+
+// --- the bootstrap lookup ---------------------------------------------------------
+
+// ByClientID resolves a public client_id before a tenant is known, which is
+// what /oauth/authorize needs. It goes through a SECURITY DEFINER function
+// because `applications_tenant_isolation` matches nothing with no tenant set —
+// the same wall sessions hit from the other direction.
+func TestByClientIDResolvesWithoutATenant(t *testing.T) {
+	f := setup(t)
+
+	var rec Record
+	if err := f.tx(t, func(tx *postgres.Tx) error {
+		var err error
+		rec, _, err = f.store.Create(context.Background(), tx, f.webApp("billing"), "")
+		return err
+	}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	// No transaction, no tenant scope — exactly how the authorize endpoint
+	// calls it.
+	got, err := f.store.ByClientID(context.Background(), f.db, rec.ID)
+	if err != nil {
+		t.Fatalf("ByClientID: %v", err)
+	}
+
+	if got.ID != rec.ID || got.OrgID != f.orgID {
+		t.Errorf("resolved %+v, want the created application", got)
+	}
+	if len(got.RedirectURIs) != 1 || got.RedirectURIs[0] != "https://app.example.com/cb" {
+		t.Errorf("redirect URIs = %v, want the registered one", got.RedirectURIs)
+	}
+	if !got.MatchesRedirectURI("https://app.example.com/cb") {
+		t.Error("the resolved application does not match its own registered redirect URI")
+	}
+	if len(got.GrantTypes) == 0 {
+		t.Error("grant types were lost; the authorize endpoint checks them")
+	}
+}
+
+// The function returns no secret columns at all, so there is nothing for a
+// caller to obtain even at owner privilege. That is the difference between "we
+// remember not to return it" and "there is nothing to return".
+func TestByClientIDCannotYieldASecret(t *testing.T) {
+	f := setup(t)
+
+	var rec Record
+	var secret Secret
+	if err := f.tx(t, func(tx *postgres.Tx) error {
+		var err error
+		rec, secret, err = f.store.Create(context.Background(), tx, f.webApp("billing"), "")
+		return err
+	}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	got, err := f.store.ByClientID(context.Background(), f.db, rec.ID)
+	if err != nil {
+		t.Fatalf("ByClientID: %v", err)
+	}
+
+	// ByClientID returns an Application, not a Record, so there is no field on
+	// the return type that could hold credential state. That is stronger than
+	// remembering not to populate one: `got.Credentials` does not compile.
+	if got.ID != rec.ID {
+		t.Fatalf("resolved the wrong application: %+v", got)
+	}
+
+	// And the SQL function returns no secret column either, so this is a
+	// property of the schema rather than of the Go mapping.
+	var columns string
+	f.factory.QueryRow(&columns,
+		`SELECT string_agg(a.attname, ' ') FROM pg_proc p
+		   JOIN unnest(p.proallargtypes, p.proargnames) WITH ORDINALITY AS a(typ, attname, ord) ON true
+		  WHERE p.proname = 'application_by_client_id'`)
+	if strings.Contains(columns, "secret") {
+		t.Errorf("application_by_client_id returns a secret column: %s", columns)
+	}
+	_ = secret
+}
+
+func TestByClientIDOnAnUnknownID(t *testing.T) {
+	f := setup(t)
+
+	_, err := f.store.ByClientID(context.Background(),
+		f.db, "00000000-0000-0000-0000-000000000000")
+	if !errors.Is(err, ErrNotFound) {
+		t.Errorf("ByClientID on an unknown id = %v, want ErrNotFound", err)
+	}
+}
