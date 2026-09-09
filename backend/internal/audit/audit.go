@@ -94,6 +94,15 @@ const (
 	EventApplicationSecretRotated EventType = "application.secret_rotated"
 	EventApplicationDeleted       EventType = "application.deleted"
 
+	// EventApplicationUpdated records a change to a registered client (P1-05).
+	//
+	// Its payload carries redirect URI changes WITH their values, unlike most
+	// audit payloads. They are not secret, and an entry saying "redirect_uris
+	// changed" without saying to what cannot answer the question it exists
+	// for: if an attacker with admin access widens a redirect URI, this log is
+	// the only place that shows it.
+	EventApplicationUpdated EventType = "application.updated"
+
 	EventSigningKeyRotated EventType = "signing_key.rotated"
 
 	// EventInstanceScopedAccess records a use of the cross-tenant database

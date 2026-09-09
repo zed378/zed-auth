@@ -134,3 +134,19 @@ func (f *Factory) Exec(query string, args ...any) {
 		f.t.Fatalf("factory: exec: %v\nquery: %s", err, query)
 	}
 }
+
+// QueryRow reads a single value on the OWNER connection, for assertions that
+// must see the raw row rather than what an application read path returns.
+//
+// The owner bypasses row-level security, which is exactly why this is the
+// right tool for "prove the plaintext never reached the column" and the wrong
+// tool for anything about isolation. An isolation test that used this would
+// pass against a schema with no policies at all (P0-08's lesson), so it is
+// documented as an inspection helper and named to read like one.
+func (f *Factory) QueryRow(dest any, query string, args ...any) {
+	f.t.Helper()
+
+	if err := f.db.QueryRow(query, args...).Scan(dest); err != nil {
+		f.t.Fatalf("factory: query: %v\nquery: %s", err, query)
+	}
+}

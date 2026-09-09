@@ -3,8 +3,8 @@
 Single source of truth for where the project stands. Updated in the same commit as the work it describes (`00-TASK-CONVENTIONS.md` global DoD item 8).
 
 **Last updated**: 2026-09-09
-**Current phase**: Phase 1 — MVP Core Auth (4 / 28 done). Phase 0 is 20 / 21; `P0-20` stays WIP pending the pull-based deployment re-read
-**Overall**: 24 / 177 tasks done
+**Current phase**: Phase 1 — MVP Core Auth (5 / 28 done). Phase 0 is 20 / 21; `P0-20` stays WIP pending the pull-based deployment re-read
+**Overall**: 25 / 177 tasks done
 
 Status values: `TODO` · `BLOCKED` · `SPEC` · `WIP` · `REVIEW` · `DONE` · `DROPPED`
 Sizes: `S` under half a day · `M` one to two days · `L` several days · `XL` must be split
@@ -16,7 +16,7 @@ Sizes: `S` under half a day · `M` one to two days · `L` several days · `XL` m
 | Phase | Tasks | Done | Status | Gate to enter |
 |---|---|---|---|---|
 | [Phase 0 — Foundation](./PHASE-0-FOUNDATION.md) | 21 | 20 | **ACTIVE** — `P0-20` only | — |
-| [Phase 1 — MVP: Core Auth + SSO](./PHASE-1-MVP-CORE-AUTH-SSO.md) | 28 | 4 | **ACTIVE** | Phase 0 exit checklist |
+| [Phase 1 — MVP: Core Auth + SSO](./PHASE-1-MVP-CORE-AUTH-SSO.md) | 28 | 5 | **ACTIVE** | Phase 0 exit checklist |
 | [Phase 2 — RBAC & Multi-Tenancy](./PHASE-2-RBAC-MULTITENANCY.md) | 17 | 0 | Not started | Phase 1 exit + `P1-28` |
 | [Phase 3 — Advanced Security](./PHASE-3-ADVANCED-SECURITY.md) | 15 | 0 | Not started | Phase 2 exit + threat model review |
 | [Phase 4 — Enterprise Interop](./PHASE-4-ENTERPRISE-INTEROP.md) | 16 | 0 | Not started | Phase 3 exit + threat model review |
@@ -68,7 +68,7 @@ Sizes: `S` under half a day · `M` one to two days · `L` several days · `XL` m
 | P1-02 | Password policy and breached-password rejection | M | **DONE** — ADR-015 (fail open, loudly); `PG-13` found and closed by `users.password_changed_at` | P1-01 |
 | P1-03 | Signing key management, JWKS, rotation | L | **DONE** | P0-14 |
 | P1-04 | Discovery document and JWKS endpoint | S | **DONE** — two DoD items deliberately deferred to `P1-06`/`P1-07`, which are the tasks that make them true: a client library cannot finish configuring without an authorization and token endpoint, and nothing emits an `iss` claim yet | P1-03 |
-| P1-05 | Application registration and credentials | M | TODO | P0-07 |
+| P1-05 | Application registration and credentials | M | **DONE** — ADR-016 (SHA-256 for client secrets); redirect matching is exact, with a 15-row rejection table naming each attack | P0-07 |
 | P1-06 | `GET /oauth/authorize` — code + PKCE | L | TODO | P1-05, P1-11 |
 | P1-07 | `POST /oauth/token` | L | TODO | P1-06, P1-03 |
 | P1-08 | `GET /oauth/userinfo` | S | TODO | P1-07 |
@@ -344,6 +344,10 @@ Things that are easy to get wrong once and expensive to fix later. Re-check each
 | A length rule in bytes is a different rule per language | Twelve characters means twelve in English and four in Japanese. Runes over NFC, and normalization can only make it stricter | `P1-02` |
 | Absent and false must stay distinguishable in a settings document | A plain `bool` collapses them and the default silently wins — a failure in the insecure direction | `P1-02` |
 | A healthy timer says nothing about the job it triggers | The nightly backup died at `226/NAMESPACE` for a day while `systemctl list-timers` reported it fine — the timer fired correctly every time. Watch for the absence of a recent success, not for a failure that a job too broken to start never emits | `P0-20`, `BL-01` |
+| A slow hash is right for passwords and wrong for high-entropy secrets | 256 bits already puts brute force at 10^52 years, so Argon2id on a client secret buys nothing and hands an attacker 90ms plus 64 MiB per wrong guess — on a path verified once per token request | `P1-05` |
+| `fmt.Stringer` does not redact under every verb | `%d` on a struct falls back to printing its fields; the secret came out inside a `%!d(string=...)` marker. `fmt.Formatter` is the only thing that covers all of them | `P1-05` |
+| Validation belongs where a human is, matching belongs where an attacker is | Every redirect rule runs at registration, and the matcher does nothing but compare strings. Cleverness at the matching end is what the open-redirect class is made of | `P1-05` |
+| A rejection table needs a row that must pass | Fifteen URIs asserted rejected prove nothing about a matcher that rejects everything | `P1-05` |
 | A backup is verified by restoring it | Not by a hardcoded list of tables — that reported "all 14 restored" against a database with 19, and would not have checked a table added by a later migration. Compare the source: table set and per-table row counts | `P0-20` |
 | Tests never skip a missing dependency | A suite that skips when a database is unreachable reports success having run nothing. Integration tests start their own containers and `Fatal` if they cannot — a green suite that skipped its tests is a false statement everyone acts on | `P0-15` |
 | A test harness mirrors production's privilege model | Approximating it produced a harness where the audit log was not append-only, so the suite tested a database nothing would run. Same grants, same order as `deploy/postgres/init` | `P0-15` |
