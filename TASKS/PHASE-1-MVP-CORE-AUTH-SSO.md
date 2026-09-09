@@ -107,7 +107,7 @@
 
 | | |
 |---|---|
-| **Status** | TODO |
+| **Status** | DONE — [record](../MEMORY/records/2026-09-09-P1-03-signing-keys.md), [spec](../MEMORY/specs/P1-03-signing-keys.md) |
 | **Depends on** | P0-14 |
 | **Plan refs** | `PLAN/09-SECURITY.md` § Tokens & Keys, `PLAN/07-BACKEND-ARCHITECTURE.md` § Cryptography, `PLAN/14-DEPLOYMENT.md` § Rollback Strategy, `PLAN/02-REQUIREMENTS.md` § Constraints |
 | **Spec required** | Yes — cryptographic core |
@@ -126,12 +126,18 @@
 8. Write the rotation runbook: pre-checks, the command, verification steps, and rollback.
 
 **Definition of Done**
-- [ ] Tokens signed by `previous` still verify; tokens are only ever signed by `current`.
-- [ ] JWKS output contains every key in a verifying state, each with a distinct stable `kid`.
-- [ ] An integration test performs a rotation and asserts that a token issued before it still validates afterward.
-- [ ] The private key never appears in logs, API responses, metrics labels, or error messages.
-- [ ] The rotation runbook exists and has been executed once against staging.
-- [ ] Restarting the service does not change the key set.
+- [x] Tokens signed by `previous` still verify; tokens are only ever signed by `current`. Both directions tested — `next`, `previous` and `retired` all refuse to sign.
+- [x] JWKS output contains every key in a verifying state, each with a distinct stable `kid`. Retired keys excluded, and the output asserted to contain no private material.
+- [x] An integration test performs a rotation and asserts that a token issued before it still validates afterward.
+- [x] The private key never appears in logs, API responses, metrics labels, or error messages. Key-marshalling errors deliberately carry no detail, and only the `current` key's private half is loaded at all.
+- [x] The rotation runbook exists and has been executed once against staging. **Executing it found two real bugs** — see the record.
+- [x] Restarting the service does not change the key set. The `kid` is an RFC 7638 thumbprint, so it is a function of the key rather than of the process.
+
+**Abuse cases** — all tested: `alg:none`, algorithm confusion, `kid` collision, stripped/truncated/altered signature, tampered payload, retired key.
+
+**Beyond the stated steps**
+
+`TestSignatureEncodingIsMalleable` records that 16 distinct token strings decode to the same signature and all verify. Not a forgery risk; a **token identity** risk that lands directly on `P1-07` and `P3-02` — refresh-token reuse detection must key on `jti` or the decoded signature, never on the token string.
 
 **Abuse cases to test**
 - A token signed with an attacker-supplied key whose `kid` matches a legitimate one is rejected.

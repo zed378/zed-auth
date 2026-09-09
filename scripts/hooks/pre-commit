@@ -116,9 +116,13 @@ for f in $staged; do
 
   # The allowlist is the set of values that are obviously not real. Anything
   # else in a committed connection string is treated as a live credential.
+  # A password that is a shell VARIABLE reference is not a leaked password —
+  # it is the correct way to write the example, and flagging it is how a hook
+  # teaches people to reach for --no-verify. ${VAR} and $VAR are allowed;
+  # anything literal still has to be an obvious placeholder.
   if git show ":$f" 2>/dev/null \
      | grep -oE '(postgres|postgresql|redis)://[^:@[:space:]]+:[^@[:space:]]+@' \
-     | grep -qvE ':(local_dev_only|ci_only_password|placeholder|CHANGEME|REPLACE_ME|password|xxx+)@'; then
+     | grep -qvE ':(local_dev_only|ci_only_password|placeholder|CHANGEME|REPLACE_ME|password|xxx+|\$\{[A-Za-z_][A-Za-z0-9_]*\}|\$[A-Za-z_][A-Za-z0-9_]*)@'; then
     note "$f contains a connection string with a password that is not the local placeholder."
     note "Use an obviously fake placeholder (local_dev_only, REPLACE_ME) so a real one stands out."
     fail=1
