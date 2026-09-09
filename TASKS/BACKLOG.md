@@ -240,6 +240,37 @@ NULL is treated as **not expired**, deliberately. The alternative — unknown me
 
 Found by running the system rather than by reading the plan.
 
+### BL-02 — The identity mark's indigo and the product's accent are different blues
+
+**Affects**: `P0-17`, `P0-18`, and every surface that shows both at once.
+
+The brand concept (`brand/reference/zed-auth-brand-v3.html`) specifies the hub
+ring as `#4655F5`. The console and the public site run on
+`--color-accent: #1d4ed8`, kept identical by
+`public-site/scripts/check-brand-tokens.mjs`.
+
+Both are accessible — `#4655F5` measures 5.41 on white and 5.05 on the console's
+`--color-bg-base`, against `#1d4ed8`'s 6.70 and 6.25 — so this is not a
+contrast question. It is that the logo's blue and the interface's blue are
+visibly different, side by side, in a navbar.
+
+**Not resolved, deliberately.** The brand assets ship with the concept's
+palette and the product tokens are untouched, because adopting `#4655F5` as
+`--color-accent` is a design-system change governed by `UI-UX/05` and would
+touch both surfaces, the token gate and the contrast checks. That is a decision
+for the project owner, not a side effect of adding a logo.
+
+Three options when it is taken up:
+
+1. Adopt `#4655F5` as `--color-accent` everywhere. One accent, and the
+   contrast numbers above say it is safe. Requires amending `UI-UX/05`.
+2. Keep `#1d4ed8` and restate the mark's hub ring in it. Changes the artwork.
+3. Accept both, treating the mark's indigo as a brand colour distinct from the
+   interface accent. Common, and the least work, but it needs saying out loud
+   in `UI-UX/05` or it reads as an oversight.
+
+---
+
 ### BL-01 — Nothing watches for a backup that stops happening
 
 **Affects**: `P0-20`, and `PLAN/15-DISASTER-RECOVERY.md` § Restore Testing.
