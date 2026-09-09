@@ -294,6 +294,21 @@ Reusing `id` and simply never displaying it was considered and rejected: that is
 
 Found by running the system rather than by reading the plan.
 
+### BL-03 — Cloudflare injects a third-party script into the login page
+
+**Found**: 2026-09-09, deploying `P1-12`. **Affects**: `/login`, and every HTML page this service serves through the tunnel.
+
+Served from the container, the login page has zero script elements. Served through `auth.zedth.my.id` it has one — Cloudflare's Web Analytics beacon, `static.cloudflareinsights.com/beacon.min.js`, injected into the HTML at the edge.
+
+The page's `Content-Security-Policy: default-src 'none'` refuses it, and the browser says so in the console. That is the control working on a real injection, which is worth more than the many tests that prove it works on a synthetic one.
+
+It should still be turned off, for the hostname or the zone (Cloudflare dashboard → Speed → Optimization → Web Analytics / Browser Insights). Two reasons:
+
+- An intermediary is adding a third-party script to the one page in the estate where a password is typed. It is stopped by a header this service sends; if a future edit loosens that header the script starts running, and nothing fails, so nobody finds out. A control that is the only thing between a password form and a third-party script should not also be the only thing.
+- It writes a console error on every page load, and a page that always logs an error is a page where the next, real error is not noticed.
+
+**Needs the Cloudflare account**, so it is raised rather than done.
+
 ### BL-02 — The identity mark's indigo and the product's accent are different blues
 
 **Affects**: `P0-17`, `P0-18`, and every surface that shows both at once.
