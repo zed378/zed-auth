@@ -189,7 +189,7 @@ Serving these two endpoints through the generated strict router rather than besi
 
 | | |
 |---|---|
-| **Status** | TODO |
+| **Status** | DONE — [record](../MEMORY/records/2026-09-09-P1-05-application-registration.md), [spec](../MEMORY/specs/P1-05-application-registration.md) |
 | **Depends on** | P0-07 |
 | **Plan refs** | `PLAN/04-DATA-MODEL.md` § `applications`, `PLAN/09-SECURITY.md`, `UI-UX/08-PAGE-SPECIFICATIONS.md` (Applications tab), `SECURITY/02` §16 |
 | **Spec required** | Yes — credential handling |
@@ -208,11 +208,19 @@ Serving these two endpoints through the generated strict router rather than besi
 8. Audit every application create, update, secret rotation, and delete (`P0-12`).
 
 **Definition of Done**
-- [ ] A client secret is retrievable exactly once and never again through any endpoint or console screen.
-- [ ] Only the hash exists in the database, verified by direct inspection in a test.
-- [ ] A redirect URI differing by a trailing slash, a query parameter, or a fragment is rejected at authorization time.
-- [ ] A public client cannot be created with a secret.
-- [ ] Application lifecycle events appear in the audit log.
+- [x] A client secret is retrievable exactly once and never again through any endpoint or console screen. `Create` and `RotateSecret` are the only producers of a `Secret`; no read path can construct one, because only the hash was stored.
+- [x] Only the hash exists in the database, verified by direct inspection in a test. The whole row is read as text, not just the secret column — a plaintext leaking into any other column is caught too. Proven non-vacuous by making the store write the plaintext and watching the test fail.
+- [x] A redirect URI differing by a trailing slash, a query parameter, or a fragment is rejected at authorization time. All three, plus twelve more, each naming the attack it prevents — and a control asserting the exact registered URI matches, since a matcher that rejects everything would pass the rejection table.
+- [x] A public client cannot be created with a secret. Refused in code and independently by `P0-07`'s CHECK constraint.
+- [x] Application lifecycle events appear in the audit log. Create, update, rotate and delete.
+
+**Beyond the stated steps**
+
+`ADR-016`: client secrets are hashed with SHA-256 rather than Argon2id. 256 bits of entropy already settle brute force, and a slow KDF on a path verified once per token request is self-inflicted amplification — 4.5 cores and 288 MiB at fifty requests a second, paid by us while an attacker sending wrong secrets pays nothing. The decision is conditional on the secret being generated here, so `Generate` is the sole producer and a test fails if the entropy weakens.
+
+The card's citation of `SECURITY/02` §7 (SSRF) for the internal-address case is corrected in the record: a `redirect_uri` is never fetched server-side, so the risk is a code delivered to a host the user's machine can reach rather than a forged server request. Link-local is refused; private ranges are allowed, because an intranet redirect is a legitimate self-hosted configuration.
+
+Two bugs found by tests written before the code they cover: `fmt.Stringer` does not redact under `%d`, and the loopback check was case-sensitive while hostnames are not.
 
 **Abuse cases to test**
 - Open redirect via a `redirect_uri` that merely shares a prefix with a registered one (`SECURITY/02` §1).
