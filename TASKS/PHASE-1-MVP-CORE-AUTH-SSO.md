@@ -25,7 +25,7 @@
 | P1-09 | `POST /oauth/introspect` and `POST /oauth/revoke` | backend | M | P1-07 |
 | P1-10 | `GET /oidc/logout` — end session | backend | M | P1-11 |
 | P1-11 | Session management and the SSO cookie | backend | L | P0-07 |
-| P1-12 | Hosted login page | backend, console | M | P1-01, P1-11 |
+| P1-12 | Hosted login page | backend | M | P1-01, P1-11 |
 | P1-13 | Login rate limiting and account lockout | backend | M | P1-12 |
 | P1-14 | Authentication audit events | backend | S | P0-12, P1-12 |
 | P1-15 | Management API foundation | backend | L | P0-16, P1-07 |
@@ -473,11 +473,11 @@ Also found: `session_id` was in the logger's redaction list — correct when the
 
 | | |
 |---|---|
-| **Status** | TODO |
+| **Status** | DONE — [record](../MEMORY/records/2026-09-09-P1-12-login-page.md), [spec](../MEMORY/specs/P1-12-login-page.md) |
 | **Depends on** | P1-01, P1-11 |
 | **Plan refs** | `PLAN/16-IMPLEMENTATION-ROADMAP.md` § Phase 1, `UI-UX/15-FORM-UX.md`, `UI-UX/14-EMPTY-LOADING-ERROR-STATES.md`, `UI-UX/13-ACCESSIBILITY.md`, `SECURITY/02` §5, §6 |
 | **Spec required** | Yes — authentication surface |
-| **Surface** | backend, console |
+| **Surface** | backend (no console change — see step 1) |
 
 **Goal** — The centralized login page every application redirects to: minimal, fast, accessible, and free of the information leaks that make credential attacks cheap.
 
@@ -493,18 +493,29 @@ Also found: `session_id` was in the logger's redaction list — correct when the
 9. Support the `prompt=login` re-authentication path from `P1-06`.
 
 **Definition of Done**
-- [ ] The page functions without client-side JavaScript.
-- [ ] Wrong-password and nonexistent-account responses are indistinguishable in body, status, and headers.
-- [ ] CSRF protection is present and tested.
-- [ ] The page cannot be framed, verified by an integration test on the response headers.
-- [ ] The page meets WCAG 2.1 AA for the login form (`UI-UX/13`).
-- [ ] The full flow completes with keyboard only.
+- [x] The page functions without client-side JavaScript. There is none at all — 0 scripts, no inline handler, no style attribute — which is what makes `default-src 'none'` an achievable policy rather than an aspirational one.
+- [x] Wrong-password and nonexistent-account responses are indistinguishable in body, status, and headers. Tested by submitting the **same address twice** with the account deleted in between, and comparing the whole recorded responses — status, every header, and the body byte for byte. Comparing two different addresses would have forced the assertion to be loosened until it stopped testing anything.
+- [x] CSRF protection is present and tested. Double-submit, `__Host-` prefixed, `SameSite=Lax`, compared in constant time; missing, mismatched, malformed and reused tokens each refused, with a control test proving a matching token is accepted.
+- [x] The page cannot be framed, verified by an integration test on the response headers — `X-Frame-Options: DENY` and `frame-ancestors 'none'`, on every response the handler can produce, not only the happy path.
+- [x] The page meets WCAG 2.1 AA for the login form (`UI-UX/13`). Labelled inputs, an error summary with `role="alert"` linked to its fields, an accent contrast floor enforced at 4.5:1 against the white button text. Confirmed in a browser; **automated checks do not establish accessibility** and `PF-50`'s audit still owns the claim.
+- [x] The full flow completes with keyboard only. Verified in Chromium: focus lands on the error summary, Tab reaches email → password → Sign in → "Forgot your password?" in that order, and Enter from the password field submits.
 
 **Abuse cases to test**
-- Username enumeration through error text, status code, or response timing (`SECURITY/02` §12).
-- Clickjacking the login form (`SECURITY/02` §6 area).
-- CSRF against the login POST (`SECURITY/02` §5).
-- XSS through the `error` or `state` parameter reflected onto the page (`SECURITY/02` §6).
+- [x] Username enumeration through error text, status code, or response timing (`SECURITY/02` §12). One message for a wrong password, an unknown address, a locked account, a deactivated one and an account with no password; equal-cost not-found path measured end to end at a 0.6–1.6 ratio bound.
+- [x] Clickjacking the login form (`SECURITY/02` §6 area).
+- [x] CSRF against the login POST (`SECURITY/02` §5).
+- [x] XSS through the `error` or `state` parameter reflected onto the page (`SECURITY/02` §6). Answered structurally: **no query parameter is rendered at all**, so a crafted URL selects a message we wrote or nothing.
+
+**What this task also produced**
+- `PG-16` — organization branding is specified in `PLAN/01` and `UI-UX/05`, implemented in the console, and had nowhere to be read from. Closed by documenting `settings.branding`; `PLAN/08` Part B should be amended.
+- An exported `Resume`/`Peek` seam on `P1-06`'s handler, and a `PeekPending` alongside `LoadPending` so that only a SUCCESSFUL login spends the pending request. Consuming on every submission would have given every account exactly one attempt at its password.
+- `authn.UserStore`, which is where `P1-01`'s `VerifyDummy` and `NeedsRehash` finally acquired callers.
+- A coverage floor for `internal/login`, and the tests needed to keep `internal/authn` and `internal/oauth/authorize` above theirs after this task's code landed.
+
+**Deliberately not done**
+- The three routes are **not** in `openapi/openapi.yaml`. `/oauth/authorize` is there because integrators code against it; nobody ever calls `/login`, and publishing it to `/docs/api-reference` would offer consumers an endpoint with no stable contract. Reasoning in the spec §7.
+- Nothing writes `settings.branding` yet, so every organization renders unbranded. `P2-14` makes it editable.
+- Nothing creates a user with a password yet — `P1-19` owns that — so on a fresh deployment this page is complete and has nobody to let in.
 
 ---
 
