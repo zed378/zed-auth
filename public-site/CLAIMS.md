@@ -28,7 +28,7 @@ They are on the page as *design*, each labelled with the roadmap phase that deli
 | "A centralized identity and access service with single sign-on, a complete REST API, and role-based access control…" | **Positioning** | Same reading. Immediately followed by the status statement below. |
 | "**Status: in development.** The service runs and is deployed; the authentication and authorization endpoints described below are being built." | **Shipped, accurate** | Above the fold, deliberately. The service is deployed and healthy at `auth.zedth.my.id`. |
 | "Stop rebuilding login for every service." + problem framing | **Problem statement** | Describes the reader's situation, claims nothing about the product. |
-| Single sign-on | **Planned — Phase 1** | Labelled on the card. `P1-06`, not started. |
+| Single sign-on | **Planned — Phase 1** | Labelled on the card. Needs `P1-06` (done), `P1-07` and `P1-12`. The authorization endpoint ships codes; without a token endpoint to exchange one at, and a page to log in on, a consumer still cannot complete a login — so the capability is not available and the label stays. |
 | A complete REST API | **Planned — Phase 1** | Labelled. `P1-15`, not started. |
 | Roles that scale to delegation | **Planned — Phase 4** | Labelled. `P4-01`, not started. |
 | Policies when roles are not enough | **Planned — Phase 4b** | Labelled, and conditional — Phase 4b happens only if `P4B-00`'s justification gate is satisfied. |

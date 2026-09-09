@@ -26,6 +26,8 @@ import (
 	"github.com/zed378/zed-auth/backend/internal/authn"
 	"github.com/zed378/zed-auth/backend/internal/config"
 	"github.com/zed378/zed-auth/backend/internal/httpserver"
+	"github.com/zed378/zed-auth/backend/internal/oauth/authorize"
+	"github.com/zed378/zed-auth/backend/internal/oauth/client"
 	"github.com/zed378/zed-auth/backend/internal/observability"
 	"github.com/zed378/zed-auth/backend/internal/oidc"
 	"github.com/zed378/zed-auth/backend/internal/session"
@@ -273,18 +275,41 @@ func run() error {
 	// has no keys until `keyctl generate && keyctl rotate` runs, and refusing
 	// to start would make the service impossible to bootstrap. Discovery then
 	// reports an empty key set, which is accurate.
+	// The client store. P1-18 will expose it over HTTP; here it exists so the
+	// authorization endpoint can resolve a client_id.
+	clients := client.NewStore(auditor)
+
+	authorizeHandler := &authorize.Handler{
+		Clients:  clientLookup{store: clients, db: db},
+		Sessions: sessions,
+		Store:    authorize.NewStore(rdb),
+		Observer: authorizeObserver{metrics},
+		Log:      log,
+
+		// P1-12 serves this. Until then the redirect lands on a 404, which is
+		// visible and honest — better than pretending a session exists.
+		LoginPath: "/login",
+		Policy:    session.DefaultPolicy,
+	}
+
 	discoveryCapabilities := oidc.Capabilities{
 		Issuer:  cfg.Issuer,
 		JWKSURI: cfg.Issuer + "/.well-known/jwks.json",
 
 		// Only what this build actually serves.
 		//
-		// The authorization and token endpoints arrive in P1-06 and P1-07 and
-		// are deliberately absent until then. A discovery document naming an
-		// endpoint that 404s is worse than one that omits it: a client
-		// configures successfully and fails at the first login, which is the
-		// failure P1-04 step 2 exists to prevent.
-		SigningAlgorithms: []string{string(signing.RS256), string(signing.ES256)},
+		// The authorization endpoint became true with P1-06, so it is
+		// advertised — and with it PKCE's S256, which the discovery handler
+		// only emits once there is an authorization endpoint to apply it to.
+		//
+		// The token endpoint arrives with P1-07 and is deliberately still
+		// absent. A conforming client will fail to configure against a
+		// document with one and not the other, which is the correct outcome:
+		// it fails at configuration rather than halfway through a login.
+		AuthorizationEndpoint: cfg.Issuer + "/oauth/authorize",
+		ResponseTypes:         []string{"code"},
+		Scopes:                authorize.SupportedScopes(),
+		SigningAlgorithms:     []string{string(signing.RS256), string(signing.ES256)},
 	}
 
 	discovery, err := oidc.NewHandler(discoveryCapabilities, keys)
@@ -309,6 +334,7 @@ func run() error {
 		Health:    health,
 		Metrics:   metrics,
 		Discovery: discovery,
+		Authorize: authorizeHandler,
 		// Explicit configuration, not inferred from the environment: see the
 		// comment on config.HTTPConfig.TrustProxyHeaders. Defaults to false,
 		// so a deployment behind a proxy that forwards client headers
@@ -544,4 +570,38 @@ func (redisChecker) Name() string { return "redis" }
 
 func (c redisChecker) Check(ctx context.Context) error {
 	return c.client.Ping(ctx).Err()
+}
+
+// --- authorize plumbing -------------------------------------------------------
+
+// clientLookup adapts the client store to what the authorize handler needs.
+//
+// The handler wants one method and the store takes a *postgres.DB it does not
+// otherwise need to know about, so the seam is here rather than in either
+// package.
+type clientLookup struct {
+	store *client.Store
+	db    *postgres.DB
+}
+
+func (c clientLookup) ByClientID(ctx context.Context, clientID string) (client.Application, error) {
+	return c.store.ByClientID(ctx, c.db, clientID)
+}
+
+// authorizeObserver reports which path an authorization request took.
+//
+// Separate labels for silent and interactive because PLAN/12 sets a latency
+// target for the silent path specifically, and an average across both would
+// hide it behind the time a human spends typing a password.
+type authorizeObserver struct{ m *observability.Metrics }
+
+func (o authorizeObserver) Authorized(path string, d time.Duration) {
+	o.m.AuthorizeTotal.WithLabelValues("granted", path).Inc()
+	if path == "silent" {
+		o.m.AuthorizeDuration.WithLabelValues(path).Observe(d.Seconds())
+	}
+}
+
+func (o authorizeObserver) Denied(errorCode string) {
+	o.m.AuthorizeTotal.WithLabelValues("denied", errorCode).Inc()
 }

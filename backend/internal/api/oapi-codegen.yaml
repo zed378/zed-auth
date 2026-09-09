@@ -22,6 +22,28 @@ output-options:
   skip-prune: true
   nullable-type: true
 
+  # /oauth/authorize is documented here and routed by hand (P1-06).
+  #
+  # This is the one exception to ADR-013's "the spec generates the server", and
+  # it is a deliberate one rather than a convenience. The generated wrapper
+  # binds and validates every parameter BEFORE the handler runs, and that is
+  # incompatible with the two properties this endpoint's security rests on:
+  #
+  #   * Two-phase validation. Everything except client_id and redirect_uri must
+  #     be reported by redirecting to the validated redirect_uri — and the
+  #     wrapper would reject a missing `state` before redirect_uri had been
+  #     checked, sending the error down the wrong channel.
+  #   * Duplicate parameters. The wrapper reads r.URL.Query().Get(), which
+  #     silently takes the first value. Parameter pollution is a real bypass
+  #     technique and the handler refuses duplicates outright.
+  #
+  # The endpoint stays in openapi.yaml, so it is documented, so the public API
+  # reference generates from it, and so openapi-shipped-paths.py still checks
+  # that the spec claims nothing beyond what ships. Only the code generation is
+  # skipped, and httpserver registers the handler explicitly.
+  exclude-operation-ids:
+    - authorize
+
 generate:
   # Request and response types. The whole point: a field renamed in the spec
   # becomes a compile error at every use site.
