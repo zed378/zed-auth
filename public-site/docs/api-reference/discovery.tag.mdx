@@ -1,0 +1,28 @@
+---
+id: discovery
+title: "Discovery"
+description: "Discovery"
+custom_edit_url: null
+---
+
+
+
+The two documents a consumer application configures itself from.
+Unauthenticated by design and safe to cache — that is the point of them.
+
+Both are **derived from what this deployment actually serves**, never
+hand-maintained. An endpoint named here exists; one that does not exist
+is absent rather than present-and-broken, because a client that
+configures successfully and then fails at its first login has been
+misled by us (`P1-04`).
+
+
+
+
+```mdx-code-block
+import DocCardList from '@theme/DocCardList';
+import {useCurrentSidebarCategory} from '@docusaurus/theme-common';
+
+<DocCardList items={useCurrentSidebarCategory().items}/>
+```
+      

@@ -489,6 +489,13 @@ else
 
   # The generated API reference, same discipline as the backend interface and
   # the console client: committed, and CI fails if it is stale.
+  #
+  # `api:generate` cleans before it generates, and that matters here. Plain
+  # `gen-api-docs` writes new pages but leaves an existing `sidebar.ts` alone,
+  # so adding P1-04's two endpoints produced tag pages with no sidebar entry:
+  # this gate passed while the site build failed on a page it could not place.
+  # A staleness check that only sees the files its generator overwrites is not
+  # a staleness check.
   api_before=$(mktemp -d)
   cp -r public-site/docs/api-reference/. "$api_before/" 2>/dev/null || true
 

@@ -2,9 +2,9 @@
 
 Single source of truth for where the project stands. Updated in the same commit as the work it describes (`00-TASK-CONVENTIONS.md` global DoD item 8).
 
-**Last updated**: 2026-09-08
-**Current phase**: Phase 0 — Foundation (11 / 21 done)
-**Overall**: 11 / 177 tasks done
+**Last updated**: 2026-09-09
+**Current phase**: Phase 1 — MVP Core Auth (3 / 28 done). Phase 0 is 20 / 21; `P0-20` stays WIP pending the pull-based deployment re-read
+**Overall**: 23 / 177 tasks done
 
 Status values: `TODO` · `BLOCKED` · `SPEC` · `WIP` · `REVIEW` · `DONE` · `DROPPED`
 Sizes: `S` under half a day · `M` one to two days · `L` several days · `XL` must be split
@@ -15,8 +15,8 @@ Sizes: `S` under half a day · `M` one to two days · `L` several days · `XL` m
 
 | Phase | Tasks | Done | Status | Gate to enter |
 |---|---|---|---|---|
-| [Phase 0 — Foundation](./PHASE-0-FOUNDATION.md) | 21 | 16 | **ACTIVE** | — |
-| [Phase 1 — MVP: Core Auth + SSO](./PHASE-1-MVP-CORE-AUTH-SSO.md) | 28 | 0 | Not started | Phase 0 exit checklist |
+| [Phase 0 — Foundation](./PHASE-0-FOUNDATION.md) | 21 | 20 | **ACTIVE** — `P0-20` only | — |
+| [Phase 1 — MVP: Core Auth + SSO](./PHASE-1-MVP-CORE-AUTH-SSO.md) | 28 | 3 | **ACTIVE** | Phase 0 exit checklist |
 | [Phase 2 — RBAC & Multi-Tenancy](./PHASE-2-RBAC-MULTITENANCY.md) | 17 | 0 | Not started | Phase 1 exit + `P1-28` |
 | [Phase 3 — Advanced Security](./PHASE-3-ADVANCED-SECURITY.md) | 15 | 0 | Not started | Phase 2 exit + threat model review |
 | [Phase 4 — Enterprise Interop](./PHASE-4-ENTERPRISE-INTEROP.md) | 16 | 0 | Not started | Phase 3 exit + threat model review |
@@ -67,7 +67,7 @@ Sizes: `S` under half a day · `M` one to two days · `L` several days · `XL` m
 | P1-01 | Argon2id password hashing | M | **DONE** | P0-15 |
 | P1-02 | Password policy and breached-password rejection | M | TODO | P1-01 |
 | P1-03 | Signing key management, JWKS, rotation | L | **DONE** | P0-14 |
-| P1-04 | Discovery document and JWKS endpoint | S | TODO | P1-03 |
+| P1-04 | Discovery document and JWKS endpoint | S | **DONE** — two DoD items deliberately deferred to `P1-06`/`P1-07`, which are the tasks that make them true: a client library cannot finish configuring without an authorization and token endpoint, and nothing emits an `iss` claim yet | P1-03 |
 | P1-05 | Application registration and credentials | M | TODO | P0-07 |
 | P1-06 | `GET /oauth/authorize` — code + PKCE | L | TODO | P1-05, P1-11 |
 | P1-07 | `POST /oauth/token` | L | TODO | P1-06, P1-03 |
@@ -334,6 +334,10 @@ Things that are easy to get wrong once and expensive to fix later. Re-check each
 | A `kid` is derived from the key, not generated | RFC 7638 thumbprint: stable across restarts so consumer caches survive a deploy, and uncrackable so a collision cannot be chosen | `P1-03` |
 | Token strings are malleable; token identity is not | 16 distinct encodings of one signature all verify. Reuse detection, denylists and replay caches must key on `jti` or the decoded signature, never the raw string | `P1-03` |
 | A runbook is a hypothesis until executed | Running this one found no Go on the VM and a key reference pointing at a path only the tool could see | `P1-03` |
+| A machine-readable claim is held to a higher bar than a written one | A human reading marketing copy is sceptical; a client library is not. `CLAUDE.md`'s no-unshipped-capability rule binds harder on the discovery document than on the landing page | `P1-04` |
+| Derive the document from the router, never write it out | A JSON literal is a second source of truth that starts correct and drifts on the first release where an endpoint moves. Deriving makes the false claim unrepresentable rather than merely discouraged | `P1-04` |
+| A DoD item that a later task makes true is left unticked | Two of `P1-04`'s five need an authorization endpoint and a token issuer. Ticking them would have been the exact false claim the task exists to prevent; `P1-06`/`P1-07` tick them | `P1-04` |
+| A tool can lie about the service | `curl -I` reported `no-store` on an endpoint serving `max-age=300`. chi matches methods exactly, so HEAD reached no route and returned a 405's headers. Check what the server does before believing what the client says it did | `P1-04` |
 | A backup is verified by restoring it | Not by a hardcoded list of tables — that reported "all 14 restored" against a database with 19, and would not have checked a table added by a later migration. Compare the source: table set and per-table row counts | `P0-20` |
 | Tests never skip a missing dependency | A suite that skips when a database is unreachable reports success having run nothing. Integration tests start their own containers and `Fatal` if they cannot — a green suite that skipped its tests is a false statement everyone acts on | `P0-15` |
 | A test harness mirrors production's privilege model | Approximating it produced a harness where the audit log was not append-only, so the suite tested a database nothing would run. Same grants, same order as `deploy/postgres/init` | `P0-15` |
