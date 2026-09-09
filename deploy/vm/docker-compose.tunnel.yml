@@ -67,6 +67,16 @@ services:
       # the signing_keys table since P1-03, and the service now REFUSES to
       # start if the variable is still set — a stale knob that looks like it
       # controls key selection is worse than no knob at all.
+      # Breached-password checking (P1-02, ADR-015).
+      #
+      # On by default. If the corpus service cannot be reached the password is
+      # ACCEPTED and the skip is audited, counted and alerted on — failing
+      # closed would block password changes during exactly the incident that
+      # makes people change passwords. Setting this to "false" is the rollback
+      # path; it shows up in auth_password_breach_checks_total as `disabled`
+      # rather than as an absence of data.
+      AUTH_PASSWORD_BREACH_CHECK_ENABLED: ${AUTH_PASSWORD_BREACH_CHECK_ENABLED:-true}
+      AUTH_PASSWORD_BREACH_TIMEOUT: ${AUTH_PASSWORD_BREACH_TIMEOUT:-2s}
       AUTH_LOG_LEVEL: ${AUTH_LOG_LEVEL:-info}
       AUTH_LOG_FORMAT: ${AUTH_LOG_FORMAT:-json}
       # Metrics listener. Inside the container it binds all interfaces so the
