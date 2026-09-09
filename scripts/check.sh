@@ -552,7 +552,7 @@ if docker info >/dev/null 2>&1; then
      AUTH_IMAGE=example@sha256:0000000000000000000000000000000000000000000000000000000000000000 \
      AUTH_POSTGRES_DSN=postgres://auth_app:local_dev_only@postgres:5432/auth \
      AUTH_POSTGRES_APP_PASSWORD=local_dev_only AUTH_POSTGRES_OWNER_PASSWORD=local_dev_only \
-     AUTH_REDIS_PASSWORD=local_dev_only AUTH_JWT_SIGNING_KEY_REF=file:/k.pem \
+     AUTH_REDIS_PASSWORD=local_dev_only \
      AUTH_SECRETS_DIR=/tmp/s AUTH_ADMIN_TOKEN_REF=file:/tmp/s/metrics-token \
      docker compose -f deploy/vm/docker-compose.tunnel.yml config -q 2>&1; then
     pass "tunnel compose is valid"
@@ -566,7 +566,7 @@ if docker info >/dev/null 2>&1; then
     AUTH_IMAGE=example@sha256:0000000000000000000000000000000000000000000000000000000000000000 \
     AUTH_POSTGRES_DSN=postgres://auth_app:local_dev_only@postgres:5432/auth \
     AUTH_POSTGRES_APP_PASSWORD=local_dev_only AUTH_POSTGRES_OWNER_PASSWORD=local_dev_only \
-    AUTH_REDIS_PASSWORD=local_dev_only AUTH_JWT_SIGNING_KEY_REF=file:/k.pem \
+    AUTH_REDIS_PASSWORD=local_dev_only \
     AUTH_SECRETS_DIR=/tmp/s AUTH_ADMIN_TOKEN_REF=file:/tmp/s/metrics-token \
     docker compose -f deploy/vm/docker-compose.tunnel.yml config --format json 2>/dev/null)
 

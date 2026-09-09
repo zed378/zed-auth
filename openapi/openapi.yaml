@@ -78,6 +78,17 @@ servers:
     description: Staging. Not production; do not integrate against it expecting stability.
 
 tags:
+  - name: Discovery
+    description: |
+      The two documents a consumer application configures itself from.
+      Unauthenticated by design and safe to cache — that is the point of them.
+
+      Both are **derived from what this deployment actually serves**, never
+      hand-maintained. An endpoint named here exists; one that does not exist
+      is absent rather than present-and-broken, because a client that
+      configures successfully and then fails at its first login has been
+      misled by us (`P1-04`).
+
   - name: Operations
     description: |
       Process-level probes. Unauthenticated by design, and deliberately
@@ -86,6 +97,82 @@ tags:
       reconnaissance endpoint (`SECURITY/02` §12).
 
 paths:
+  /.well-known/openid-configuration:
+    get:
+      tags: [Discovery]
+      operationId: getOpenIDConfiguration
+      summary: OpenID Provider configuration
+      description: |
+        The discovery document, per OpenID Connect Discovery 1.0. Point a
+        conforming client library at this URL instead of copying endpoint
+        values into its configuration by hand.
+
+        **It lists only what is implemented.** The authorization and token
+        endpoints arrive in later phases and are absent until they exist —
+        the document is rendered from the service's registered capabilities,
+        so it cannot advertise an endpoint that would return 404.
+
+        `code_challenge_methods_supported` will contain `S256` and never
+        `plain`: `plain` transmits the PKCE verifier unprotected, which
+        removes the reason PKCE exists.
+      security: []
+      responses:
+        "200":
+          description: The provider's configuration.
+          headers:
+            Cache-Control:
+              description: |
+                Cacheable for an hour. The document changes when endpoints are
+                added or removed, which is a deploy rather than a routine
+                event.
+              schema: { type: string }
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpenIDConfiguration"
+
+  /.well-known/jwks.json:
+    get:
+      tags: [Discovery]
+      operationId: getJWKS
+      summary: JSON Web Key Set
+      description: |
+        The public keys token signatures are verified against. Public halves
+        only — no private parameter ever appears here, which is asserted by a
+        test that inspects the JSON rather than trusting the serialiser.
+
+        Every key that can still verify a token is published, including one
+        that has stopped signing. That overlap is what lets a key rotate
+        without invalidating tokens issued moments before it
+        (`PLAN/09` § Tokens & Keys).
+
+        Verification is local: fetch this once, cache it, and validating a
+        token does not depend on this service being reachable.
+      security: []
+      responses:
+        "200":
+          description: The published key set.
+          headers:
+            Cache-Control:
+              description: |
+                Cacheable for five minutes — deliberately shorter than the
+                discovery document. A rotation has to reach every consumer
+                inside the overlap window, and this is the bound on how long
+                that takes.
+              schema: { type: string }
+          content:
+            application/jwk-set+json:
+              schema:
+                $ref: "#/components/schemas/JWKS"
+        "503":
+          description: |
+            The key set could not be read. The body names no dependency: this
+            endpoint is public and unauthenticated (`SECURITY/02` §12).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
   /healthz:
     get:
       tags: [Operations]
@@ -224,6 +311,114 @@ components:
         maxLength: 255
 
   schemas:
+    OpenIDConfiguration:
+      type: object
+      description: |
+        OpenID Provider metadata. Fields for unimplemented endpoints are
+        omitted rather than emitted empty.
+      required:
+        - issuer
+        - jwks_uri
+        - subject_types_supported
+        - id_token_signing_alg_values_supported
+      properties:
+        issuer:
+          type: string
+          description: |
+            The identifier clients validate the `iss` claim against. Compared
+            byte for byte, so it never carries a trailing slash.
+          example: https://auth.zedth.my.id
+        jwks_uri:
+          type: string
+          example: https://auth.zedth.my.id/.well-known/jwks.json
+        authorization_endpoint:
+          type: string
+          description: Present once the authorization endpoint exists.
+        token_endpoint:
+          type: string
+          description: Present once the token endpoint exists.
+        userinfo_endpoint:
+          type: string
+        revocation_endpoint:
+          type: string
+        introspection_endpoint:
+          type: string
+        end_session_endpoint:
+          type: string
+        response_types_supported:
+          type: array
+          items: { type: string }
+        grant_types_supported:
+          type: array
+          description: |
+            Never contains `implicit` or `password`: both are ruled out
+            permanently by `PLAN/05` § Supported Grant Types, and advertising
+            a grant this service refuses invites a client to build against it.
+          items: { type: string }
+        subject_types_supported:
+          type: array
+          description: |
+            `public` only. Pairwise identifiers are a privacy feature this
+            service does not implement.
+          items: { type: string }
+        id_token_signing_alg_values_supported:
+          type: array
+          items: { type: string }
+        scopes_supported:
+          type: array
+          items: { type: string }
+        code_challenge_methods_supported:
+          type: array
+          description: "`S256` only. Never `plain`."
+          items: { type: string }
+        claims_supported:
+          type: array
+          items: { type: string }
+
+    JWK:
+      type: object
+      description: |
+        One public key, per RFC 7517. Private parameters (`d`, `p`, `q`, `dp`,
+        `dq`, `qi`) never appear.
+      required: [kty, kid, use]
+      properties:
+        kty:
+          type: string
+          example: RSA
+        kid:
+          type: string
+          description: |
+            An RFC 7638 thumbprint of the key, so it is stable across restarts
+            and cannot be chosen by anyone.
+        use:
+          type: string
+          example: sig
+        alg:
+          type: string
+          example: RS256
+        n:
+          type: string
+          description: RSA modulus, base64url.
+        e:
+          type: string
+          description: RSA public exponent, base64url.
+        crv:
+          type: string
+          description: EC curve, for ES256 keys.
+        x:
+          type: string
+        y:
+          type: string
+
+    JWKS:
+      type: object
+      required: [keys]
+      properties:
+        keys:
+          type: array
+          items:
+            $ref: "#/components/schemas/JWK"
+
     LivenessStatus:
       type: object
       description: |

@@ -13,6 +13,7 @@ import (
 	"github.com/zed378/zed-auth/backend/internal/api"
 	"github.com/zed378/zed-auth/backend/internal/config"
 	"github.com/zed378/zed-auth/backend/internal/observability"
+	"github.com/zed378/zed-auth/backend/internal/oidc"
 )
 
 // Server owns the HTTP listener and its lifecycle.
@@ -30,6 +31,12 @@ type Deps struct {
 	Logger  *slog.Logger
 	Health  *Health
 	Metrics *observability.Metrics
+
+	// Discovery serves the two documents a consumer configures itself from.
+	// Optional: nil means the routes are not registered at all, rather than
+	// registered and returning an error. A 404 is the honest answer for a
+	// deployment that does not serve them.
+	Discovery *oidc.Handler
 
 	// TrustProxyHeaders must be true only when a proxy in front of this service
 	// strips client-supplied correlation headers. See RequestID.
@@ -106,7 +113,17 @@ func New(cfg config.HTTPConfig, deps Deps) *Server {
 	health := chi.NewRouter()
 	health.Use(SecurityHeaders)
 	health.Use(noStore)
-	api.HandlerFromMux(api.NewStrictHandler(deps.Health, nil), health)
+	// Every route in the spec, from one generated router.
+	//
+	// The probes and the discovery endpoints are implemented by different
+	// packages and registered together, because the generated router is the
+	// thing that guarantees the served paths are exactly the documented ones
+	// (ADR-013). Registering discovery by hand would have been simpler and
+	// would have put these two endpoints outside that guarantee — which is
+	// precisely where they must not be, since a consumer's only view of this
+	// service is what the spec says.
+	routes := apiRoutes{Health: deps.Health, Handler: deps.Discovery}
+	api.HandlerFromMux(api.NewStrictHandler(routes, nil), health)
 	mux.Mount("/", health)
 
 	srv := &http.Server{
@@ -121,6 +138,21 @@ func New(cfg config.HTTPConfig, deps Deps) *Server {
 
 	return &Server{cfg: cfg, log: deps.Logger, http: srv, mux: mux}
 }
+
+// apiRoutes gathers the implementations of the generated server interface.
+//
+// The interface covers every documented endpoint, and those are implemented by
+// different packages: the probes here, the discovery documents in
+// internal/oidc. Go has no way to say "these two types satisfy this interface
+// between them", so embedding both in one struct is how the compiler is told —
+// and the assertion below is what fails when the spec grows an endpoint
+// nothing implements.
+type apiRoutes struct {
+	*Health
+	*oidc.Handler
+}
+
+var _ api.StrictServerInterface = apiRoutes{}
 
 // Handler exposes the router, for tests and for mounting additional routes in
 // later phases.

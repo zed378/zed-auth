@@ -40,7 +40,11 @@ func testHTTPConfig(addr string) config.HTTPConfig {
 // that serves production traffic, so the generated decoding and status mapping
 // are covered rather than bypassed.
 func probes(h *Health) api.ServerInterface {
-	return api.NewStrictHandler(h, nil)
+	// The generated interface now covers the discovery endpoints too, so the
+	// probe implementation alone no longer satisfies it. `apiRoutes` is the
+	// composite the server actually registers; a nil Handler is fine here
+	// because these tests only ever call the probe methods.
+	return api.NewStrictHandler(apiRoutes{Health: h}, nil)
 }
 
 // The two probes report different words for success: /healthz says "ok" and

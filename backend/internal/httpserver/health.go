@@ -34,8 +34,11 @@ type Health struct {
 	Timeout time.Duration
 }
 
-// The contract, asserted at compile time.
-var _ api.StrictServerInterface = (*Health)(nil)
+// Health implements the two probe methods of the generated interface. The
+// discovery endpoints are implemented by internal/oidc, and `apiRoutes` in
+// server.go asserts the two halves cover it between them — Go cannot express
+// "these types satisfy this interface jointly", so the assertion lives on the
+// struct that embeds both.
 
 // GetLiveness answers "is this process alive and not wedged?".
 //

@@ -337,6 +337,22 @@ func (l *loader) validate(cfg *Config) {
 	// (PLAN/14-DEPLOYMENT.md), but the issuer this service advertises is what
 	// consumer applications will actually call — so an http:// issuer outside
 	// local development would publish a plaintext endpoint to every client.
+	// AUTH_JWT_SIGNING_KEY_REF was how a single signing key was configured
+	// before P1-03. Keys now live in the `signing_keys` table, which is what
+	// makes an application rollback safe — key state must not be part of the
+	// thing being rolled back (PLAN/14 § Rollback Strategy).
+	//
+	// Refused rather than ignored. A variable that is still set, still looks
+	// meaningful, and no longer does anything is worse than one that is gone:
+	// an operator rotating a key by editing it would believe they had, and
+	// nothing would contradict them until a token failed to verify somewhere
+	// else entirely.
+	if l.getenv("AUTH_JWT_SIGNING_KEY_REF") != "" {
+		l.problem("AUTH_JWT_SIGNING_KEY_REF is set, but signing keys have been " +
+			"read from the signing_keys table since P1-03. Remove it from the " +
+			"environment; manage keys with `keyctl` (deploy/vm/RUNBOOK-key-rotation.md).")
+	}
+
 	if cfg.Issuer != "" {
 		switch {
 		case strings.HasPrefix(cfg.Issuer, "https://"):

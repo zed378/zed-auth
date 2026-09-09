@@ -23,6 +23,8 @@ import (
 	"github.com/zed378/zed-auth/backend/internal/config"
 	"github.com/zed378/zed-auth/backend/internal/httpserver"
 	"github.com/zed378/zed-auth/backend/internal/observability"
+	"github.com/zed378/zed-auth/backend/internal/oidc"
+	"github.com/zed378/zed-auth/backend/internal/signing"
 	"github.com/zed378/zed-auth/backend/internal/storage/postgres"
 )
 
@@ -195,10 +197,66 @@ func run() error {
 		}
 	}()
 
+	// The signing key set, read from the database rather than from a
+	// configured path (P1-03).
+	//
+	// This is what makes an application rollback safe: key state lives in
+	// `signing_keys`, so rolling back the binary cannot invalidate tokens
+	// signed under a newer key (PLAN/14 § Rollback Strategy). A single key
+	// reference in configuration would put that state in the deployment, which
+	// is the thing being rolled back.
+	keyStore := signing.NewStore(db.SQL(), config.NewSecretResolver(cfg.Environment != config.EnvLocal), signing.PurposeOIDC)
+
+	keys := signing.NewCache(func() (*signing.KeySet, error) {
+		loadCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+		defer cancel()
+		return keyStore.Load(loadCtx)
+	}, signing.DefaultCacheTTL)
+
+	// Load once at startup so a broken key set is a refusal to boot rather
+	// than a service that accepts requests and fails every login. The latter
+	// is a worse outage and a much harder one to read (P1-03).
+	//
+	// Absence of ANY key is tolerated here and only here: a fresh deployment
+	// has no keys until `keyctl generate && keyctl rotate` runs, and refusing
+	// to start would make the service impossible to bootstrap. Discovery then
+	// reports an empty key set, which is accurate.
+	discoveryCapabilities := oidc.Capabilities{
+		Issuer:  cfg.Issuer,
+		JWKSURI: cfg.Issuer + "/.well-known/jwks.json",
+
+		// Only what this build actually serves.
+		//
+		// The authorization and token endpoints arrive in P1-06 and P1-07 and
+		// are deliberately absent until then. A discovery document naming an
+		// endpoint that 404s is worse than one that omits it: a client
+		// configures successfully and fails at the first login, which is the
+		// failure P1-04 step 2 exists to prevent.
+		SigningAlgorithms: []string{string(signing.RS256), string(signing.ES256)},
+	}
+
+	discovery, err := oidc.NewHandler(discoveryCapabilities, keys)
+	if err != nil {
+		return fmt.Errorf("discovery document: %w", err)
+	}
+
+	if _, err := keys.Get(); err != nil {
+		log.Warn("no signing keys are available; tokens cannot be issued",
+			"error", err.Error(),
+			"remedy", "run: keyctl generate && keyctl rotate")
+	} else if kid, kerr := signing.NewSigner(keys).CurrentKID(); kerr == nil {
+		log.Info("signing key loaded", "kid", kid)
+	} else {
+		log.Warn("keys are present but none is signing",
+			"error", kerr.Error(),
+			"remedy", "run: keyctl rotate")
+	}
+
 	srv := httpserver.New(cfg.HTTP, httpserver.Deps{
-		Logger:  log,
-		Health:  health,
-		Metrics: metrics,
+		Logger:    log,
+		Health:    health,
+		Metrics:   metrics,
+		Discovery: discovery,
 		// Explicit configuration, not inferred from the environment: see the
 		// comment on config.HTTPConfig.TrustProxyHeaders. Defaults to false,
 		// so a deployment behind a proxy that forwards client headers
