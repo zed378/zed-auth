@@ -36,6 +36,9 @@ SHIPPED = {
     # P1-09. Both advertised by discovery in the same commit that serves them.
     "/oauth/introspect",
     "/oauth/revoke",
+    # P1-10. RP-initiated logout; discovery advertises it as
+    # end_session_endpoint in the same commit.
+    "/oidc/logout",
     "/healthz",
     "/readyz",
     # P1-04. Both are served and both are real; the discovery document itself

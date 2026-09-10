@@ -336,6 +336,29 @@ So the card cites a policy that does not cover the endpoints it is about, and no
 
 ---
 
+### PG-20 — `docs/PLAN/05` treats RP-Initiated Logout and Back-Channel Logout as one specification
+
+**Affects**: `P1-10` (built anyway), `DF-09`, and any later task that reads the plan for what logout the MVP has.
+
+`docs/PLAN/05` § MFA, Passwordless, Social Login, Logout says:
+
+> "Back-channel logout (RP-Initiated Logout) is a later phase; MVP needs per-app logout + a 'log out of all sessions' button."
+
+The parenthesis makes them synonyms. They are two different OpenID Connect specifications:
+
+- **RP-Initiated Logout 1.0** — the front channel. The browser is redirected to the provider's `end_session_endpoint`, the session ends, and the user is sent back to a registered address. This is what `P1-10` implements.
+- **Back-Channel Logout 1.0** — server to server. The provider POSTs a logout token to each relying party's registered `backchannel_logout_uri`. No browser is involved, and it needs a new column, a delivery mechanism and a retry policy.
+
+Neither implies the other, and a provider can implement either alone.
+
+Read literally the sentence defers the endpoint **the same document lists in its own core-endpoint table** (`GET /oidc/logout → end-session (single logout)`), and then asks for "per-app logout" in the MVP — so the document contradicts itself unless the two are separated.
+
+`P1-10`'s card already has it right: step 1 implements RP-initiated logout, step 7 defers back-channel. **Built per the card.** `DF-09` has been narrowed to back-channel alone.
+
+**`docs/PLAN/05` should be amended** to name the two specifications separately, through the deliberate plan-change process (`AGENTS.md` rule 9).
+
+---
+
 ---
 
 ## Operational Gaps
@@ -430,7 +453,7 @@ Carried over from `docs/PLAN/01-PRODUCT-SCOPE.md` § Out of Scope, recorded here
 | DF-06 | Database-per-tenant isolation | Deferred indefinitely | A contractual isolation requirement appears |
 | DF-07 | One user in multiple organizations (workspace switching) | Deferred | A real need appears; `docs/PLAN/18` R-09 warns specifically against building it prematurely |
 | DF-08 | ABAC (Phase 4b) | Conditional | `P4B-00`'s gate is satisfied |
-| DF-09 | Back-channel / RP-initiated single logout | Deferred per `docs/PLAN/05` | A consumer application needs it |
+| DF-09 | **Back-channel** logout (OIDC Back-Channel Logout 1.0) | Deferred per `docs/PLAN/05` | A consumer application needs it. **Narrowed by `P1-10`**: this row used to read "Back-channel / RP-initiated", copying a conflation in the plan. RP-Initiated Logout 1.0 is a different specification and **shipped** in `P1-10`. See `PG-20` |
 | DF-10 | CAPTCHA after repeated login failures | Optional / later per `docs/PLAN/05` | Rate limiting alone proves insufficient |
 | DF-11 | Multi-region deployment | Per `docs/PLAN/15`, only on confirmed need | A cross-region HA requirement is confirmed |
 | DF-12 | Separate event store instead of the `events` table | Per `docs/PLAN/07`, evaluate if volume grows | `events` volume becomes a performance problem — see PG-10 |

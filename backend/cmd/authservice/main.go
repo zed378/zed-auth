@@ -336,6 +336,22 @@ func run() error {
 		Log:      log,
 	}
 
+	// RP-initiated logout (P1-10). Shares the login package because the
+	// confirmation interstitial is the same kind of browser page.
+	logoutHandler := &login.LogoutHandler{
+		Issuer:    cfg.Issuer,
+		Clients:   clientLookup{store: clients, db: db},
+		Sessions:  sessions,
+		Refresh:   token.NewRefreshStore(),
+		Verifier:  signing.NewVerifier(keys),
+		Brandings: login.NewBrandingStore(),
+		DB:        db,
+		Audit:     auditor,
+		Observer:  logoutObserver{metrics},
+		Log:       log,
+		Policy:    session.DefaultPolicy,
+	}
+
 	// The hosted login page (P1-12). It closes the loop: /oauth/authorize
 	// sends a browser here when there is no session, and Resume sends it back
 	// with a code once there is one.
@@ -383,7 +399,12 @@ func run() error {
 		// document is exactly the caller introspection exists for, so
 		// advertising them is what makes the endpoint discoverable rather
 		// than something an integrator has to be told about.
-		RevocationEndpoint:    cfg.Issuer + "/oauth/revoke",
+		RevocationEndpoint: cfg.Issuer + "/oauth/revoke",
+		// P1-10. RFC 8414 calls it end_session_endpoint; OpenID Connect
+		// RP-Initiated Logout 1.0 is the specification it points at. Back-
+		// channel logout is a different specification and is NOT advertised,
+		// because it is not implemented — see PG-20.
+		EndSessionEndpoint:    cfg.Issuer + "/oidc/logout",
 		IntrospectionEndpoint: cfg.Issuer + "/oauth/introspect",
 		ResponseTypes:         []string{"code"},
 		GrantTypes: []string{
@@ -422,6 +443,7 @@ func run() error {
 		Introspect: http.HandlerFunc(lifecycleHandler.Introspect),
 		Revoke:     http.HandlerFunc(lifecycleHandler.Revoke),
 		UserInfo:   userInfoHandler,
+		Logout:     logoutHandler,
 		Login:      loginHandler,
 		Forgot:     http.HandlerFunc(loginHandler.Forgot),
 		// Explicit configuration, not inferred from the environment: see the
@@ -754,6 +776,19 @@ type lifecycleObserver struct{ m *observability.Metrics }
 func (o lifecycleObserver) Lifecycle(endpoint, outcome string) {
 	if o.m != nil {
 		o.m.TokenLifecycle.WithLabelValues(endpoint, outcome).Inc()
+	}
+}
+
+// logoutObserver counts logout outcomes.
+//
+// "asked" is as interesting as "completed": a sudden rise means relying
+// parties have stopped sending a usable id_token_hint, which turns a one-click
+// sign-out into a confirmation page for every user.
+type logoutObserver struct{ m *observability.Metrics }
+
+func (o logoutObserver) Logout(outcome string) {
+	if o.m != nil {
+		o.m.LogoutTotal.WithLabelValues(outcome).Inc()
 	}
 }
 

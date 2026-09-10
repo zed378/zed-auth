@@ -159,6 +159,71 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/oidc/logout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * End session (RP-Initiated Logout 1.0)
+         * @description Ends the user's session and returns them to your application.
+         *
+         *     **Send an `id_token_hint`.** It is what lets this endpoint act on a
+         *     `GET` without asking the user to confirm. A `GET` is triggerable by any
+         *     page on the internet - an image tag, a prefetch, a link in an email -
+         *     so acting on a bare one would let anybody log your users out. The hint
+         *     proves the request came from a party that already completed the flow,
+         *     and it must name the session the browser is actually carrying.
+         *
+         *     Without a usable hint the user sees a confirmation page instead. That
+         *     is not a failure; it is the design. Your logout still works, it just
+         *     takes a click.
+         *
+         *     **A hint for a different session logs nobody out.** Not its own
+         *     subject, and not the browser's user. It falls through to the
+         *     confirmation, which acts on the session the browser has.
+         *
+         *     **`post_logout_redirect_uri` must be registered for your client, and is
+         *     matched EXACTLY.** A trailing slash, a different scheme or an appended
+         *     query is a different address. If it does not match, the request is
+         *     refused with a rendered page and **no redirect at all** - reporting the
+         *     error by redirecting to an unregistered address is the open-redirect
+         *     vulnerability the check exists to prevent.
+         *
+         *     An unknown `client_id` and an unregistered address give the identical
+         *     answer, so this endpoint cannot be used to find out which client ids
+         *     exist.
+         *
+         *     `state` is echoed back on the redirect, unexamined.
+         *
+         *     **Signing out twice is not an error.** A user whose session has already
+         *     ended is still redirected where you asked.
+         *
+         *     The confirmation page also offers "sign out of every application",
+         *     which ends every session the user has and revokes their refresh tokens.
+         *     It is unchecked by default: signing out of one application should not
+         *     silently end the others.
+         *
+         *     Back-channel logout is a different specification and is not
+         *     implemented; nothing here precludes it.
+         */
+        get: operations["logout"];
+        put?: never;
+        /**
+         * Confirm sign-out
+         * @description The confirmation page's own submit. It is not an endpoint to code
+         *     against: it requires the CSRF token that page renders, and the
+         *     parameters are re-validated exactly as on the `GET`.
+         */
+        post: operations["logoutConfirm"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/oauth/introspect": {
         parameters: {
             query?: never;
@@ -962,6 +1027,105 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["OAuthError"];
                 };
+            };
+        };
+    };
+    logout: {
+        parameters: {
+            query?: {
+                /**
+                 * @description An ID token this service issued. Verified, and required for a GET
+                 *     to act without a confirmation.
+                 */
+                id_token_hint?: string;
+                /**
+                 * @description Where to send the user afterwards. Must be registered for the
+                 *     client, matched exactly.
+                 */
+                post_logout_redirect_uri?: string;
+                /** @description Echoed back on the redirect, unexamined. */
+                state?: string;
+                /**
+                 * @description Resolves the client when there is no `id_token_hint`. Never used to
+                 *     bypass the redirect match; when a hint is present, the hint decides.
+                 */
+                client_id?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /**
+             * @description The confirmation page, or the "you are signed out" page when there
+             *     is nowhere to send the user. HTML.
+             */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": string;
+                };
+            };
+            /**
+             * @description Signed out, redirecting to the registered
+             *     `post_logout_redirect_uri` with `state` echoed.
+             */
+            302: {
+                headers: {
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /**
+             * @description The `post_logout_redirect_uri` is not registered for this client,
+             *     or the client is unknown. **Nothing about the session has changed**,
+             *     and no redirect is issued.
+             */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": string;
+                };
+            };
+        };
+    };
+    logoutConfirm: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The confirmation page again, with a message. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": string;
+                };
+            };
+            /** @description Signed out, redirecting. */
+            302: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The redirect target is not registered, or the form could not be read. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

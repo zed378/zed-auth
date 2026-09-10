@@ -24,6 +24,7 @@ import (
 	"github.com/zed378/zed-auth/backend/internal/config"
 	"github.com/zed378/zed-auth/backend/internal/oauth/authorize"
 	"github.com/zed378/zed-auth/backend/internal/oauth/client"
+	"github.com/zed378/zed-auth/backend/internal/oauth/token"
 	"github.com/zed378/zed-auth/backend/internal/session"
 	"github.com/zed378/zed-auth/backend/internal/storage/postgres"
 	"github.com/zed378/zed-auth/backend/internal/testsupport"
@@ -47,15 +48,16 @@ const (
 )
 
 type stack struct {
-	db      *postgres.DB
-	rdb     *redis.Client
-	factory *testsupport.Factory
-	codes   *authorize.Store
-	auth    *authorize.Handler
-	login   *Handler
-	orgID   string
-	userID  string
-	appID   string
+	db       *postgres.DB
+	rdb      *redis.Client
+	factory  *testsupport.Factory
+	codes    *authorize.Store
+	auth     *authorize.Handler
+	sessions *session.Manager
+	login    *Handler
+	orgID    string
+	userID   string
+	appID    string
 }
 
 // clientLookup adapts the client store to what authorize.Handler needs, the
@@ -149,7 +151,7 @@ func setup(t *testing.T) *stack {
 
 	return &stack{
 		db: db, rdb: rdb, factory: factory, codes: codes,
-		auth: authHandler, login: loginHandler,
+		auth: authHandler, login: loginHandler, sessions: sessions,
 		orgID: orgID, userID: userID, appID: app.ID,
 	}
 }
@@ -622,4 +624,250 @@ func dumpHeaders(w *httptest.ResponseRecorder) string {
 		}
 	}
 	return out.String()
+}
+
+// --- P1-10: logout ---------------------------------------------------------------
+
+// logout builds the handler against everything real, sharing this stack's
+// session manager so revocation and lookup see the same rows and the same
+// cache.
+func (s *stack) logout(t *testing.T) *LogoutHandler {
+	t.Helper()
+
+	return &LogoutHandler{
+		Issuer:    "https://auth.example",
+		Clients:   clientLookup{store: client.NewStore(audit.NewWriter(s.db, discard(), nil)), db: s.db},
+		Sessions:  s.sessions,
+		Refresh:   token.NewRefreshStore(),
+		Verifier:  nil, // no hint in these tests; the confirmation path is what they exercise
+		Brandings: NewBrandingStore(),
+		DB:        s.db,
+		Audit:     audit.NewWriter(s.db, discard(), nil),
+		Log:       discard(),
+		Policy:    session.DefaultPolicy,
+	}
+}
+
+// signOut drives the confirmation: render the interstitial, then submit it.
+func (s *stack) signOut(
+	t *testing.T, h *LogoutHandler, cookie *http.Cookie, everywhere bool,
+) *httptest.ResponseRecorder {
+	t.Helper()
+
+	rendered := httptest.NewRequest(http.MethodGet, LogoutPath, nil)
+	rendered.AddCookie(cookie)
+	first := httptest.NewRecorder()
+	h.ServeHTTP(first, rendered)
+
+	if first.Code != http.StatusOK {
+		t.Fatalf("the confirmation did not render: %d\n%s", first.Code, first.Body.String())
+	}
+
+	var csrf string
+	for _, c := range first.Result().Cookies() {
+		if c.Name == CSRFCookieName {
+			csrf = c.Value
+		}
+	}
+	if csrf == "" {
+		t.Fatal("the confirmation set no CSRF cookie")
+	}
+
+	form := url.Values{csrfField: {csrf}}
+	if everywhere {
+		form.Set("everywhere", "1")
+	}
+
+	r := httptest.NewRequest(http.MethodPost, LogoutPath, strings.NewReader(form.Encode()))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	r.AddCookie(&http.Cookie{Name: CSRFCookieName, Value: csrf})
+	r.AddCookie(cookie)
+
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	return w
+}
+
+// signIn completes a login and returns the session cookie it produced.
+func (s *stack) signIn(t *testing.T) *http.Cookie {
+	t.Helper()
+
+	id := s.begin(t)
+	csrf := s.form(t, id)
+	w := s.submit(t, id, csrf, testEmail, testPassword)
+	if w.Code != http.StatusFound {
+		t.Fatalf("the login failed: %d\n%s", w.Code, w.Body.String())
+	}
+
+	for _, c := range w.Result().Cookies() {
+		if c.Name == session.CookieName {
+			return &http.Cookie{Name: session.CookieName, Value: c.Value}
+		}
+	}
+	t.Fatal("the login set no session cookie")
+	return nil
+}
+
+// DoD items 1 and 2, and the reason this test asserts a CONSEQUENCE rather
+// than a column: what the card asks is that the user has to sign in again, and
+// a test on `revoked_at` would pass against a system that revokes the row and
+// keeps honouring the cookie from a cache.
+func TestAfterLogoutTheSameCookieRequiresFullReauthentication(t *testing.T) {
+	s := setup(t)
+	h := s.logout(t)
+
+	cookie := s.signIn(t)
+
+	// The control: before logout, the cookie authorises silent SSO.
+	if target := s.silentAuthorize(t, cookie); target.Path == Path {
+		t.Fatal("the cookie did not authorise silent SSO before logout; this test would prove nothing")
+	}
+
+	if w := s.signOut(t, h, cookie, false); w.Code != http.StatusOK {
+		t.Fatalf("the sign-out answered %d:\n%s", w.Code, w.Body.String())
+	}
+
+	// The same cookie, replayed. It must now land on the login page.
+	target := s.silentAuthorize(t, cookie)
+	if target.Path != Path {
+		t.Fatalf("a cookie captured before logout still authorises: %s", target.String())
+	}
+	if target.Query().Get("code") != "" {
+		t.Error("a code was issued to a logged-out session")
+	}
+}
+
+// silentAuthorize sends an authorization request carrying a cookie and returns
+// where the service sent the browser.
+func (s *stack) silentAuthorize(t *testing.T, cookie *http.Cookie) *url.URL {
+	t.Helper()
+
+	query := url.Values{
+		"client_id":             {s.appID},
+		"redirect_uri":          {"https://app.example.com/cb"},
+		"response_type":         {"code"},
+		"scope":                 {"openid"},
+		"state":                 {"after-logout"},
+		"code_challenge":        {"E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"},
+		"code_challenge_method": {"S256"},
+	}
+
+	r := httptest.NewRequest(http.MethodGet, "/oauth/authorize?"+query.Encode(), nil)
+	r.AddCookie(cookie)
+	w := httptest.NewRecorder()
+	s.auth.ServeHTTP(w, r)
+
+	if w.Code != http.StatusFound {
+		t.Fatalf("the authorization request answered %d:\n%s", w.Code, w.Body.String())
+	}
+	target, err := url.Parse(w.Header().Get("Location"))
+	if err != nil {
+		t.Fatalf("parsing the redirect: %v", err)
+	}
+	return target
+}
+
+// DoD item 4. Every session AND the refresh tokens — without the second half
+// an application holding one mints a fresh access token minutes later.
+func TestSignOutEverywhereEndsEverySessionAndRevokesRefreshTokens(t *testing.T) {
+	s := setup(t)
+	h := s.logout(t)
+
+	first := s.signIn(t)
+	second := s.signIn(t)
+
+	// A refresh token on one of those sessions, issued the way P1-07 does.
+	var sessionID string
+	s.factory.QueryRow(&sessionID,
+		`SELECT id FROM sessions WHERE user_id = $1 AND revoked_at IS NULL LIMIT 1`, s.userID)
+
+	if err := s.db.WithTenant(context.Background(), s.orgID, func(tx *postgres.Tx) error {
+		_, _, err := token.NewRefreshStore().Issue(context.Background(), tx, token.Refresh{
+			UserID: s.userID, ClientID: s.appID, OrgID: s.orgID,
+			SessionID: sessionID, Scope: []string{"openid"},
+			ExpiresAt: time.Now().Add(token.RefreshTokenLifetime),
+		}, "", time.Now())
+		return err
+	}); err != nil {
+		t.Fatalf("issuing a refresh token: %v", err)
+	}
+
+	var liveBefore int
+	s.factory.QueryRow(&liveBefore,
+		`SELECT count(*) FROM sessions WHERE user_id = $1 AND revoked_at IS NULL`, s.userID)
+	if liveBefore < 2 {
+		t.Fatalf("expected two live sessions before signing out, got %d", liveBefore)
+	}
+
+	s.signOut(t, h, first, true)
+
+	var liveAfter, liveTokens int
+	s.factory.QueryRow(&liveAfter,
+		`SELECT count(*) FROM sessions WHERE user_id = $1 AND revoked_at IS NULL`, s.userID)
+	s.factory.QueryRow(&liveTokens,
+		`SELECT count(*) FROM refresh_tokens WHERE user_id = $1 AND NOT revoked`, s.userID)
+
+	if liveAfter != 0 {
+		t.Errorf("%d session(s) survived signing out everywhere", liveAfter)
+	}
+	if liveTokens != 0 {
+		t.Errorf("%d refresh token(s) survived; an application holding one would "+
+			"mint a fresh access token minutes later", liveTokens)
+	}
+
+	// And the OTHER browser's cookie is dead too, which is the whole point.
+	if target := s.silentAuthorize(t, second); target.Path != Path {
+		t.Error("the second session still authorises after signing out everywhere")
+	}
+}
+
+// DoD item 5.
+func TestALogoutIsAuditedAgainstARealDatabase(t *testing.T) {
+	s := setup(t)
+	h := s.logout(t)
+
+	cookie := s.signIn(t)
+	s.signOut(t, h, cookie, false)
+
+	var payloads string
+	s.factory.QueryRow(&payloads,
+		`SELECT COALESCE(string_agg(payload::text, '|'), '') FROM events WHERE event_type = 'user.logout'`)
+
+	if payloads == "" {
+		t.Fatal("the logout was not audited")
+	}
+	// Postgres renders jsonb with a space after the colon, so the assertion is
+	// on the value rather than on a formatting the database chooses.
+	if !strings.Contains(payloads, `"session"`) {
+		t.Errorf("the entry does not record what was ended: %s", payloads)
+	}
+	if strings.Contains(payloads, cookie.Value) {
+		t.Errorf("the session cookie was written to the audit log: %s", payloads)
+	}
+}
+
+// Idempotent. A logout link clicked twice, or clicked after the session
+// expired, is not an error.
+func TestLoggingOutTwiceIsNotAnError(t *testing.T) {
+	s := setup(t)
+	h := s.logout(t)
+
+	cookie := s.signIn(t)
+
+	first := s.signOut(t, h, cookie, false)
+
+	// The second attempt has no live session, so the interstitial renders and
+	// the confirmation lands on the signed-out page rather than failing.
+	rendered := httptest.NewRequest(http.MethodGet, LogoutPath, nil)
+	rendered.AddCookie(cookie)
+	second := httptest.NewRecorder()
+	h.ServeHTTP(second, rendered)
+
+	if second.Code != http.StatusOK {
+		t.Errorf("the second sign-out answered %d, want the confirmation:\n%s",
+			second.Code, second.Body.String())
+	}
+	if first.Code != http.StatusOK {
+		t.Errorf("the first sign-out answered %d", first.Code)
+	}
 }

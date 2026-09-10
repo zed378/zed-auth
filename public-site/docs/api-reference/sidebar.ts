@@ -68,6 +68,18 @@ const sidebar: SidebarsConfig = {
         },
         {
           type: "doc",
+          id: "api-reference/logout",
+          label: "End session (RP-Initiated Logout 1.0)",
+          className: "api-method get",
+        },
+        {
+          type: "doc",
+          id: "api-reference/logout-confirm",
+          label: "Confirm sign-out",
+          className: "api-method post",
+        },
+        {
+          type: "doc",
           id: "api-reference/introspect",
           label: "Token introspection (RFC 7662)",
           className: "api-method post",
