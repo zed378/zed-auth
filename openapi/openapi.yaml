@@ -973,6 +973,151 @@ paths:
         "429": { $ref: "#/components/responses/RateLimited" }
         "500": { $ref: "#/components/responses/InternalError" }
 
+  /v1/organizations/{org_id}/projects:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationId"
+
+    get:
+      tags: [Projects]
+      operationId: listProjects
+      summary: List an organization's projects
+      description: |
+        Requires `ORG_ADMIN` over this organization.
+
+        A project is the container an application, a role and — from Phase 4 — a
+        project grant all hang from. It carries no configuration of its own,
+        which is why there is so little here.
+      parameters:
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+      responses:
+        "200":
+          description: A page of projects.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectList"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+    post:
+      tags: [Projects]
+      operationId: createProject
+      summary: Create a project
+      description: |
+        Requires `ORG_ADMIN` over this organization.
+
+        The project belongs to the organization in the path. There is no
+        `org_id` in the request body, deliberately: a tenant taken from a body
+        is a tenant a caller can choose.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProjectCreate"
+      responses:
+        "201":
+          description: The project was created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+  /v1/organizations/{org_id}/projects/{project_id}:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationId"
+      - $ref: "#/components/parameters/ProjectId"
+
+    get:
+      tags: [Projects]
+      operationId: getProject
+      summary: Read a project
+      description: Requires `ORG_ADMIN` over the organization that owns it.
+      responses:
+        "200":
+          description: The project.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+    patch:
+      tags: [Projects]
+      operationId: updateProject
+      summary: Rename a project
+      description: |
+        Requires `ORG_ADMIN`. A project's name is the only thing it has, so this
+        is the only thing to change.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProjectUpdate"
+      responses:
+        "200":
+          description: The updated project.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+    delete:
+      tags: [Projects]
+      operationId: deleteProject
+      summary: Delete a project
+      description: |
+        Requires `ORG_OWNER`.
+
+        **A project with applications or roles attached is refused**, with a
+        `409` whose `details` name what blocks it and how many there are. It is
+        not cascaded: deleting a project would take every OIDC client in it with
+        it, and every consumer application configured against those client ids
+        would stop authenticating — a far larger consequence than the request
+        appears to ask for.
+
+        A project with nothing attached is deleted outright rather than soft-
+        deleted. Unlike an organization it owns no audit history of its own and
+        holds no tenant boundary, so there is nothing for a tombstone to
+        preserve.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "204":
+          description: The project was deleted.
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
 components:
   securitySchemes:
     oauth2:
@@ -1027,6 +1172,14 @@ components:
       in: path
       required: true
       description: The organization that owns the resource. Every request is scoped to exactly one.
+      schema:
+        $ref: "#/components/schemas/ResourceId"
+
+    ProjectId:
+      name: project_id
+      in: path
+      required: true
+      description: The project the resource belongs to.
       schema:
         $ref: "#/components/schemas/ResourceId"
 
@@ -1198,6 +1351,70 @@ components:
           description: Requires `INSTANCE_OWNER`.
         settings:
           $ref: "#/components/schemas/OrganizationSettings"
+
+    Project:
+      type: object
+      description: |
+        A container for applications, roles and — from Phase 4 — project grants.
+
+        It carries no configuration of its own. That is deliberate rather than
+        unfinished: settings that could live here would be settings with two
+        homes, since an application already has its own and an organization's
+        policy already applies to everything inside it.
+      required: [id, name, created_at, updated_at]
+      additionalProperties: false
+      properties:
+        id:
+          $ref: "#/components/schemas/ResourceId"
+        name:
+          type: string
+          maxLength: 200
+          description: |
+            Unique within the organization, case-insensitively. Two projects
+            called "Billing" and "billing" in one tenant is a support ticket
+            waiting to be filed.
+          example: Billing
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    ProjectList:
+      type: object
+      required: [projects]
+      additionalProperties: false
+      properties:
+        projects:
+          type: array
+          items:
+            $ref: "#/components/schemas/Project"
+        page_info:
+          $ref: "#/components/schemas/PageInfo"
+
+    ProjectCreate:
+      type: object
+      description: |
+        There is no `org_id` here. The organization comes from the path, and a
+        tenant taken from a request body is a tenant the caller can choose
+        (`docs/SECURITY/02` §11).
+      required: [name]
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+
+    ProjectUpdate:
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
 
     OpenIDConfiguration:
       type: object

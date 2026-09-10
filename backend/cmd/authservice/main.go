@@ -35,6 +35,7 @@ import (
 	"github.com/zed378/zed-auth/backend/internal/observability"
 	"github.com/zed378/zed-auth/backend/internal/oidc"
 	"github.com/zed378/zed-auth/backend/internal/organization"
+	"github.com/zed378/zed-auth/backend/internal/project"
 	"github.com/zed378/zed-auth/backend/internal/ratelimit"
 	"github.com/zed378/zed-auth/backend/internal/session"
 	"github.com/zed378/zed-auth/backend/internal/signing"
@@ -385,6 +386,10 @@ func run() error {
 		Sessions: sessions,
 	}
 
+	projects := &project.Handler{
+		Store: project.NewStore(), DB: db, Audit: auditor, Log: log,
+	}
+
 	v1 := &management.Chain{
 		Auth: &management.Middleware{
 			Issuer:   cfg.Issuer,
@@ -530,6 +535,7 @@ func run() error {
 		Forgot:        http.HandlerFunc(loginHandler.Forgot),
 		V1:            v1,
 		Organizations: organizations,
+		ProjectAPI:    projects,
 		// Explicit configuration, not inferred from the environment: see the
 		// comment on config.HTTPConfig.TrustProxyHeaders. Defaults to false,
 		// so a deployment behind a proxy that forwards client headers
