@@ -17,6 +17,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -28,6 +29,7 @@ import (
 	"github.com/zed378/zed-auth/backend/internal/config"
 	"github.com/zed378/zed-auth/backend/internal/httpserver"
 	"github.com/zed378/zed-auth/backend/internal/login"
+	"github.com/zed378/zed-auth/backend/internal/mail"
 	"github.com/zed378/zed-auth/backend/internal/management"
 	"github.com/zed378/zed-auth/backend/internal/oauth/authorize"
 	"github.com/zed378/zed-auth/backend/internal/oauth/client"
@@ -41,6 +43,7 @@ import (
 	"github.com/zed378/zed-auth/backend/internal/session"
 	"github.com/zed378/zed-auth/backend/internal/signing"
 	"github.com/zed378/zed-auth/backend/internal/storage/postgres"
+	"github.com/zed378/zed-auth/backend/internal/user"
 )
 
 // version is set at build time: -ldflags "-X main.version=$(git rev-parse --short HEAD)".
@@ -397,6 +400,41 @@ func run() error {
 	// guard there — and wrong here.
 	applications := application.New(db, auditor, log)
 
+	// Outbound email (ADR-018). A nil sender is a valid deployment: invitations
+	// still create their token and the response says the message was not sent.
+	mailer, err := mail.FromURL(cfg.Mail.SMTPURL, cfg.Mail.From, log, mailObserver{metrics})
+	if err != nil {
+		return fmt.Errorf("configuring outbound mail: %w", err)
+	}
+	if mailer == nil {
+		// Said once, at startup, rather than per request — a deployment that
+		// cannot send mail should know before somebody invites their first user.
+		log.Warn("no outbound mail is configured; invitations and password resets will not be delivered",
+			"remedy", "set AUTH_SMTP_URL and AUTH_MAIL_FROM")
+	}
+
+	// The email-amplification bound (card step 4, docs/SECURITY/02 §10). Its own
+	// Quotas instance because the bound is different from /v1's per-client one:
+	// five messages an hour to one address is generous for onboarding and
+	// useless for flooding somebody.
+	mailQuotas := ratelimit.NewQuotas(rdb, rateLimitObserver{metrics}, log).
+		WithQuota(ratelimit.Quota{Limit: 5, Window: time.Hour})
+
+	userStore := user.NewStore()
+	users := &user.Handler{
+		Store:     userStore,
+		DB:        db,
+		Audit:     auditor,
+		Log:       log,
+		Sessions:  sessions,
+		Refresh:   token.NewRefreshStore(),
+		BaseURL:   cfg.Issuer,
+		MailLimit: mailQuotas,
+	}
+	if mailer != nil {
+		users.Mailer = mailer
+	}
+
 	v1 := &management.Chain{
 		Auth: &management.Middleware{
 			Issuer:   cfg.Issuer,
@@ -460,6 +498,23 @@ func run() error {
 		Policy:        session.DefaultPolicy,
 		Limiter:       limiter,
 		IP:            clientIP,
+
+		// P1-19's two hosted pages. The token lookup is passed as a function
+		// because resolving a link before a tenant is known needs the
+		// SECURITY DEFINER path, and the login package deliberately holds only
+		// the narrow Tenant interface.
+		Password: &login.PasswordFlow{
+			Users:     userStore,
+			Policy:    passwordPolicy{store: authn.NewPolicyStore(log)},
+			BaseURL:   cfg.Issuer,
+			MailLimit: mailQuotas,
+			Lookup: func(ctx context.Context, tok string, now time.Time) (user.Claim, error) {
+				return userStore.LookupToken(ctx, db, tok, now)
+			},
+		},
+	}
+	if mailer != nil {
+		loginHandler.Password.Mailer = mailer
 	}
 
 	discoveryCapabilities := oidc.Capabilities{
@@ -540,10 +595,12 @@ func run() error {
 		Logout:         logoutHandler,
 		Login:          loginHandler,
 		Forgot:         http.HandlerFunc(loginHandler.Forgot),
+		SetPassword:    http.HandlerFunc(loginHandler.SetPassword),
 		V1:             v1,
 		Organizations:  organizations,
 		ProjectAPI:     projects,
 		ApplicationAPI: applications,
+		UserAPI:        users,
 		// Explicit configuration, not inferred from the environment: see the
 		// comment on config.HTTPConfig.TrustProxyHeaders. Defaults to false,
 		// so a deployment behind a proxy that forwards client headers
@@ -909,6 +966,47 @@ func (o auditGuardObserver) MutationNotAudited(route string) {
 // "asked" is as interesting as "completed": a sudden rise means relying
 // parties have stopped sending a usable id_token_hint, which turns a one-click
 // sign-out into a confirmation page for every user.
+// mailObserver counts messages that could not be delivered.
+//
+// ADR-018 makes this the metric that keeps a best-effort send safe: an
+// invitation nobody received and an invitation nobody sent look identical from
+// outside the service, and without a counter the difference is invisible until
+// somebody complains.
+type mailObserver struct{ m *observability.Metrics }
+
+func (o mailObserver) MailSendFailed(reason string) {
+	if o.m != nil && o.m.MailSendFailures != nil {
+		o.m.MailSendFailures.WithLabelValues(reason).Inc()
+	}
+}
+
+// passwordPolicy applies P1-02's rules to a password chosen through a link.
+//
+// The same evaluator the login page uses, reading the same per-organization
+// settings — a set-password page with rules of its own would be a second
+// password policy, and the one nobody remembers to update.
+type passwordPolicy struct{ store *authn.PolicyStore }
+
+func (p passwordPolicy) Validate(
+	ctx context.Context, tx *postgres.Tx, orgID, _ string, password string,
+) error {
+	policy, err := p.store.Policy(ctx, tx, orgID)
+	if err != nil {
+		return err
+	}
+	if violations := authn.Evaluate(password, policy); len(violations) > 0 {
+		// Every rule that failed, not the first: somebody fixing three
+		// problems should learn about three (P1-16's reasoning for settings,
+		// and it is the same person's afternoon either way).
+		reasons := make([]string, 0, len(violations))
+		for _, v := range violations {
+			reasons = append(reasons, v.Message)
+		}
+		return errors.New(strings.Join(reasons, " "))
+	}
+	return nil
+}
+
 type logoutObserver struct{ m *observability.Metrics }
 
 func (o logoutObserver) Logout(outcome string) {

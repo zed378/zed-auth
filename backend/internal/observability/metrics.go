@@ -80,6 +80,19 @@ type Metrics struct {
 	// nothing happening.
 	RateLimitUnavailable prometheus.Counter
 
+	// --- Outbound mail (P1-19, ADR-018) ---
+
+	// MailSendFailures counts messages that could not be delivered, by the
+	// stage that failed.
+	//
+	// This is the metric that makes ADR-018's best-effort send safe. Nothing
+	// waits on delivery — an invitation still returns 201 and a reset still
+	// returns the same answer for every address — so an invitation nobody
+	// received and an invitation nobody sent look identical from outside.
+	// Without this number the difference is invisible until somebody
+	// complains, which for a password reset is somebody locked out.
+	MailSendFailures *prometheus.CounterVec
+
 	// --- Management API (P1-15) ---
 
 	// UnauditedMutations counts successful mutating /v1 requests that wrote no
@@ -266,6 +279,11 @@ func NewMetrics(service, version string) *Metrics {
 		RateLimitUnavailable: factory.counter(
 			"auth_rate_limit_unavailable_total",
 			"Rate-limit decisions made without the counter store. Non-zero means logins are proceeding unlimited (ADR-017)."),
+
+		MailSendFailures: factory.counterVec(
+			"auth_mail_send_failures_total",
+			"Outbound messages that could not be delivered, by the stage that failed. Alert on any sustained non-zero value (ADR-018).",
+			"reason"),
 
 		UnauditedMutations: factory.counterVec(
 			"auth_management_unaudited_mutations_total",

@@ -34,6 +34,7 @@ import (
 	"github.com/zed378/zed-auth/backend/internal/ratelimit"
 	"github.com/zed378/zed-auth/backend/internal/signing"
 	"github.com/zed378/zed-auth/backend/internal/testsupport"
+	"github.com/zed378/zed-auth/backend/internal/user"
 )
 
 const issuer = "https://auth.example.test"
@@ -116,6 +117,11 @@ func setupEndpoints(t *testing.T) *endpoints {
 		},
 		// Third of three, for the reason the comment above gives.
 		ApplicationAPI: application.New(db, auditor, discard()),
+		// Fourth of four. Nothing here calls it; httpserver.New refuses a /v1
+		// chain with any half of the Management API missing, and the handler
+		// refuses a deactivation it cannot make real rather than panicking on
+		// a nil revoker.
+		UserAPI: &user.Handler{Store: user.NewStore(), DB: db, Audit: auditor, Log: discard()},
 	})
 
 	return &endpoints{

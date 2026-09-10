@@ -62,11 +62,15 @@ The site is statically generated, ships a sitemap, canonical URLs and per-page m
 
 **Recommendation**: either set a number in `docs/UI-UX/20` (90+ on performance, accessibility, best practices and SEO for the landing page and one docs page is a conventional bar), or delete the item from the DoD and rely on the accessibility checks that do exist. The second is defensible: `docs/PLAN/20` names SEO as critical without quantifying it, and a score threshold nobody chose is a gate that gets waived the first time it fails.
 
-### OQ-04 — Email delivery provider
+### ~~OQ-04 — Email delivery provider~~ — ANSWERED 2026-09-10
 
-**Blocks**: `P1-19.1`, `P1-19.4`, `P3-08`.
+**Was blocking**: `P1-19.1`, `P1-19.4`, `P3-08`.
 
 Invitations, password resets, and anomaly notifications all require outbound email, and none of the plan documents name a provider or approach. This also carries a security dimension: SPF, DKIM, and DMARC configuration matters for an identity provider, since password reset emails are a prime phishing target.
+
+**Answered** by [ADR-018](../MEMORY/DECISIONS.md): plain SMTP configured by URL, no provider SDK, and nothing waits on delivery — an invite still returns `201` with `invite_email_sent: false`, and a reset returns the same `202` whether the address exists or not, which means it must also be the same whether the send succeeded or not.
+
+**Still open**, and deliberately not code: SPF, DKIM and DMARC for the first domain that sends to a real address. Tracked as an operational follow-up against `P0-20`. Staging sends only to Mailpit and `example.test`.
 
 ### OQ-05 — Concrete RPO and RTO values
 

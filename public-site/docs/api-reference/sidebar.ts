@@ -212,6 +212,54 @@ const sidebar: SidebarsConfig = {
         },
       ],
     },
+    {
+      type: "category",
+      label: "Users",
+      items: [
+        {
+          type: "doc",
+          id: "api-reference/list-users",
+          label: "List an organization's users",
+          className: "api-method get",
+        },
+        {
+          type: "doc",
+          id: "api-reference/create-user",
+          label: "Invite a user",
+          className: "api-method post",
+        },
+        {
+          type: "doc",
+          id: "api-reference/get-user",
+          label: "Read a user",
+          className: "api-method get",
+        },
+        {
+          type: "doc",
+          id: "api-reference/update-user",
+          label: "Update a user's profile",
+          className: "api-method patch",
+        },
+        {
+          type: "doc",
+          id: "api-reference/deactivate-user",
+          label: "Deactivate a user",
+          className: "api-method post",
+        },
+        {
+          type: "doc",
+          id: "api-reference/reactivate-user",
+          label: "Reactivate a user",
+          className: "api-method post",
+        },
+        {
+          type: "doc",
+          id: "api-reference/reset-user-password",
+          label: "Send a password-reset link",
+          className: "api-method post",
+        },
+      ],
+    },
   ],
 };
 

@@ -714,6 +714,189 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/organizations/{org_id}/users": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The organization that owns the resource. Every request is scoped to exactly one. */
+                org_id: components["parameters"]["OrganizationId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * List an organization's users
+         * @description Requires `ORG_ADMIN` over this organization.
+         *
+         *     `search` matches the email, username and display name. It is a
+         *     substring match, not a prefix one, because an administrator looking for
+         *     somebody usually remembers the middle of a name rather than its start.
+         */
+        get: operations["listUsers"];
+        put?: never;
+        /**
+         * Invite a user
+         * @description Requires `ORG_ADMIN` over this organization.
+         *
+         *     The user is created with `status: "invited"` and **no password**. There
+         *     is no password field on this request, deliberately: an account whose
+         *     first password was chosen by somebody other than its owner is an
+         *     account its owner cannot be held responsible for. They set it
+         *     themselves, through a link sent to the address being invited — which is
+         *     also what proves the address is theirs.
+         *
+         *     `invite_email_sent` in the response reports what actually happened
+         *     rather than what was asked for. A `201` with `false` means the user
+         *     exists and the invitation could not be delivered, so the link must be
+         *     conveyed another way; rolling the user back because a mail server was
+         *     busy would be the worse outcome (ADR-018).
+         */
+        post: operations["createUser"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/organizations/{org_id}/users/{user_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The organization that owns the resource. Every request is scoped to exactly one. */
+                org_id: components["parameters"]["OrganizationId"];
+                /** @description The user this operation acts on. */
+                user_id: components["parameters"]["UserId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Read a user
+         * @description Requires `ORG_ADMIN` over the organization they belong to.
+         */
+        get: operations["getUser"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Update a user's profile
+         * @description Requires `ORG_ADMIN`.
+         *
+         *     **Profile fields only.** `status` is not here — deactivation and
+         *     reactivation are their own operations, because "who deactivated this
+         *     account and when" is asked during an incident and answering it should
+         *     not require diffing two updates. `email_verified` is not here because
+         *     it is a statement about what happened, not a setting. `id` and `org_id`
+         *     are not here because a user does not move.
+         *
+         *     A body naming any of them is **refused**, not ignored: silently
+         *     dropping a field tells the caller a change happened when it did not.
+         */
+        patch: operations["updateUser"];
+        trace?: never;
+    };
+    "/v1/organizations/{org_id}/users/{user_id}/deactivate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The organization that owns the resource. Every request is scoped to exactly one. */
+                org_id: components["parameters"]["OrganizationId"];
+                /** @description The user this operation acts on. */
+                user_id: components["parameters"]["UserId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Deactivate a user
+         * @description Requires `ORG_ADMIN`.
+         *
+         *     **Deactivation, not deletion.** A deleted user makes every audit entry
+         *     naming them unresolvable, which is the opposite of what an audit log is
+         *     for. The row stays, the account stops working, and the history stays
+         *     readable.
+         *
+         *     Every live session is revoked, the session cache is tombstoned, and
+         *     every refresh token is revoked — all before this returns. A deactivated
+         *     user who can still act is not deactivated, and any one of those three
+         *     left out leaves them working.
+         */
+        post: operations["deactivateUser"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/organizations/{org_id}/users/{user_id}/reactivate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The organization that owns the resource. Every request is scoped to exactly one. */
+                org_id: components["parameters"]["OrganizationId"];
+                /** @description The user this operation acts on. */
+                user_id: components["parameters"]["UserId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reactivate a user
+         * @description Requires `ORG_ADMIN`. Returns the account to `active`.
+         *
+         *     It does **not** restore the sessions deactivation ended. Those are gone
+         *     and the user signs in again, which is the correct outcome: the reason
+         *     an account was deactivated is not known to have stopped being true.
+         */
+        post: operations["reactivateUser"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/organizations/{org_id}/users/{user_id}/password-reset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The organization that owns the resource. Every request is scoped to exactly one. */
+                org_id: components["parameters"]["OrganizationId"];
+                /** @description The user this operation acts on. */
+                user_id: components["parameters"]["UserId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Send a password-reset link
+         * @description Requires `ORG_ADMIN`. Issues a single-use, short-lived token and mails
+         *     the link to the user's own address.
+         *
+         *     **The link is not returned.** The administrator triggering this cannot
+         *     see it, and that is the point: a reset link is a bearer credential for
+         *     the account, so the only party who should hold it is the one who can
+         *     read that mailbox. An administrator who needs to set a password
+         *     directly does not have that capability, deliberately.
+         *
+         *     This is the administrator-initiated path. The self-service one is the
+         *     hosted page at `/login/forgot`, which is unauthenticated and answers
+         *     identically whether or not the address exists.
+         */
+        post: operations["resetUserPassword"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -965,6 +1148,110 @@ export interface components {
              *     retired it immediately.
              */
             previous_secret_expires_at?: string | null;
+        };
+        /**
+         * @description A person who can sign in to one organization.
+         *
+         *     **No password appears here in either direction.** Not on create, not on
+         *     update, not in a response. A password is set only by the person who
+         *     holds the account, through a link sent to their own address — which is
+         *     also the only thing that proves the address is theirs.
+         */
+        User: {
+            id: components["schemas"]["ResourceId"];
+            /**
+             * Format: email
+             * @description Unique within the organization, case-insensitively, and stored
+             *     lowercased. Two accounts differing only in case is a support ticket
+             *     waiting to be filed.
+             * @example budi@company.com
+             */
+            email: string;
+            username?: string | null;
+            /** @example Budi Santoso */
+            display_name?: string | null;
+            status: components["schemas"]["UserStatus"];
+            /** @description Phase 3 owns the factors; this is the flag the login path reads. */
+            mfa_enabled: boolean;
+            /**
+             * @description Whether this address has been proven reachable, by an invitation
+             *     being accepted through a link sent to it.
+             *
+             *     Derived from a timestamp column rather than stored as a boolean:
+             *     "when" answers questions "whether" cannot, and an audit needs it.
+             *     The API exposes the question a caller actually asks.
+             */
+            email_verified: boolean;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        /**
+         * @description `invited` — created, no password set, holding an unused invitation.
+         *     `active` — can sign in.
+         *     `locked` — temporarily barred by the login rate limiter (`P1-13`).
+         *     `deactivated` — barred by an administrator, and reversible.
+         *
+         *     Not settable through an update. Deactivation and reactivation are their
+         *     own operations, because "who deactivated this account and when" is
+         *     asked during an incident and answering it should not require diffing
+         *     two updates.
+         * @enum {string}
+         */
+        UserStatus: "invited" | "active" | "locked" | "deactivated";
+        UserList: {
+            users: components["schemas"]["User"][];
+            page_info?: components["schemas"]["PageInfo"];
+        };
+        /**
+         * @description There is no `org_id` and no `password`. The organization comes from the
+         *     path; the password comes from the person the account belongs to.
+         */
+        UserCreate: {
+            /** Format: email */
+            email: string;
+            username?: string;
+            display_name?: string;
+            /**
+             * @description Whether to mail the invitation. `false` creates the account and its
+             *     invitation token without sending anything — for a bulk import, or
+             *     for an organization that distributes links through its own channel.
+             * @default true
+             */
+            send_invite_email: boolean;
+        };
+        UserCreated: components["schemas"]["User"] & {
+            /**
+             * @description What actually happened, not what was asked for. `false` with a
+             *     `201` means the account exists and the invitation was not
+             *     delivered — resend it, or convey the link another way.
+             */
+            invite_email_sent: boolean;
+        };
+        /**
+         * @description Profile fields only. `status`, `email_verified`, `id` and `org_id` are
+         *     absent on purpose, and a body carrying any of them is **refused**
+         *     rather than ignored — silently dropping a field tells the caller a
+         *     change happened when it did not.
+         */
+        UserUpdate: {
+            /**
+             * Format: email
+             * @description Changing it clears `email_verified`: a verification is a statement
+             *     about one address, not about the user who holds it.
+             */
+            email?: string;
+            username?: string | null;
+            display_name?: string | null;
+        };
+        ResetRequested: {
+            /**
+             * @description Whether the message left the service. The link itself is never in
+             *     this response — it is a bearer credential for the account, and the
+             *     only party who should hold it is the one who can read that mailbox.
+             */
+            email_sent: boolean;
         };
         /**
          * @description OpenID Provider metadata. Fields for unimplemented endpoints are
@@ -1357,6 +1644,8 @@ export interface components {
         PageToken: string;
         /** @description The organization that owns the resource. Every request is scoped to exactly one. */
         OrganizationId: components["schemas"]["ResourceId"];
+        /** @description The user this operation acts on. */
+        UserId: components["schemas"]["ResourceId"];
         /** @description The application. This value is also its OIDC `client_id`. */
         ApplicationId: components["schemas"]["ResourceId"];
         /** @description The project the resource belongs to. */
@@ -2536,6 +2825,273 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
+            429: components["responses"]["RateLimited"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    listUsers: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Maximum items to return. The server may return fewer, and returning
+                 *     fewer never means the collection is exhausted — only an absent
+                 *     `next_page_token` means that.
+                 */
+                page_size?: components["parameters"]["PageSize"];
+                /**
+                 * @description The `next_page_token` from the previous response. Opaque: its contents
+                 *     are not part of the contract and must not be constructed, parsed, or
+                 *     persisted by a client.
+                 */
+                page_token?: components["parameters"]["PageToken"];
+                /** @description Filter by email, username or display name. */
+                search?: string;
+            };
+            header?: never;
+            path: {
+                /** @description The organization that owns the resource. Every request is scoped to exactly one. */
+                org_id: components["parameters"]["OrganizationId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of users. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserList"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["RateLimited"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    createUser: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description A client-generated key making a retried `POST` safe. Replaying a
+                 *     request with the same key returns the original result rather than
+                 *     creating a second resource — which matters most for automated
+                 *     provisioning, where a network timeout is indistinguishable from a
+                 *     failure (`docs/PLAN/05` Part B).
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                /** @description The organization that owns the resource. Every request is scoped to exactly one. */
+                org_id: components["parameters"]["OrganizationId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UserCreate"];
+            };
+        };
+        responses: {
+            /** @description The user was created and invited. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserCreated"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["RateLimited"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    getUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The organization that owns the resource. Every request is scoped to exactly one. */
+                org_id: components["parameters"]["OrganizationId"];
+                /** @description The user this operation acts on. */
+                user_id: components["parameters"]["UserId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The user. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["User"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["RateLimited"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    updateUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The organization that owns the resource. Every request is scoped to exactly one. */
+                org_id: components["parameters"]["OrganizationId"];
+                /** @description The user this operation acts on. */
+                user_id: components["parameters"]["UserId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UserUpdate"];
+            };
+        };
+        responses: {
+            /** @description The updated user. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["User"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["RateLimited"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    deactivateUser: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description A client-generated key making a retried `POST` safe. Replaying a
+                 *     request with the same key returns the original result rather than
+                 *     creating a second resource — which matters most for automated
+                 *     provisioning, where a network timeout is indistinguishable from a
+                 *     failure (`docs/PLAN/05` Part B).
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                /** @description The organization that owns the resource. Every request is scoped to exactly one. */
+                org_id: components["parameters"]["OrganizationId"];
+                /** @description The user this operation acts on. */
+                user_id: components["parameters"]["UserId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The user is deactivated and their sessions are gone. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["RateLimited"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    reactivateUser: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description A client-generated key making a retried `POST` safe. Replaying a
+                 *     request with the same key returns the original result rather than
+                 *     creating a second resource — which matters most for automated
+                 *     provisioning, where a network timeout is indistinguishable from a
+                 *     failure (`docs/PLAN/05` Part B).
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                /** @description The organization that owns the resource. Every request is scoped to exactly one. */
+                org_id: components["parameters"]["OrganizationId"];
+                /** @description The user this operation acts on. */
+                user_id: components["parameters"]["UserId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The user is active again. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["RateLimited"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    resetUserPassword: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description A client-generated key making a retried `POST` safe. Replaying a
+                 *     request with the same key returns the original result rather than
+                 *     creating a second resource — which matters most for automated
+                 *     provisioning, where a network timeout is indistinguishable from a
+                 *     failure (`docs/PLAN/05` Part B).
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                /** @description The organization that owns the resource. Every request is scoped to exactly one. */
+                org_id: components["parameters"]["OrganizationId"];
+                /** @description The user this operation acts on. */
+                user_id: components["parameters"]["UserId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A reset link was issued and delivery was attempted. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResetRequested"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
             429: components["responses"]["RateLimited"];
             500: components["responses"]["InternalError"];
         };
