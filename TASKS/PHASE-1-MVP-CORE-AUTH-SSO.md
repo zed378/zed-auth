@@ -777,7 +777,7 @@ Also found: `session_id` was in the logger's redaction list — correct when the
 
 | | |
 |---|---|
-| **Status** | TODO |
+| **Status** | DONE — [record](../MEMORY/records/2026-09-10-P1-18-applications.md), [spec](../MEMORY/specs/P1-18-applications.md) |
 | **Depends on** | P1-15, P1-05 |
 | **Plan refs** | `docs/PLAN/05-API-CONTRACT.md`, `docs/PLAN/04-DATA-MODEL.md` § `applications`, `docs/UI-UX/08-PAGE-SPECIFICATIONS.md` (Applications tab) |
 | **Spec required** | Yes — credential handling |
@@ -793,11 +793,21 @@ Also found: `session_id` was in the logger's redaction list — correct when the
 5. Reject changing an application's `type` in a way that would strand its credentials (for example `web` → `spa` while a secret exists).
 
 **Definition of Done**
-- [ ] The secret appears exactly once, in the create response, verified by a test that reads the resource afterward.
-- [ ] Redirect URI validation runs identically on create and update.
-- [ ] Secret rotation works with an overlap and is audited.
-- [ ] An invalid type transition is rejected.
+- [x] The secret appears exactly once, in the create response, verified by a test that reads the resource afterward. Not "the read has no `client_secret` field" — that passes against a service returning it under another key. The assertion is that the secret's **characters** appear in no subsequent body, across the read, the list and an update, and that neither the stored hash nor a half-length prefix does either. Each probe is paired with `has_secret: true`, so the absence is not an application that simply lost its credential.
+- [x] Redirect URI validation runs identically on create and update. Four bad URIs — a wildcard, plaintext, a fragment, a non-URI — driven through **both** endpoints, plus a valid one accepted by both, so the eight refusals are about the values rather than about the endpoints being broken.
+- [x] Secret rotation works with an overlap and is audited. Tested at both ends of the window: the previous secret verifies inside it and not one second after, through `client.Credentials.Verify` rather than a comparison the test invents. `overlap_hours=0` has its own test, because treating zero as "unset" is the obvious bug and would leave a leaked credential live for a day.
+- [x] An invalid type transition is rejected. A `400` naming the field, **and** nothing changed — not the type, not the name bundled with it, not the secret. Asserting only the second half would pass with no refusal at all.
 
+
+**What this task did not build**
+- **A console screen.** `P1-22` owns the Applications tab.
+- **Anything that reads a secret back.** There is nothing to read it from.
+- **A staleness signal for an unrotated secret.** `applications` records no "when was this issued", and deriving it from `updated_at` would be wrong — any edit moves that.
+
+**Found while building it**
+- **A caller's typo was a 500.** Validation errors were told from internal ones by matching on the error text, and `P1-05`'s validators share no prefix — so every wildcard redirect URI and every removed grant type arrived as `500`. `client.ErrInvalid` is a sentinel now, wrapped around all twenty messages. A string check standing in for a type, and it did not work.
+- **`oapi-codegen` decodes an optional request body unconditionally.** `requestBody: {required: false}` for rotation still produced `400 can't decode JSON body` for a `POST` with no body. `overlap_hours` is a query parameter instead, with the deviation recorded in the parameter's own description.
+- **An import cycle from the third required handler.** This package checked the project through `internal/project`, and `P1-17`'s in-package harness then needed a handler from here. The dependency bought nothing — the question is "is there a row" — so it is a bare `SELECT EXISTS`. `P1-19` makes four handlers; at four the answer is a shared `Deps` constructor, not a weaker guard.
 ---
 
 ## P1-19 — Management API: Users

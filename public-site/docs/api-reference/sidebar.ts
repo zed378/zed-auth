@@ -170,6 +170,48 @@ const sidebar: SidebarsConfig = {
         },
       ],
     },
+    {
+      type: "category",
+      label: "Applications",
+      items: [
+        {
+          type: "doc",
+          id: "api-reference/list-applications",
+          label: "List a project's applications",
+          className: "api-method get",
+        },
+        {
+          type: "doc",
+          id: "api-reference/create-application",
+          label: "Register an application",
+          className: "api-method post",
+        },
+        {
+          type: "doc",
+          id: "api-reference/get-application",
+          label: "Read an application",
+          className: "api-method get",
+        },
+        {
+          type: "doc",
+          id: "api-reference/update-application",
+          label: "Update an application",
+          className: "api-method patch",
+        },
+        {
+          type: "doc",
+          id: "api-reference/delete-application",
+          label: "Delete an application",
+          className: "api-method delete",
+        },
+        {
+          type: "doc",
+          id: "api-reference/rotate-application-secret",
+          label: "Issue a new client secret",
+          className: "api-method post",
+        },
+      ],
+    },
   ],
 };
 

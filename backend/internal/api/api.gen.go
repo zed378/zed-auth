@@ -21,6 +21,15 @@ const (
 	Oauth2Scopes = "oauth2.Scopes"
 )
 
+// Defines values for ApplicationType.
+const (
+	Api    ApplicationType = "api"
+	Native ApplicationType = "native"
+	Saml   ApplicationType = "saml"
+	Spa    ApplicationType = "spa"
+	Web    ApplicationType = "web"
+)
+
 // Defines values for ErrorCode.
 const (
 	CONFLICT         ErrorCode = "CONFLICT"
@@ -80,6 +89,234 @@ const (
 const (
 	TokenResponseTokenTypeBearer TokenResponseTokenType = "Bearer"
 )
+
+// Application A registered OIDC client.
+//
+// `id` **is** the `client_id`. There is no separate field, because two
+// identifiers for one thing is how a console shows the wrong one
+// (`docs/PLAN/04` § applications).
+type Application struct {
+	CreatedAt  time.Time `json:"created_at"`
+	GrantTypes []string  `json:"grant_types"`
+
+	// HasSecret Whether a client secret is configured. A boolean, never the secret
+	// and never its hash — it answers the only question a reader
+	// legitimately has without answering what the value is or how long
+	// it is.
+	HasSecret bool `json:"has_secret"`
+
+	// Id A resource's stable identifier. Not sequential and not guessable.
+	//
+	// **This was specified as a prefixed, sortable identifier** — `usr_`,
+	// `org_`, `prj_` — and is a UUID instead. The change is deliberate and is
+	// recorded as `PG-23`.
+	//
+	// The prefix has a real benefit: an id pasted into a support ticket is
+	// self-describing, and passing a project id where a user id belongs is
+	// visible on sight rather than at the database. What it cannot survive is
+	// being applied to only part of the surface. `docs/PLAN/04` makes every
+	// primary key a UUID, the access token's `org_id` claim is a UUID, and
+	// OpenID Connect's `sub` — already shipped by `P1-08` — is a UUID that
+	// callers store as a user's permanent key.
+	//
+	// Prefixing only the Management API would give the same user two
+	// identifiers and make every consumer convert between them, which is a
+	// larger and more permanent papercut than the one the prefix removes.
+	// Prefixing everything means changing `sub`, which is a protocol field
+	// with its own conventions and a value integrators have already stored.
+	//
+	// So: UUIDs everywhere, and if prefixed identifiers are wanted later they
+	// arrive everywhere at once or not at all.
+	Id                     ResourceId `json:"id"`
+	Name                   string     `json:"name"`
+	PostLogoutRedirectUris []string   `json:"post_logout_redirect_uris"`
+
+	// PreviousSecretExpiresAt While set and in the future, the previous secret still
+	// authenticates. This is the overlap that lets a consumer take a new
+	// secret without a simultaneous redeploy.
+	PreviousSecretExpiresAt nullable.Nullable[time.Time] `json:"previous_secret_expires_at,omitempty"`
+
+	// ProjectId A resource's stable identifier. Not sequential and not guessable.
+	//
+	// **This was specified as a prefixed, sortable identifier** — `usr_`,
+	// `org_`, `prj_` — and is a UUID instead. The change is deliberate and is
+	// recorded as `PG-23`.
+	//
+	// The prefix has a real benefit: an id pasted into a support ticket is
+	// self-describing, and passing a project id where a user id belongs is
+	// visible on sight rather than at the database. What it cannot survive is
+	// being applied to only part of the surface. `docs/PLAN/04` makes every
+	// primary key a UUID, the access token's `org_id` claim is a UUID, and
+	// OpenID Connect's `sub` — already shipped by `P1-08` — is a UUID that
+	// callers store as a user's permanent key.
+	//
+	// Prefixing only the Management API would give the same user two
+	// identifiers and make every consumer convert between them, which is a
+	// larger and more permanent papercut than the one the prefix removes.
+	// Prefixing everything means changing `sub`, which is a protocol field
+	// with its own conventions and a value integrators have already stored.
+	//
+	// So: UUIDs everywhere, and if prefixed identifiers are wanted later they
+	// arrive everywhere at once or not at all.
+	ProjectId ResourceId `json:"project_id"`
+
+	// RedirectUris Matched by **exact string comparison** at authorization time, never
+	// by prefix or pattern. Prefix matching is the open-redirect
+	// vulnerability (`docs/PLAN/09` § Protection Against Common Attacks).
+	RedirectUris []string `json:"redirect_uris"`
+
+	// Type Decides whether the client can hold a secret. `spa` and `native` are
+	// public — they cannot keep one confidential in a browser or a shipped
+	// binary, so they use PKCE and are refused a secret at the database
+	// level.
+	//
+	// **Immutable after creation.** Changing it would either strand a secret
+	// on a now-public client or leave a confidential one with none.
+	Type      ApplicationType `json:"type"`
+	UpdatedAt time.Time       `json:"updated_at"`
+}
+
+// ApplicationCreate There is no `project_id` or `org_id` here — both come from the path.
+type ApplicationCreate struct {
+	// GrantTypes Defaults to `["authorization_code", "refresh_token"]`. `implicit`
+	// and `password` are refused for every type: both hand credentials or
+	// tokens to places that cannot protect them, and OAuth 2.1 removes
+	// them.
+	GrantTypes             *[]string `json:"grant_types,omitempty"`
+	Name                   string    `json:"name"`
+	PostLogoutRedirectUris *[]string `json:"post_logout_redirect_uris,omitempty"`
+	RedirectUris           *[]string `json:"redirect_uris,omitempty"`
+
+	// Type Decides whether the client can hold a secret. `spa` and `native` are
+	// public — they cannot keep one confidential in a browser or a shipped
+	// binary, so they use PKCE and are refused a secret at the database
+	// level.
+	//
+	// **Immutable after creation.** Changing it would either strand a secret
+	// on a now-public client or leave a confidential one with none.
+	Type ApplicationType `json:"type"`
+}
+
+// ApplicationCreated defines model for ApplicationCreated.
+type ApplicationCreated struct {
+	// ClientSecret **The only time this value exists outside the service.** It is
+	// stored as a hash and cannot be recovered — an application whose
+	// secret is lost is rotated, not recalled.
+	//
+	// Absent for a public client, which has none.
+	ClientSecret *string   `json:"client_secret,omitempty"`
+	CreatedAt    time.Time `json:"created_at"`
+	GrantTypes   []string  `json:"grant_types"`
+
+	// HasSecret Whether a client secret is configured. A boolean, never the secret
+	// and never its hash — it answers the only question a reader
+	// legitimately has without answering what the value is or how long
+	// it is.
+	HasSecret bool `json:"has_secret"`
+
+	// Id A resource's stable identifier. Not sequential and not guessable.
+	//
+	// **This was specified as a prefixed, sortable identifier** — `usr_`,
+	// `org_`, `prj_` — and is a UUID instead. The change is deliberate and is
+	// recorded as `PG-23`.
+	//
+	// The prefix has a real benefit: an id pasted into a support ticket is
+	// self-describing, and passing a project id where a user id belongs is
+	// visible on sight rather than at the database. What it cannot survive is
+	// being applied to only part of the surface. `docs/PLAN/04` makes every
+	// primary key a UUID, the access token's `org_id` claim is a UUID, and
+	// OpenID Connect's `sub` — already shipped by `P1-08` — is a UUID that
+	// callers store as a user's permanent key.
+	//
+	// Prefixing only the Management API would give the same user two
+	// identifiers and make every consumer convert between them, which is a
+	// larger and more permanent papercut than the one the prefix removes.
+	// Prefixing everything means changing `sub`, which is a protocol field
+	// with its own conventions and a value integrators have already stored.
+	//
+	// So: UUIDs everywhere, and if prefixed identifiers are wanted later they
+	// arrive everywhere at once or not at all.
+	Id                     ResourceId `json:"id"`
+	Name                   string     `json:"name"`
+	PostLogoutRedirectUris []string   `json:"post_logout_redirect_uris"`
+
+	// PreviousSecretExpiresAt While set and in the future, the previous secret still
+	// authenticates. This is the overlap that lets a consumer take a new
+	// secret without a simultaneous redeploy.
+	PreviousSecretExpiresAt nullable.Nullable[time.Time] `json:"previous_secret_expires_at,omitempty"`
+
+	// ProjectId A resource's stable identifier. Not sequential and not guessable.
+	//
+	// **This was specified as a prefixed, sortable identifier** — `usr_`,
+	// `org_`, `prj_` — and is a UUID instead. The change is deliberate and is
+	// recorded as `PG-23`.
+	//
+	// The prefix has a real benefit: an id pasted into a support ticket is
+	// self-describing, and passing a project id where a user id belongs is
+	// visible on sight rather than at the database. What it cannot survive is
+	// being applied to only part of the surface. `docs/PLAN/04` makes every
+	// primary key a UUID, the access token's `org_id` claim is a UUID, and
+	// OpenID Connect's `sub` — already shipped by `P1-08` — is a UUID that
+	// callers store as a user's permanent key.
+	//
+	// Prefixing only the Management API would give the same user two
+	// identifiers and make every consumer convert between them, which is a
+	// larger and more permanent papercut than the one the prefix removes.
+	// Prefixing everything means changing `sub`, which is a protocol field
+	// with its own conventions and a value integrators have already stored.
+	//
+	// So: UUIDs everywhere, and if prefixed identifiers are wanted later they
+	// arrive everywhere at once or not at all.
+	ProjectId ResourceId `json:"project_id"`
+
+	// RedirectUris Matched by **exact string comparison** at authorization time, never
+	// by prefix or pattern. Prefix matching is the open-redirect
+	// vulnerability (`docs/PLAN/09` § Protection Against Common Attacks).
+	RedirectUris []string `json:"redirect_uris"`
+
+	// Type Decides whether the client can hold a secret. `spa` and `native` are
+	// public — they cannot keep one confidential in a browser or a shipped
+	// binary, so they use PKCE and are refused a secret at the database
+	// level.
+	//
+	// **Immutable after creation.** Changing it would either strand a secret
+	// on a now-public client or leave a confidential one with none.
+	Type      ApplicationType `json:"type"`
+	UpdatedAt time.Time       `json:"updated_at"`
+}
+
+// ApplicationList defines model for ApplicationList.
+type ApplicationList struct {
+	Applications []Application `json:"applications"`
+
+	// PageInfo The pagination envelope every collection response embeds.
+	//
+	// Token-based rather than offset-based: an offset re-reads rows that
+	// shifted under concurrent writes, silently skipping or duplicating
+	// entries. For an audit log or a user list that is a correctness bug that
+	// nobody notices.
+	PageInfo *PageInfo `json:"page_info,omitempty"`
+}
+
+// ApplicationType Decides whether the client can hold a secret. `spa` and `native` are
+// public — they cannot keep one confidential in a browser or a shipped
+// binary, so they use PKCE and are refused a secret at the database
+// level.
+//
+// **Immutable after creation.** Changing it would either strand a secret
+// on a now-public client or leave a confidential one with none.
+type ApplicationType string
+
+// ApplicationUpdate Every field is optional; an omitted field is left alone. `type` is
+// absent from this schema on purpose, and a body carrying it is rejected
+// rather than ignored — silently dropping it would let a caller believe
+// a reclassification happened.
+type ApplicationUpdate struct {
+	GrantTypes             *[]string `json:"grant_types,omitempty"`
+	Name                   *string   `json:"name,omitempty"`
+	PostLogoutRedirectUris *[]string `json:"post_logout_redirect_uris,omitempty"`
+	RedirectUris           *[]string `json:"redirect_uris,omitempty"`
+}
 
 // Error The error envelope for every non-2xx response, without exception
 // (`docs/PLAN/05` Part B § Standard Error Format). One shape means a client
@@ -498,6 +735,16 @@ type ReadinessStatusStatus string
 // arrive everywhere at once or not at all.
 type ResourceId = openapi_types.UUID
 
+// RotatedSecret defines model for RotatedSecret.
+type RotatedSecret struct {
+	// ClientSecret The new secret. Shown once, exactly as at creation.
+	ClientSecret string `json:"client_secret"`
+
+	// PreviousSecretExpiresAt When the superseded secret stops working. Null when the rotation
+	// retired it immediately.
+	PreviousSecretExpiresAt nullable.Nullable[time.Time] `json:"previous_secret_expires_at,omitempty"`
+}
+
 // TokenResponse A successful token response (RFC 6749 § 5.1).
 type TokenResponse struct {
 	// AccessToken A JWT with `typ: at+jwt`. Verify it against the JWKS at
@@ -552,6 +799,30 @@ type UserInfo struct {
 	// (OIDC Core 5.1). Requires the `profile` scope.
 	UpdatedAt *int64 `json:"updated_at,omitempty"`
 }
+
+// ApplicationId A resource's stable identifier. Not sequential and not guessable.
+//
+// **This was specified as a prefixed, sortable identifier** — `usr_`,
+// `org_`, `prj_` — and is a UUID instead. The change is deliberate and is
+// recorded as `PG-23`.
+//
+// The prefix has a real benefit: an id pasted into a support ticket is
+// self-describing, and passing a project id where a user id belongs is
+// visible on sight rather than at the database. What it cannot survive is
+// being applied to only part of the surface. `docs/PLAN/04` makes every
+// primary key a UUID, the access token's `org_id` claim is a UUID, and
+// OpenID Connect's `sub` — already shipped by `P1-08` — is a UUID that
+// callers store as a user's permanent key.
+//
+// Prefixing only the Management API would give the same user two
+// identifiers and make every consumer convert between them, which is a
+// larger and more permanent papercut than the one the prefix removes.
+// Prefixing everything means changing `sub`, which is a protocol field
+// with its own conventions and a value integrators have already stored.
+//
+// So: UUIDs everywhere, and if prefixed identifiers are wanted later they
+// arrive everywhere at once or not at all.
+type ApplicationId = ResourceId
 
 // IdempotencyKey defines model for IdempotencyKey.
 type IdempotencyKey = string
@@ -714,6 +985,62 @@ type DeleteProjectParams struct {
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
+// ListApplicationsParams defines parameters for ListApplications.
+type ListApplicationsParams struct {
+	// PageSize Maximum items to return. The server may return fewer, and returning
+	// fewer never means the collection is exhausted — only an absent
+	// `next_page_token` means that.
+	PageSize *PageSize `form:"page_size,omitempty" json:"page_size,omitempty"`
+
+	// PageToken The `next_page_token` from the previous response. Opaque: its contents
+	// are not part of the contract and must not be constructed, parsed, or
+	// persisted by a client.
+	PageToken *PageToken `form:"page_token,omitempty" json:"page_token,omitempty"`
+}
+
+// CreateApplicationParams defines parameters for CreateApplication.
+type CreateApplicationParams struct {
+	// IdempotencyKey A client-generated key making a retried `POST` safe. Replaying a
+	// request with the same key returns the original result rather than
+	// creating a second resource — which matters most for automated
+	// provisioning, where a network timeout is indistinguishable from a
+	// failure (`docs/PLAN/05` Part B).
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+}
+
+// DeleteApplicationParams defines parameters for DeleteApplication.
+type DeleteApplicationParams struct {
+	// IdempotencyKey A client-generated key making a retried `POST` safe. Replaying a
+	// request with the same key returns the original result rather than
+	// creating a second resource — which matters most for automated
+	// provisioning, where a network timeout is indistinguishable from a
+	// failure (`docs/PLAN/05` Part B).
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+}
+
+// RotateApplicationSecretParams defines parameters for RotateApplicationSecret.
+type RotateApplicationSecretParams struct {
+	// OverlapHours How long the previous secret keeps authenticating. Defaults to 24.
+	// `0` retires it immediately — the compromised-secret path, where the
+	// outage for anything still using it is the point.
+	//
+	// A query parameter rather than a request body, and that is a
+	// deviation worth naming: the contract said an optional body, and
+	// `oapi-codegen` decodes one unconditionally, so `POST` with no body
+	// answered `400 can't decode JSON body`. Requiring `{}` for the
+	// common case would be a contract that describes a papercut; this
+	// keeps `POST .../rotate-secret` working with nothing at all. The
+	// value is not a credential, so it is fine in an access log.
+	OverlapHours *int `form:"overlap_hours,omitempty" json:"overlap_hours,omitempty"`
+
+	// IdempotencyKey A client-generated key making a retried `POST` safe. Replaying a
+	// request with the same key returns the original result rather than
+	// creating a second resource — which matters most for automated
+	// provisioning, where a network timeout is indistinguishable from a
+	// failure (`docs/PLAN/05` Part B).
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+}
+
 // CreateOrganizationJSONRequestBody defines body for CreateOrganization for application/json ContentType.
 type CreateOrganizationJSONRequestBody = OrganizationCreate
 
@@ -725,6 +1052,12 @@ type CreateProjectJSONRequestBody = ProjectCreate
 
 // UpdateProjectJSONRequestBody defines body for UpdateProject for application/json ContentType.
 type UpdateProjectJSONRequestBody = ProjectUpdate
+
+// CreateApplicationJSONRequestBody defines body for CreateApplication for application/json ContentType.
+type CreateApplicationJSONRequestBody = ApplicationCreate
+
+// UpdateApplicationJSONRequestBody defines body for UpdateApplication for application/json ContentType.
+type UpdateApplicationJSONRequestBody = ApplicationUpdate
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
@@ -770,6 +1103,24 @@ type ServerInterface interface {
 	// Rename a project
 	// (PATCH /v1/organizations/{org_id}/projects/{project_id})
 	UpdateProject(w http.ResponseWriter, r *http.Request, orgId OrganizationId, projectId ProjectId)
+	// List a project's applications
+	// (GET /v1/organizations/{org_id}/projects/{project_id}/applications)
+	ListApplications(w http.ResponseWriter, r *http.Request, orgId OrganizationId, projectId ProjectId, params ListApplicationsParams)
+	// Register an application
+	// (POST /v1/organizations/{org_id}/projects/{project_id}/applications)
+	CreateApplication(w http.ResponseWriter, r *http.Request, orgId OrganizationId, projectId ProjectId, params CreateApplicationParams)
+	// Delete an application
+	// (DELETE /v1/organizations/{org_id}/projects/{project_id}/applications/{application_id})
+	DeleteApplication(w http.ResponseWriter, r *http.Request, orgId OrganizationId, projectId ProjectId, applicationId ApplicationId, params DeleteApplicationParams)
+	// Read an application
+	// (GET /v1/organizations/{org_id}/projects/{project_id}/applications/{application_id})
+	GetApplication(w http.ResponseWriter, r *http.Request, orgId OrganizationId, projectId ProjectId, applicationId ApplicationId)
+	// Update an application
+	// (PATCH /v1/organizations/{org_id}/projects/{project_id}/applications/{application_id})
+	UpdateApplication(w http.ResponseWriter, r *http.Request, orgId OrganizationId, projectId ProjectId, applicationId ApplicationId)
+	// Issue a new client secret
+	// (POST /v1/organizations/{org_id}/projects/{project_id}/applications/{application_id}/rotate-secret)
+	RotateApplicationSecret(w http.ResponseWriter, r *http.Request, orgId OrganizationId, projectId ProjectId, applicationId ApplicationId, params RotateApplicationSecretParams)
 }
 
 // Unimplemented server implementation that returns http.StatusNotImplemented for each endpoint.
@@ -857,6 +1208,42 @@ func (_ Unimplemented) GetProject(w http.ResponseWriter, r *http.Request, orgId 
 // Rename a project
 // (PATCH /v1/organizations/{org_id}/projects/{project_id})
 func (_ Unimplemented) UpdateProject(w http.ResponseWriter, r *http.Request, orgId OrganizationId, projectId ProjectId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// List a project's applications
+// (GET /v1/organizations/{org_id}/projects/{project_id}/applications)
+func (_ Unimplemented) ListApplications(w http.ResponseWriter, r *http.Request, orgId OrganizationId, projectId ProjectId, params ListApplicationsParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Register an application
+// (POST /v1/organizations/{org_id}/projects/{project_id}/applications)
+func (_ Unimplemented) CreateApplication(w http.ResponseWriter, r *http.Request, orgId OrganizationId, projectId ProjectId, params CreateApplicationParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Delete an application
+// (DELETE /v1/organizations/{org_id}/projects/{project_id}/applications/{application_id})
+func (_ Unimplemented) DeleteApplication(w http.ResponseWriter, r *http.Request, orgId OrganizationId, projectId ProjectId, applicationId ApplicationId, params DeleteApplicationParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Read an application
+// (GET /v1/organizations/{org_id}/projects/{project_id}/applications/{application_id})
+func (_ Unimplemented) GetApplication(w http.ResponseWriter, r *http.Request, orgId OrganizationId, projectId ProjectId, applicationId ApplicationId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Update an application
+// (PATCH /v1/organizations/{org_id}/projects/{project_id}/applications/{application_id})
+func (_ Unimplemented) UpdateApplication(w http.ResponseWriter, r *http.Request, orgId OrganizationId, projectId ProjectId, applicationId ApplicationId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Issue a new client secret
+// (POST /v1/organizations/{org_id}/projects/{project_id}/applications/{application_id}/rotate-secret)
+func (_ Unimplemented) RotateApplicationSecret(w http.ResponseWriter, r *http.Request, orgId OrganizationId, projectId ProjectId, applicationId ApplicationId, params RotateApplicationSecretParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -1393,6 +1780,381 @@ func (siw *ServerInterfaceWrapper) UpdateProject(w http.ResponseWriter, r *http.
 	handler.ServeHTTP(w, r)
 }
 
+// ListApplications operation middleware
+func (siw *ServerInterfaceWrapper) ListApplications(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "org_id" -------------
+	var orgId OrganizationId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "org_id", chi.URLParam(r, "org_id"), &orgId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "org_id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "project_id" -------------
+	var projectId ProjectId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project_id", chi.URLParam(r, "project_id"), &projectId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "project_id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, Oauth2Scopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListApplicationsParams
+
+	// ------------- Optional query parameter "page_size" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "page_size", r.URL.Query(), &params.PageSize)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "page_size", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "page_token" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "page_token", r.URL.Query(), &params.PageToken)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "page_token", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListApplications(w, r, orgId, projectId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateApplication operation middleware
+func (siw *ServerInterfaceWrapper) CreateApplication(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "org_id" -------------
+	var orgId OrganizationId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "org_id", chi.URLParam(r, "org_id"), &orgId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "org_id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "project_id" -------------
+	var projectId ProjectId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project_id", chi.URLParam(r, "project_id"), &projectId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "project_id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, Oauth2Scopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateApplicationParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateApplication(w, r, orgId, projectId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteApplication operation middleware
+func (siw *ServerInterfaceWrapper) DeleteApplication(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "org_id" -------------
+	var orgId OrganizationId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "org_id", chi.URLParam(r, "org_id"), &orgId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "org_id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "project_id" -------------
+	var projectId ProjectId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project_id", chi.URLParam(r, "project_id"), &projectId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "project_id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "application_id" -------------
+	var applicationId ApplicationId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "application_id", chi.URLParam(r, "application_id"), &applicationId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "application_id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, Oauth2Scopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params DeleteApplicationParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteApplication(w, r, orgId, projectId, applicationId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetApplication operation middleware
+func (siw *ServerInterfaceWrapper) GetApplication(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "org_id" -------------
+	var orgId OrganizationId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "org_id", chi.URLParam(r, "org_id"), &orgId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "org_id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "project_id" -------------
+	var projectId ProjectId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project_id", chi.URLParam(r, "project_id"), &projectId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "project_id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "application_id" -------------
+	var applicationId ApplicationId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "application_id", chi.URLParam(r, "application_id"), &applicationId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "application_id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, Oauth2Scopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetApplication(w, r, orgId, projectId, applicationId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateApplication operation middleware
+func (siw *ServerInterfaceWrapper) UpdateApplication(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "org_id" -------------
+	var orgId OrganizationId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "org_id", chi.URLParam(r, "org_id"), &orgId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "org_id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "project_id" -------------
+	var projectId ProjectId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project_id", chi.URLParam(r, "project_id"), &projectId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "project_id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "application_id" -------------
+	var applicationId ApplicationId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "application_id", chi.URLParam(r, "application_id"), &applicationId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "application_id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, Oauth2Scopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateApplication(w, r, orgId, projectId, applicationId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RotateApplicationSecret operation middleware
+func (siw *ServerInterfaceWrapper) RotateApplicationSecret(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "org_id" -------------
+	var orgId OrganizationId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "org_id", chi.URLParam(r, "org_id"), &orgId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "org_id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "project_id" -------------
+	var projectId ProjectId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project_id", chi.URLParam(r, "project_id"), &projectId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "project_id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "application_id" -------------
+	var applicationId ApplicationId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "application_id", chi.URLParam(r, "application_id"), &applicationId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "application_id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, Oauth2Scopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params RotateApplicationSecretParams
+
+	// ------------- Optional query parameter "overlap_hours" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "overlap_hours", r.URL.Query(), &params.OverlapHours)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "overlap_hours", Err: err})
+		return
+	}
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RotateApplicationSecret(w, r, orgId, projectId, applicationId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 type UnescapedCookieParamError struct {
 	ParamName string
 	Err       error
@@ -1547,6 +2309,24 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Patch(options.BaseURL+"/v1/organizations/{org_id}/projects/{project_id}", wrapper.UpdateProject)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/v1/organizations/{org_id}/projects/{project_id}/applications", wrapper.ListApplications)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/organizations/{org_id}/projects/{project_id}/applications", wrapper.CreateApplication)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/v1/organizations/{org_id}/projects/{project_id}/applications/{application_id}", wrapper.DeleteApplication)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/v1/organizations/{org_id}/projects/{project_id}/applications/{application_id}", wrapper.GetApplication)
+	})
+	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/v1/organizations/{org_id}/projects/{project_id}/applications/{application_id}", wrapper.UpdateApplication)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/organizations/{org_id}/projects/{project_id}/applications/{application_id}/rotate-secret", wrapper.RotateApplicationSecret)
 	})
 
 	return r
@@ -2433,6 +3213,471 @@ func (response UpdateProject500JSONResponse) VisitUpdateProjectResponse(w http.R
 	return json.NewEncoder(w).Encode(response)
 }
 
+type ListApplicationsRequestObject struct {
+	OrgId     OrganizationId `json:"org_id"`
+	ProjectId ProjectId      `json:"project_id"`
+	Params    ListApplicationsParams
+}
+
+type ListApplicationsResponseObject interface {
+	VisitListApplicationsResponse(w http.ResponseWriter) error
+}
+
+type ListApplications200JSONResponse ApplicationList
+
+func (response ListApplications200JSONResponse) VisitListApplicationsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListApplications400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response ListApplications400JSONResponse) VisitListApplicationsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListApplications401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ListApplications401JSONResponse) VisitListApplicationsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListApplications403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response ListApplications403JSONResponse) VisitListApplicationsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListApplications404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response ListApplications404JSONResponse) VisitListApplicationsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListApplications429JSONResponse struct{ RateLimitedJSONResponse }
+
+func (response ListApplications429JSONResponse) VisitListApplicationsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Retry-After", fmt.Sprint(response.Headers.RetryAfter))
+	w.Header().Set("X-RateLimit-Limit", fmt.Sprint(response.Headers.XRateLimitLimit))
+	w.Header().Set("X-RateLimit-Remaining", fmt.Sprint(response.Headers.XRateLimitRemaining))
+	w.Header().Set("X-RateLimit-Reset", fmt.Sprint(response.Headers.XRateLimitReset))
+	w.WriteHeader(429)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type ListApplications500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response ListApplications500JSONResponse) VisitListApplicationsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type CreateApplicationRequestObject struct {
+	OrgId     OrganizationId `json:"org_id"`
+	ProjectId ProjectId      `json:"project_id"`
+	Params    CreateApplicationParams
+	Body      *CreateApplicationJSONRequestBody
+}
+
+type CreateApplicationResponseObject interface {
+	VisitCreateApplicationResponse(w http.ResponseWriter) error
+}
+
+type CreateApplication201JSONResponse ApplicationCreated
+
+func (response CreateApplication201JSONResponse) VisitCreateApplicationResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type CreateApplication400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response CreateApplication400JSONResponse) VisitCreateApplicationResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type CreateApplication401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response CreateApplication401JSONResponse) VisitCreateApplicationResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type CreateApplication403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response CreateApplication403JSONResponse) VisitCreateApplicationResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type CreateApplication404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response CreateApplication404JSONResponse) VisitCreateApplicationResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type CreateApplication409JSONResponse struct{ ConflictJSONResponse }
+
+func (response CreateApplication409JSONResponse) VisitCreateApplicationResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type CreateApplication429JSONResponse struct{ RateLimitedJSONResponse }
+
+func (response CreateApplication429JSONResponse) VisitCreateApplicationResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Retry-After", fmt.Sprint(response.Headers.RetryAfter))
+	w.Header().Set("X-RateLimit-Limit", fmt.Sprint(response.Headers.XRateLimitLimit))
+	w.Header().Set("X-RateLimit-Remaining", fmt.Sprint(response.Headers.XRateLimitRemaining))
+	w.Header().Set("X-RateLimit-Reset", fmt.Sprint(response.Headers.XRateLimitReset))
+	w.WriteHeader(429)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type CreateApplication500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response CreateApplication500JSONResponse) VisitCreateApplicationResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type DeleteApplicationRequestObject struct {
+	OrgId         OrganizationId `json:"org_id"`
+	ProjectId     ProjectId      `json:"project_id"`
+	ApplicationId ApplicationId  `json:"application_id"`
+	Params        DeleteApplicationParams
+}
+
+type DeleteApplicationResponseObject interface {
+	VisitDeleteApplicationResponse(w http.ResponseWriter) error
+}
+
+type DeleteApplication204Response struct {
+}
+
+func (response DeleteApplication204Response) VisitDeleteApplicationResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteApplication401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response DeleteApplication401JSONResponse) VisitDeleteApplicationResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type DeleteApplication403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response DeleteApplication403JSONResponse) VisitDeleteApplicationResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type DeleteApplication404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response DeleteApplication404JSONResponse) VisitDeleteApplicationResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type DeleteApplication429JSONResponse struct{ RateLimitedJSONResponse }
+
+func (response DeleteApplication429JSONResponse) VisitDeleteApplicationResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Retry-After", fmt.Sprint(response.Headers.RetryAfter))
+	w.Header().Set("X-RateLimit-Limit", fmt.Sprint(response.Headers.XRateLimitLimit))
+	w.Header().Set("X-RateLimit-Remaining", fmt.Sprint(response.Headers.XRateLimitRemaining))
+	w.Header().Set("X-RateLimit-Reset", fmt.Sprint(response.Headers.XRateLimitReset))
+	w.WriteHeader(429)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type DeleteApplication500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response DeleteApplication500JSONResponse) VisitDeleteApplicationResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetApplicationRequestObject struct {
+	OrgId         OrganizationId `json:"org_id"`
+	ProjectId     ProjectId      `json:"project_id"`
+	ApplicationId ApplicationId  `json:"application_id"`
+}
+
+type GetApplicationResponseObject interface {
+	VisitGetApplicationResponse(w http.ResponseWriter) error
+}
+
+type GetApplication200JSONResponse Application
+
+func (response GetApplication200JSONResponse) VisitGetApplicationResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetApplication401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response GetApplication401JSONResponse) VisitGetApplicationResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetApplication403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response GetApplication403JSONResponse) VisitGetApplicationResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetApplication404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response GetApplication404JSONResponse) VisitGetApplicationResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetApplication429JSONResponse struct{ RateLimitedJSONResponse }
+
+func (response GetApplication429JSONResponse) VisitGetApplicationResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Retry-After", fmt.Sprint(response.Headers.RetryAfter))
+	w.Header().Set("X-RateLimit-Limit", fmt.Sprint(response.Headers.XRateLimitLimit))
+	w.Header().Set("X-RateLimit-Remaining", fmt.Sprint(response.Headers.XRateLimitRemaining))
+	w.Header().Set("X-RateLimit-Reset", fmt.Sprint(response.Headers.XRateLimitReset))
+	w.WriteHeader(429)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type GetApplication500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response GetApplication500JSONResponse) VisitGetApplicationResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type UpdateApplicationRequestObject struct {
+	OrgId         OrganizationId `json:"org_id"`
+	ProjectId     ProjectId      `json:"project_id"`
+	ApplicationId ApplicationId  `json:"application_id"`
+	Body          *UpdateApplicationJSONRequestBody
+}
+
+type UpdateApplicationResponseObject interface {
+	VisitUpdateApplicationResponse(w http.ResponseWriter) error
+}
+
+type UpdateApplication200JSONResponse Application
+
+func (response UpdateApplication200JSONResponse) VisitUpdateApplicationResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type UpdateApplication400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response UpdateApplication400JSONResponse) VisitUpdateApplicationResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type UpdateApplication401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response UpdateApplication401JSONResponse) VisitUpdateApplicationResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type UpdateApplication403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response UpdateApplication403JSONResponse) VisitUpdateApplicationResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type UpdateApplication404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response UpdateApplication404JSONResponse) VisitUpdateApplicationResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type UpdateApplication429JSONResponse struct{ RateLimitedJSONResponse }
+
+func (response UpdateApplication429JSONResponse) VisitUpdateApplicationResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Retry-After", fmt.Sprint(response.Headers.RetryAfter))
+	w.Header().Set("X-RateLimit-Limit", fmt.Sprint(response.Headers.XRateLimitLimit))
+	w.Header().Set("X-RateLimit-Remaining", fmt.Sprint(response.Headers.XRateLimitRemaining))
+	w.Header().Set("X-RateLimit-Reset", fmt.Sprint(response.Headers.XRateLimitReset))
+	w.WriteHeader(429)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type UpdateApplication500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response UpdateApplication500JSONResponse) VisitUpdateApplicationResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type RotateApplicationSecretRequestObject struct {
+	OrgId         OrganizationId `json:"org_id"`
+	ProjectId     ProjectId      `json:"project_id"`
+	ApplicationId ApplicationId  `json:"application_id"`
+	Params        RotateApplicationSecretParams
+}
+
+type RotateApplicationSecretResponseObject interface {
+	VisitRotateApplicationSecretResponse(w http.ResponseWriter) error
+}
+
+type RotateApplicationSecret200JSONResponse RotatedSecret
+
+func (response RotateApplicationSecret200JSONResponse) VisitRotateApplicationSecretResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type RotateApplicationSecret400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response RotateApplicationSecret400JSONResponse) VisitRotateApplicationSecretResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type RotateApplicationSecret401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response RotateApplicationSecret401JSONResponse) VisitRotateApplicationSecretResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type RotateApplicationSecret403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response RotateApplicationSecret403JSONResponse) VisitRotateApplicationSecretResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type RotateApplicationSecret404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response RotateApplicationSecret404JSONResponse) VisitRotateApplicationSecretResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type RotateApplicationSecret409JSONResponse struct{ ConflictJSONResponse }
+
+func (response RotateApplicationSecret409JSONResponse) VisitRotateApplicationSecretResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type RotateApplicationSecret429JSONResponse struct{ RateLimitedJSONResponse }
+
+func (response RotateApplicationSecret429JSONResponse) VisitRotateApplicationSecretResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Retry-After", fmt.Sprint(response.Headers.RetryAfter))
+	w.Header().Set("X-RateLimit-Limit", fmt.Sprint(response.Headers.XRateLimitLimit))
+	w.Header().Set("X-RateLimit-Remaining", fmt.Sprint(response.Headers.XRateLimitRemaining))
+	w.Header().Set("X-RateLimit-Reset", fmt.Sprint(response.Headers.XRateLimitReset))
+	w.WriteHeader(429)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type RotateApplicationSecret500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response RotateApplicationSecret500JSONResponse) VisitRotateApplicationSecretResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
 	// JSON Web Key Set
@@ -2477,6 +3722,24 @@ type StrictServerInterface interface {
 	// Rename a project
 	// (PATCH /v1/organizations/{org_id}/projects/{project_id})
 	UpdateProject(ctx context.Context, request UpdateProjectRequestObject) (UpdateProjectResponseObject, error)
+	// List a project's applications
+	// (GET /v1/organizations/{org_id}/projects/{project_id}/applications)
+	ListApplications(ctx context.Context, request ListApplicationsRequestObject) (ListApplicationsResponseObject, error)
+	// Register an application
+	// (POST /v1/organizations/{org_id}/projects/{project_id}/applications)
+	CreateApplication(ctx context.Context, request CreateApplicationRequestObject) (CreateApplicationResponseObject, error)
+	// Delete an application
+	// (DELETE /v1/organizations/{org_id}/projects/{project_id}/applications/{application_id})
+	DeleteApplication(ctx context.Context, request DeleteApplicationRequestObject) (DeleteApplicationResponseObject, error)
+	// Read an application
+	// (GET /v1/organizations/{org_id}/projects/{project_id}/applications/{application_id})
+	GetApplication(ctx context.Context, request GetApplicationRequestObject) (GetApplicationResponseObject, error)
+	// Update an application
+	// (PATCH /v1/organizations/{org_id}/projects/{project_id}/applications/{application_id})
+	UpdateApplication(ctx context.Context, request UpdateApplicationRequestObject) (UpdateApplicationResponseObject, error)
+	// Issue a new client secret
+	// (POST /v1/organizations/{org_id}/projects/{project_id}/applications/{application_id}/rotate-secret)
+	RotateApplicationSecret(ctx context.Context, request RotateApplicationSecretRequestObject) (RotateApplicationSecretResponseObject, error)
 }
 
 type StrictHandlerFunc = strictnethttp.StrictHTTPHandlerFunc
@@ -2892,6 +4155,190 @@ func (sh *strictHandler) UpdateProject(w http.ResponseWriter, r *http.Request, o
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(UpdateProjectResponseObject); ok {
 		if err := validResponse.VisitUpdateProjectResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListApplications operation middleware
+func (sh *strictHandler) ListApplications(w http.ResponseWriter, r *http.Request, orgId OrganizationId, projectId ProjectId, params ListApplicationsParams) {
+	var request ListApplicationsRequestObject
+
+	request.OrgId = orgId
+	request.ProjectId = projectId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListApplications(ctx, request.(ListApplicationsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListApplications")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListApplicationsResponseObject); ok {
+		if err := validResponse.VisitListApplicationsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateApplication operation middleware
+func (sh *strictHandler) CreateApplication(w http.ResponseWriter, r *http.Request, orgId OrganizationId, projectId ProjectId, params CreateApplicationParams) {
+	var request CreateApplicationRequestObject
+
+	request.OrgId = orgId
+	request.ProjectId = projectId
+	request.Params = params
+
+	var body CreateApplicationJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateApplication(ctx, request.(CreateApplicationRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateApplication")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateApplicationResponseObject); ok {
+		if err := validResponse.VisitCreateApplicationResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteApplication operation middleware
+func (sh *strictHandler) DeleteApplication(w http.ResponseWriter, r *http.Request, orgId OrganizationId, projectId ProjectId, applicationId ApplicationId, params DeleteApplicationParams) {
+	var request DeleteApplicationRequestObject
+
+	request.OrgId = orgId
+	request.ProjectId = projectId
+	request.ApplicationId = applicationId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteApplication(ctx, request.(DeleteApplicationRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteApplication")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteApplicationResponseObject); ok {
+		if err := validResponse.VisitDeleteApplicationResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetApplication operation middleware
+func (sh *strictHandler) GetApplication(w http.ResponseWriter, r *http.Request, orgId OrganizationId, projectId ProjectId, applicationId ApplicationId) {
+	var request GetApplicationRequestObject
+
+	request.OrgId = orgId
+	request.ProjectId = projectId
+	request.ApplicationId = applicationId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetApplication(ctx, request.(GetApplicationRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetApplication")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetApplicationResponseObject); ok {
+		if err := validResponse.VisitGetApplicationResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UpdateApplication operation middleware
+func (sh *strictHandler) UpdateApplication(w http.ResponseWriter, r *http.Request, orgId OrganizationId, projectId ProjectId, applicationId ApplicationId) {
+	var request UpdateApplicationRequestObject
+
+	request.OrgId = orgId
+	request.ProjectId = projectId
+	request.ApplicationId = applicationId
+
+	var body UpdateApplicationJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdateApplication(ctx, request.(UpdateApplicationRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdateApplication")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UpdateApplicationResponseObject); ok {
+		if err := validResponse.VisitUpdateApplicationResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RotateApplicationSecret operation middleware
+func (sh *strictHandler) RotateApplicationSecret(w http.ResponseWriter, r *http.Request, orgId OrganizationId, projectId ProjectId, applicationId ApplicationId, params RotateApplicationSecretParams) {
+	var request RotateApplicationSecretRequestObject
+
+	request.OrgId = orgId
+	request.ProjectId = projectId
+	request.ApplicationId = applicationId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RotateApplicationSecret(ctx, request.(RotateApplicationSecretRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RotateApplicationSecret")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RotateApplicationSecretResponseObject); ok {
+		if err := validResponse.VisitRotateApplicationSecretResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

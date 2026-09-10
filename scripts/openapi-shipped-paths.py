@@ -54,6 +54,10 @@ SHIPPED = {
     # P1-17. Projects, under the organization that owns them.
     "/v1/organizations/{org_id}/projects",
     "/v1/organizations/{org_id}/projects/{project_id}",
+    # P1-18. Applications, under the project that owns them.
+    "/v1/organizations/{org_id}/projects/{project_id}/applications",
+    "/v1/organizations/{org_id}/projects/{project_id}/applications/{application_id}",
+    "/v1/organizations/{org_id}/projects/{project_id}/applications/{application_id}/rotate-secret",
 }
 
 SPEC = Path(__file__).resolve().parent.parent / "openapi" / "openapi.yaml"

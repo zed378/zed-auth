@@ -33,6 +33,7 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	"github.com/zed378/zed-auth/backend/internal/api"
+	"github.com/zed378/zed-auth/backend/internal/application"
 	"github.com/zed378/zed-auth/backend/internal/audit"
 	"github.com/zed378/zed-auth/backend/internal/config"
 	"github.com/zed378/zed-auth/backend/internal/httpserver"
@@ -124,6 +125,11 @@ func setup(t *testing.T) *fixture {
 			Store: organization.NewStore(), DB: db, Audit: auditor, Log: discard(),
 		},
 		ProjectAPI: &Handler{Store: NewStore(), DB: db, Audit: auditor, Log: discard()},
+		// P1-18 made this required too. Nothing here calls it; httpserver.New
+		// refuses a /v1 chain with any half of the Management API missing,
+		// because a nil handler behind a registered route is a panic on the
+		// first request rather than a boot failure.
+		ApplicationAPI: application.New(db, auditor, discard()),
 	})
 
 	return &fixture{

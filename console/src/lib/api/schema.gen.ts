@@ -585,6 +585,135 @@ export interface paths {
         patch: operations["updateProject"];
         trace?: never;
     };
+    "/v1/organizations/{org_id}/projects/{project_id}/applications": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The organization that owns the resource. Every request is scoped to exactly one. */
+                org_id: components["parameters"]["OrganizationId"];
+                /** @description The project the resource belongs to. */
+                project_id: components["parameters"]["ProjectId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * List a project's applications
+         * @description Requires `ORG_ADMIN` over this organization.
+         *
+         *     **No response here carries a client secret.** The secret is returned
+         *     once, in the body of the request that issued it, and never again — so
+         *     this list answers `has_secret` and nothing more.
+         */
+        get: operations["listApplications"];
+        put?: never;
+        /**
+         * Register an application
+         * @description Requires `ORG_ADMIN` over this organization.
+         *
+         *     **The `client_secret` in this response is the only time it exists
+         *     outside the service.** It is stored as a hash and cannot be recovered;
+         *     an application whose secret is lost is rotated, not recalled.
+         *
+         *     A public client — `spa` or `native` — gets no secret at all. It cannot
+         *     keep one confidential in a browser or a shipped binary, so it uses PKCE
+         *     instead, and a secret issued to it would be a false reassurance rather
+         *     than a control.
+         */
+        post: operations["createApplication"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/organizations/{org_id}/projects/{project_id}/applications/{application_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The organization that owns the resource. Every request is scoped to exactly one. */
+                org_id: components["parameters"]["OrganizationId"];
+                /** @description The project the resource belongs to. */
+                project_id: components["parameters"]["ProjectId"];
+                /** @description The application. This value is also its OIDC `client_id`. */
+                application_id: components["parameters"]["ApplicationId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Read an application
+         * @description Requires `ORG_ADMIN`. Carries no secret — see `has_secret`.
+         */
+        get: operations["getApplication"];
+        put?: never;
+        post?: never;
+        /**
+         * Delete an application
+         * @description Requires `ORG_OWNER`.
+         *
+         *     Every user signing in through this client stops being able to, at once
+         *     and without warning to the consumer application — which is why this is
+         *     the one operation on an application that an `ORG_ADMIN` cannot perform.
+         */
+        delete: operations["deleteApplication"];
+        options?: never;
+        head?: never;
+        /**
+         * Update an application
+         * @description Requires `ORG_ADMIN`.
+         *
+         *     **`type` is not updatable and naming it is an error, not a no-op.**
+         *     A client's type decides whether it can hold a secret, so changing it
+         *     would either strand a secret on a now-public client or leave a
+         *     confidential one with none. Delete and re-register instead, which
+         *     appears in the audit log as two events rather than one silent
+         *     reclassification.
+         *
+         *     Redirect URIs are validated here by exactly the same rules as on
+         *     create. An update is where a permissive URI would be smuggled in, and
+         *     a validator that runs on one path and not the other is not a validator.
+         */
+        patch: operations["updateApplication"];
+        trace?: never;
+    };
+    "/v1/organizations/{org_id}/projects/{project_id}/applications/{application_id}/rotate-secret": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The organization that owns the resource. Every request is scoped to exactly one. */
+                org_id: components["parameters"]["OrganizationId"];
+                /** @description The project the resource belongs to. */
+                project_id: components["parameters"]["ProjectId"];
+                /** @description The application. This value is also its OIDC `client_id`. */
+                application_id: components["parameters"]["ApplicationId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Issue a new client secret
+         * @description Requires `ORG_ADMIN` — deliberately not `ORG_OWNER`. Rotation is the
+         *     response to a suspected leak, and a control that requires waking the
+         *     organization owner is a control that gets skipped at 3am. It is loud in
+         *     the audit log instead.
+         *
+         *     The previous secret keeps working for `overlap_hours`, so a consumer
+         *     application can take the new one without a simultaneous redeploy.
+         *     **`overlap_hours: 0` retires it immediately** — the compromised-secret
+         *     path, where the outage is the point.
+         *
+         *     A public client has no secret to rotate and is refused.
+         */
+        post: operations["rotateApplicationSecret"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -726,6 +855,116 @@ export interface components {
         };
         ProjectUpdate: {
             name?: string;
+        };
+        /**
+         * @description A registered OIDC client.
+         *
+         *     `id` **is** the `client_id`. There is no separate field, because two
+         *     identifiers for one thing is how a console shows the wrong one
+         *     (`docs/PLAN/04` § applications).
+         */
+        Application: {
+            id: components["schemas"]["ResourceId"];
+            project_id: components["schemas"]["ResourceId"];
+            /** @example Billing portal */
+            name: string;
+            type: components["schemas"]["ApplicationType"];
+            /**
+             * @description Matched by **exact string comparison** at authorization time, never
+             *     by prefix or pattern. Prefix matching is the open-redirect
+             *     vulnerability (`docs/PLAN/09` § Protection Against Common Attacks).
+             * @example [
+             *       "https://billing.example.com/callback"
+             *     ]
+             */
+            redirect_uris: string[];
+            post_logout_redirect_uris: string[];
+            /**
+             * @example [
+             *       "authorization_code",
+             *       "refresh_token"
+             *     ]
+             */
+            grant_types: string[];
+            /**
+             * @description Whether a client secret is configured. A boolean, never the secret
+             *     and never its hash — it answers the only question a reader
+             *     legitimately has without answering what the value is or how long
+             *     it is.
+             */
+            has_secret: boolean;
+            /**
+             * Format: date-time
+             * @description While set and in the future, the previous secret still
+             *     authenticates. This is the overlap that lets a consumer take a new
+             *     secret without a simultaneous redeploy.
+             */
+            previous_secret_expires_at?: string | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        /**
+         * @description Decides whether the client can hold a secret. `spa` and `native` are
+         *     public — they cannot keep one confidential in a browser or a shipped
+         *     binary, so they use PKCE and are refused a secret at the database
+         *     level.
+         *
+         *     **Immutable after creation.** Changing it would either strand a secret
+         *     on a now-public client or leave a confidential one with none.
+         * @enum {string}
+         */
+        ApplicationType: "web" | "native" | "spa" | "api" | "saml";
+        ApplicationList: {
+            applications: components["schemas"]["Application"][];
+            page_info?: components["schemas"]["PageInfo"];
+        };
+        /** @description There is no `project_id` or `org_id` here — both come from the path. */
+        ApplicationCreate: {
+            name: string;
+            type: components["schemas"]["ApplicationType"];
+            redirect_uris?: string[];
+            post_logout_redirect_uris?: string[];
+            /**
+             * @description Defaults to `["authorization_code", "refresh_token"]`. `implicit`
+             *     and `password` are refused for every type: both hand credentials or
+             *     tokens to places that cannot protect them, and OAuth 2.1 removes
+             *     them.
+             */
+            grant_types?: string[];
+        };
+        ApplicationCreated: components["schemas"]["Application"] & {
+            /**
+             * @description **The only time this value exists outside the service.** It is
+             *     stored as a hash and cannot be recovered — an application whose
+             *     secret is lost is rotated, not recalled.
+             *
+             *     Absent for a public client, which has none.
+             */
+            client_secret?: string;
+        };
+        /**
+         * @description Every field is optional; an omitted field is left alone. `type` is
+         *     absent from this schema on purpose, and a body carrying it is rejected
+         *     rather than ignored — silently dropping it would let a caller believe
+         *     a reclassification happened.
+         */
+        ApplicationUpdate: {
+            name?: string;
+            redirect_uris?: string[];
+            post_logout_redirect_uris?: string[];
+            grant_types?: string[];
+        };
+        RotatedSecret: {
+            /** @description The new secret. Shown once, exactly as at creation. */
+            client_secret: string;
+            /**
+             * Format: date-time
+             * @description When the superseded secret stops working. Null when the rotation
+             *     retired it immediately.
+             */
+            previous_secret_expires_at?: string | null;
         };
         /**
          * @description OpenID Provider metadata. Fields for unimplemented endpoints are
@@ -1118,6 +1357,8 @@ export interface components {
         PageToken: string;
         /** @description The organization that owns the resource. Every request is scoped to exactly one. */
         OrganizationId: components["schemas"]["ResourceId"];
+        /** @description The application. This value is also its OIDC `client_id`. */
+        ApplicationId: components["schemas"]["ResourceId"];
         /** @description The project the resource belongs to. */
         ProjectId: components["schemas"]["ResourceId"];
         /**
@@ -2033,6 +2274,261 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Project"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["RateLimited"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    listApplications: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Maximum items to return. The server may return fewer, and returning
+                 *     fewer never means the collection is exhausted — only an absent
+                 *     `next_page_token` means that.
+                 */
+                page_size?: components["parameters"]["PageSize"];
+                /**
+                 * @description The `next_page_token` from the previous response. Opaque: its contents
+                 *     are not part of the contract and must not be constructed, parsed, or
+                 *     persisted by a client.
+                 */
+                page_token?: components["parameters"]["PageToken"];
+            };
+            header?: never;
+            path: {
+                /** @description The organization that owns the resource. Every request is scoped to exactly one. */
+                org_id: components["parameters"]["OrganizationId"];
+                /** @description The project the resource belongs to. */
+                project_id: components["parameters"]["ProjectId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of applications. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApplicationList"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["RateLimited"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    createApplication: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description A client-generated key making a retried `POST` safe. Replaying a
+                 *     request with the same key returns the original result rather than
+                 *     creating a second resource — which matters most for automated
+                 *     provisioning, where a network timeout is indistinguishable from a
+                 *     failure (`docs/PLAN/05` Part B).
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                /** @description The organization that owns the resource. Every request is scoped to exactly one. */
+                org_id: components["parameters"]["OrganizationId"];
+                /** @description The project the resource belongs to. */
+                project_id: components["parameters"]["ProjectId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApplicationCreate"];
+            };
+        };
+        responses: {
+            /** @description The application was registered. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApplicationCreated"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["RateLimited"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    getApplication: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The organization that owns the resource. Every request is scoped to exactly one. */
+                org_id: components["parameters"]["OrganizationId"];
+                /** @description The project the resource belongs to. */
+                project_id: components["parameters"]["ProjectId"];
+                /** @description The application. This value is also its OIDC `client_id`. */
+                application_id: components["parameters"]["ApplicationId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The application. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Application"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["RateLimited"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    deleteApplication: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description A client-generated key making a retried `POST` safe. Replaying a
+                 *     request with the same key returns the original result rather than
+                 *     creating a second resource — which matters most for automated
+                 *     provisioning, where a network timeout is indistinguishable from a
+                 *     failure (`docs/PLAN/05` Part B).
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                /** @description The organization that owns the resource. Every request is scoped to exactly one. */
+                org_id: components["parameters"]["OrganizationId"];
+                /** @description The project the resource belongs to. */
+                project_id: components["parameters"]["ProjectId"];
+                /** @description The application. This value is also its OIDC `client_id`. */
+                application_id: components["parameters"]["ApplicationId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The application was deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["RateLimited"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    updateApplication: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The organization that owns the resource. Every request is scoped to exactly one. */
+                org_id: components["parameters"]["OrganizationId"];
+                /** @description The project the resource belongs to. */
+                project_id: components["parameters"]["ProjectId"];
+                /** @description The application. This value is also its OIDC `client_id`. */
+                application_id: components["parameters"]["ApplicationId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApplicationUpdate"];
+            };
+        };
+        responses: {
+            /** @description The updated application. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Application"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["RateLimited"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    rotateApplicationSecret: {
+        parameters: {
+            query?: {
+                /**
+                 * @description How long the previous secret keeps authenticating. Defaults to 24.
+                 *     `0` retires it immediately — the compromised-secret path, where the
+                 *     outage for anything still using it is the point.
+                 *
+                 *     A query parameter rather than a request body, and that is a
+                 *     deviation worth naming: the contract said an optional body, and
+                 *     `oapi-codegen` decodes one unconditionally, so `POST` with no body
+                 *     answered `400 can't decode JSON body`. Requiring `{}` for the
+                 *     common case would be a contract that describes a papercut; this
+                 *     keeps `POST .../rotate-secret` working with nothing at all. The
+                 *     value is not a credential, so it is fine in an access log.
+                 */
+                overlap_hours?: number;
+            };
+            header?: {
+                /**
+                 * @description A client-generated key making a retried `POST` safe. Replaying a
+                 *     request with the same key returns the original result rather than
+                 *     creating a second resource — which matters most for automated
+                 *     provisioning, where a network timeout is indistinguishable from a
+                 *     failure (`docs/PLAN/05` Part B).
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                /** @description The organization that owns the resource. Every request is scoped to exactly one. */
+                org_id: components["parameters"]["OrganizationId"];
+                /** @description The project the resource belongs to. */
+                project_id: components["parameters"]["ProjectId"];
+                /** @description The application. This value is also its OIDC `client_id`. */
+                application_id: components["parameters"]["ApplicationId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A new secret was issued. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RotatedSecret"];
                 };
             };
             400: components["responses"]["BadRequest"];
