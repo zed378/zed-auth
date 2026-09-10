@@ -1,40 +1,89 @@
 import { Route, Routes } from "react-router-dom";
 
+import { RequireAuth } from "./RequireAuth";
+import { CallbackPage } from "../pages/CallbackPage";
 import { NotFoundPage } from "../pages/NotFoundPage";
 import { OverviewPage } from "../pages/OverviewPage";
 import { PlaceholderPage } from "../pages/PlaceholderPage";
+import { SilentCallbackPage } from "../pages/SilentCallbackPage";
 
 /**
  * Routes, matching docs/PLAN/06-FRONTEND-ARCHITECTURE.md § Information Architecture.
  *
- * The organization-scoped screens are all present as placeholders. Two things
- * that must be true of them once they carry real content, stated here because
- * this is where someone will add the first one:
+ * Every application route is wrapped in RequireAuth, so a route the user's
+ * claims do not permit is genuinely unreachable by typing its URL rather than
+ * merely absent from the navigation (docs/UI-UX/08 § Cross-Screen
+ * Requirements). That is a user-experience property: the API enforces every
+ * permission independently regardless (docs/PLAN/08, docs/SECURITY/02 §2-§3),
+ * and a route guard is never the control.
  *
- *   Permission-gated routes are genuinely unreachable, not hidden
- *   (console/README.md). Hiding a nav item leaves the route reachable by
- *   typing the URL.
- *
- *   The API enforces every check independently regardless (docs/PLAN/08,
- *   docs/SECURITY/02 §2-§3). A route guard is a user-experience feature; it is
- *   never the control.
- *
- * The Instance group (docs/PLAN/06's INSTANCE_OWNER section) is absent until the
- * console can read a role claim from an access token, which is P1-03.
+ * The two /auth routes are deliberately OUTSIDE the guard. One of them is how
+ * a session is established in the first place, and guarding it would be a
+ * redirect loop; the other renders nothing and exists only inside a hidden
+ * iframe.
  */
 export function AppRoutes() {
   return (
     <Routes>
-      <Route path="/" element={<OverviewPage />} />
-      <Route path="/projects/*" element={<PlaceholderPage title="Projects" phase="1" />} />
-      <Route path="/users/*" element={<PlaceholderPage title="Users" phase="1" />} />
+      <Route path="/auth/callback" element={<CallbackPage />} />
+      <Route path="/auth/silent" element={<SilentCallbackPage />} />
+
+      <Route
+        path="/"
+        element={
+          <RequireAuth>
+            <OverviewPage />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/projects/*"
+        element={
+          <RequireAuth roles={["ORG_ADMIN", "ORG_OWNER", "INSTANCE_OWNER"]}>
+            <PlaceholderPage title="Projects" phase="1" />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/users/*"
+        element={
+          <RequireAuth roles={["ORG_ADMIN", "ORG_OWNER", "INSTANCE_OWNER"]}>
+            <PlaceholderPage title="Users" phase="1" />
+          </RequireAuth>
+        }
+      />
       <Route
         path="/granted-projects"
-        element={<PlaceholderPage title="Granted Projects" phase="4" />}
+        element={
+          <RequireAuth>
+            <PlaceholderPage title="Granted Projects" phase="4" />
+          </RequireAuth>
+        }
       />
-      <Route path="/policies" element={<PlaceholderPage title="Policies" phase="1" />} />
-      <Route path="/audit-log" element={<PlaceholderPage title="Audit Log" phase="1" />} />
-      <Route path="/settings" element={<PlaceholderPage title="Settings" phase="1" />} />
+      <Route
+        path="/policies"
+        element={
+          <RequireAuth roles={["ORG_OWNER", "INSTANCE_OWNER"]}>
+            <PlaceholderPage title="Policies" phase="1" />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/audit-log"
+        element={
+          <RequireAuth roles={["ORG_ADMIN", "ORG_OWNER", "INSTANCE_OWNER"]}>
+            <PlaceholderPage title="Audit Log" phase="1" />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/settings"
+        element={
+          <RequireAuth>
+            <PlaceholderPage title="Settings" phase="1" />
+          </RequireAuth>
+        }
+      />
       <Route path="*" element={<NotFoundPage />} />
     </Routes>
   );
