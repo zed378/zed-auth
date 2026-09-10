@@ -119,6 +119,20 @@ func (r *statusRecorder) Unwrap() http.ResponseWriter { return r.ResponseWriter 
 func AccessLog(log *slog.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if isProbe(r.URL.Path) {
+				// Probe traffic arrives every few seconds from the
+				// orchestrator and would drown every other line in the log
+				// (P0-10). It used to be excluded by living on a sub-router
+				// with no access logging at all; that stopped working when the
+				// generated router grew /v1 routes, which must be logged.
+				//
+				// Skipped by PATH rather than by router, so the exclusion is
+				// two named endpoints a reader can see rather than a property
+				// of where something happens to be mounted.
+				next.ServeHTTP(w, r)
+				return
+			}
+
 			start := time.Now()
 			rec := &statusRecorder{ResponseWriter: w}
 
@@ -150,6 +164,11 @@ func AccessLog(log *slog.Logger) func(http.Handler) http.Handler {
 			)
 		})
 	}
+}
+
+// isProbe reports whether a path is a liveness or readiness probe.
+func isProbe(path string) bool {
+	return path == "/healthz" || path == "/readyz"
 }
 
 // Recover turns a panic into a 500 rather than a dropped connection, and logs

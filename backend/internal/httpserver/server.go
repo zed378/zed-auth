@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -88,6 +89,12 @@ type Deps struct {
 	Login  http.Handler
 	Forgot http.Handler
 
+	// Organizations implements the Management API's organization operations
+	// (P1-16). Required whenever the spec documents them, which it now does —
+	// a nil here is a nil method call rather than a 404, so the constructor
+	// refuses it.
+	Organizations Manager
+
 	// V1 is the Management API chain (P1-15).
 	//
 	// The routes themselves arrive with P1-16 onward. What is registered here
@@ -105,24 +112,6 @@ type Deps struct {
 	TrustProxyHeaders bool
 }
 
-// v1Router is where the Management API's endpoints are registered.
-//
-// Every route goes on through chain.Handle with its OWN Requirement. That is
-// not a convention to remember: Requirement's zero value is unsatisfiable, so
-// a route registered with a forgotten requirement is unreachable rather than
-// open (P1-15).
-func v1Router(chain *management.Chain) *chi.Mux {
-	r := chi.NewRouter()
-	r.Use(noStore)
-
-	// P1-16 onward register here. Deliberately empty rather than absent: the
-	// chain is built, wired and reachable, so adding an endpoint is one line
-	// and cannot accidentally be one line that bypasses it.
-	_ = chain
-
-	return r
-}
-
 // New builds a Server with the standard middleware chain and the routes that
 // exist in this phase.
 func New(cfg config.HTTPConfig, deps Deps) *Server {
@@ -131,6 +120,17 @@ func New(cfg config.HTTPConfig, deps Deps) *Server {
 	}
 	if deps.Health == nil {
 		panic("httpserver.New: Health is required")
+	}
+	if deps.V1 != nil && deps.Organizations == nil {
+		// A deployment that serves the Management API must implement it. The
+		// generated router registers the /v1 routes from the spec either way,
+		// so a nil implementation would panic on the first request rather than
+		// at construction — the wrong end of the deploy to find out.
+		//
+		// Conditional on the chain, because a deployment WITHOUT the
+		// Management API is a supported configuration: guardV1 answers 404 for
+		// every /v1 path, so the nil is never reached.
+		panic("httpserver.New: Organizations is required when V1 is configured")
 	}
 
 	mux := chi.NewRouter()
@@ -237,20 +237,58 @@ func New(cfg config.HTTPConfig, deps Deps) *Server {
 		mux.Method(http.MethodGet, "/login/forgot", deps.Forgot)
 	}
 
-	if deps.V1 != nil {
-		// Mounted BEFORE the generated router takes "/", so /v1 routes are
-		// matched here rather than falling through to a 404 from the catch-all.
-		//
-		// Empty until P1-16. An empty subrouter answers 404 for every /v1 path,
-		// which is exactly what should happen while no endpoint exists — and
-		// mounting it now means the next task adds a route rather than a route
-		// AND the chain that protects it.
-		mux.Mount("/v1", v1Router(deps.V1))
+	// Every route in the spec, from one generated router, on the MAIN mux.
+	//
+	// It used to be mounted on the bare `health` sub-router, which skipped the
+	// access log and the metrics — correct while the spec contained only
+	// probes and discovery documents, and wrong the moment it grew /v1. A
+	// management request that is neither logged nor timed is a management
+	// request nobody can investigate.
+	//
+	// The probes keep their quiet: AccessLog skips them by path.
+	routes := apiRoutes{
+		Health:  deps.Health,
+		Handler: deps.Discovery,
+		Manager: deps.Organizations,
 	}
+	// The two error paths the generated wrapper would otherwise answer with
+	// http.Error — a bare text/plain body and a status of its choosing.
+	//
+	// Both are routed through docs/PLAN/05's envelope instead, so that a
+	// consumer writes ONE error path. A handler returning a management.Fault
+	// gets its class's status and its details; anything else becomes a 500 with
+	// a fixed message, because an unexpected error's text is written for a
+	// developer and routinely names a table, a column or a query.
+	strict := api.NewStrictHandlerWithOptions(routes, nil, api.StrictHTTPServerOptions{
+		RequestErrorHandlerFunc: func(w http.ResponseWriter, _ *http.Request, err error) {
+			// A malformed path parameter or an undecodable body, rejected by
+			// the wrapper before the handler ran. A 400 either way; the point
+			// is the shape of the body.
+			management.WriteError(w, management.Fault{
+				Class:   management.Invalid,
+				Message: "The request could not be read.",
+				Reason:  err.Error(),
+			})
+		},
+		ResponseErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
+			var fault management.Fault
+			if !errors.As(err, &fault) && deps.Logger != nil {
+				// Only the unexpected ones. A Fault is an answer the handler
+				// chose and is already visible in the access log; logging it
+				// again at error level is how error dashboards fill with
+				// 404s nobody needs to read.
+				deps.Logger.Error("a management handler failed",
+					"method", r.Method, "path", r.URL.Path, "error", err.Error())
+			}
+			management.WriteError(w, err)
+		},
+	})
 
-	routes := apiRoutes{Health: deps.Health, Handler: deps.Discovery}
-	api.HandlerFromMux(api.NewStrictHandler(routes, nil), health)
-	mux.Mount("/", health)
+	api.HandlerWithOptions(strict, api.ChiServerOptions{
+		BaseRouter:  mux,
+		Middlewares: []api.MiddlewareFunc{noStore, guardV1(deps.V1)},
+	})
+	_ = health
 
 	srv := &http.Server{
 		Addr: cfg.Addr,
@@ -268,6 +306,51 @@ func New(cfg config.HTTPConfig, deps Deps) *Server {
 	return &Server{cfg: cfg, log: deps.Logger, http: srv, mux: mux}
 }
 
+// guardV1 applies the Management API's middleware chain to /v1 and nothing else.
+//
+// The generated router applies its middlewares to EVERY operation, and most of
+// them must stay open: the discovery documents are fetched anonymously by every
+// relying party, and a probe that required a bearer token would fail the
+// orchestrator's health check.
+//
+// So the chain engages by PATH PREFIX rather than by a list of operations, and
+// that is the safer direction of default. A new /v1 endpoint added to
+// openapi.yaml is guarded the moment it exists, without anybody remembering to
+// add it here. What it still needs is a declared permission, and
+// management.Policy's missing-key case refuses it until it has one.
+func guardV1(chain *management.Chain) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		if chain == nil {
+			// No Management API configured. The generated router registers the
+			// /v1 routes regardless, so they must not be reachable unguarded.
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if isManagementPath(r.URL.Path) {
+					http.NotFound(w, r)
+					return
+				}
+				next.ServeHTTP(w, r)
+			})
+		}
+
+		guarded := chain.Guarded(next)
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if isManagementPath(r.URL.Path) {
+				guarded.ServeHTTP(w, r)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// isManagementPath reports whether a path belongs to the Management API.
+//
+// "/v1" itself is included as well as "/v1/...", so a request to the bare
+// prefix cannot slip past on a missing slash.
+func isManagementPath(path string) bool {
+	return path == "/v1" || strings.HasPrefix(path, "/v1/")
+}
+
 // apiRoutes gathers the implementations of the generated server interface.
 //
 // The interface covers every documented endpoint, and those are implemented by
@@ -279,6 +362,26 @@ func New(cfg config.HTTPConfig, deps Deps) *Server {
 type apiRoutes struct {
 	*Health
 	*oidc.Handler
+
+	// Manager implements the Management API's operations (P1-16 onward).
+	//
+	// Embedded as an interface rather than a concrete handler so this package
+	// does not import every package that implements part of /v1 — there will
+	// be several, and each new one would otherwise be a new import here.
+	Manager
+}
+
+// Manager is the part of the generated interface the Management API implements.
+//
+// It exists so that "the spec grew an endpoint nothing implements" stays a
+// compile error: adding an operation to openapi.yaml under /v1 breaks this
+// interface's satisfaction, which breaks apiRoutes, which breaks the build.
+type Manager interface {
+	ListOrganizations(ctx context.Context, request api.ListOrganizationsRequestObject) (api.ListOrganizationsResponseObject, error)
+	CreateOrganization(ctx context.Context, request api.CreateOrganizationRequestObject) (api.CreateOrganizationResponseObject, error)
+	GetOrganization(ctx context.Context, request api.GetOrganizationRequestObject) (api.GetOrganizationResponseObject, error)
+	UpdateOrganization(ctx context.Context, request api.UpdateOrganizationRequestObject) (api.UpdateOrganizationResponseObject, error)
+	DeleteOrganization(ctx context.Context, request api.DeleteOrganizationRequestObject) (api.DeleteOrganizationResponseObject, error)
 }
 
 var _ api.StrictServerInterface = apiRoutes{}

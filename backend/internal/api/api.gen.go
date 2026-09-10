@@ -8,10 +8,17 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/oapi-codegen/nullable"
+	"github.com/oapi-codegen/runtime"
 	strictnethttp "github.com/oapi-codegen/runtime/strictmiddleware/nethttp"
 	openapi_types "github.com/oapi-codegen/runtime/types"
+)
+
+const (
+	Oauth2Scopes = "oauth2.Scopes"
 )
 
 // Defines values for ErrorCode.
@@ -44,6 +51,23 @@ const (
 	ServerError          OAuthErrorError = "server_error"
 	UnauthorizedClient   OAuthErrorError = "unauthorized_client"
 	UnsupportedGrantType OAuthErrorError = "unsupported_grant_type"
+)
+
+// Defines values for OrganizationStatus.
+const (
+	OrganizationStatusActive    OrganizationStatus = "active"
+	OrganizationStatusSuspended OrganizationStatus = "suspended"
+)
+
+// Defines values for OrganizationSettingsAllowedLoginMethods.
+const (
+	Password OrganizationSettingsAllowedLoginMethods = "password"
+)
+
+// Defines values for OrganizationUpdateStatus.
+const (
+	OrganizationUpdateStatusActive    OrganizationUpdateStatus = "active"
+	OrganizationUpdateStatusSuspended OrganizationUpdateStatus = "suspended"
 )
 
 // Defines values for ReadinessStatusStatus.
@@ -212,6 +236,151 @@ type OpenIDConfiguration struct {
 	UserinfoEndpoint *string `json:"userinfo_endpoint,omitempty"`
 }
 
+// Organization A tenant.
+//
+// `instance_id` is deliberately not exposed. It is an internal grouping
+// with one row in this phase, and a field a client can see is a field a
+// client will eventually send back.
+type Organization struct {
+	CreatedAt time.Time `json:"created_at"`
+
+	// Domain For domain-based tenant resolution. Unique across the instance and
+	// stored lowercased, because two tenants holding the same domain in
+	// different cases would make tenant resolution ambiguous — and an
+	// ambiguous tenant resolution is a cross-tenant access bug waiting to
+	// happen. Verification of ownership is a later phase.
+	Domain nullable.Nullable[string] `json:"domain,omitempty"`
+
+	// Id A resource's stable identifier. Not sequential and not guessable.
+	//
+	// **This was specified as a prefixed, sortable identifier** — `usr_`,
+	// `org_`, `prj_` — and is a UUID instead. The change is deliberate and is
+	// recorded as `PG-23`.
+	//
+	// The prefix has a real benefit: an id pasted into a support ticket is
+	// self-describing, and passing a project id where a user id belongs is
+	// visible on sight rather than at the database. What it cannot survive is
+	// being applied to only part of the surface. `docs/PLAN/04` makes every
+	// primary key a UUID, the access token's `org_id` claim is a UUID, and
+	// OpenID Connect's `sub` — already shipped by `P1-08` — is a UUID that
+	// callers store as a user's permanent key.
+	//
+	// Prefixing only the Management API would give the same user two
+	// identifiers and make every consumer convert between them, which is a
+	// larger and more permanent papercut than the one the prefix removes.
+	// Prefixing everything means changing `sub`, which is a protocol field
+	// with its own conventions and a value integrators have already stored.
+	//
+	// So: UUIDs everywhere, and if prefixed identifiers are wanted later they
+	// arrive everywhere at once or not at all.
+	Id ResourceId `json:"id"`
+
+	// Name The display name. Not unique — two customers may legitimately be
+	// called the same thing, and a uniqueness rule on a display name is a
+	// support-ticket generator.
+	Name string `json:"name"`
+
+	// Settings The organization's policy (`docs/PLAN/08` Part B).
+	//
+	// **Unknown properties are rejected rather than stored.** A misspelled
+	// key kept silently becomes a policy that is not in force and looks like
+	// it is, and nobody notices until the audit that was supposed to find it
+	// does not.
+	Settings OrganizationSettings `json:"settings"`
+
+	// Status A suspended organization's users cannot log in. Changing this
+	// requires `INSTANCE_OWNER`.
+	Status    OrganizationStatus `json:"status"`
+	UpdatedAt time.Time          `json:"updated_at"`
+}
+
+// OrganizationStatus A suspended organization's users cannot log in. Changing this
+// requires `INSTANCE_OWNER`.
+type OrganizationStatus string
+
+// OrganizationCreate Note what cannot be set: `id`, `status`, `created_at`, and the instance.
+// Every one of those is server-set, and a request body with nowhere to put
+// them is why a mass-assignment attempt has nothing to land on
+// (`docs/SECURITY/02` §11).
+type OrganizationCreate struct {
+	Domain nullable.Nullable[string] `json:"domain,omitempty"`
+	Name   string                    `json:"name"`
+
+	// Settings The organization's policy (`docs/PLAN/08` Part B).
+	//
+	// **Unknown properties are rejected rather than stored.** A misspelled
+	// key kept silently becomes a policy that is not in force and looks like
+	// it is, and nobody notices until the audit that was supposed to find it
+	// does not.
+	Settings *OrganizationSettings `json:"settings,omitempty"`
+}
+
+// OrganizationList defines model for OrganizationList.
+type OrganizationList struct {
+	Organizations []Organization `json:"organizations"`
+
+	// PageInfo The pagination envelope every collection response embeds.
+	//
+	// Token-based rather than offset-based: an offset re-reads rows that
+	// shifted under concurrent writes, silently skipping or duplicating
+	// entries. For an audit log or a user list that is a correctness bug that
+	// nobody notices.
+	PageInfo *PageInfo `json:"page_info,omitempty"`
+}
+
+// OrganizationSettings The organization's policy (`docs/PLAN/08` Part B).
+//
+// **Unknown properties are rejected rather than stored.** A misspelled
+// key kept silently becomes a policy that is not in force and looks like
+// it is, and nobody notices until the audit that was supposed to find it
+// does not.
+type OrganizationSettings struct {
+	// AllowedLoginMethods Only `password` is available in this phase. `passkey` and `social`
+	// are planned and are rejected until they work — an API that accepts
+	// a method nothing implements would silently disable every method
+	// that does.
+	AllowedLoginMethods *[]OrganizationSettingsAllowedLoginMethods `json:"allowed_login_methods,omitempty"`
+	MfaRequired         *bool                                      `json:"mfa_required,omitempty"`
+	PasswordPolicy      *struct {
+		// MaxAgeDays `0` means passwords never expire, which is a real choice rather
+		// than an absent value: NIST SP 800-63B argues forced rotation
+		// makes passwords worse.
+		MaxAgeDays *int `json:"max_age_days,omitempty"`
+
+		// MinLength At least the platform minimum. An organization policy may raise
+		// it and never lower it — a tenant setting that can go below the
+		// instance floor is a per-tenant way to disable a platform
+		// control.
+		MinLength        *int  `json:"min_length,omitempty"`
+		RequireUppercase *bool `json:"require_uppercase,omitempty"`
+	} `json:"password_policy,omitempty"`
+	SessionLifetimeHours *int `json:"session_lifetime_hours,omitempty"`
+}
+
+// OrganizationSettingsAllowedLoginMethods defines model for OrganizationSettings.AllowedLoginMethods.
+type OrganizationSettingsAllowedLoginMethods string
+
+// OrganizationUpdate A partial update. An absent property is left alone; `domain: null`
+// releases the domain.
+type OrganizationUpdate struct {
+	Domain nullable.Nullable[string] `json:"domain,omitempty"`
+	Name   *string                   `json:"name,omitempty"`
+
+	// Settings The organization's policy (`docs/PLAN/08` Part B).
+	//
+	// **Unknown properties are rejected rather than stored.** A misspelled
+	// key kept silently becomes a policy that is not in force and looks like
+	// it is, and nobody notices until the audit that was supposed to find it
+	// does not.
+	Settings *OrganizationSettings `json:"settings,omitempty"`
+
+	// Status Requires `INSTANCE_OWNER`.
+	Status *OrganizationUpdateStatus `json:"status,omitempty"`
+}
+
+// OrganizationUpdateStatus Requires `INSTANCE_OWNER`.
+type OrganizationUpdateStatus string
+
 // PageInfo The pagination envelope every collection response embeds.
 //
 // Token-based rather than offset-based: an offset re-reads rows that
@@ -241,11 +410,29 @@ type ReadinessStatus struct {
 // ReadinessStatusStatus defines model for ReadinessStatus.Status.
 type ReadinessStatusStatus string
 
-// ResourceId A prefixed, sortable identifier — `usr_`, `org_`, `prj_`, `app_`,
-// `rol_`, `grt_`. The prefix makes an identifier pasted into a support
-// ticket self-describing, and makes passing a project id where a user id
-// belongs visible on sight rather than at the database.
-type ResourceId = string
+// ResourceId A resource's stable identifier. Not sequential and not guessable.
+//
+// **This was specified as a prefixed, sortable identifier** — `usr_`,
+// `org_`, `prj_` — and is a UUID instead. The change is deliberate and is
+// recorded as `PG-23`.
+//
+// The prefix has a real benefit: an id pasted into a support ticket is
+// self-describing, and passing a project id where a user id belongs is
+// visible on sight rather than at the database. What it cannot survive is
+// being applied to only part of the surface. `docs/PLAN/04` makes every
+// primary key a UUID, the access token's `org_id` claim is a UUID, and
+// OpenID Connect's `sub` — already shipped by `P1-08` — is a UUID that
+// callers store as a user's permanent key.
+//
+// Prefixing only the Management API would give the same user two
+// identifiers and make every consumer convert between them, which is a
+// larger and more permanent papercut than the one the prefix removes.
+// Prefixing everything means changing `sub`, which is a protocol field
+// with its own conventions and a value integrators have already stored.
+//
+// So: UUIDs everywhere, and if prefixed identifiers are wanted later they
+// arrive everywhere at once or not at all.
+type ResourceId = openapi_types.UUID
 
 // TokenResponse A successful token response (RFC 6749 § 5.1).
 type TokenResponse struct {
@@ -305,10 +492,28 @@ type UserInfo struct {
 // IdempotencyKey defines model for IdempotencyKey.
 type IdempotencyKey = string
 
-// OrganizationId A prefixed, sortable identifier — `usr_`, `org_`, `prj_`, `app_`,
-// `rol_`, `grt_`. The prefix makes an identifier pasted into a support
-// ticket self-describing, and makes passing a project id where a user id
-// belongs visible on sight rather than at the database.
+// OrganizationId A resource's stable identifier. Not sequential and not guessable.
+//
+// **This was specified as a prefixed, sortable identifier** — `usr_`,
+// `org_`, `prj_` — and is a UUID instead. The change is deliberate and is
+// recorded as `PG-23`.
+//
+// The prefix has a real benefit: an id pasted into a support ticket is
+// self-describing, and passing a project id where a user id belongs is
+// visible on sight rather than at the database. What it cannot survive is
+// being applied to only part of the surface. `docs/PLAN/04` makes every
+// primary key a UUID, the access token's `org_id` claim is a UUID, and
+// OpenID Connect's `sub` — already shipped by `P1-08` — is a UUID that
+// callers store as a user's permanent key.
+//
+// Prefixing only the Management API would give the same user two
+// identifiers and make every consumer convert between them, which is a
+// larger and more permanent papercut than the one the prefix removes.
+// Prefixing everything means changing `sub`, which is a protocol field
+// with its own conventions and a value integrators have already stored.
+//
+// So: UUIDs everywhere, and if prefixed identifiers are wanted later they
+// arrive everywhere at once or not at all.
 type OrganizationId = ResourceId
 
 // PageSize defines model for PageSize.
@@ -352,6 +557,48 @@ type RateLimited = Error
 // writes one error path rather than one per endpoint.
 type Unauthorized = Error
 
+// ListOrganizationsParams defines parameters for ListOrganizations.
+type ListOrganizationsParams struct {
+	// PageSize Maximum items to return. The server may return fewer, and returning
+	// fewer never means the collection is exhausted — only an absent
+	// `next_page_token` means that.
+	PageSize *PageSize `form:"page_size,omitempty" json:"page_size,omitempty"`
+
+	// PageToken The `next_page_token` from the previous response. Opaque: its contents
+	// are not part of the contract and must not be constructed, parsed, or
+	// persisted by a client.
+	PageToken *PageToken `form:"page_token,omitempty" json:"page_token,omitempty"`
+}
+
+// CreateOrganizationParams defines parameters for CreateOrganization.
+type CreateOrganizationParams struct {
+	// IdempotencyKey A client-generated key making a retried `POST` safe. Replaying a
+	// request with the same key returns the original result rather than
+	// creating a second resource — which matters most for automated
+	// provisioning, where a network timeout is indistinguishable from a
+	// failure (`docs/PLAN/05` Part B).
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+}
+
+// DeleteOrganizationParams defines parameters for DeleteOrganization.
+type DeleteOrganizationParams struct {
+	// ConfirmName The organization's current name, typed back. A mismatch is `400`.
+	ConfirmName string `form:"confirm_name" json:"confirm_name"`
+
+	// IdempotencyKey A client-generated key making a retried `POST` safe. Replaying a
+	// request with the same key returns the original result rather than
+	// creating a second resource — which matters most for automated
+	// provisioning, where a network timeout is indistinguishable from a
+	// failure (`docs/PLAN/05` Part B).
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+}
+
+// CreateOrganizationJSONRequestBody defines body for CreateOrganization for application/json ContentType.
+type CreateOrganizationJSONRequestBody = OrganizationCreate
+
+// UpdateOrganizationJSONRequestBody defines body for UpdateOrganization for application/json ContentType.
+type UpdateOrganizationJSONRequestBody = OrganizationUpdate
+
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
 	// JSON Web Key Set
@@ -366,6 +613,21 @@ type ServerInterface interface {
 	// Readiness probe
 	// (GET /readyz)
 	GetReadiness(w http.ResponseWriter, r *http.Request)
+	// List organizations
+	// (GET /v1/organizations)
+	ListOrganizations(w http.ResponseWriter, r *http.Request, params ListOrganizationsParams)
+	// Create an organization
+	// (POST /v1/organizations)
+	CreateOrganization(w http.ResponseWriter, r *http.Request, params CreateOrganizationParams)
+	// Delete an organization
+	// (DELETE /v1/organizations/{org_id})
+	DeleteOrganization(w http.ResponseWriter, r *http.Request, orgId OrganizationId, params DeleteOrganizationParams)
+	// Read an organization
+	// (GET /v1/organizations/{org_id})
+	GetOrganization(w http.ResponseWriter, r *http.Request, orgId OrganizationId)
+	// Update an organization
+	// (PATCH /v1/organizations/{org_id})
+	UpdateOrganization(w http.ResponseWriter, r *http.Request, orgId OrganizationId)
 }
 
 // Unimplemented server implementation that returns http.StatusNotImplemented for each endpoint.
@@ -393,6 +655,36 @@ func (_ Unimplemented) GetLiveness(w http.ResponseWriter, r *http.Request) {
 // Readiness probe
 // (GET /readyz)
 func (_ Unimplemented) GetReadiness(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// List organizations
+// (GET /v1/organizations)
+func (_ Unimplemented) ListOrganizations(w http.ResponseWriter, r *http.Request, params ListOrganizationsParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Create an organization
+// (POST /v1/organizations)
+func (_ Unimplemented) CreateOrganization(w http.ResponseWriter, r *http.Request, params CreateOrganizationParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Delete an organization
+// (DELETE /v1/organizations/{org_id})
+func (_ Unimplemented) DeleteOrganization(w http.ResponseWriter, r *http.Request, orgId OrganizationId, params DeleteOrganizationParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Read an organization
+// (GET /v1/organizations/{org_id})
+func (_ Unimplemented) GetOrganization(w http.ResponseWriter, r *http.Request, orgId OrganizationId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Update an organization
+// (PATCH /v1/organizations/{org_id})
+func (_ Unimplemented) UpdateOrganization(w http.ResponseWriter, r *http.Request, orgId OrganizationId) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -452,6 +744,225 @@ func (siw *ServerInterfaceWrapper) GetReadiness(w http.ResponseWriter, r *http.R
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetReadiness(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListOrganizations operation middleware
+func (siw *ServerInterfaceWrapper) ListOrganizations(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, Oauth2Scopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListOrganizationsParams
+
+	// ------------- Optional query parameter "page_size" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "page_size", r.URL.Query(), &params.PageSize)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "page_size", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "page_token" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "page_token", r.URL.Query(), &params.PageToken)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "page_token", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListOrganizations(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateOrganization operation middleware
+func (siw *ServerInterfaceWrapper) CreateOrganization(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, Oauth2Scopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateOrganizationParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateOrganization(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteOrganization operation middleware
+func (siw *ServerInterfaceWrapper) DeleteOrganization(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "org_id" -------------
+	var orgId OrganizationId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "org_id", chi.URLParam(r, "org_id"), &orgId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "org_id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, Oauth2Scopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params DeleteOrganizationParams
+
+	// ------------- Required query parameter "confirm_name" -------------
+
+	if paramValue := r.URL.Query().Get("confirm_name"); paramValue != "" {
+
+	} else {
+		siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "confirm_name"})
+		return
+	}
+
+	err = runtime.BindQueryParameter("form", true, true, "confirm_name", r.URL.Query(), &params.ConfirmName)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "confirm_name", Err: err})
+		return
+	}
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteOrganization(w, r, orgId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetOrganization operation middleware
+func (siw *ServerInterfaceWrapper) GetOrganization(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "org_id" -------------
+	var orgId OrganizationId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "org_id", chi.URLParam(r, "org_id"), &orgId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "org_id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, Oauth2Scopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetOrganization(w, r, orgId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateOrganization operation middleware
+func (siw *ServerInterfaceWrapper) UpdateOrganization(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "org_id" -------------
+	var orgId OrganizationId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "org_id", chi.URLParam(r, "org_id"), &orgId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "org_id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, Oauth2Scopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateOrganization(w, r, orgId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -586,6 +1097,21 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/readyz", wrapper.GetReadiness)
 	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/v1/organizations", wrapper.ListOrganizations)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/organizations", wrapper.CreateOrganization)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/v1/organizations/{org_id}", wrapper.DeleteOrganization)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/v1/organizations/{org_id}", wrapper.GetOrganization)
+	})
+	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/v1/organizations/{org_id}", wrapper.UpdateOrganization)
+	})
 
 	return r
 }
@@ -712,6 +1238,374 @@ func (response GetReadiness503JSONResponse) VisitGetReadinessResponse(w http.Res
 	return json.NewEncoder(w).Encode(response)
 }
 
+type ListOrganizationsRequestObject struct {
+	Params ListOrganizationsParams
+}
+
+type ListOrganizationsResponseObject interface {
+	VisitListOrganizationsResponse(w http.ResponseWriter) error
+}
+
+type ListOrganizations200JSONResponse OrganizationList
+
+func (response ListOrganizations200JSONResponse) VisitListOrganizationsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListOrganizations400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response ListOrganizations400JSONResponse) VisitListOrganizationsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListOrganizations401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ListOrganizations401JSONResponse) VisitListOrganizationsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListOrganizations403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response ListOrganizations403JSONResponse) VisitListOrganizationsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListOrganizations429JSONResponse struct{ RateLimitedJSONResponse }
+
+func (response ListOrganizations429JSONResponse) VisitListOrganizationsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Retry-After", fmt.Sprint(response.Headers.RetryAfter))
+	w.Header().Set("X-RateLimit-Limit", fmt.Sprint(response.Headers.XRateLimitLimit))
+	w.Header().Set("X-RateLimit-Remaining", fmt.Sprint(response.Headers.XRateLimitRemaining))
+	w.Header().Set("X-RateLimit-Reset", fmt.Sprint(response.Headers.XRateLimitReset))
+	w.WriteHeader(429)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type ListOrganizations500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response ListOrganizations500JSONResponse) VisitListOrganizationsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type CreateOrganizationRequestObject struct {
+	Params CreateOrganizationParams
+	Body   *CreateOrganizationJSONRequestBody
+}
+
+type CreateOrganizationResponseObject interface {
+	VisitCreateOrganizationResponse(w http.ResponseWriter) error
+}
+
+type CreateOrganization201JSONResponse Organization
+
+func (response CreateOrganization201JSONResponse) VisitCreateOrganizationResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type CreateOrganization400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response CreateOrganization400JSONResponse) VisitCreateOrganizationResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type CreateOrganization401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response CreateOrganization401JSONResponse) VisitCreateOrganizationResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type CreateOrganization403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response CreateOrganization403JSONResponse) VisitCreateOrganizationResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type CreateOrganization409JSONResponse struct{ ConflictJSONResponse }
+
+func (response CreateOrganization409JSONResponse) VisitCreateOrganizationResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type CreateOrganization429JSONResponse struct{ RateLimitedJSONResponse }
+
+func (response CreateOrganization429JSONResponse) VisitCreateOrganizationResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Retry-After", fmt.Sprint(response.Headers.RetryAfter))
+	w.Header().Set("X-RateLimit-Limit", fmt.Sprint(response.Headers.XRateLimitLimit))
+	w.Header().Set("X-RateLimit-Remaining", fmt.Sprint(response.Headers.XRateLimitRemaining))
+	w.Header().Set("X-RateLimit-Reset", fmt.Sprint(response.Headers.XRateLimitReset))
+	w.WriteHeader(429)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type CreateOrganization500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response CreateOrganization500JSONResponse) VisitCreateOrganizationResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type DeleteOrganizationRequestObject struct {
+	OrgId  OrganizationId `json:"org_id"`
+	Params DeleteOrganizationParams
+}
+
+type DeleteOrganizationResponseObject interface {
+	VisitDeleteOrganizationResponse(w http.ResponseWriter) error
+}
+
+type DeleteOrganization204Response struct {
+}
+
+func (response DeleteOrganization204Response) VisitDeleteOrganizationResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteOrganization400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response DeleteOrganization400JSONResponse) VisitDeleteOrganizationResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type DeleteOrganization401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response DeleteOrganization401JSONResponse) VisitDeleteOrganizationResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type DeleteOrganization403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response DeleteOrganization403JSONResponse) VisitDeleteOrganizationResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type DeleteOrganization404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response DeleteOrganization404JSONResponse) VisitDeleteOrganizationResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type DeleteOrganization429JSONResponse struct{ RateLimitedJSONResponse }
+
+func (response DeleteOrganization429JSONResponse) VisitDeleteOrganizationResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Retry-After", fmt.Sprint(response.Headers.RetryAfter))
+	w.Header().Set("X-RateLimit-Limit", fmt.Sprint(response.Headers.XRateLimitLimit))
+	w.Header().Set("X-RateLimit-Remaining", fmt.Sprint(response.Headers.XRateLimitRemaining))
+	w.Header().Set("X-RateLimit-Reset", fmt.Sprint(response.Headers.XRateLimitReset))
+	w.WriteHeader(429)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type DeleteOrganization500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response DeleteOrganization500JSONResponse) VisitDeleteOrganizationResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetOrganizationRequestObject struct {
+	OrgId OrganizationId `json:"org_id"`
+}
+
+type GetOrganizationResponseObject interface {
+	VisitGetOrganizationResponse(w http.ResponseWriter) error
+}
+
+type GetOrganization200JSONResponse Organization
+
+func (response GetOrganization200JSONResponse) VisitGetOrganizationResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetOrganization401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response GetOrganization401JSONResponse) VisitGetOrganizationResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetOrganization403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response GetOrganization403JSONResponse) VisitGetOrganizationResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetOrganization404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response GetOrganization404JSONResponse) VisitGetOrganizationResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetOrganization429JSONResponse struct{ RateLimitedJSONResponse }
+
+func (response GetOrganization429JSONResponse) VisitGetOrganizationResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Retry-After", fmt.Sprint(response.Headers.RetryAfter))
+	w.Header().Set("X-RateLimit-Limit", fmt.Sprint(response.Headers.XRateLimitLimit))
+	w.Header().Set("X-RateLimit-Remaining", fmt.Sprint(response.Headers.XRateLimitRemaining))
+	w.Header().Set("X-RateLimit-Reset", fmt.Sprint(response.Headers.XRateLimitReset))
+	w.WriteHeader(429)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type GetOrganization500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response GetOrganization500JSONResponse) VisitGetOrganizationResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type UpdateOrganizationRequestObject struct {
+	OrgId OrganizationId `json:"org_id"`
+	Body  *UpdateOrganizationJSONRequestBody
+}
+
+type UpdateOrganizationResponseObject interface {
+	VisitUpdateOrganizationResponse(w http.ResponseWriter) error
+}
+
+type UpdateOrganization200JSONResponse Organization
+
+func (response UpdateOrganization200JSONResponse) VisitUpdateOrganizationResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type UpdateOrganization400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response UpdateOrganization400JSONResponse) VisitUpdateOrganizationResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type UpdateOrganization401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response UpdateOrganization401JSONResponse) VisitUpdateOrganizationResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type UpdateOrganization403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response UpdateOrganization403JSONResponse) VisitUpdateOrganizationResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type UpdateOrganization404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response UpdateOrganization404JSONResponse) VisitUpdateOrganizationResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type UpdateOrganization409JSONResponse struct{ ConflictJSONResponse }
+
+func (response UpdateOrganization409JSONResponse) VisitUpdateOrganizationResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type UpdateOrganization429JSONResponse struct{ RateLimitedJSONResponse }
+
+func (response UpdateOrganization429JSONResponse) VisitUpdateOrganizationResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Retry-After", fmt.Sprint(response.Headers.RetryAfter))
+	w.Header().Set("X-RateLimit-Limit", fmt.Sprint(response.Headers.XRateLimitLimit))
+	w.Header().Set("X-RateLimit-Remaining", fmt.Sprint(response.Headers.XRateLimitRemaining))
+	w.Header().Set("X-RateLimit-Reset", fmt.Sprint(response.Headers.XRateLimitReset))
+	w.WriteHeader(429)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type UpdateOrganization500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response UpdateOrganization500JSONResponse) VisitUpdateOrganizationResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
 	// JSON Web Key Set
@@ -726,6 +1620,21 @@ type StrictServerInterface interface {
 	// Readiness probe
 	// (GET /readyz)
 	GetReadiness(ctx context.Context, request GetReadinessRequestObject) (GetReadinessResponseObject, error)
+	// List organizations
+	// (GET /v1/organizations)
+	ListOrganizations(ctx context.Context, request ListOrganizationsRequestObject) (ListOrganizationsResponseObject, error)
+	// Create an organization
+	// (POST /v1/organizations)
+	CreateOrganization(ctx context.Context, request CreateOrganizationRequestObject) (CreateOrganizationResponseObject, error)
+	// Delete an organization
+	// (DELETE /v1/organizations/{org_id})
+	DeleteOrganization(ctx context.Context, request DeleteOrganizationRequestObject) (DeleteOrganizationResponseObject, error)
+	// Read an organization
+	// (GET /v1/organizations/{org_id})
+	GetOrganization(ctx context.Context, request GetOrganizationRequestObject) (GetOrganizationResponseObject, error)
+	// Update an organization
+	// (PATCH /v1/organizations/{org_id})
+	UpdateOrganization(ctx context.Context, request UpdateOrganizationRequestObject) (UpdateOrganizationResponseObject, error)
 }
 
 type StrictHandlerFunc = strictnethttp.StrictHTTPHandlerFunc
@@ -846,6 +1755,151 @@ func (sh *strictHandler) GetReadiness(w http.ResponseWriter, r *http.Request) {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetReadinessResponseObject); ok {
 		if err := validResponse.VisitGetReadinessResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListOrganizations operation middleware
+func (sh *strictHandler) ListOrganizations(w http.ResponseWriter, r *http.Request, params ListOrganizationsParams) {
+	var request ListOrganizationsRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListOrganizations(ctx, request.(ListOrganizationsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListOrganizations")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListOrganizationsResponseObject); ok {
+		if err := validResponse.VisitListOrganizationsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateOrganization operation middleware
+func (sh *strictHandler) CreateOrganization(w http.ResponseWriter, r *http.Request, params CreateOrganizationParams) {
+	var request CreateOrganizationRequestObject
+
+	request.Params = params
+
+	var body CreateOrganizationJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateOrganization(ctx, request.(CreateOrganizationRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateOrganization")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateOrganizationResponseObject); ok {
+		if err := validResponse.VisitCreateOrganizationResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteOrganization operation middleware
+func (sh *strictHandler) DeleteOrganization(w http.ResponseWriter, r *http.Request, orgId OrganizationId, params DeleteOrganizationParams) {
+	var request DeleteOrganizationRequestObject
+
+	request.OrgId = orgId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteOrganization(ctx, request.(DeleteOrganizationRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteOrganization")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteOrganizationResponseObject); ok {
+		if err := validResponse.VisitDeleteOrganizationResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetOrganization operation middleware
+func (sh *strictHandler) GetOrganization(w http.ResponseWriter, r *http.Request, orgId OrganizationId) {
+	var request GetOrganizationRequestObject
+
+	request.OrgId = orgId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetOrganization(ctx, request.(GetOrganizationRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetOrganization")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetOrganizationResponseObject); ok {
+		if err := validResponse.VisitGetOrganizationResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UpdateOrganization operation middleware
+func (sh *strictHandler) UpdateOrganization(w http.ResponseWriter, r *http.Request, orgId OrganizationId) {
+	var request UpdateOrganizationRequestObject
+
+	request.OrgId = orgId
+
+	var body UpdateOrganizationJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdateOrganization(ctx, request.(UpdateOrganizationRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdateOrganization")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UpdateOrganizationResponseObject); ok {
+		if err := validResponse.VisitUpdateOrganizationResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

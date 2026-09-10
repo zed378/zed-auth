@@ -34,6 +34,7 @@ import (
 	"github.com/zed378/zed-auth/backend/internal/oauth/userinfo"
 	"github.com/zed378/zed-auth/backend/internal/observability"
 	"github.com/zed378/zed-auth/backend/internal/oidc"
+	"github.com/zed378/zed-auth/backend/internal/organization"
 	"github.com/zed378/zed-auth/backend/internal/ratelimit"
 	"github.com/zed378/zed-auth/backend/internal/session"
 	"github.com/zed378/zed-auth/backend/internal/signing"
@@ -375,6 +376,15 @@ func run() error {
 	// idempotency middleware, for instance, makes every replay look like an
 	// unaudited mutation, and an alarm that fires in normal operation is an
 	// alarm somebody turns off.
+	// The organization endpoints (P1-16), the first real /v1 surface.
+	organizations := &organization.Handler{
+		Store:    organization.NewStore(),
+		DB:       db,
+		Audit:    auditor,
+		Log:      log,
+		Sessions: sessions,
+	}
+
 	v1 := &management.Chain{
 		Auth: &management.Middleware{
 			Issuer:   cfg.Issuer,
@@ -391,6 +401,11 @@ func run() error {
 			Claims: management.NewDBClaims(db),
 			Log:    log,
 		},
+		// Every /v1 handler that inspects the keys a caller actually sent needs
+		// the raw body, because `additionalProperties: false` is not enforced
+		// at runtime by the generated code.
+		BufferBody: true,
+
 		Audit: &management.AuditGuard{
 			Log:      log,
 			Observer: auditGuardObserver{metrics},
@@ -501,19 +516,20 @@ func run() error {
 	}
 
 	srv := httpserver.New(cfg.HTTP, httpserver.Deps{
-		Logger:     log,
-		Health:     health,
-		Metrics:    metrics,
-		Discovery:  discovery,
-		Authorize:  authorizeHandler,
-		Token:      tokenHandler,
-		Introspect: http.HandlerFunc(lifecycleHandler.Introspect),
-		Revoke:     http.HandlerFunc(lifecycleHandler.Revoke),
-		UserInfo:   userInfoHandler,
-		Logout:     logoutHandler,
-		Login:      loginHandler,
-		Forgot:     http.HandlerFunc(loginHandler.Forgot),
-		V1:         v1,
+		Logger:        log,
+		Health:        health,
+		Metrics:       metrics,
+		Discovery:     discovery,
+		Authorize:     authorizeHandler,
+		Token:         tokenHandler,
+		Introspect:    http.HandlerFunc(lifecycleHandler.Introspect),
+		Revoke:        http.HandlerFunc(lifecycleHandler.Revoke),
+		UserInfo:      userInfoHandler,
+		Logout:        logoutHandler,
+		Login:         loginHandler,
+		Forgot:        http.HandlerFunc(loginHandler.Forgot),
+		V1:            v1,
+		Organizations: organizations,
 		// Explicit configuration, not inferred from the environment: see the
 		// comment on config.HTTPConfig.TrustProxyHeaders. Defaults to false,
 		// so a deployment behind a proxy that forwards client headers

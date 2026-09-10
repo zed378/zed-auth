@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 
 	"github.com/zed378/zed-auth/backend/internal/signing"
 	"github.com/zed378/zed-auth/backend/internal/storage/postgres"
@@ -109,7 +110,7 @@ func (m *Middleware) Require(req Requirement, next http.Handler) http.Handler {
 		// The organization the REQUEST addresses, which is not necessarily the
 		// caller's own: that is what makes an INSTANCE_OWNER useful and what
 		// makes forgetting the distinction a cross-tenant hole.
-		target := chi.URLParam(r, "org_id")
+		target := normalizeOrgID(chi.URLParam(r, "org_id"))
 		if target == "" && req.Scope == ScopeOrganization {
 			target = caller.OrgID
 		}
@@ -202,6 +203,28 @@ func (m *Middleware) InScope(ctx context.Context, fn func(*postgres.Tx) error) e
 	}
 
 	return m.DB.WithTenant(ctx, orgID, fn)
+}
+
+// normalizeOrgID puts a caller-supplied organization id into canonical form.
+//
+// The id is compared as a STRING against the token's org_id claim, and PostgreSQL
+// accepts several spellings of the same UUID — uppercase, and braced or
+// unhyphenated forms. Without this, an administrator who pasted an uppercase id
+// would be told their own organization does not exist, while the database would
+// have matched it perfectly well.
+//
+// A value that is not a UUID is returned unchanged. It will not match any
+// caller's organization and will not match a row, which is the right outcome —
+// and for /v1 routes the generated wrapper has already rejected it.
+func normalizeOrgID(raw string) string {
+	if raw == "" {
+		return ""
+	}
+	parsed, err := uuid.Parse(raw)
+	if err != nil {
+		return raw
+	}
+	return parsed.String()
 }
 
 // --- authentication ------------------------------------------------------------------
