@@ -334,6 +334,24 @@ So the card cites a policy that does not cover the endpoints it is about, and no
 
 **Recommendation**: `P1-15` owns it. That is where `/v1` gets its middleware, and a per-client limiter built there can serve the OAuth endpoints too rather than being invented twice. It also needs `docs/PLAN/05` Part A amended to say what the policy actually is for protocol endpoints, since today it says nothing.
 
+**Resolved in `P1-15`** by `internal/ratelimit`'s `Quota`/`Quotas`: 600 requests a minute per `client_id`, a fixed window counted by an atomic Lua increment, and `X-RateLimit-Limit`/`-Remaining`/`-Reset` on every `/v1` response. Deliberately a different mechanism from `P1-13`'s cooldown — that one counts failures to make guessing expensive, this one counts requests to bound a client whose credentials are entirely valid and have been stolen. Keyed on the client id, so rotating a secret does not reset the bound.
+
+**Still open, and narrower than the original entry**: the OAuth endpoints (`/oauth/token`, `/oauth/introspect`, `/oauth/revoke`) are not yet behind it. The mechanism now exists and is reusable, so this is a wiring task rather than a design one — tracked as **`BL-06`** below. `docs/PLAN/05` Part A still says nothing about a policy for protocol endpoints and should be amended when that lands.
+
+---
+
+### PG-21 — Idempotency records have nowhere to live
+
+**Affects**: `P1-15`, and every `POST` endpoint from `P1-16` onward.
+
+`docs/PLAN/05` Part B requires `Idempotency-Key` support on `POST` "to make automated provisioning retries safe". `docs/PLAN/04` models no table for it, and its "What Is Deliberately Not Stored Here" section does not mention it either way — so this is a gap rather than a decision.
+
+It is not obvious that the answer is PostgreSQL. Redis holds the short-lived and reconstructible — authorization codes, the session cache, rate-limit counters — and an idempotency record superficially looks like one of those. It is not. The guarantee it makes is to a caller retrying **after a failure**, and the failure that prompts a retry is exactly the kind of event that also restarts things. A record that vanishes turns a safe retry into a duplicate provisioning call, which is the thing the header exists to prevent.
+
+**Resolved in `P1-15`** by an additive `idempotency_records` table: primary key `(org_id, client_id, key)`, the request stored as a **hash** rather than as itself (a user-creation body carries a password), the response as `text` so a replay returns the original bytes, RLS like every other tenant-scoped table, and a `SECURITY DEFINER` sweep because instance-scoped maintenance cannot delete under RLS.
+
+**`docs/PLAN/04` should be amended** to list the table, through the deliberate plan-change process (`AGENTS.md` rule 9).
+
 ---
 
 ### PG-20 — `docs/PLAN/05` treats RP-Initiated Logout and Back-Channel Logout as one specification
@@ -364,6 +382,21 @@ Read literally the sentence defers the endpoint **the same document lists in its
 ## Operational Gaps
 
 Found by running the system rather than by reading the plan.
+
+### BL-06 — The OAuth endpoints are not behind the per-client rate limiter
+
+**Affects**: `/oauth/token`, `/oauth/introspect`, `/oauth/revoke`.
+
+`P1-15` built the mechanism `PG-19` asked for and wired it to `/v1` only. The three protocol endpoints that take client credentials are still unbounded per client.
+
+The exposure is narrower than it sounds — all three require client authentication, so abuse costs an attacker a valid client secret rather than a network connection. What is unbounded is a **compromised** client, which is the case the limiter exists for.
+
+This is now a wiring task rather than a design one: `ratelimit.NewQuotas` is reusable as it stands, and the endpoints already know their `client_id` by the time they would call it. Two things need deciding rather than assuming:
+
+- **The bound.** `/v1`'s 600 a minute is sized for an administrator's provisioning   script. A resource server calling `/oauth/introspect` once per incoming request is a   different shape entirely, and giving it the same number would either throttle normal   traffic or bound nothing.
+- **`docs/PLAN/05` Part A**, which today says nothing about a policy for protocol   endpoints. It should say what the policy is before one is implemented against it.
+
+---
 
 ### BL-05 — `AUTH_CLIENT_IP_HEADER` is not set on staging, so per-IP rate limiting sees one client
 

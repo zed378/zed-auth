@@ -80,6 +80,24 @@ type Metrics struct {
 	// nothing happening.
 	RateLimitUnavailable prometheus.Counter
 
+	// --- Management API (P1-15) ---
+
+	// UnauditedMutations counts successful mutating /v1 requests that wrote no
+	// audit event, by route.
+	//
+	// **This should be permanently zero, so any value at all is a defect.**
+	// docs/PLAN/09 § Audit requires every security-sensitive action to leave a
+	// record, and the way that requirement fails is never a broken writer — it
+	// is one handler out of thirty that nobody remembered. That gap is
+	// invisible by nature: nothing errors, nothing is slow, and it is found
+	// during an incident, when the record is needed and absent. This is the
+	// number that finds it on the first request instead.
+	//
+	// Labelled by route PATTERN, never by path: a label carrying an
+	// organization id is unbounded cardinality and a tenant identifier in the
+	// monitoring system at once.
+	UnauditedMutations *prometheus.CounterVec
+
 	// --- Logout (P1-10) ---
 
 	// LogoutTotal is labelled by outcome. "asked" is as interesting as
@@ -248,6 +266,11 @@ func NewMetrics(service, version string) *Metrics {
 		RateLimitUnavailable: factory.counter(
 			"auth_rate_limit_unavailable_total",
 			"Rate-limit decisions made without the counter store. Non-zero means logins are proceeding unlimited (ADR-017)."),
+
+		UnauditedMutations: factory.counterVec(
+			"auth_management_unaudited_mutations_total",
+			"Successful mutating /v1 requests that wrote no audit event. Alert on any non-zero value (P1-15).",
+			"route"),
 
 		LogoutTotal: factory.counterVec(
 			"auth_logout_total",

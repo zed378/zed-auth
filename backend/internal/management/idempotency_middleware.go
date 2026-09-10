@@ -3,6 +3,8 @@ package management
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -197,12 +199,27 @@ func (i *Idempotency) logFault(r *http.Request, caller Caller, key string, err e
 	if !errors.As(err, &fault) || fault.Reason == "" {
 		return
 	}
-	// The key is a caller-chosen string that reaches a log line, which is why
-	// ValidateKey refuses anything but printable ASCII. It is logged because a
-	// conflict is nearly always a client bug and unidentifiable without it.
+	// A FINGERPRINT of the key, never the key.
+	//
+	// The spec's NFR-2 says the Idempotency-Key is never logged, and the reason
+	// is that it is a string the CALLER chose: a provisioning script will
+	// cheerfully use an email address, an employee number or an internal record
+	// id, and none of those belong in a log that is shipped, retained and read
+	// by people who have no business seeing them.
+	//
+	// A hash keeps the only property an operator actually needs — that two log
+	// lines concern the same key — and gives up the one nobody needs, which is
+	// what the key says. Twelve hex characters: enough that two keys from one
+	// client colliding is not a thing that happens, short enough to read.
 	i.log().Info("an idempotent request was refused",
 		"reason", fault.Reason, "client_id", caller.ClientID,
-		"key", key, "method", r.Method, "path", r.URL.Path)
+		"key_fingerprint", fingerprint(key), "method", r.Method, "path", r.URL.Path)
+}
+
+// fingerprint identifies a key without disclosing it.
+func fingerprint(key string) string {
+	sum := sha256.Sum256([]byte(key))
+	return hex.EncodeToString(sum[:])[:12]
 }
 
 func (i *Idempotency) log() *slog.Logger {
@@ -265,6 +282,21 @@ func writeReplay(w http.ResponseWriter, replay *Replay) {
 	h.Set("Idempotency-Replayed", "true")
 
 	w.WriteHeader(replay.Status)
+
+	// #nosec G705 -- gosec follows these bytes from the database to a Write and
+	// calls it reflected XSS. Three things bound it, and the first is the one
+	// that matters:
+	//
+	//   1. This is not caller-supplied content taking a round trip through
+	//      storage. worthStoring refuses anything that is not valid JSON, so
+	//      the bytes here were produced by a /v1 handler in this service and
+	//      parse as a JSON document.
+	//   2. The record is keyed by (org, client), so a client can only ever be
+	//      served a response its OWN earlier request produced.
+	//   3. Content-Type is set to application/json above, and P0-11's
+	//      SecurityHeaders sets X-Content-Type-Options: nosniff on every
+	//      response — so a browser will not reinterpret it as markup even if
+	//      the first two ever stopped holding.
 	_, _ = w.Write(replay.Response)
 }
 

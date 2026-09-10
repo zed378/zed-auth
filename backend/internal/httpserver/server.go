@@ -12,6 +12,7 @@ import (
 
 	"github.com/zed378/zed-auth/backend/internal/api"
 	"github.com/zed378/zed-auth/backend/internal/config"
+	"github.com/zed378/zed-auth/backend/internal/management"
 	"github.com/zed378/zed-auth/backend/internal/observability"
 	"github.com/zed378/zed-auth/backend/internal/oidc"
 )
@@ -87,9 +88,39 @@ type Deps struct {
 	Login  http.Handler
 	Forgot http.Handler
 
+	// V1 is the Management API chain (P1-15).
+	//
+	// The routes themselves arrive with P1-16 onward. What is registered here
+	// is the middleware every one of them runs behind, mounted on a subrouter
+	// of its own rather than globally: the OIDC endpoints authenticate
+	// differently, and a bearer check applied to /oauth/token would break the
+	// protocol it is meant to protect.
+	//
+	// Optional. nil means /v1 is not served at all, which is the honest answer
+	// for a deployment that does not offer the Management API.
+	V1 *management.Chain
+
 	// TrustProxyHeaders must be true only when a proxy in front of this service
 	// strips client-supplied correlation headers. See RequestID.
 	TrustProxyHeaders bool
+}
+
+// v1Router is where the Management API's endpoints are registered.
+//
+// Every route goes on through chain.Handle with its OWN Requirement. That is
+// not a convention to remember: Requirement's zero value is unsatisfiable, so
+// a route registered with a forgotten requirement is unreachable rather than
+// open (P1-15).
+func v1Router(chain *management.Chain) *chi.Mux {
+	r := chi.NewRouter()
+	r.Use(noStore)
+
+	// P1-16 onward register here. Deliberately empty rather than absent: the
+	// chain is built, wired and reachable, so adding an endpoint is one line
+	// and cannot accidentally be one line that bypasses it.
+	_ = chain
+
+	return r
 }
 
 // New builds a Server with the standard middleware chain and the routes that
@@ -204,6 +235,17 @@ func New(cfg config.HTTPConfig, deps Deps) *Server {
 	}
 	if deps.Forgot != nil {
 		mux.Method(http.MethodGet, "/login/forgot", deps.Forgot)
+	}
+
+	if deps.V1 != nil {
+		// Mounted BEFORE the generated router takes "/", so /v1 routes are
+		// matched here rather than falling through to a 404 from the catch-all.
+		//
+		// Empty until P1-16. An empty subrouter answers 404 for every /v1 path,
+		// which is exactly what should happen while no endpoint exists — and
+		// mounting it now means the next task adds a route rather than a route
+		// AND the chain that protects it.
+		mux.Mount("/v1", v1Router(deps.V1))
 	}
 
 	routes := apiRoutes{Health: deps.Health, Handler: deps.Discovery}

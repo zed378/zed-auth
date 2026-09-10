@@ -1,9 +1,11 @@
 package management
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -568,5 +570,75 @@ func TestAnOrdinaryKeyIsAccepted(t *testing.T) {
 		if err := ValidateKey(key); err != nil {
 			t.Errorf("ValidateKey(%q) = %v", key, err)
 		}
+	}
+}
+
+// --- what reaches a log line ------------------------------------------------------------
+
+// **The Idempotency-Key is never logged** (spec NFR-2).
+//
+// It is a string the CALLER chose, and a provisioning script will cheerfully
+// use an email address, an employee number or an internal record id. None of
+// those belong in a log that is shipped, retained, and read by people with no
+// business seeing them.
+//
+// What IS logged is a fingerprint, so an operator can still tell that two lines
+// concern the same key — which is the only property they actually need.
+func TestTheIdempotencyKeyNeverReachesALogLine(t *testing.T) {
+	const key = "alice@example.test/payroll-run-2026-09"
+
+	var logged bytes.Buffer
+	claims := &scriptedClaims{beginErr: Fault{
+		Class: Conflict, Message: "This Idempotency-Key was already used for a different request.",
+		Reason: "request hash mismatch",
+	}}
+	mw := &Idempotency{
+		Claims: claims,
+		Log:    slog.New(slog.NewTextHandler(&logged, &slog.HandlerOptions{Level: slog.LevelDebug})),
+		Now:    func() time.Time { return at(0) },
+	}
+
+	mw.Wrap((&ran{}).handler()).ServeHTTP(httptest.NewRecorder(), post(key, `{}`))
+
+	out := logged.String()
+	if out == "" {
+		t.Fatal("nothing was logged at all, so this test proves nothing")
+	}
+	if strings.Contains(out, key) || strings.Contains(out, "alice@example.test") {
+		t.Errorf("the key reached the log:\n%s", out)
+	}
+	// And the fingerprint IS there, or an operator cannot correlate anything.
+	if !strings.Contains(out, fingerprint(key)) {
+		t.Errorf("no key fingerprint in the log, so two lines about one key cannot be tied together:\n%s", out)
+	}
+}
+
+// Nor into the response. It is caller-supplied, so echoing it reflects whatever
+// they sent onto whatever renders the error.
+func TestTheIdempotencyKeyNeverReachesTheResponse(t *testing.T) {
+	const key = "alice@example.test/payroll-run"
+
+	claims := &scriptedClaims{beginErr: Fault{
+		Class: Conflict, Message: "This Idempotency-Key was already used for a different request.",
+	}}
+
+	w := serve(t, claims, (&ran{}).handler(), post(key, `{}`))
+
+	if strings.Contains(w.Body.String(), "alice@example.test") {
+		t.Errorf("the key was echoed back: %s", w.Body.String())
+	}
+}
+
+// Two different keys fingerprint differently, or the value in the log is a
+// constant and correlating on it is worse than useless.
+func TestTwoKeysFingerprintDifferently(t *testing.T) {
+	if fingerprint("key-1") == fingerprint("key-2") {
+		t.Fatal("two keys share a fingerprint")
+	}
+	if fingerprint("key-1") != fingerprint("key-1") {
+		t.Fatal("the fingerprint is not stable, so it correlates nothing")
+	}
+	if len(fingerprint("key-1")) == 0 {
+		t.Fatal("the fingerprint is empty")
 	}
 }

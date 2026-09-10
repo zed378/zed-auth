@@ -27,6 +27,7 @@ import (
 	"github.com/zed378/zed-auth/backend/internal/config"
 	"github.com/zed378/zed-auth/backend/internal/httpserver"
 	"github.com/zed378/zed-auth/backend/internal/login"
+	"github.com/zed378/zed-auth/backend/internal/management"
 	"github.com/zed378/zed-auth/backend/internal/oauth/authorize"
 	"github.com/zed378/zed-auth/backend/internal/oauth/client"
 	"github.com/zed378/zed-auth/backend/internal/oauth/token"
@@ -362,6 +363,44 @@ func run() error {
 
 	limiter := ratelimit.New(rdb, rateLimitObserver{metrics}, log)
 
+	// The Management API's /v1 chain (P1-15).
+	//
+	// Assembled once here and handed to the router, so that P1-16 onward add
+	// ROUTES rather than middleware. docs/PLAN/02 FR-14 means there will be
+	// dozens of endpoints, and a chain each of them assembles for itself is a
+	// chain one of them will assemble wrong.
+	//
+	// The ORDER lives in management.Chain.Handle, with the reasoning for each
+	// position. It is not a detail: putting the audit guard outside the
+	// idempotency middleware, for instance, makes every replay look like an
+	// unaudited mutation, and an alarm that fires in normal operation is an
+	// alarm somebody turns off.
+	v1 := &management.Chain{
+		Auth: &management.Middleware{
+			Issuer:   cfg.Issuer,
+			Verifier: signing.NewVerifier(keys),
+			Grants:   management.NewRoleStore(),
+			Sessions: sessionLiveness{sessions: sessions, policy: session.DefaultPolicy},
+			DB:       db,
+			Log:      log,
+		},
+		RateLimit: &management.RateLimit{
+			Counter: ratelimit.NewQuotas(rdb, rateLimitObserver{metrics}, log),
+		},
+		Idempotency: &management.Idempotency{
+			Claims: management.NewDBClaims(db),
+			Log:    log,
+		},
+		Audit: &management.AuditGuard{
+			Log:      log,
+			Observer: auditGuardObserver{metrics},
+			// The address resolved by the trusted-proxy logic, not re-derived
+			// per handler. Re-deriving it is how a spoofable header ends up in
+			// an audit record (P1-13, BL-05).
+			ClientIP: clientIP.Of,
+		},
+	}
+
 	// RP-initiated logout (P1-10). Shares the login package because the
 	// confirmation interstitial is the same kind of browser page.
 	logoutHandler := &login.LogoutHandler{
@@ -474,6 +513,7 @@ func run() error {
 		Logout:     logoutHandler,
 		Login:      loginHandler,
 		Forgot:     http.HandlerFunc(loginHandler.Forgot),
+		V1:         v1,
 		// Explicit configuration, not inferred from the environment: see the
 		// comment on config.HTTPConfig.TrustProxyHeaders. Defaults to false,
 		// so a deployment behind a proxy that forwards client headers
@@ -819,6 +859,18 @@ func (o rateLimitObserver) Refused(bound string) {
 func (o rateLimitObserver) Unavailable() {
 	if o.m != nil {
 		o.m.RateLimitUnavailable.Inc()
+	}
+}
+
+// auditGuardObserver reports mutating requests that recorded nothing.
+//
+// The counter should be permanently zero, so the alert is "greater than zero"
+// rather than a rate or a threshold.
+type auditGuardObserver struct{ m *observability.Metrics }
+
+func (o auditGuardObserver) MutationNotAudited(route string) {
+	if o.m != nil {
+		o.m.UnauditedMutations.WithLabelValues(route).Inc()
 	}
 }
 

@@ -142,6 +142,19 @@ type Decision struct {
 	// WithInstanceScope over WithTenant, which is a named, logged, audited
 	// path rather than a missing filter.
 	InstanceScoped bool
+
+	// Invisible distinguishes "you may not" from "you cannot see this", and it
+	// is the difference between a 403 and a 404.
+	//
+	// A caller who holds nothing over the target organization must not be able
+	// to learn that it exists. A 403 there answers "is org 8f3e... real?" for
+	// anybody willing to send a request per guess, which is abuse case A-3's
+	// disclosure (docs/SECURITY/02 §2, §14).
+	//
+	// A caller who DOES hold something over the target — an ORG_ADMIN asked
+	// for ORG_OWNER — is told 403, because they already know the organization
+	// exists and hiding it from them would be a worse experience for no gain.
+	Invisible bool
 }
 
 // Authorize decides whether a caller may act on a target organization.
@@ -171,6 +184,9 @@ func Authorize(c Caller, req Requirement, targetOrgID string) Decision {
 	}
 
 	if req.Scope == ScopeInstance {
+		// Not Invisible: the endpoint is about the instance, which every
+		// caller is already on. There is nothing to conceal, and a 404 here
+		// would tell an administrator their own service has no such endpoint.
 		return Decision{Reason: "this endpoint is instance-scoped and the caller is not an INSTANCE_OWNER"}
 	}
 
@@ -187,5 +203,30 @@ func Authorize(c Caller, req Requirement, targetOrgID string) Decision {
 		}
 	}
 
-	return Decision{Reason: fmt.Sprintf("no grant of %s over %s", req.Role, targetOrgID)}
+	// Refused. Which refusal depends on whether the caller can see the target
+	// at all: see Decision.Invisible.
+	return Decision{
+		Reason:    fmt.Sprintf("no grant of %s over %s", req.Role, targetOrgID),
+		Invisible: !holdsAnythingOver(c, targetOrgID),
+	}
+}
+
+// holdsAnythingOver reports whether the caller has ANY grant over an
+// organization — not necessarily a sufficient one.
+//
+// Deliberately any rather than a matching one: the question is whether the
+// caller already knows this organization exists, and holding any role over it
+// means they do.
+func holdsAnythingOver(c Caller, orgID string) bool {
+	if c.OrgID == orgID {
+		// Their own organization. They are a member of it; its existence is
+		// not news.
+		return true
+	}
+	for _, g := range c.Grants {
+		if g.ScopeID == orgID {
+			return true
+		}
+	}
+	return false
 }
