@@ -51,6 +51,9 @@ SHIPPED = {
     # documenting them a true claim rather than a promise.
     "/v1/organizations",
     "/v1/organizations/{org_id}",
+    # P1-17. Projects, under the organization that owns them.
+    "/v1/organizations/{org_id}/projects",
+    "/v1/organizations/{org_id}/projects/{project_id}",
 }
 
 SPEC = Path(__file__).resolve().parent.parent / "openapi" / "openapi.yaml"

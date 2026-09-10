@@ -118,6 +118,13 @@ const (
 	EventPolicyUpdated       EventType = "policy.updated"
 	EventPolicyActivated     EventType = "policy.activated"
 
+	// Projects (P1-17). A project is a container, so its lifecycle is short:
+	// created, renamed, deleted. A rename to the same name writes nothing —
+	// an audit log full of "renamed Billing to Billing" is one nobody reads.
+	EventProjectCreated EventType = "project.created"
+	EventProjectUpdated EventType = "project.updated"
+	EventProjectDeleted EventType = "project.deleted"
+
 	EventApplicationCreated       EventType = "application.created"
 	EventApplicationSecretRotated EventType = "application.secret_rotated"
 	EventApplicationDeleted       EventType = "application.deleted"

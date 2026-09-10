@@ -743,7 +743,7 @@ Also found: `session_id` was in the logger's redaction list — correct when the
 
 | | |
 |---|---|
-| **Status** | TODO |
+| **Status** | DONE — [record](../MEMORY/records/2026-09-10-P1-17-projects.md) |
 | **Depends on** | P1-15 |
 | **Plan refs** | `docs/PLAN/05-API-CONTRACT.md`, `docs/PLAN/04-DATA-MODEL.md` § `projects`, `docs/UI-UX/08-PAGE-SPECIFICATIONS.md` (Project list) |
 | **Spec required** | No |
@@ -758,9 +758,18 @@ Also found: `session_id` was in the logger's redaction list — correct when the
 4. Reserve the `PROJECT_OWNER` manager role in the permission model now, even though Phase 1 grants it to nobody yet.
 
 **Definition of Done**
-- [ ] Cross-organization project access is impossible, verified at both the RLS and application layers.
-- [ ] Deleting a project with dependents fails with an actionable error listing what blocks it.
-- [ ] Project lifecycle events are audited.
+- [x] Cross-organization project access is impossible, verified at both the RLS and application layers. Two independent tests, because either alone would pass against a broken system: a caller with no role over the organization in the path is refused before any query (application layer, `404` not `403` so an id cannot be probed), and a caller **with** `ORG_ADMIN` asking for another tenant's project id through their own organization's path still gets nothing (RLS — `Authorize` allowed that request). Plus the same read at the store with no HTTP layer at all. Each carries its control, or all three pass against a service that refuses everything.
+- [x] Deleting a project with dependents fails with an actionable error listing what blocks it. `409` with `details` naming the counts — "2 still belong to this project" rather than the foreign key's message, which cannot say how many. The counts run before the delete and the constraint violation is still handled, for the case where something is attached in between. Paired with `TestOnceEmptiedAProjectDeletes`, so "refused" cannot quietly mean "broken".
+- [x] Project lifecycle events are audited. Created, updated and deleted, written in the same transaction as the change; the rename event records the previous name. A rename to the same name writes **no** event, asserted as an absence — an audit log full of "renamed Billing to Billing" is one nobody reads.
+
+**What this task did not build**
+- **No migration.** `projects` shipped in `P0-07` with its RLS policy, its `(org_id, lower(name))` unique index and `ON DELETE RESTRICT` from `applications` and `roles`. Nothing here needed the schema changed.
+- **No console screen.** `P1-22` owns it.
+- **No project-level settings.** An application has its own configuration and an organization's policy already covers everything inside it; a third home for settings is a third place to look.
+- **`PROJECT_OWNER` grants nothing.** Card step 4 is reservation, not activation — the role exists and every project endpoint refuses it, tested against the control of the same caller holding `ORG_ADMIN`.
+
+**Found while building it**
+- **The guard that makes a missing handler fail at boot made `P1-16`'s harness panic.** `httpserver.New` refuses a `/v1` chain with any half of the Management API missing, which is right — `apiRoutes` embeds both interfaces and a nil one is a panic on the first request to an already-registered route. But `P1-16`'s integration harness builds a real server and had no reason to know projects exist. `go build` could not catch it; the harness is behind a build tag and the failure is at runtime. The guard stays and the harness now names the handler — but the friction grows with every endpoint task, and if `P1-19` leaves four packages naming five handlers the answer is a shared `Deps` constructor, not a weaker guard.
 
 ---
 

@@ -95,6 +95,10 @@ type Deps struct {
 	// refuses it.
 	Organizations Manager
 
+	// ProjectAPI implements the project operations (P1-17). Required for the
+	// same reason and on the same condition as Organizations.
+	ProjectAPI Projects
+
 	// V1 is the Management API chain (P1-15).
 	//
 	// The routes themselves arrive with P1-16 onward. What is registered here
@@ -131,6 +135,9 @@ func New(cfg config.HTTPConfig, deps Deps) *Server {
 		// Management API is a supported configuration: guardV1 answers 404 for
 		// every /v1 path, so the nil is never reached.
 		panic("httpserver.New: Organizations is required when V1 is configured")
+	}
+	if deps.V1 != nil && deps.ProjectAPI == nil {
+		panic("httpserver.New: ProjectAPI is required when V1 is configured")
 	}
 
 	mux := chi.NewRouter()
@@ -247,9 +254,10 @@ func New(cfg config.HTTPConfig, deps Deps) *Server {
 	//
 	// The probes keep their quiet: AccessLog skips them by path.
 	routes := apiRoutes{
-		Health:  deps.Health,
-		Handler: deps.Discovery,
-		Manager: deps.Organizations,
+		Health:   deps.Health,
+		Handler:  deps.Discovery,
+		Manager:  deps.Organizations,
+		Projects: deps.ProjectAPI,
 	}
 	// The two error paths the generated wrapper would otherwise answer with
 	// http.Error — a bare text/plain body and a status of its choosing.
@@ -388,6 +396,7 @@ type apiRoutes struct {
 	// does not import every package that implements part of /v1 — there will
 	// be several, and each new one would otherwise be a new import here.
 	Manager
+	Projects
 }
 
 // Manager is the part of the generated interface the Management API implements.
@@ -401,6 +410,20 @@ type Manager interface {
 	GetOrganization(ctx context.Context, request api.GetOrganizationRequestObject) (api.GetOrganizationResponseObject, error)
 	UpdateOrganization(ctx context.Context, request api.UpdateOrganizationRequestObject) (api.UpdateOrganizationResponseObject, error)
 	DeleteOrganization(ctx context.Context, request api.DeleteOrganizationRequestObject) (api.DeleteOrganizationResponseObject, error)
+}
+
+// Projects is the project half of the Management API (P1-17).
+//
+// A second interface rather than more methods on Manager, because they are
+// implemented by different packages and Go has no way to say "these two types
+// satisfy this interface between them" — embedding both in apiRoutes is how the
+// compiler is told.
+type Projects interface {
+	ListProjects(ctx context.Context, request api.ListProjectsRequestObject) (api.ListProjectsResponseObject, error)
+	CreateProject(ctx context.Context, request api.CreateProjectRequestObject) (api.CreateProjectResponseObject, error)
+	GetProject(ctx context.Context, request api.GetProjectRequestObject) (api.GetProjectResponseObject, error)
+	UpdateProject(ctx context.Context, request api.UpdateProjectRequestObject) (api.UpdateProjectResponseObject, error)
+	DeleteProject(ctx context.Context, request api.DeleteProjectRequestObject) (api.DeleteProjectResponseObject, error)
 }
 
 var _ api.StrictServerInterface = apiRoutes{}

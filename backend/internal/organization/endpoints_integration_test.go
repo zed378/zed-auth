@@ -29,6 +29,7 @@ import (
 	"github.com/zed378/zed-auth/backend/internal/httpserver"
 	"github.com/zed378/zed-auth/backend/internal/management"
 	"github.com/zed378/zed-auth/backend/internal/oauth/token"
+	"github.com/zed378/zed-auth/backend/internal/project"
 	"github.com/zed378/zed-auth/backend/internal/ratelimit"
 	"github.com/zed378/zed-auth/backend/internal/signing"
 	"github.com/zed378/zed-auth/backend/internal/testsupport"
@@ -102,6 +103,15 @@ func setupEndpoints(t *testing.T) *endpoints {
 		V1:     chain,
 		Organizations: &Handler{
 			Store: NewStore(), DB: db, Audit: auditor, Log: discard(),
+		},
+		// httpserver.New refuses to build a /v1 chain with any half of the
+		// Management API missing (P1-17), so this harness carries the project
+		// handler even though nothing here calls it. The refusal is right —
+		// a nil handler behind a registered route is a panic on the first
+		// request — and the cost is that every endpoint package's harness now
+		// has to name every other one.
+		ProjectAPI: &project.Handler{
+			Store: project.NewStore(), DB: db, Audit: auditor, Log: discard(),
 		},
 	})
 
