@@ -114,6 +114,36 @@ It now sits on the main mux, and `AccessLog` skips the two probe paths by name. 
 - **`passkey` and `social` login methods.** Named as planned and rejected with a message that says so, because an API accepting a method nothing implements would silently disable every method that works.
 - **Instance management.** `/v1/instances/{instance_id}` is in `docs/PLAN/05`'s endpoint list and has no task in Phase 1.
 
+## Deployed and verified on staging
+
+`9ad4660` rolled out on `10.1.200.13`. Backup first (97KB), then both migrations as the owner while the previous version still served, then the application — `migrated up: version 20260910000016`.
+
+This deploy carried four tasks' worth of change: `P1-13`, `P1-14`, `P1-15` and `P1-16`. The VM had been sitting at `c3a00cb` (`P1-10`).
+
+The smoke test drives the whole chain the way a consumer does — authorization code with PKCE through the public TLS endpoint, then the Management API with the resulting access token. Everything it creates is deleted afterwards, because nothing in the product can create a user or an application yet.
+
+| Check | Result |
+|---|---|
+| Login flow through TLS | `/oauth/authorize` → `/login?request=…` → `302` to the callback with a code → a 970-character access token |
+| `GET /v1/organizations` | `200`, `X-RateLimit-Limit: 600`, `Remaining: 599`, `Reset` a real timestamp, `Cache-Control: no-store` |
+| `POST /v1/organizations` | `201`, and `settings` shows `mfa_required: true` **merged onto** the instance defaults rather than replacing them |
+| The same `Idempotency-Key` again | `Idempotency-Replayed: true`, byte-identical body, **one** row named `Smoke P1-16` |
+| The same key, a different body | `409 CONFLICT` |
+| `{"settings": {"mfa_requried": true}}` | `400`, `details[0].field = settings.mfa_requried` — the misspelling is refused rather than dropped |
+| `PATCH` naming one setting | `200`, `session_lifetime_hours` changed to 6 and `mfa_required` still `true` |
+| `GET /v1/organizations/not-a-uuid` | `400` in the envelope, not the wrapper's `text/plain` |
+| `DELETE` with the wrong confirmation | `400`, `details[0].field = confirm_name`, nothing deleted |
+| `DELETE` with the right confirmation | `204` |
+| `GET` the deleted organization | `404`, as an `INSTANCE_OWNER` |
+| Audit | `organization.created`, `organization.updated`, `organization.deleted` |
+| No token / a junk token | `401` with `WWW-Authenticate: Bearer realm="…", error="invalid_token"` |
+
+**There are no `X-RateLimit-*` headers on a `401`**, and that is correct rather than a gap: the quota is per client, `RateLimit` sits inside `Require`, and an unauthenticated request has no client to charge.
+
+The fixture's rows were deleted afterwards; the **audit events were not**. The `events` table is append-only and has no foreign key to `organizations`, so the smoke test's trail survives its own tenant — which is the property `P1-16`'s Definition of Done is about, demonstrated by accident.
+
+Two things went wrong before it worked, both in the test rather than the service. `psql -Atc` prints the command tag on stdout alongside a `RETURNING` value, so the first run concatenated `INSERT 0 1` into a UUID. The cleanup then ran with empty ids and deleted nothing, which is why the second run collided with the first run's leftovers — a cleanup that cannot fail loudly is a cleanup that leaves state behind.
+
 ## Verification
 
 - Unit: settings validation key by key, including every unknown key being reported and the password floor being named in the refusal; the route policy table against the routes the router registers, in both directions.
