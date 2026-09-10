@@ -160,6 +160,12 @@ Two test expectations were also simply wrong, and worth recording because both l
 - **Project-scoped roles.** `PROJECT_OWNER` and `PROJECT_GRANT_OWNER` are named in `roles.go` so a row carrying one is recognised as "not yet" rather than silently treated as no role — but Phase 2 implements them.
 - **Auditing reads.** A separate, deliberate capability if it is ever wanted.
 
+## Deployed
+
+Rolled out to staging as part of `9ad4660`, together with `P1-13`, `P1-14` and `P1-16` — the VM had been sitting at `c3a00cb`. The chain is verified end to end there through the organization endpoints; see [`P1-16`'s record](./2026-09-10-P1-16-organizations.md).
+
+The `idempotency_records` migration applied cleanly, and `sweep_idempotency_records` is executable by `auth_app` and by nobody else.
+
 ## Verification
 
 - Unit: the role hierarchy exhaustively, default refuse, the error mapping class by class, the cursor round trip and a forged cursor, `page_size` clamping, the quota arithmetic, key validation, and every middleware branch.
