@@ -111,6 +111,9 @@ type Deps struct {
 	// UserAPI implements the user operations (P1-19).
 	UserAPI Users
 
+	// AuditAPI implements the audit log read (P1-20).
+	AuditAPI AuditLog
+
 	// V1 is the Management API chain (P1-15).
 	//
 	// The routes themselves arrive with P1-16 onward. What is registered here
@@ -156,6 +159,9 @@ func New(cfg config.HTTPConfig, deps Deps) *Server {
 	}
 	if deps.V1 != nil && deps.UserAPI == nil {
 		panic("httpserver.New: UserAPI is required when V1 is configured")
+	}
+	if deps.V1 != nil && deps.AuditAPI == nil {
+		panic("httpserver.New: AuditAPI is required when V1 is configured")
 	}
 
 	mux := chi.NewRouter()
@@ -289,6 +295,7 @@ func New(cfg config.HTTPConfig, deps Deps) *Server {
 		Projects:     deps.ProjectAPI,
 		Applications: deps.ApplicationAPI,
 		Users:        deps.UserAPI,
+		AuditLog:     deps.AuditAPI,
 	}
 	// The two error paths the generated wrapper would otherwise answer with
 	// http.Error — a bare text/plain body and a status of its choosing.
@@ -430,6 +437,7 @@ type apiRoutes struct {
 	Projects
 	Applications
 	Users
+	AuditLog
 }
 
 // Manager is the part of the generated interface the Management API implements.
@@ -492,6 +500,15 @@ type Users interface {
 	DeactivateUser(ctx context.Context, request api.DeactivateUserRequestObject) (api.DeactivateUserResponseObject, error)
 	ReactivateUser(ctx context.Context, request api.ReactivateUserRequestObject) (api.ReactivateUserResponseObject, error)
 	ResetUserPassword(ctx context.Context, request api.ResetUserPasswordRequestObject) (api.ResetUserPasswordResponseObject, error)
+}
+
+// AuditLog is the audit log's read view (P1-20).
+//
+// One method, and the interface is the place that says so: adding a write
+// here would be a visible decision rather than a quiet one, and there is a
+// test asserting the router serves nothing else under this resource.
+type AuditLog interface {
+	ListEvents(ctx context.Context, request api.ListEventsRequestObject) (api.ListEventsResponseObject, error)
 }
 
 var _ api.StrictServerInterface = apiRoutes{}

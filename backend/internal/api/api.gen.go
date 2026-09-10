@@ -370,6 +370,56 @@ type ErrorDetail struct {
 	Issue string `json:"issue"`
 }
 
+// Event One entry in the append-only audit log.
+//
+// Read-only in the strongest sense available: there is no operation on
+// this API that writes one, and the application database role cannot
+// `UPDATE` or `DELETE` the table it lives in.
+type Event struct {
+	// ActorUserId Who did it. **Null is legitimate and common**: a failed login
+	// against an address that does not exist has no authenticated actor,
+	// and neither does a scheduled job. A consumer that assumes an actor
+	// will crash on the entries that matter most during an incident.
+	ActorUserId nullable.Nullable[openapi_types.UUID] `json:"actor_user_id,omitempty"`
+
+	// EventType `noun.verb.outcome`, for example `user.login.failed`.
+	EventType string `json:"event_type"`
+
+	// Id A stable identifier for the entry. A string rather than an integer
+	// because the underlying key is `(id, created_at)` on a partitioned
+	// table — a bare number would not be unique across partitions, and a
+	// consumer treating it as one would eventually deduplicate two real
+	// events into one.
+	Id string `json:"id"`
+
+	// Ip The address the request came from, when one was resolved.
+	Ip         nullable.Nullable[string] `json:"ip,omitempty"`
+	OccurredAt time.Time                 `json:"occurred_at"`
+
+	// Payload The event's detail, redacted before storage (`P0-12`). Its shape
+	// varies by `event_type` and is deliberately not constrained here:
+	// constraining it would mean a schema change for every new event, and
+	// the console renders it as data rather than parsing it.
+	Payload *map[string]interface{} `json:"payload,omitempty"`
+
+	// RequestId Ties the entry to the request that caused it, which is what makes a
+	// timeline reconstructable across the log and the audit trail.
+	RequestId nullable.Nullable[string] `json:"request_id,omitempty"`
+}
+
+// EventList defines model for EventList.
+type EventList struct {
+	Events []Event `json:"events"`
+
+	// PageInfo The pagination envelope every collection response embeds.
+	//
+	// Token-based rather than offset-based: an offset re-reads rows that
+	// shifted under concurrent writes, silently skipping or duplicating
+	// entries. For an audit log or a user list that is a correctness bug that
+	// nobody notices.
+	PageInfo *PageInfo `json:"page_info,omitempty"`
+}
+
 // Introspection RFC 7662's response. When `active` is false it is the ONLY property
 // present - every negative case answers identically, so nothing here can
 // be used to tell them apart.
@@ -1169,6 +1219,34 @@ type DeleteOrganizationParams struct {
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
+// ListEventsParams defines parameters for ListEvents.
+type ListEventsParams struct {
+	// PageSize Maximum items to return. The server may return fewer, and returning
+	// fewer never means the collection is exhausted — only an absent
+	// `next_page_token` means that.
+	PageSize *PageSize `form:"page_size,omitempty" json:"page_size,omitempty"`
+
+	// PageToken The `next_page_token` from the previous response. Opaque: its contents
+	// are not part of the contract and must not be constructed, parsed, or
+	// persisted by a client.
+	PageToken *PageToken `form:"page_token,omitempty" json:"page_token,omitempty"`
+
+	// EventType Exact match on the event type, for example `user.login.failed`.
+	// May be repeated; repeating it matches any of them.
+	EventType *[]string `form:"event_type,omitempty" json:"event_type,omitempty"`
+
+	// ActorId The user who performed the action. Events with no actor — a failed
+	// login against an address that does not exist, a scheduled job —
+	// match no value of this filter, which is correct: they have none.
+	ActorId *ResourceId `form:"actor_id,omitempty" json:"actor_id,omitempty"`
+
+	// From Inclusive lower bound on when the event happened.
+	From *time.Time `form:"from,omitempty" json:"from,omitempty"`
+
+	// To Exclusive upper bound on when the event happened.
+	To *time.Time `form:"to,omitempty" json:"to,omitempty"`
+}
+
 // ListProjectsParams defines parameters for ListProjects.
 type ListProjectsParams struct {
 	// PageSize Maximum items to return. The server may return fewer, and returning
@@ -1367,6 +1445,9 @@ type ServerInterface interface {
 	// Update an organization
 	// (PATCH /v1/organizations/{org_id})
 	UpdateOrganization(w http.ResponseWriter, r *http.Request, orgId OrganizationId)
+	// Read the audit log
+	// (GET /v1/organizations/{org_id}/events)
+	ListEvents(w http.ResponseWriter, r *http.Request, orgId OrganizationId, params ListEventsParams)
 	// List an organization's projects
 	// (GET /v1/organizations/{org_id}/projects)
 	ListProjects(w http.ResponseWriter, r *http.Request, orgId OrganizationId, params ListProjectsParams)
@@ -1478,6 +1559,12 @@ func (_ Unimplemented) GetOrganization(w http.ResponseWriter, r *http.Request, o
 // Update an organization
 // (PATCH /v1/organizations/{org_id})
 func (_ Unimplemented) UpdateOrganization(w http.ResponseWriter, r *http.Request, orgId OrganizationId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Read the audit log
+// (GET /v1/organizations/{org_id}/events)
+func (_ Unimplemented) ListEvents(w http.ResponseWriter, r *http.Request, orgId OrganizationId, params ListEventsParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -1864,6 +1951,88 @@ func (siw *ServerInterfaceWrapper) UpdateOrganization(w http.ResponseWriter, r *
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.UpdateOrganization(w, r, orgId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListEvents operation middleware
+func (siw *ServerInterfaceWrapper) ListEvents(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "org_id" -------------
+	var orgId OrganizationId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "org_id", chi.URLParam(r, "org_id"), &orgId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "org_id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, Oauth2Scopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListEventsParams
+
+	// ------------- Optional query parameter "page_size" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "page_size", r.URL.Query(), &params.PageSize)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "page_size", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "page_token" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "page_token", r.URL.Query(), &params.PageToken)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "page_token", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "event_type" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "event_type", r.URL.Query(), &params.EventType)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "event_type", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "actor_id" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "actor_id", r.URL.Query(), &params.ActorId)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "actor_id", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "from" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "from", r.URL.Query(), &params.From)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "from", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "to" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "to", r.URL.Query(), &params.To)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "to", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListEvents(w, r, orgId, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3023,6 +3192,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Patch(options.BaseURL+"/v1/organizations/{org_id}", wrapper.UpdateOrganization)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/v1/organizations/{org_id}/events", wrapper.ListEvents)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/v1/organizations/{org_id}/projects", wrapper.ListProjects)
 	})
 	r.Group(func(r chi.Router) {
@@ -3564,6 +3736,82 @@ func (response UpdateOrganization429JSONResponse) VisitUpdateOrganizationRespons
 type UpdateOrganization500JSONResponse struct{ InternalErrorJSONResponse }
 
 func (response UpdateOrganization500JSONResponse) VisitUpdateOrganizationResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListEventsRequestObject struct {
+	OrgId  OrganizationId `json:"org_id"`
+	Params ListEventsParams
+}
+
+type ListEventsResponseObject interface {
+	VisitListEventsResponse(w http.ResponseWriter) error
+}
+
+type ListEvents200JSONResponse EventList
+
+func (response ListEvents200JSONResponse) VisitListEventsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListEvents400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response ListEvents400JSONResponse) VisitListEventsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListEvents401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ListEvents401JSONResponse) VisitListEventsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListEvents403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response ListEvents403JSONResponse) VisitListEventsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListEvents404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response ListEvents404JSONResponse) VisitListEventsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListEvents429JSONResponse struct{ RateLimitedJSONResponse }
+
+func (response ListEvents429JSONResponse) VisitListEventsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Retry-After", fmt.Sprint(response.Headers.RetryAfter))
+	w.Header().Set("X-RateLimit-Limit", fmt.Sprint(response.Headers.XRateLimitLimit))
+	w.Header().Set("X-RateLimit-Remaining", fmt.Sprint(response.Headers.XRateLimitRemaining))
+	w.Header().Set("X-RateLimit-Reset", fmt.Sprint(response.Headers.XRateLimitReset))
+	w.WriteHeader(429)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type ListEvents500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response ListEvents500JSONResponse) VisitListEventsResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(500)
 
@@ -4981,6 +5229,9 @@ type StrictServerInterface interface {
 	// Update an organization
 	// (PATCH /v1/organizations/{org_id})
 	UpdateOrganization(ctx context.Context, request UpdateOrganizationRequestObject) (UpdateOrganizationResponseObject, error)
+	// Read the audit log
+	// (GET /v1/organizations/{org_id}/events)
+	ListEvents(ctx context.Context, request ListEventsRequestObject) (ListEventsResponseObject, error)
 	// List an organization's projects
 	// (GET /v1/organizations/{org_id}/projects)
 	ListProjects(ctx context.Context, request ListProjectsRequestObject) (ListProjectsResponseObject, error)
@@ -5300,6 +5551,33 @@ func (sh *strictHandler) UpdateOrganization(w http.ResponseWriter, r *http.Reque
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(UpdateOrganizationResponseObject); ok {
 		if err := validResponse.VisitUpdateOrganizationResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListEvents operation middleware
+func (sh *strictHandler) ListEvents(w http.ResponseWriter, r *http.Request, orgId OrganizationId, params ListEventsParams) {
+	var request ListEventsRequestObject
+
+	request.OrgId = orgId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListEvents(ctx, request.(ListEventsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListEvents")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListEventsResponseObject); ok {
+		if err := validResponse.VisitListEventsResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

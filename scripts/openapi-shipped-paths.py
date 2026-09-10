@@ -65,6 +65,8 @@ SHIPPED = {
     "/v1/organizations/{org_id}/users/{user_id}/deactivate",
     "/v1/organizations/{org_id}/users/{user_id}/reactivate",
     "/v1/organizations/{org_id}/users/{user_id}/password-reset",
+    # P1-20. The audit log, read-only and deliberately so.
+    "/v1/organizations/{org_id}/events",
 }
 
 SPEC = Path(__file__).resolve().parent.parent / "openapi" / "openapi.yaml"

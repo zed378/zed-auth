@@ -25,6 +25,7 @@ import (
 
 	"github.com/zed378/zed-auth/backend/internal/application"
 	"github.com/zed378/zed-auth/backend/internal/audit"
+	"github.com/zed378/zed-auth/backend/internal/auditlog"
 	"github.com/zed378/zed-auth/backend/internal/authn"
 	"github.com/zed378/zed-auth/backend/internal/config"
 	"github.com/zed378/zed-auth/backend/internal/httpserver"
@@ -601,6 +602,7 @@ func run() error {
 		ProjectAPI:     projects,
 		ApplicationAPI: applications,
 		UserAPI:        users,
+		AuditAPI:       &auditlog.Handler{DB: db, Log: log},
 		// Explicit configuration, not inferred from the environment: see the
 		// comment on config.HTTPConfig.TrustProxyHeaders. Defaults to false,
 		// so a deployment behind a proxy that forwards client headers

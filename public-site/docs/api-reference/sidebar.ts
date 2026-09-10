@@ -260,6 +260,18 @@ const sidebar: SidebarsConfig = {
         },
       ],
     },
+    {
+      type: "category",
+      label: "Audit",
+      items: [
+        {
+          type: "doc",
+          id: "api-reference/list-events",
+          label: "Read the audit log",
+          className: "api-method get",
+        },
+      ],
+    },
   ],
 };
 

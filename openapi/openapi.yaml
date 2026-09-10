@@ -1566,6 +1566,85 @@ paths:
         "429": { $ref: "#/components/responses/RateLimited" }
         "500": { $ref: "#/components/responses/InternalError" }
 
+  /v1/organizations/{org_id}/events:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationId"
+
+    get:
+      tags: [Audit]
+      operationId: listEvents
+      summary: Read the audit log
+      description: |
+        Requires `ORG_ADMIN` over this organization.
+
+        **This resource has exactly one operation.** There is no create, no
+        update and no delete, and that is a property rather than an omission:
+        `events` is append-only at the database level — the application role
+        holds no `UPDATE` or `DELETE` privilege on it (`docs/SECURITY/02` §19) —
+        and an API that offered a way around that would make the guarantee a
+        matter of trust instead of a matter of privilege.
+
+        Ordered **newest first**, unlike every other list in this API. An audit
+        log is read from the end: the question is almost always "what just
+        happened", and paging from the beginning of a table that grows without
+        bound answers it slowly and last.
+
+        Payloads are stored already redacted (`P0-12`), so nothing here carries
+        a token, a password, or the raw resource attributes sent to
+        `/v1/authz/check`.
+      parameters:
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - name: event_type
+          in: query
+          required: false
+          description: |
+            Exact match on the event type, for example `user.login.failed`.
+            May be repeated; repeating it matches any of them.
+          schema:
+            type: array
+            items:
+              type: string
+              maxLength: 100
+          style: form
+          explode: true
+        - name: actor_id
+          in: query
+          required: false
+          description: |
+            The user who performed the action. Events with no actor — a failed
+            login against an address that does not exist, a scheduled job —
+            match no value of this filter, which is correct: they have none.
+          schema:
+            $ref: "#/components/schemas/ResourceId"
+        - name: from
+          in: query
+          required: false
+          description: Inclusive lower bound on when the event happened.
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          required: false
+          description: Exclusive upper bound on when the event happened.
+          schema:
+            type: string
+            format: date-time
+      responses:
+        "200":
+          description: A page of events, newest first.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventList"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
 components:
   securitySchemes:
     oauth2:
@@ -2212,6 +2291,73 @@ components:
             Whether the message left the service. The link itself is never in
             this response — it is a bearer credential for the account, and the
             only party who should hold it is the one who can read that mailbox.
+
+    Event:
+      type: object
+      description: |
+        One entry in the append-only audit log.
+
+        Read-only in the strongest sense available: there is no operation on
+        this API that writes one, and the application database role cannot
+        `UPDATE` or `DELETE` the table it lives in.
+      required: [id, event_type, occurred_at]
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          description: |
+            A stable identifier for the entry. A string rather than an integer
+            because the underlying key is `(id, created_at)` on a partitioned
+            table — a bare number would not be unique across partitions, and a
+            consumer treating it as one would eventually deduplicate two real
+            events into one.
+          example: "8f3e6b2a:2026-09-10T13:37:11Z"
+        event_type:
+          type: string
+          description: "`noun.verb.outcome`, for example `user.login.failed`."
+          example: user.login.failed
+        actor_user_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: |
+            Who did it. **Null is legitimate and common**: a failed login
+            against an address that does not exist has no authenticated actor,
+            and neither does a scheduled job. A consumer that assumes an actor
+            will crash on the entries that matter most during an incident.
+        occurred_at:
+          type: string
+          format: date-time
+        ip:
+          type: string
+          nullable: true
+          description: The address the request came from, when one was resolved.
+        request_id:
+          type: string
+          nullable: true
+          description: |
+            Ties the entry to the request that caused it, which is what makes a
+            timeline reconstructable across the log and the audit trail.
+        payload:
+          type: object
+          additionalProperties: true
+          description: |
+            The event's detail, redacted before storage (`P0-12`). Its shape
+            varies by `event_type` and is deliberately not constrained here:
+            constraining it would mean a schema change for every new event, and
+            the console renders it as data rather than parsing it.
+
+    EventList:
+      type: object
+      required: [events]
+      additionalProperties: false
+      properties:
+        events:
+          type: array
+          items:
+            $ref: "#/components/schemas/Event"
+        page_info:
+          $ref: "#/components/schemas/PageInfo"
 
     OpenIDConfiguration:
       type: object
