@@ -98,6 +98,33 @@ Delete is the raised one: every user signing in through that client stops being 
 
 **The update event records redirect URIs before and after, by value.** They are not secret, and a widened redirect URI is the highest-value change anybody can make to a registration — it is the open-redirect and token-theft path. This is the only place it becomes visible afterwards. A test asserts the widened URI is in the payload, and that no payload in the organization contains the secret.
 
+## Deployed and verified on staging
+
+`a37ea70` rolled out on `10.1.200.13`. Backup first (113KB, restore-verified), then the application — no migration, and `schema_migrations` still reads `20260910000016`.
+
+32 checks, driven through the public TLS endpoint with a real PKCE login. Everything the smoke test creates is removed afterwards, by name rather than by emptying the fixture organization.
+
+| Check | Result |
+|---|---|
+| `POST` a confidential client | `201` with `client_secret` |
+| The read, the list and an update | none carries the secret, its hash, or a prefix; all report `has_secret: true` |
+| A `spa` client | created with no secret, and **none stored** — the response omitting it would look identical if one had been |
+| Rotating a public client | `409` |
+| Rotation with `overlap_hours=24` | a different secret, `previous_secret_expires_at` a day out, and the previous hash still live in the row |
+| `overlap_hours=0` | the previous hash is gone at once |
+| `overlap_hours=10000` | `400` |
+| `GET`, `PATCH`, `DELETE`, rotate through the **other project of the same tenant** | `404` each, with the control: the same application through its own project reads `200` |
+| The other project's list | does not contain it |
+| `PATCH {"type":"spa"}` | `400` naming the field, and the stored type still `web` |
+| A wildcard redirect URI | `400` on **both** create and update — not the `500` the first implementation gave |
+| `implicit` | `400` |
+| `ORG_ADMIN` rotating | `200` — the 3am path stays open |
+| `ORG_ADMIN` deleting | `403` `PERMISSION_DENIED` |
+| `ORG_OWNER` deleting | `204` |
+| Audit | all four events; the update event carries `redirect_uris_before`/`_after`; no payload contains the secret |
+
+No failures, and nothing to fix afterwards — the two things that would have shown up here had already been found locally: the `500` on a caller's typo, and the missing canonicalisation on update.
+
 ## Verification
 
 - **Integration, 26 tests** against real PostgreSQL and Redis, through the generated router and the real `/v1` chain: the secret shown once and never again (three probes, each with its control), no hash and no prefix in any read, a public client created with no secret and none stored, rotation's overlap at both ends, a zero overlap, a public client refused rotation, redirect validation identical on create and update across four bad URIs plus a good one on both paths, the removed grants, `type` and the identity fields refused, an omitted field left alone, both boundaries with their controls, the permission split, `PROJECT_OWNER` granting nothing, the four audit events, the guard seeing every mutation, pagination, and a replayed create making one application.
