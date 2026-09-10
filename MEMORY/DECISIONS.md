@@ -47,6 +47,7 @@ Decisions `TASKS/` has identified as needing an ADR, listed here so they are not
 | P0-12 | Audit write semantics: inside the business transaction, or after it | Determines whether a failed audit write blocks the action it records |
 | ~~P1-02~~ | ~~Breached-password check: fail open or fail closed~~ — **decided 2026-09-09**, ADR-015: fail open, with an audit event, a counter and an alert on every skip | Failing closed blocks legitimate password changes during a third-party outage |
 | ~~P1-13~~ | ~~Rate limiter behaviour when Redis is down~~ — **decided 2026-09-10**, ADR-017: fail open, loudly. Failing closed converts a cache outage into a total authentication outage, and Argon2's 50-100ms per attempt is a floor that does not depend on Redis | Failing closed hands an attacker who can reach Redis a bigger win than the brute force the limiter exists to stop |
+| ~~P1-21~~ | ~~Console token storage~~ — **decided 2026-09-10**, ADR-019: in memory only, recovered by `prompt=none` silent renewal against the SSO session | A Management API token in `localStorage` outlives the tab, the browser restart and the incident response |
 | ~~P1-19~~ | ~~Email delivery provider (`OQ-04`)~~ — **decided 2026-09-10**, ADR-018: plain SMTP by URL, no provider SDK, and nothing waits on delivery | An SDK is a vendor dependency in code rather than in configuration; for an identity provider the switch has to stay cheap |
 | ~~P1-05~~ | ~~Client secret hashing~~ — **decided 2026-09-09**, ADR-016: SHA-256, because 256 bits of entropy already settles brute force and a slow KDF would be self-inflicted amplification on the token endpoint | A slow KDF on a hot verification path is a denial-of-service surface |
 | P1-13 | Rate limiting behavior when Redis is unavailable | Fail open means no rate limiting; fail closed means no logins at all |
@@ -829,3 +830,59 @@ Rejected because it does not close `P1-19.4`. A password reset **cannot** hand i
 **Plan impact**
 
 None contradicted. `docs/PLAN/03` mentions email OTP as a phased MFA factor and no plan document specifies a delivery mechanism, so this fills a gap rather than deviating from a decision. `OQ-04` is closed in `TASKS/BACKLOG.md` with a pointer here.
+
+---
+
+### ADR-019 — The console keeps its access token in memory only, and renews it silently
+
+**Status**: accepted, 2026-09-10 (`P1-21`)
+
+**Context**
+
+`P1-21` step 3 asks for this decision explicitly and says to record it. The console is a `type: spa` public client (`docs/PLAN/06` § Why the Console Must Log In Through the Same OIDC Flow), so it holds an access token in a browser and has to put it somewhere between requests.
+
+The choice matters more here than in most applications. A token stolen from the console is a token for the **Management API** — the surface that creates users, rotates client secrets and grants roles. `docs/SECURITY/02` §6 and §14 both name browser token theft, and §14 is specifically about the console.
+
+**Decision**
+
+**In memory, in a module-scoped variable, and nowhere else.** Not `localStorage`, not `sessionStorage`, not a cookie readable by script. A page reload loses the token and the console recovers it silently.
+
+Silent recovery is Authorization Code with PKCE and `prompt=none`, run in a hidden iframe against the SSO session cookie the login already established. `P1-06`'s authorize endpoint already implements `prompt=none` and answers `login_required` when there is no session, which is what makes this viable rather than aspirational.
+
+Renewal runs on a timer ahead of expiry, and on demand when a request comes back `401`.
+
+**Why not localStorage**
+
+`localStorage` survives a reload, which is the entire appeal, and it is readable by **any** script that runs on the origin. One XSS — in the console's own code, in a dependency, in a dependency's transitive dependency — and the attacker reads a Management API token and uses it from their own machine, at their leisure, long after the page is closed.
+
+An in-memory token is not immune to XSS: a script on the page can call the API directly while the page is open. The difference is real and worth stating precisely rather than overselling:
+
+- **Exfiltration becomes harder, not impossible.** The attacker must act while the page is open and must exfiltrate the token from a closure rather than read a well-known key.
+- **Persistence disappears.** A token in `localStorage` outlives the tab, the browser restart, and the incident response. An in-memory one dies with the tab.
+- **The blast radius of a stored XSS shrinks** from "every future visit" to "the visits during which the payload runs".
+
+`docs/SECURITY/02` §14's remedy for §6 is exactly this trade, and the token's short lifetime (`P1-07`) is what keeps the cost of losing it bounded.
+
+**Why not a BFF with a cookie session**
+
+Terminating OIDC in a backend-for-frontend and giving the browser only an `HttpOnly` cookie is the strongest option available, and it is the one to revisit if the console ever gets a server of its own.
+
+Rejected now because the console is a **static bundle on a CDN** (`docs/PLAN/06`), deliberately, with no server-side component. Introducing one for token storage means introducing a deployable, a scaling story, a session store and a second place that holds credentials — and `docs/PLAN/02`'s dogfooding constraint says the console should authenticate the way any other SPA does. Building a private path for the console is precisely what that constraint forbids.
+
+**Why not a refresh token in the browser**
+
+`P1-07` issues refresh tokens, and the console does not ask for one. A refresh token in a public client is a long-lived credential in the place least able to keep one, and `docs/PLAN/05` Part A's rotation story assumes a client that can protect it.
+
+`prompt=none` against the SSO session gives the same continuity with the durable credential — the session cookie — held as `HttpOnly` by the browser rather than by script. The session is also the thing an administrator can revoke (`P1-11`), which a refresh token in a tab is not.
+
+**Consequences**
+
+- **A reload costs a round trip.** The console shows its loading state while the silent renewal runs, and `docs/UI-UX/14`'s guidance applies: it is a load, not a blank screen.
+- **A user with third-party-cookie restrictions or a blocked iframe cannot renew silently.** Same-origin here, so the common cases work; the fallback is an interactive redirect, and the failure path is exercised rather than assumed.
+- **Two tabs renew independently.** Wasteful and harmless. Coordinating them needs a lock in shared storage, which is a second mechanism for a problem nobody has yet.
+- **The token is unavailable to anything outside the running page**, including a debugger tab and a support engineer asking a user to copy it. That is the point, and it is worth knowing before somebody asks.
+- **Silent renewal is now load-bearing.** If `P1-06`'s `prompt=none` path regresses, the console degrades to an interactive redirect on every expiry, which is visible and annoying rather than broken — but it is a regression that must be caught. The E2E test covers renewal for that reason.
+
+**Plan impact**
+
+None contradicted. `docs/PLAN/06` names the dogfooding constraint and does not specify storage; `docs/SECURITY/02` §6 and §14 describe the threat this answers. `docs/PLAN/02`'s "no console-specific backdoor" is satisfied: the console uses the same endpoints, the same grant and the same prompt parameter any other SPA would.

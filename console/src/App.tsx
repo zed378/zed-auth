@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter } from "react-router-dom";
 
 import { ErrorBoundary } from "./app/ErrorBoundary";
+import { AuthProvider } from "./lib/auth/AuthProvider";
 import { AppRoutes } from "./app/routes";
 import { AppShell } from "./app/shell/AppShell";
 
@@ -45,9 +46,16 @@ export function App() {
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
         <BrowserRouter>
-          <AppShell>
-            <AppRoutes />
-          </AppShell>
+          {/*
+            The provider sits inside the router because logging in needs to know
+            where the user was going, and outside the shell because the shell
+            renders the signed-in user's name.
+          */}
+          <AuthProvider>
+            <AppShell>
+              <AppRoutes />
+            </AppShell>
+          </AuthProvider>
         </BrowserRouter>
       </QueryClientProvider>
     </ErrorBoundary>
