@@ -63,11 +63,34 @@ type Config struct {
 	Password PasswordConfig
 	Tracing  TracingConfig
 
+	// Mail is ADR-018: plain SMTP by URL, no provider SDK. Unset means no
+	// outbound mail, which is a valid deployment — it says so once at startup
+	// rather than failing silently at the first invitation.
+	Mail MailConfig
+
 	// Issuer is the OIDC issuer identifier. It must exactly match the `iss`
 	// claim the token issuer emits and the `issuer` field in the discovery
 	// document — a mismatch breaks every conforming client library, and it is a
 	// classic misconfiguration (TASKS P1-04).
 	Issuer string
+}
+
+// MailConfig is outbound email (ADR-018).
+//
+// A URL rather than a host/port/user/password quartet, because that is what an
+// operator is given by every relay and because it keeps the switch between
+// providers a configuration change rather than a code one.
+//
+//	smtp://localhost:1025                    — development, Mailpit, no TLS
+//	smtps://user:pass@smtp.example.com:587    — STARTTLS required
+type MailConfig struct {
+	SMTPURL string
+	From    string
+}
+
+// Configured reports whether mail can be sent.
+func (m MailConfig) Configured() bool {
+	return strings.TrimSpace(m.SMTPURL) != "" && strings.TrimSpace(m.From) != ""
 }
 
 type HTTPConfig struct {
@@ -239,6 +262,10 @@ func LoadFrom(getenv Getenv) (*Config, error) {
 	cfg := &Config{
 		Environment: Environment(l.optional("AUTH_ENV", string(EnvLocal))),
 		Issuer:      l.required("AUTH_ISSUER"),
+		Mail: MailConfig{
+			SMTPURL: l.optional("AUTH_SMTP_URL", ""),
+			From:    l.optional("AUTH_MAIL_FROM", ""),
+		},
 		HTTP: HTTPConfig{
 			Addr:              l.optional("AUTH_HTTP_ADDR", ":8080"),
 			ReadHeaderTimeout: l.duration("AUTH_HTTP_READ_HEADER_TIMEOUT", 5*time.Second),
@@ -442,6 +469,17 @@ func (l *loader) validate(cfg *Config) {
 			l.problem("AUTH_ISSUER must use https outside local development; got %q", cfg.Issuer)
 		default:
 			l.problem("AUTH_ISSUER must be an absolute URL, got %q", cfg.Issuer)
+		}
+		if strings.TrimSpace(cfg.Mail.SMTPURL) != "" && strings.TrimSpace(cfg.Mail.From) == "" {
+			// Half-configured is worse than unconfigured: it looks set up and
+			// fails per message instead of at startup.
+			l.problem("AUTH_MAIL_FROM is required when AUTH_SMTP_URL is set")
+		}
+		if strings.HasPrefix(cfg.Mail.SMTPURL, "smtp://") && cfg.Environment != EnvLocal {
+			// smtp:// tolerates a relay with no STARTTLS, and an invitation or
+			// reset link is a bearer credential for an account. Outside local
+			// development that is a mistake worth refusing to boot on.
+			l.problem("AUTH_SMTP_URL uses smtp:// outside local development; use smtps:// so links are not sent over a cleartext hop")
 		}
 		if strings.HasSuffix(cfg.Issuer, "/") {
 			// A trailing slash silently produces an `iss` claim that does not

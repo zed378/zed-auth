@@ -44,6 +44,7 @@ import (
 	"github.com/zed378/zed-auth/backend/internal/signing"
 	"github.com/zed378/zed-auth/backend/internal/storage/postgres"
 	"github.com/zed378/zed-auth/backend/internal/testsupport"
+	"github.com/zed378/zed-auth/backend/internal/user"
 )
 
 const issuer = "https://auth.example.test"
@@ -130,6 +131,11 @@ func setup(t *testing.T) *fixture {
 		// because a nil handler behind a registered route is a panic on the
 		// first request rather than a boot failure.
 		ApplicationAPI: application.New(db, auditor, discard()),
+		// Fourth of four. Nothing here calls it; httpserver.New refuses a /v1
+		// chain with any half of the Management API missing, and the handler
+		// refuses a deactivation it cannot make real rather than panicking on
+		// a nil revoker.
+		UserAPI: &user.Handler{Store: user.NewStore(), DB: db, Audit: auditor, Log: discard()},
 	})
 
 	return &fixture{

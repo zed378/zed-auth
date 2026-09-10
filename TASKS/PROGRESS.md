@@ -3,8 +3,8 @@
 Single source of truth for where the project stands. Updated in the same commit as the work it describes (`00-TASK-CONVENTIONS.md` global DoD item 8).
 
 **Last updated**: 2026-09-10
-**Current phase**: Phase 1 — MVP Core Auth (18 / 28 done). Phase 0 is 20 / 21; `P0-20` stays WIP pending the pull-based deployment re-read
-**Overall**: 32 / 177 tasks done
+**Current phase**: Phase 1 — MVP Core Auth (19 / 28 done). Phase 0 is 20 / 21; `P0-20` stays WIP pending the pull-based deployment re-read
+**Overall**: 33 / 177 tasks done
 
 Status values: `TODO` · `BLOCKED` · `SPEC` · `WIP` · `REVIEW` · `DONE` · `DROPPED`
 Sizes: `S` under half a day · `M` one to two days · `L` several days · `XL` must be split
@@ -16,7 +16,7 @@ Sizes: `S` under half a day · `M` one to two days · `L` several days · `XL` m
 | Phase | Tasks | Done | Status | Gate to enter |
 |---|---|---|---|---|
 | [Phase 0 — Foundation](./PHASE-0-FOUNDATION.md) | 21 | 20 | **ACTIVE** — `P0-20` only | — |
-| [Phase 1 — MVP: Core Auth + SSO](./PHASE-1-MVP-CORE-AUTH-SSO.md) | 28 | 18 | **ACTIVE** | Phase 0 exit checklist |
+| [Phase 1 — MVP: Core Auth + SSO](./PHASE-1-MVP-CORE-AUTH-SSO.md) | 28 | 19 | **ACTIVE** | Phase 0 exit checklist |
 | [Phase 2 — RBAC & Multi-Tenancy](./PHASE-2-RBAC-MULTITENANCY.md) | 17 | 0 | Not started | Phase 1 exit + `P1-28` |
 | [Phase 3 — Advanced Security](./PHASE-3-ADVANCED-SECURITY.md) | 15 | 0 | Not started | Phase 2 exit + threat model review |
 | [Phase 4 — Enterprise Interop](./PHASE-4-ENTERPRISE-INTEROP.md) | 16 | 0 | Not started | Phase 3 exit + threat model review |
@@ -82,7 +82,7 @@ Sizes: `S` under half a day · `M` one to two days · `L` several days · `XL` m
 | P1-16 | Management API — organizations | M | DONE | P1-15 |
 | P1-17 | Management API — projects | M | DONE | P1-15 |
 | P1-18 | Management API — applications | M | DONE | P1-15, P1-05 |
-| P1-19 | Management API — users | L | TODO | P1-15, P1-01 |
+| P1-19 | Management API — users | L | DONE | P1-15, P1-01 |
 | P1-20 | Management API — audit log read | M | TODO | P1-15, P0-12 |
 | P1-21 | Console — OIDC login (dogfooding) | L | TODO | P0-17, P1-07 |
 | P1-22 | Console — Org overview, Projects, Applications | L | TODO | P1-21, P1-16..18 |
@@ -313,6 +313,8 @@ Things that are easy to get wrong once and expensive to fix later. Re-check each
 | Server-side authorization on every request | UI hiding is never a control | `P1-15` |
 | A tenant-scoped store takes no `org_id` parameter | The predicate that reads as defence in depth is the one that makes the RLS test pass whether or not the policy exists. Confine the transaction, then query without a tenant predicate, so the test has only one thing it can be measuring | `P1-17` |
 | RLS is the tenant boundary, not a general-purpose filter | `applications.project_id` is not a tenant column, so two projects in one organization are one tenant to the database. Every non-tenant boundary is an ordinary predicate, and assuming otherwise is how one silently stops existing | `P1-18` |
+| A rate limit keyed on the wrong thing bounds nothing | Invite flooding is aimed at a THIRD PARTY's mailbox, so the counter is keyed on the recipient. A per-caller bound leaves it untouched, because the caller is entitled to be there | `P1-19` |
+| A concurrency test must CAUSE the race, not hope for one | Sixteen goroutines racing on one token let a read-then-write survive: scheduling and connection acquisition kept them from overlapping, and serially a read-then-write is correct. Hold one transaction open and run the second inside it | `P1-19` |
 | Refresh token storage shape | Must not need changing when rotation arrives in Phase 3 | `P1-07` |
 | `auth_methods` accuracy | Step-up in Phase 3 depends on it being trustworthy from Phase 1 | `P1-11` |
 | Audit log append-only guarantee | Enforced at the database level, not by convention | `P0-07` |

@@ -78,6 +78,12 @@ type Deps struct {
 	// decides between acting and asking from the raw query.
 	Logout http.Handler
 
+	// SetPassword serves GET and POST /password/set — the page an invitation
+	// or a reset link opens (P1-19). Nil means self-service password setting
+	// is not configured, and the route is then not registered at all rather
+	// than answering with something that looks like a broken feature.
+	SetPassword http.Handler
+
 	// Login serves GET and POST /login, and Forgot serves /login/forgot
 	// (P1-12). Hand-registered because they answer with HTML rather than with
 	// docs/PLAN/05's JSON envelope, which is what the generated interface produces.
@@ -101,6 +107,9 @@ type Deps struct {
 
 	// ApplicationAPI implements the application operations (P1-18).
 	ApplicationAPI Applications
+
+	// UserAPI implements the user operations (P1-19).
+	UserAPI Users
 
 	// V1 is the Management API chain (P1-15).
 	//
@@ -144,6 +153,9 @@ func New(cfg config.HTTPConfig, deps Deps) *Server {
 	}
 	if deps.V1 != nil && deps.ApplicationAPI == nil {
 		panic("httpserver.New: ApplicationAPI is required when V1 is configured")
+	}
+	if deps.V1 != nil && deps.UserAPI == nil {
+		panic("httpserver.New: UserAPI is required when V1 is configured")
 	}
 
 	mux := chi.NewRouter()
@@ -247,7 +259,18 @@ func New(cfg config.HTTPConfig, deps Deps) *Server {
 		mux.Method(http.MethodPost, "/login", deps.Login)
 	}
 	if deps.Forgot != nil {
+		// Both methods now (P1-19). It was GET-only while the page was a
+		// notice saying self-service reset did not exist.
 		mux.Method(http.MethodGet, "/login/forgot", deps.Forgot)
+		mux.Method(http.MethodPost, "/login/forgot", deps.Forgot)
+	}
+	if deps.SetPassword != nil {
+		// The page an invite or reset link opens (P1-19.4, P1-19.5). Hand
+		// registered rather than generated, for the same reason /login is: it
+		// is an HTML page for a browser, not a JSON resource, and it is
+		// unauthenticated — which is exactly why it does not belong under /v1.
+		mux.Method(http.MethodGet, "/password/set", deps.SetPassword)
+		mux.Method(http.MethodPost, "/password/set", deps.SetPassword)
 	}
 
 	// Every route in the spec, from one generated router, on the MAIN mux.
@@ -265,6 +288,7 @@ func New(cfg config.HTTPConfig, deps Deps) *Server {
 		Manager:      deps.Organizations,
 		Projects:     deps.ProjectAPI,
 		Applications: deps.ApplicationAPI,
+		Users:        deps.UserAPI,
 	}
 	// The two error paths the generated wrapper would otherwise answer with
 	// http.Error — a bare text/plain body and a status of its choosing.
@@ -405,6 +429,7 @@ type apiRoutes struct {
 	Manager
 	Projects
 	Applications
+	Users
 }
 
 // Manager is the part of the generated interface the Management API implements.
@@ -448,6 +473,25 @@ type Applications interface {
 	UpdateApplication(ctx context.Context, request api.UpdateApplicationRequestObject) (api.UpdateApplicationResponseObject, error)
 	DeleteApplication(ctx context.Context, request api.DeleteApplicationRequestObject) (api.DeleteApplicationResponseObject, error)
 	RotateApplicationSecret(ctx context.Context, request api.RotateApplicationSecretRequestObject) (api.RotateApplicationSecretResponseObject, error)
+}
+
+// Users is the user half of the Management API (P1-19).
+//
+// The fourth sub-interface. P1-18's note said the answer at four was a shared
+// constructor for Deps — it is not, and the reason is worth recording: such a
+// constructor would have to import every handler package, and each of those
+// packages has an IN-PACKAGE integration test that would then import it back.
+// Go calls that an import cycle in tests, and the only way out is making four
+// large test files external, which costs more than the one line per harness
+// this actually costs.
+type Users interface {
+	ListUsers(ctx context.Context, request api.ListUsersRequestObject) (api.ListUsersResponseObject, error)
+	CreateUser(ctx context.Context, request api.CreateUserRequestObject) (api.CreateUserResponseObject, error)
+	GetUser(ctx context.Context, request api.GetUserRequestObject) (api.GetUserResponseObject, error)
+	UpdateUser(ctx context.Context, request api.UpdateUserRequestObject) (api.UpdateUserResponseObject, error)
+	DeactivateUser(ctx context.Context, request api.DeactivateUserRequestObject) (api.DeactivateUserResponseObject, error)
+	ReactivateUser(ctx context.Context, request api.ReactivateUserRequestObject) (api.ReactivateUserResponseObject, error)
+	ResetUserPassword(ctx context.Context, request api.ResetUserPasswordRequestObject) (api.ResetUserPasswordResponseObject, error)
 }
 
 var _ api.StrictServerInterface = apiRoutes{}

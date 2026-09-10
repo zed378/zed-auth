@@ -67,6 +67,23 @@ Format follows Keep a Changelog conventions, grouped by release once releases ex
 
 ### 2026-09-10
 
+**Added** — the user lifecycle ([record](./records/2026-09-10-P1-19-users.md), [spec](./specs/P1-19-users.md))
+- Seven `/v1` user operations plus two hosted pages — `/login/forgot` and `/password/set` — which are unauthenticated HTML and deliberately not under `/v1`. This is the task that makes the product usable by somebody who is not a database administrator. (`P1-19`)
+- `internal/mail`: SMTP, plain text, no provider SDK (**ADR-018**, closing **`OQ-04`**). (`P1-19`)
+- `users.email_verified_at`, closing **`PG-18`**. Set when an invitation is accepted through a link sent to that address; **a reset does not set it**, because widening the claim would be a security statement made by accident. Cleared when the address changes. (`P1-19`)
+- `auth_mail_send_failures_total`, and a per-**recipient** mail bound. The counter is keyed on the recipient because invite flooding is aimed at a third party's mailbox — a per-caller bound leaves it untouched, since the caller is entitled to be there. (`P1-19`)
+
+**Kept**
+- **No password crosses the user API in either direction**, and the reset link is not in the response to the administrator who triggered it. An account whose first password was chosen by somebody else is one its owner cannot be held responsible for, and an administrator who could read a reset link could take over any account while leaving a trail saying only "user updated". (`P1-19`)
+- **The forgot endpoint's two answers are compared on bytes** — full body, status and headers — for a real address and an unknown one, with a deactivated account matching too, a timing comparison, and the control that exactly one message was sent across the two requests. No audit event is written for an unknown address: one per probe would be the enumeration list stored durably. (`P1-19`)
+- **Deactivation is three revocations plus a cache tombstone**, all in the request. The status alone stops only the next login; the cache is the subtle one, because the table would say revoked while the cache still said valid and the cache is what the next request reads. Tested through a real session and a real refresh token rather than by reading a column. (`P1-19`)
+- **Single use is the database's decision** — one conditional `UPDATE`, raced by sixteen goroutines, because a sequential test passes against a read-then-write. A password the policy refuses does not burn the token. (`P1-19`)
+
+**Found**
+- **The shared `Deps` constructor `P1-18` predicted is not possible.** It would import every handler package, and each has an in-package integration test that would import it back — a cycle. Making four large test files external costs more than the one line per harness. Recorded where the interface is declared. (`P1-19`)
+- **A sixteen-goroutine race was hoping for a race rather than causing one.** A mutation replacing the conditional `UPDATE` with a read-then-write **survived** it: under serial execution a read-then-write is correct, so the bug only shows when two transactions overlap — and scheduling plus connection acquisition kept them from overlapping. Replaced with a test that forces it: one transaction consumes and stays open while a second consumes the same token, and only then does the first commit. (`P1-19`)
+- **Every hosted-page test failed on the password policy, and that was the policy working.** The set-password page has no rules of its own; it uses `P1-02`'s evaluator over the organization's settings, which is why a lowercase test password was refused. (`P1-19`)
+
 **Added** — the application endpoints ([record](./records/2026-09-10-P1-18-applications.md), [spec](./specs/P1-18-applications.md))
 - `GET`, `POST .../projects/{project_id}/applications`, `GET`, `PATCH`, `DELETE .../{application_id}`, and `POST .../{application_id}/rotate-secret`. No migration and almost no new logic: `P1-05` already owned secret generation, hashing, redirect canonicalisation, the grant rules and the audit events. (`P1-18`)
 - `client.ErrInvalid`, wrapping all twenty validator messages, so a caller mistake is a `400` carrying the reason. (`P1-18`)
