@@ -340,6 +340,34 @@ So the card cites a policy that does not cover the endpoints it is about, and no
 
 ---
 
+### PG-23 — The contract specifies prefixed identifiers and everything else uses UUIDs
+
+**Affects**: `P1-16` onward, and every endpoint that returns a resource id.
+
+`openapi/openapi.yaml`'s `ResourceId` specified a prefixed, sortable identifier — `usr_`, `org_`, `prj_` — with a good argument: an id pasted into a support ticket is self-describing, and passing a project id where a user id belongs is visible on sight rather than at the database.
+
+Nothing else in the system agrees. `docs/PLAN/04` makes every primary key a UUID, the access token's `org_id` claim is a UUID, and OpenID Connect's `sub` — already shipped by `P1-08` — is a UUID that the contract itself tells integrators to store as a user's permanent key.
+
+The two consistent positions are both expensive. Prefixing only the Management API gives one user two identifiers and makes every consumer convert between them. Prefixing everything means changing `sub`, which is a protocol field with its own conventions and a value integrators have already stored.
+
+**Resolved in `P1-16`** toward UUIDs, and recorded in `ResourceId`'s own description rather than only here, because the next person to read that schema is the one who needs the reasoning. If prefixed identifiers are wanted later they arrive everywhere at once or not at all — a half-applied convention is worse than neither.
+
+---
+
+### PG-22 — Organizations have no soft-delete, and the card requires one
+
+**Affects**: `P1-16`.
+
+`docs/PLAN/04` models `organizations.status` as `active | suspended` and no deletion state at all. `P1-16` step 4 says "prefer soft-delete or suspension over hard delete", and its Definition of Done requires deletion to preserve audit history. There is no column for it.
+
+A hard delete is not available either, and that is a good thing rather than the gap: every table referencing `organizations` is `ON DELETE RESTRICT`, so deleting a populated tenant fails at the database.
+
+**Resolved in `P1-16`** by an additive `organizations.deleted_at timestamptz`. A separate column rather than a `status` value, because `status` is a reversible lifecycle and folding deletion into it raises "may a deleted organization be suspended?" — a question with no useful answer. A timestamp rather than a boolean for the reason `password_changed_at` is one: "when" answers questions "whether" cannot.
+
+**`docs/PLAN/04` should be amended** to list the column, through the deliberate plan-change process (`AGENTS.md` rule 9).
+
+---
+
 ### PG-21 — Idempotency records have nowhere to live
 
 **Affects**: `P1-15`, and every `POST` endpoint from `P1-16` onward.

@@ -37,23 +37,31 @@ type fixture struct {
 	factory *testsupport.Factory
 }
 
+// openApp connects as the RUNTIME role, never the owner.
+//
+// P1-14 found what happens otherwise: a tenant-scoped table read as the owner
+// returns nothing under RLS, every "no rows leaked" assertion passes, and the
+// test proves nothing.
+func openApp(t *testing.T, stack *testsupport.Stack) *postgres.DB {
+	t.Helper()
+
+	db, err := postgres.Open(context.Background(), config.PostgresConfig{
+		DSN: stack.AppDSN, MaxOpenConns: 8, MaxIdleConns: 4, ConnMaxLifetime: time.Minute,
+	}, discard())
+	if err != nil {
+		t.Fatalf("opening the app connection: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	return db
+}
+
 func setup(t *testing.T) fixture {
 	t.Helper()
 
 	stack := testsupport.Start(t)
 	testsupport.Truncate(t, stack)
 
-	// As the RUNTIME role, never the owner. P1-14 found what happens otherwise:
-	// a tenant-scoped table read as the owner returns nothing under RLS, every
-	// "no rows leaked" assertion passes, and the test proves nothing.
-	db, err := postgres.Open(context.Background(), config.PostgresConfig{
-		DSN: stack.AppDSN, MaxOpenConns: 5, MaxIdleConns: 2, ConnMaxLifetime: time.Minute,
-	}, discard())
-	if err != nil {
-		t.Fatalf("opening the app connection: %v", err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
-
+	db := openApp(t, stack)
 	factory := testsupport.NewFactory(t, stack)
 	factory.Instance() // organization_create finds the single instance itself
 

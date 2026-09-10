@@ -417,10 +417,198 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/organizations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List organizations
+         * @description Every organization in the instance, oldest first.
+         *
+         *     Instance-scoped by nature — a list that spans tenants cannot be scoped
+         *     to one — so it requires `INSTANCE_OWNER`. An organization administrator
+         *     reads their own organization through `GET /v1/organizations/{org_id}`.
+         */
+        get: operations["listOrganizations"];
+        put?: never;
+        /**
+         * Create an organization
+         * @description Creates a tenant. Requires `INSTANCE_OWNER`.
+         *
+         *     `settings` is optional and is **merged onto the instance defaults**
+         *     rather than replacing them, so an organization created with only
+         *     `mfa_required` still has a password policy. Unknown keys are rejected
+         *     rather than stored: a typo that is kept silently becomes a policy that
+         *     is not in force and looks like it is.
+         */
+        post: operations["createOrganization"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/organizations/{org_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The organization that owns the resource. Every request is scoped to exactly one. */
+                org_id: components["parameters"]["OrganizationId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Read an organization
+         * @description Requires `ORG_ADMIN` over this organization, or `INSTANCE_OWNER`.
+         *
+         *     An organization the caller holds nothing over answers `404`, and so
+         *     does a deleted one — including to an `INSTANCE_OWNER`. A deleted tenant
+         *     is not a suspended one, and an endpoint that keeps serving it makes
+         *     "deleted" a label rather than a state.
+         */
+        get: operations["getOrganization"];
+        put?: never;
+        post?: never;
+        /**
+         * Delete an organization
+         * @description A **soft** delete. The row survives, the organization becomes `404`
+         *     everywhere, its domain is released so it can be claimed again, and its
+         *     audit history is untouched — `events` carries no foreign key to
+         *     `organizations`, precisely so a deleted tenant's history outlives it.
+         *
+         *     Requires `INSTANCE_OWNER`, and `confirm_name` must match the
+         *     organization's current name exactly. The confirmation is enforced by
+         *     the server rather than by the console: a script that deletes the wrong
+         *     organization never goes near the console at all
+         *     (`docs/PLAN/08` § Least Privilege).
+         */
+        delete: operations["deleteOrganization"];
+        options?: never;
+        head?: never;
+        /**
+         * Update an organization
+         * @description A partial update: an absent property is left alone.
+         *
+         *     Requires `ORG_OWNER` over this organization — **except `status`, which
+         *     requires `INSTANCE_OWNER`.** Suspending an organization locks out every
+         *     user in it, and an organization owner suspending their own tenant is
+         *     not a capability anybody asked for.
+         *
+         *     `settings` is merged key by key, so an update naming one setting leaves
+         *     the rest as they were. `domain` may be set to `null` to release it.
+         */
+        patch: operations["updateOrganization"];
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * @description A tenant.
+         *
+         *     `instance_id` is deliberately not exposed. It is an internal grouping
+         *     with one row in this phase, and a field a client can see is a field a
+         *     client will eventually send back.
+         */
+        Organization: {
+            id: components["schemas"]["ResourceId"];
+            /**
+             * @description The display name. Not unique — two customers may legitimately be
+             *     called the same thing, and a uniqueness rule on a display name is a
+             *     support-ticket generator.
+             * @example Acme Corp
+             */
+            name: string;
+            /**
+             * @description For domain-based tenant resolution. Unique across the instance and
+             *     stored lowercased, because two tenants holding the same domain in
+             *     different cases would make tenant resolution ambiguous — and an
+             *     ambiguous tenant resolution is a cross-tenant access bug waiting to
+             *     happen. Verification of ownership is a later phase.
+             * @example acme.example
+             */
+            domain?: string | null;
+            /**
+             * @description A suspended organization's users cannot log in. Changing this
+             *     requires `INSTANCE_OWNER`.
+             * @enum {string}
+             */
+            status: "active" | "suspended";
+            settings: components["schemas"]["OrganizationSettings"];
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        /**
+         * @description The organization's policy (`docs/PLAN/08` Part B).
+         *
+         *     **Unknown properties are rejected rather than stored.** A misspelled
+         *     key kept silently becomes a policy that is not in force and looks like
+         *     it is, and nobody notices until the audit that was supposed to find it
+         *     does not.
+         */
+        OrganizationSettings: {
+            password_policy?: {
+                /**
+                 * @description At least the platform minimum. An organization policy may raise
+                 *     it and never lower it — a tenant setting that can go below the
+                 *     instance floor is a per-tenant way to disable a platform
+                 *     control.
+                 */
+                min_length?: number;
+                require_uppercase?: boolean;
+                /**
+                 * @description `0` means passwords never expire, which is a real choice rather
+                 *     than an absent value: NIST SP 800-63B argues forced rotation
+                 *     makes passwords worse.
+                 */
+                max_age_days?: number;
+            };
+            mfa_required?: boolean;
+            session_lifetime_hours?: number;
+            /**
+             * @description Only `password` is available in this phase. `passkey` and `social`
+             *     are planned and are rejected until they work — an API that accepts
+             *     a method nothing implements would silently disable every method
+             *     that does.
+             */
+            allowed_login_methods?: "password"[];
+        };
+        OrganizationList: {
+            organizations: components["schemas"]["Organization"][];
+            page_info?: components["schemas"]["PageInfo"];
+        };
+        /**
+         * @description Note what cannot be set: `id`, `status`, `created_at`, and the instance.
+         *     Every one of those is server-set, and a request body with nowhere to put
+         *     them is why a mass-assignment attempt has nothing to land on
+         *     (`docs/SECURITY/02` §11).
+         */
+        OrganizationCreate: {
+            name: string;
+            domain?: string | null;
+            settings?: components["schemas"]["OrganizationSettings"];
+        };
+        /**
+         * @description A partial update. An absent property is left alone; `domain: null`
+         *     releases the domain.
+         */
+        OrganizationUpdate: {
+            name?: string;
+            domain?: string | null;
+            /**
+             * @description Requires `INSTANCE_OWNER`.
+             * @enum {string}
+             */
+            status?: "active" | "suspended";
+            settings?: components["schemas"]["OrganizationSettings"];
+        };
         /**
          * @description OpenID Provider metadata. Fields for unimplemented endpoints are
          *     omitted rather than emitted empty.
@@ -511,11 +699,30 @@ export interface components {
             status: "ready" | "unavailable";
         };
         /**
-         * @description A prefixed, sortable identifier — `usr_`, `org_`, `prj_`, `app_`,
-         *     `rol_`, `grt_`. The prefix makes an identifier pasted into a support
-         *     ticket self-describing, and makes passing a project id where a user id
-         *     belongs visible on sight rather than at the database.
-         * @example usr_01HQZX3M8K4N7P2R5T9V6W8Y0B
+         * Format: uuid
+         * @description A resource's stable identifier. Not sequential and not guessable.
+         *
+         *     **This was specified as a prefixed, sortable identifier** — `usr_`,
+         *     `org_`, `prj_` — and is a UUID instead. The change is deliberate and is
+         *     recorded as `PG-23`.
+         *
+         *     The prefix has a real benefit: an id pasted into a support ticket is
+         *     self-describing, and passing a project id where a user id belongs is
+         *     visible on sight rather than at the database. What it cannot survive is
+         *     being applied to only part of the surface. `docs/PLAN/04` makes every
+         *     primary key a UUID, the access token's `org_id` claim is a UUID, and
+         *     OpenID Connect's `sub` — already shipped by `P1-08` — is a UUID that
+         *     callers store as a user's permanent key.
+         *
+         *     Prefixing only the Management API would give the same user two
+         *     identifiers and make every consumer convert between them, which is a
+         *     larger and more permanent papercut than the one the prefix removes.
+         *     Prefixing everything means changing `sub`, which is a protocol field
+         *     with its own conventions and a value integrators have already stored.
+         *
+         *     So: UUIDs everywhere, and if prefixed identifiers are wanted later they
+         *     arrive everywhere at once or not at all.
+         * @example 8f3e6b2a-1c4d-4e5f-9a0b-7c8d9e0f1a2b
          */
         ResourceId: string;
         /**
@@ -707,10 +914,16 @@ export interface components {
             };
         };
         /**
-         * @description Authenticated, but not permitted. Returned for a resource in another
-         *     organization even when it exists — distinguishing "forbidden" from "not
-         *     found" across a tenant boundary confirms the resource's existence to
-         *     someone with no right to know it (`docs/PLAN/08`, `docs/SECURITY/02` §3).
+         * @description Authenticated, and lacking the role this operation requires **within an
+         *     organization the caller can already see**.
+         *
+         *     A resource in an organization the caller holds nothing over answers
+         *     `404`, not `403`: distinguishing "forbidden" from "not found" across a
+         *     tenant boundary confirms the resource's existence to someone with no
+         *     right to know it (`docs/PLAN/08`, `docs/SECURITY/02` §3). A caller who
+         *     does hold a role over the organization already knows it exists, so
+         *     hiding it from them would buy nothing and turn "you need a higher role"
+         *     into a puzzle.
          */
         Forbidden: {
             headers: {
@@ -1342,6 +1555,184 @@ export interface operations {
                     "application/json": components["schemas"]["ReadinessStatus"];
                 };
             };
+        };
+    };
+    listOrganizations: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Maximum items to return. The server may return fewer, and returning
+                 *     fewer never means the collection is exhausted — only an absent
+                 *     `next_page_token` means that.
+                 */
+                page_size?: components["parameters"]["PageSize"];
+                /**
+                 * @description The `next_page_token` from the previous response. Opaque: its contents
+                 *     are not part of the contract and must not be constructed, parsed, or
+                 *     persisted by a client.
+                 */
+                page_token?: components["parameters"]["PageToken"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of organizations. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrganizationList"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            429: components["responses"]["RateLimited"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    createOrganization: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description A client-generated key making a retried `POST` safe. Replaying a
+                 *     request with the same key returns the original result rather than
+                 *     creating a second resource — which matters most for automated
+                 *     provisioning, where a network timeout is indistinguishable from a
+                 *     failure (`docs/PLAN/05` Part B).
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OrganizationCreate"];
+            };
+        };
+        responses: {
+            /** @description The organization was created. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Organization"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["RateLimited"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    getOrganization: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The organization that owns the resource. Every request is scoped to exactly one. */
+                org_id: components["parameters"]["OrganizationId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The organization. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Organization"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["RateLimited"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    deleteOrganization: {
+        parameters: {
+            query: {
+                /** @description The organization's current name, typed back. A mismatch is `400`. */
+                confirm_name: string;
+            };
+            header?: {
+                /**
+                 * @description A client-generated key making a retried `POST` safe. Replaying a
+                 *     request with the same key returns the original result rather than
+                 *     creating a second resource — which matters most for automated
+                 *     provisioning, where a network timeout is indistinguishable from a
+                 *     failure (`docs/PLAN/05` Part B).
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                /** @description The organization that owns the resource. Every request is scoped to exactly one. */
+                org_id: components["parameters"]["OrganizationId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The organization was deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["RateLimited"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    updateOrganization: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The organization that owns the resource. Every request is scoped to exactly one. */
+                org_id: components["parameters"]["OrganizationId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OrganizationUpdate"];
+            };
+        };
+        responses: {
+            /** @description The updated organization. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Organization"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["RateLimited"];
+            500: components["responses"]["InternalError"];
         };
     };
 }

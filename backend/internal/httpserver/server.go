@@ -287,6 +287,25 @@ func New(cfg config.HTTPConfig, deps Deps) *Server {
 	api.HandlerWithOptions(strict, api.ChiServerOptions{
 		BaseRouter:  mux,
 		Middlewares: []api.MiddlewareFunc{noStore, guardV1(deps.V1)},
+
+		// The THIRD error path, and the one that is easy to miss.
+		//
+		// StrictHTTPServerOptions covers errors raised once the strict wrapper
+		// is running. This one covers binding a PATH or QUERY parameter, which
+		// happens before that — so setting only the strict handlers leaves a
+		// malformed org_id answering text/plain with an unmarshalling error
+		// naming *uuid.UUID. The integration test caught exactly that.
+		//
+		// The message is fixed rather than the library's. The caller's own
+		// input is not a disclosure, but the internal type it failed to parse
+		// into is, and neither belongs in a response a consumer branches on.
+		ErrorHandlerFunc: func(w http.ResponseWriter, _ *http.Request, err error) {
+			management.WriteError(w, management.Fault{
+				Class:   management.Invalid,
+				Message: "A path or query parameter is not valid.",
+				Reason:  err.Error(),
+			})
+		},
 	})
 	_ = health
 
