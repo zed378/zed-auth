@@ -46,6 +46,11 @@ SHIPPED = {
     # OIDC endpoints that arrive in P1-06 and P1-07.
     "/.well-known/openid-configuration",
     "/.well-known/jwks.json",
+    # P1-16. The first Management API endpoints. Served by the generated
+    # router, guarded by the /v1 chain, and reachable — which is what makes
+    # documenting them a true claim rather than a promise.
+    "/v1/organizations",
+    "/v1/organizations/{org_id}",
 }
 
 SPEC = Path(__file__).resolve().parent.parent / "openapi" / "openapi.yaml"

@@ -113,10 +113,17 @@ func (i *Idempotency) Wrap(next http.Handler) http.Handler {
 			return
 		}
 
-		body, err := readBounded(w, r)
-		if err != nil {
-			WriteError(w, err)
-			return
+		body, ok := RawBody(r.Context())
+		if !ok {
+			// BufferBody did not run. Read it here rather than proceeding with
+			// nothing: hashing an empty body would make two DIFFERENT requests
+			// with the same key look identical, which turns a conflict into a
+			// silent replay — the one outcome this middleware exists to prevent.
+			var err error
+			if body, err = readBounded(w, r); err != nil {
+				WriteError(w, err)
+				return
+			}
 		}
 
 		replay, err := i.begin(r.Context(), caller, key, r.Method, r.URL.Path, body)

@@ -25,6 +25,12 @@ type Chain struct {
 	RateLimit   *RateLimit
 	Idempotency *Idempotency
 	Audit       *AuditGuard
+
+	// BufferBody makes the raw request body available to handlers that need
+	// the keys a caller actually sent rather than the ones the decoder kept.
+	// Off by default so a test can leave it out deliberately; main.go turns it
+	// on for every /v1 route.
+	BufferBody bool
 }
 
 // Handle wraps h with everything a /v1 route needs.
@@ -56,6 +62,12 @@ func (c *Chain) Handle(req Requirement, h http.Handler) http.Handler {
 	if c.Idempotency != nil {
 		h = c.Idempotency.Wrap(h)
 	}
+	if c.BufferBody {
+		// Inside RateLimit and outside Idempotency: a refused request must not
+		// cost a body read, and the idempotency hash must cover the same bytes
+		// the handler will inspect.
+		h = BufferBody(h)
+	}
 	if c.RateLimit != nil {
 		h = c.RateLimit.Wrap(h)
 	}
@@ -68,4 +80,28 @@ func (c *Chain) Handle(req Requirement, h http.Handler) http.Handler {
 // HandleFunc is Handle for a bare function.
 func (c *Chain) HandleFunc(req Requirement, h http.HandlerFunc) http.Handler {
 	return c.Handle(req, h)
+}
+
+// Guarded wraps h with the chain, taking each route's Requirement from Policy.
+//
+// The counterpart to Handle for routes registered by the generated router,
+// where every operation shares one middleware list and the route pattern is the
+// only thing that distinguishes them.
+func (c *Chain) Guarded(h http.Handler) http.Handler {
+	if c.Audit != nil {
+		h = c.Audit.Wrap(h)
+	}
+	if c.Idempotency != nil {
+		h = c.Idempotency.Wrap(h)
+	}
+	if c.BufferBody {
+		h = BufferBody(h)
+	}
+	if c.RateLimit != nil {
+		h = c.RateLimit.Wrap(h)
+	}
+	if c.Auth != nil {
+		h = c.Auth.Guard(h)
+	}
+	return h
 }

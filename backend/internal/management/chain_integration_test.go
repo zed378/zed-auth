@@ -511,6 +511,108 @@ func TestAnInstanceOwnerReachesAnotherOrganization(t *testing.T) {
 	}
 }
 
+// An INSTANCE_OWNER acting on another organization can actually READ that
+// organization's rows.
+//
+// This is the test P1-16 wished P1-15 had had. TestAnInstanceOwnerReaches-
+// AnotherOrganization asserts a 201, which its handler produced without
+// touching the database — so it passed while the capability was broken.
+//
+// Instance scope sets current_org_id() to NULL, and every tenant policy reads
+// `org_id = current_org_id()`, which is false for every row when the value is
+// NULL. Routing a cross-tenant action through WithInstanceScope therefore
+// returned an EMPTY RESULT rather than a refusal: the most powerful role in the
+// system could reach the endpoint and see nothing, and nothing anywhere said
+// so.
+//
+// The handler here counts rows in the target organization, and the assertion is
+// that the count is the one that exists.
+func TestAnInstanceOwnerCanReadAnotherOrganizationsRows(t *testing.T) {
+	s := setupV1(t)
+
+	var instanceID string
+	s.factory.QueryRow(&instanceID, `SELECT instance_id FROM organizations WHERE id = $1`, s.orgA)
+	s.grant(InstanceOwner, instanceID)
+
+	// Three users that exist only in the OTHER organization.
+	for range 3 {
+		s.factory.User(s.orgB)
+	}
+
+	var counted int
+	var scopeErr error
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		scopeErr = s.chain.Auth.InScope(r.Context(), func(tx *postgres.Tx) error {
+			// No org_id predicate: RLS supplies it, which is the property
+			// under test.
+			return tx.QueryRow(r.Context(), `SELECT count(*) FROM users`).Scan(&counted)
+		})
+		w.WriteHeader(http.StatusOK)
+	})
+
+	router := chi.NewRouter()
+	router.Method(http.MethodPost, "/v1/organizations/{org_id}/users",
+		s.chain.Auth.Require(orgRequirement(), handler))
+
+	r := httptest.NewRequest(http.MethodPost, "/v1/organizations/"+s.orgB+"/users",
+		strings.NewReader(`{}`))
+	bearerToken(s.token(t))(r)
+	router.ServeHTTP(httptest.NewRecorder(), r)
+
+	if scopeErr != nil {
+		t.Fatalf("InScope: %v", scopeErr)
+	}
+	if counted != 3 {
+		t.Fatalf("the INSTANCE_OWNER saw %d users in the target organization, want 3 — "+
+			"the cross-tenant capability reads as empty rather than as refused", counted)
+	}
+}
+
+// And the confinement that makes the above safe: acting on organization B, the
+// caller sees B's rows and NOT their own organization's.
+//
+// The scope is the target's, so this is stricter than the instance-scoped path
+// it replaced — not a relaxation traded for the capability.
+func TestActingOnAnotherOrganizationSeesOnlyThatOrganization(t *testing.T) {
+	s := setupV1(t)
+
+	var instanceID string
+	s.factory.QueryRow(&instanceID, `SELECT instance_id FROM organizations WHERE id = $1`, s.orgA)
+	s.grant(InstanceOwner, instanceID)
+
+	// Five in the caller's own organization (plus the caller), two in the target.
+	for range 5 {
+		s.factory.User(s.orgA)
+	}
+	for range 2 {
+		s.factory.User(s.orgB)
+	}
+
+	var counted int
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := s.chain.Auth.InScope(r.Context(), func(tx *postgres.Tx) error {
+			return tx.QueryRow(r.Context(), `SELECT count(*) FROM users`).Scan(&counted)
+		}); err != nil {
+			t.Errorf("InScope: %v", err)
+		}
+		w.WriteHeader(http.StatusOK)
+	})
+
+	router := chi.NewRouter()
+	router.Method(http.MethodPost, "/v1/organizations/{org_id}/users",
+		s.chain.Auth.Require(orgRequirement(), handler))
+
+	r := httptest.NewRequest(http.MethodPost, "/v1/organizations/"+s.orgB+"/users",
+		strings.NewReader(`{}`))
+	bearerToken(s.token(t))(r)
+	router.ServeHTTP(httptest.NewRecorder(), r)
+
+	if counted != 2 {
+		t.Errorf("saw %d users, want the target organization's 2 — "+
+			"a cross-tenant action is seeing more than the tenant it addresses", counted)
+	}
+}
+
 // An endpoint that declares no requirement is unreachable, not open. The
 // failure mode of a default-open design is one endpoint nobody annotated, and
 // it is invisible until it is exploited.

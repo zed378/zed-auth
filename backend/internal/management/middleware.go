@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 
 	"github.com/zed378/zed-auth/backend/internal/signing"
 	"github.com/zed378/zed-auth/backend/internal/storage/postgres"
@@ -109,7 +110,7 @@ func (m *Middleware) Require(req Requirement, next http.Handler) http.Handler {
 		// The organization the REQUEST addresses, which is not necessarily the
 		// caller's own: that is what makes an INSTANCE_OWNER useful and what
 		// makes forgetting the distinction a cross-tenant hole.
-		target := chi.URLParam(r, "org_id")
+		target := normalizeOrgID(chi.URLParam(r, "org_id"))
 		if target == "" && req.Scope == ScopeOrganization {
 			target = caller.OrgID
 		}
@@ -155,19 +156,75 @@ func (m *Middleware) Require(req Requirement, next http.Handler) http.Handler {
 // InScope runs fn inside the transaction the request is scoped to.
 //
 // Every handler's database work goes through this, so RLS confines it without
-// any handler containing an org_id predicate. An INSTANCE_OWNER acting outside
-// their own organization takes the named, logged, audited WithInstanceScope
-// path instead — there is no branch where a missing scope silently means
-// "every tenant", because WithTenant("") already returns an error, which P1-14
-// found the hard way.
+// any handler carrying an org_id predicate.
+//
+// **A request that names a target organization is scoped to THAT organization,
+// whoever the caller is.** An INSTANCE_OWNER acting on somebody else's tenant
+// runs under WithTenant(target), not WithInstanceScope — which is both more
+// confined and, it turns out, the only thing that works.
+//
+// P1-16 found the alternative the hard way. Instance scope sets
+// current_org_id() to NULL, and every tenant policy is `org_id =
+// current_org_id()`, which is false for every row when the value is NULL. An
+// INSTANCE_OWNER reading another organization's users through the
+// instance-scoped path therefore saw NOTHING — not a refusal, an empty result.
+// The capability the role exists for silently did not work, and the P1-15 test
+// that covered it passed because its handler never touched a tenant-scoped
+// table.
+//
+// WithInstanceScope remains for the operations that genuinely span
+// organizations and cannot name one: listing organizations, and creating the
+// first row of a tenant that does not exist yet. Those are the narrow uses its
+// own doc comment lists.
 func (m *Middleware) InScope(ctx context.Context, fn func(*postgres.Tx) error) error {
 	orgID, instanceScoped := ScopeFrom(ctx)
 
-	if instanceScoped || orgID == "" {
+	if orgID == "" {
+		// No target. Genuinely cross-tenant, and takes the named, logged,
+		// audited path — there is no branch where a missing scope silently
+		// means "every tenant", because WithTenant("") already returns an
+		// error, which P1-14 found the hard way.
 		return m.DB.WithInstanceScope(ctx,
-			"an INSTANCE_OWNER acting through the management API", fn)
+			"an INSTANCE_OWNER acting across organizations through the management API", fn)
 	}
+
+	if instanceScoped {
+		// A cross-tenant action, confined to one tenant. The database scope is
+		// the target's, so nothing else is reachable — but it is still one
+		// organization acting on another and must not be silent.
+		//
+		// WithInstanceScope's own audit hook does not fire on this path, which
+		// is why the line is written here rather than assumed.
+		if m.Log != nil {
+			caller, _ := CallerFrom(ctx)
+			m.Log.Info("an INSTANCE_OWNER is acting on another organization",
+				"user_id", caller.UserID, "caller_org", caller.OrgID, "target_org", orgID)
+		}
+	}
+
 	return m.DB.WithTenant(ctx, orgID, fn)
+}
+
+// normalizeOrgID puts a caller-supplied organization id into canonical form.
+//
+// The id is compared as a STRING against the token's org_id claim, and PostgreSQL
+// accepts several spellings of the same UUID — uppercase, and braced or
+// unhyphenated forms. Without this, an administrator who pasted an uppercase id
+// would be told their own organization does not exist, while the database would
+// have matched it perfectly well.
+//
+// A value that is not a UUID is returned unchanged. It will not match any
+// caller's organization and will not match a row, which is the right outcome —
+// and for /v1 routes the generated wrapper has already rejected it.
+func normalizeOrgID(raw string) string {
+	if raw == "" {
+		return ""
+	}
+	parsed, err := uuid.Parse(raw)
+	if err != nil {
+		return raw
+	}
+	return parsed.String()
 }
 
 // --- authentication ------------------------------------------------------------------
