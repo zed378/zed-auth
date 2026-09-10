@@ -897,6 +897,45 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/organizations/{org_id}/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The organization that owns the resource. Every request is scoped to exactly one. */
+                org_id: components["parameters"]["OrganizationId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Read the audit log
+         * @description Requires `ORG_ADMIN` over this organization.
+         *
+         *     **This resource has exactly one operation.** There is no create, no
+         *     update and no delete, and that is a property rather than an omission:
+         *     `events` is append-only at the database level — the application role
+         *     holds no `UPDATE` or `DELETE` privilege on it (`docs/SECURITY/02` §19) —
+         *     and an API that offered a way around that would make the guarantee a
+         *     matter of trust instead of a matter of privilege.
+         *
+         *     Ordered **newest first**, unlike every other list in this API. An audit
+         *     log is read from the end: the question is almost always "what just
+         *     happened", and paging from the beginning of a table that grows without
+         *     bound answers it slowly and last.
+         *
+         *     Payloads are stored already redacted (`P0-12`), so nothing here carries
+         *     a token, a password, or the raw resource attributes sent to
+         *     `/v1/authz/check`.
+         */
+        get: operations["listEvents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1252,6 +1291,59 @@ export interface components {
              *     only party who should hold it is the one who can read that mailbox.
              */
             email_sent: boolean;
+        };
+        /**
+         * @description One entry in the append-only audit log.
+         *
+         *     Read-only in the strongest sense available: there is no operation on
+         *     this API that writes one, and the application database role cannot
+         *     `UPDATE` or `DELETE` the table it lives in.
+         */
+        Event: {
+            /**
+             * @description A stable identifier for the entry. A string rather than an integer
+             *     because the underlying key is `(id, created_at)` on a partitioned
+             *     table — a bare number would not be unique across partitions, and a
+             *     consumer treating it as one would eventually deduplicate two real
+             *     events into one.
+             * @example 8f3e6b2a:2026-09-10T13:37:11Z
+             */
+            id: string;
+            /**
+             * @description `noun.verb.outcome`, for example `user.login.failed`.
+             * @example user.login.failed
+             */
+            event_type: string;
+            /**
+             * Format: uuid
+             * @description Who did it. **Null is legitimate and common**: a failed login
+             *     against an address that does not exist has no authenticated actor,
+             *     and neither does a scheduled job. A consumer that assumes an actor
+             *     will crash on the entries that matter most during an incident.
+             */
+            actor_user_id?: string | null;
+            /** Format: date-time */
+            occurred_at: string;
+            /** @description The address the request came from, when one was resolved. */
+            ip?: string | null;
+            /**
+             * @description Ties the entry to the request that caused it, which is what makes a
+             *     timeline reconstructable across the log and the audit trail.
+             */
+            request_id?: string | null;
+            /**
+             * @description The event's detail, redacted before storage (`P0-12`). Its shape
+             *     varies by `event_type` and is deliberately not constrained here:
+             *     constraining it would mean a schema change for every new event, and
+             *     the console renders it as data rather than parsing it.
+             */
+            payload?: {
+                [key: string]: unknown;
+            };
+        };
+        EventList: {
+            events: components["schemas"]["Event"][];
+            page_info?: components["schemas"]["PageInfo"];
         };
         /**
          * @description OpenID Provider metadata. Fields for unimplemented endpoints are
@@ -3089,6 +3181,63 @@ export interface operations {
                     "application/json": components["schemas"]["ResetRequested"];
                 };
             };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["RateLimited"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    listEvents: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Maximum items to return. The server may return fewer, and returning
+                 *     fewer never means the collection is exhausted — only an absent
+                 *     `next_page_token` means that.
+                 */
+                page_size?: components["parameters"]["PageSize"];
+                /**
+                 * @description The `next_page_token` from the previous response. Opaque: its contents
+                 *     are not part of the contract and must not be constructed, parsed, or
+                 *     persisted by a client.
+                 */
+                page_token?: components["parameters"]["PageToken"];
+                /**
+                 * @description Exact match on the event type, for example `user.login.failed`.
+                 *     May be repeated; repeating it matches any of them.
+                 */
+                event_type?: string[];
+                /**
+                 * @description The user who performed the action. Events with no actor — a failed
+                 *     login against an address that does not exist, a scheduled job —
+                 *     match no value of this filter, which is correct: they have none.
+                 */
+                actor_id?: components["schemas"]["ResourceId"];
+                /** @description Inclusive lower bound on when the event happened. */
+                from?: string;
+                /** @description Exclusive upper bound on when the event happened. */
+                to?: string;
+            };
+            header?: never;
+            path: {
+                /** @description The organization that owns the resource. Every request is scoped to exactly one. */
+                org_id: components["parameters"]["OrganizationId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of events, newest first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EventList"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];

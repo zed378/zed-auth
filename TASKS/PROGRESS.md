@@ -3,8 +3,8 @@
 Single source of truth for where the project stands. Updated in the same commit as the work it describes (`00-TASK-CONVENTIONS.md` global DoD item 8).
 
 **Last updated**: 2026-09-10
-**Current phase**: Phase 1 — MVP Core Auth (19 / 28 done). Phase 0 is 20 / 21; `P0-20` stays WIP pending the pull-based deployment re-read
-**Overall**: 33 / 177 tasks done
+**Current phase**: Phase 1 — MVP Core Auth (20 / 28 done). Phase 0 is 20 / 21; `P0-20` stays WIP pending the pull-based deployment re-read
+**Overall**: 34 / 177 tasks done
 
 Status values: `TODO` · `BLOCKED` · `SPEC` · `WIP` · `REVIEW` · `DONE` · `DROPPED`
 Sizes: `S` under half a day · `M` one to two days · `L` several days · `XL` must be split
@@ -16,7 +16,7 @@ Sizes: `S` under half a day · `M` one to two days · `L` several days · `XL` m
 | Phase | Tasks | Done | Status | Gate to enter |
 |---|---|---|---|---|
 | [Phase 0 — Foundation](./PHASE-0-FOUNDATION.md) | 21 | 20 | **ACTIVE** — `P0-20` only | — |
-| [Phase 1 — MVP: Core Auth + SSO](./PHASE-1-MVP-CORE-AUTH-SSO.md) | 28 | 19 | **ACTIVE** | Phase 0 exit checklist |
+| [Phase 1 — MVP: Core Auth + SSO](./PHASE-1-MVP-CORE-AUTH-SSO.md) | 28 | 20 | **ACTIVE** | Phase 0 exit checklist |
 | [Phase 2 — RBAC & Multi-Tenancy](./PHASE-2-RBAC-MULTITENANCY.md) | 17 | 0 | Not started | Phase 1 exit + `P1-28` |
 | [Phase 3 — Advanced Security](./PHASE-3-ADVANCED-SECURITY.md) | 15 | 0 | Not started | Phase 2 exit + threat model review |
 | [Phase 4 — Enterprise Interop](./PHASE-4-ENTERPRISE-INTEROP.md) | 16 | 0 | Not started | Phase 3 exit + threat model review |
@@ -83,7 +83,7 @@ Sizes: `S` under half a day · `M` one to two days · `L` several days · `XL` m
 | P1-17 | Management API — projects | M | DONE | P1-15 |
 | P1-18 | Management API — applications | M | DONE | P1-15, P1-05 |
 | P1-19 | Management API — users | L | DONE | P1-15, P1-01 |
-| P1-20 | Management API — audit log read | M | TODO | P1-15, P0-12 |
+| P1-20 | Management API — audit log read | M | DONE | P1-15, P0-12 |
 | P1-21 | Console — OIDC login (dogfooding) | L | TODO | P0-17, P1-07 |
 | P1-22 | Console — Org overview, Projects, Applications | L | TODO | P1-21, P1-16..18 |
 | P1-23 | Console — Users list and detail | L | TODO | P1-21, P1-19 |

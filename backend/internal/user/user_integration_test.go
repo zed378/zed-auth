@@ -30,6 +30,7 @@ import (
 
 	"github.com/zed378/zed-auth/backend/internal/api"
 	"github.com/zed378/zed-auth/backend/internal/audit"
+	"github.com/zed378/zed-auth/backend/internal/auditlog"
 	"github.com/zed378/zed-auth/backend/internal/config"
 	"github.com/zed378/zed-auth/backend/internal/httpserver"
 	"github.com/zed378/zed-auth/backend/internal/mail"
@@ -179,6 +180,7 @@ func setup(t *testing.T) *fixture {
 		ProjectAPI:     stubProjects{},
 		ApplicationAPI: stubApplications{},
 		UserAPI:        users,
+		AuditAPI:       &auditlog.Handler{DB: db, Log: discard()},
 	})
 
 	return &fixture{

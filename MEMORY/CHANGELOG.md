@@ -67,6 +67,18 @@ Format follows Keep a Changelog conventions, grouped by release once releases ex
 
 ### 2026-09-10
 
+**Added** — the audit log read ([record](./records/2026-09-10-P1-20-audit-log-read.md))
+- `GET /v1/organizations/{org_id}/events`, with filters for event type, actor and a half-open time range. No migration: `events` has been partitioned, indexed and append-only since `P0-07`. (`P1-20`)
+
+**Kept**
+- **One operation, and there will never be more** — asserted against what the router registers, not against what the package implements. "We did not write a delete handler" is a statement about intent. Backed by every other method answering 405/404 and by the application role being unable to `UPDATE` or `DELETE` `events` at all, which is what makes the missing endpoint a privilege guarantee rather than a promise. (`P1-20`)
+- **Newest first, alone in this API.** An audit log is read from the end, and `events_org_created_at_idx` is `(org_id, created_at DESC)` because `P0-07` expected it. The cursor and the API's `id` both carry the timestamp as well as the id, because the table is partitioned and a bare id is not unique across partitions — a consumer treating it as one would deduplicate two real events into one. (`P1-20`)
+- **Eleven filter combinations against a neighbour seeded with the same event type, actor id and instant**, because "no combination reaches across tenants" is a claim about the combinations nobody thought of. No `org_id` predicate anywhere; RLS supplies it. (`P1-20`)
+
+**Found**
+- **A payload that is not an object cannot exist** — `events_payload_object` is a `CHECK`, so the test written to prove the reader tolerates one could not create the state. The nil fallback stays as defence in depth; the test now asserts the guarantee that makes it unreachable. (`P1-20`)
+- **`events` has no partitions in the past.** `P0-12`'s maintenance creates them three months ahead, not behind. (`P1-20`)
+
 **Added** — the user lifecycle ([record](./records/2026-09-10-P1-19-users.md), [spec](./specs/P1-19-users.md))
 - Seven `/v1` user operations plus two hosted pages — `/login/forgot` and `/password/set` — which are unauthenticated HTML and deliberately not under `/v1`. This is the task that makes the product usable by somebody who is not a database administrator. (`P1-19`)
 - `internal/mail`: SMTP, plain text, no provider SDK (**ADR-018**, closing **`OQ-04`**). (`P1-19`)

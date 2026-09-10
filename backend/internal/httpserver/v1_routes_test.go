@@ -124,3 +124,41 @@ func TestTheOpenEndpointsAreStillOpen(t *testing.T) {
 		}
 	}
 }
+
+// The audit log serves exactly one operation, and it is a read (P1-20).
+//
+// **Asserted against the router**, not against the package that implements it.
+// "We did not write a delete handler" is a statement about intent; what a
+// caller meets is what the router registers, and that is generated from the
+// contract — so the contract growing a write here fails this test rather than
+// quietly becoming a capability.
+//
+// The guarantee underneath is P0-07's: `events` is append-only at the database
+// level, where the application role holds no UPDATE and no DELETE on it
+// (docs/SECURITY/02 §19). An endpoint offering a way around that would turn a
+// privilege guarantee into a matter of trust.
+func TestTheAuditLogServesExactlyOneOperation(t *testing.T) {
+	srv := newTestServer(t)
+
+	var operations []string
+	err := chi.Walk(srv.mux, func(method, route string, _ http.Handler, _ ...func(http.Handler) http.Handler) error {
+		if strings.HasSuffix(route, "/events") || strings.Contains(route, "/events/") {
+			operations = append(operations, method+" "+route)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walking the router: %v", err)
+	}
+
+	if len(operations) == 0 {
+		t.Fatal("the router registers no audit log route, so this test proves nothing")
+	}
+	if len(operations) != 1 {
+		t.Fatalf("the audit log serves %d operations, want 1:\n  %s",
+			len(operations), strings.Join(operations, "\n  "))
+	}
+	if !strings.HasPrefix(operations[0], http.MethodGet+" ") {
+		t.Errorf("the one operation is %q, want a GET", operations[0])
+	}
+}

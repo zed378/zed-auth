@@ -87,6 +87,14 @@ var Policy = map[string]Requirement{
 	"POST /v1/organizations/{org_id}/users/{user_id}/deactivate":     {Role: OrgAdmin, Scope: ScopeOrganization},
 	"POST /v1/organizations/{org_id}/users/{user_id}/reactivate":     {Role: OrgAdmin, Scope: ScopeOrganization},
 	"POST /v1/organizations/{org_id}/users/{user_id}/password-reset": {Role: OrgAdmin, Scope: ScopeOrganization},
+
+	// --- Audit log (P1-20) ---
+	//
+	// One entry, and there will never be more. The table is append-only at the
+	// database level, so a write route here would be an API offering a way
+	// around a privilege guarantee. ORG_ADMIN because the log records who did
+	// what, which is not general-readable.
+	"GET /v1/organizations/{org_id}/events": {Role: OrgAdmin, Scope: ScopeOrganization},
 }
 
 // PolicyKey names a route the way Policy does.
