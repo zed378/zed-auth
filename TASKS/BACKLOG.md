@@ -326,6 +326,45 @@ The cost of the omission is smaller than it looks today, because both claims are
 
 ---
 
+### PG-24 — A corrected migration does not reach databases that already ran it
+
+**Affects**: every environment migrated before a fix, and every future correction to an applied migration.
+
+`P1-20` found `events` and its four live partitions writable by `auth_app` on staging, while both migrations that revoke those privileges read correctly and a partition created today gets exactly `SELECT` and `INSERT`.
+
+golang-migrate records a version as applied and never runs it again. So a migration edited after it has run — which is ordinary during a phase, and happened here between `P0-07` and `P0-15` — leaves already-migrated databases in the state the **old** text produced. The repository and the deployment then disagree, silently and indefinitely.
+
+`20260910000019` repairs this instance and `check.sh` now gates it, but that is one property. The general problem is unaddressed:
+
+- Nothing detects the divergence for any other privilege, constraint or default.
+- Nothing prevents the next corrected migration from having the same effect.
+
+**Recommendation**: a schema-assertion step that runs on every deploy and checks the properties that matter — the privileges on `events`, the RLS policies, the `CHECK` constraints named in `docs/SECURITY/02` — against what the repository says they should be, rather than against what the migration history claims. It is the difference between "the migrations ran" and "the schema is what we think it is", and only the second is a fact about the database. Related to `P5-*`'s hardening work; worth raising before then, because the failure mode is silent.
+
+**Also worth deciding**: whether editing an applied migration should be refused outright by a CI check on the migration files' hashes, with corrections required to be new migrations. That is stricter and less pleasant during a phase, and it makes this class of divergence impossible rather than detectable.
+
+---
+
+### PG-25 — The owner role can rewrite the audit log
+
+**Affects**: `docs/SECURITY/02` §19's append-only claim, and the deploy path.
+
+The append-only guarantee is `REVOKE UPDATE, DELETE ON events FROM auth_app`. It is real and it is precisely scoped: the **owner** retains everything, necessarily, because it runs the migrations and partition maintenance.
+
+So "the audit log is append-only" is true of the service and not of the database. Anybody holding `AUTH_MIGRATE_DSN` can rewrite history and leave no trace of having done so — and the deploy path uses that credential on every release.
+
+This was demonstrated accidentally: a smoke test ran `UPDATE events SET event_type = 'rewritten'` as the owner "just to see", and 34 rows changed.
+
+**Recommendation**: decide whether that is accepted. The options are all real:
+
+- **Accept it**, and say so wherever the append-only property is claimed, so nobody reads a stronger guarantee than exists.
+- **Ship the log off-box** — to a WORM store or an external SIEM — so the durable copy is outside the reach of any database credential. That is what `docs/PLAN/13`'s observability work would want anyway.
+- **Separate the roles**: a migration role that owns the schema and a distinct owner for `events` that no deploy credential can act as. Possible, and it complicates partition maintenance.
+
+Not urgent while the operator and the deployer are the same person, and it stops being true the moment they are not.
+
+---
+
 ### PG-19 — Per-client rate limiting has a requirement and no owner
 
 **Affects**: `P1-09` step 5, `P1-15` onward, and every OAuth endpoint.

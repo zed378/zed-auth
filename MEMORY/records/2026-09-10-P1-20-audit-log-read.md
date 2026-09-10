@@ -25,7 +25,7 @@ So the assertion walks the mux and counts operations whose route mentions `/even
 Two more layers underneath, both asserted:
 
 - **Every other method over the wire** answers `405` or `404`, with the read as a control so the refusals are about the method rather than a missing route — and nothing forged appears in the table afterwards.
-- **The application role cannot rewrite history even directly.** `UPDATE` and `DELETE` against `events` both fail as `auth_app`. That is `P0-07`'s guarantee rather than this task's, and it is what makes the absence of a write endpoint meaningful rather than decorative: without it, "there is no endpoint" would be a promise instead of a privilege.
+- **The application role cannot rewrite history even directly.** `UPDATE` and `DELETE` against `events` both fail as `auth_app`. That is `P0-07`'s guarantee rather than this task's — and on staging it was not in force; see below — and it is what makes the absence of a write endpoint meaningful rather than decorative: without it, "there is no endpoint" would be a promise instead of a privilege.
 
 ## Newest first, alone in this API
 
@@ -65,6 +65,17 @@ And the control: the unfiltered read returns our own event, so the eleven absenc
 `docs/PLAN/12` gives the Management API p50 < 100ms. The test writes five thousand events, warms the plan, then times five filtered reads.
 
 The bound in the assertion is 300ms rather than 100ms, deliberately: this runs in a container on a developer machine next to whatever else is running, and a tight bound would be a flaky test rather than a stricter one. What it catches is a sequential scan, which over five thousand rows is orders of magnitude away rather than a few milliseconds. The measured figure is logged so a regression is visible even when it passes.
+
+## Deployed, and the append-only guarantee was not holding
+
+Rolled out to staging as part of `687a490`. The smoke test asked
+`has_table_privilege('auth_app', 'events', 'UPDATE')` and got **true** — along with `DELETE`, on the parent and on all four live partitions. The audit log this task exposes was fully writable by the service role.
+
+Not a bug in a migration. Both migrations that revoke those privileges read correctly, and a partition created today gets exactly `SELECT` and `INSERT`. The cause is that **golang-migrate never runs an applied version again**, so a database migrated before the `REVOKE` was written keeps what `ALTER DEFAULT PRIVILEGES` granted at `CREATE TABLE`. The repository described one thing and the deployment was another, silently.
+
+`20260910000019` repairs it and refuses to finish if it did not. `check.sh` now asserts it on every run, and that gate is proven to fail.
+
+**This is the sentence in this record that needed correcting.** "Append-only at the database level" is not quite the claim: it is append-only **for the application role**, by `REVOKE UPDATE, DELETE ON events FROM auth_app`. The owner retains everything, necessarily — it runs the migrations. So the guarantee is real and it is precisely scoped, and the scope matters: anyone holding the owner DSN can rewrite history, and the deploy path uses it.
 
 ## Verification
 
