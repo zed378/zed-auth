@@ -1,3 +1,4 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -51,13 +52,27 @@ function signIn(roles: string[]) {
   storeToken(encode({ sub: "user-1", org_id: "org-1", roles, exp: 2_000_000_000 }), 3600);
 }
 
+/**
+ * A fresh client per render, with retries off.
+ *
+ * Retries would make a failing query take three attempts before the component
+ * settles, so a test asserting an error state would wait for a timeout rather
+ * than an assertion — and a shared client would leak one test's cache into the
+ * next, which is how a guard test starts passing because of what ran before it.
+ */
 function renderAt(path: string) {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
+
   return render(
-    <MemoryRouter initialEntries={[path]}>
-      <AuthProvider>
-        <AppRoutes />
-      </AuthProvider>
-    </MemoryRouter>,
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter initialEntries={[path]}>
+        <AuthProvider>
+          <AppRoutes />
+        </AuthProvider>
+      </MemoryRouter>
+    </QueryClientProvider>,
   );
 }
 
