@@ -18,7 +18,7 @@ The single entry point for recording that something identity- or permission-chan
 
 ## Why
 
-`PLAN/09` § Audit requires every identity- or permission-changing event to be recorded, and `PLAN/04` makes the table append-only at the database level. One entry point exists so no feature invents its own format — an investigator's ability to reason about the log uniformly matters more than any individual event's shape, and six variants of "a role was assigned" destroys that long before one of them is actually wrong.
+`docs/PLAN/09` § Audit requires every identity- or permission-changing event to be recorded, and `docs/PLAN/04` makes the table append-only at the database level. One entry point exists so no feature invents its own format — an investigator's ability to reason about the log uniformly matters more than any individual event's shape, and six variants of "a role was assigned" destroys that long before one of them is actually wrong.
 
 ## The Decision This Task Existed To Make
 
@@ -28,7 +28,7 @@ The single entry point for recording that something identity- or permission-chan
 
 The alternative loses either way. A role assignment that succeeds without its audit record leaves a permission change nothing recorded. A record for an assignment that rolled back describes something that never happened. Both produce a log that cannot be trusted, and an untrusted log is worse than no log, because decisions get made from it anyway.
 
-The cost is real: **if the audit write fails, the action fails.** For an identity provider that is the correct trade — `PLAN/09` asks for every permission-changing event to be captured, and "captured unless the insert happened to fail" is not that.
+The cost is real: **if the audit write fails, the action fails.** For an identity provider that is the correct trade — `docs/PLAN/09` asks for every permission-changing event to be captured, and "captured unless the insert happened to fail" is not that.
 
 Forwarding to a SIEM takes the opposite trade, deliberately. The database copy is the record of truth and must commit with the action; the forwarded copy is a convenience for an external system, and an unreachable SIEM must not be able to stop logins from working. The failure is logged rather than swallowed.
 
@@ -57,7 +57,7 @@ Two details that would have been bugs:
 
 `auth_app` has no `CREATE` on schema public, so partition maintenance failed with `permission denied`. The one-line fix is `GRANT CREATE ON SCHEMA public TO auth_app`.
 
-That would let the runtime role create arbitrary tables, permanently, to solve a narrow scheduled maintenance need — undoing much of what the two-role split exists for (`PLAN/08` Part B: compromising the service should yield as little as possible).
+That would let the runtime role create arbitrary tables, permanently, to solve a narrow scheduled maintenance need — undoing much of what the two-role split exists for (`docs/PLAN/08` Part B: compromising the service should yield as little as possible).
 
 `SECURITY DEFINER` is the mechanism for exactly this: expose one narrowly-scoped privileged operation to a less-privileged role. `auth_app` gains the ability to create an events partition and nothing else.
 
@@ -65,9 +65,9 @@ That would let the runtime role create arbitrary tables, permanently, to solve a
 
 ## Instance-Level Events
 
-`events.org_id` becomes nullable. `P0-08` added an explicit cross-tenant database path whose whole purpose is to span organizations, and `PLAN/08` Part B requires that path to be auditable — an event recording its use cannot carry an org, because the point is that no single organization owns the action. Signing key rotation (`P1-03`) is next.
+`events.org_id` becomes nullable. `P0-08` added an explicit cross-tenant database path whose whole purpose is to span organizations, and `docs/PLAN/08` Part B requires that path to be auditable — an event recording its use cannot carry an org, because the point is that no single organization owns the action. Signing key rotation (`P1-03`) is next.
 
-The policy branch makes these visible only from the instance-scoped path, and deliberately does **not** let that path read every organization's events. A cross-organization audit view is a separate capability needing deliberate design (`UI-UX/08`'s Instance audit log, `P1-20`); granting it accidentally here would be precisely the "normal path with the filter omitted" `PLAN/08` warns against.
+The policy branch makes these visible only from the instance-scoped path, and deliberately does **not** let that path read every organization's events. A cross-organization audit view is a separate capability needing deliberate design (`docs/UI-UX/08`'s Instance audit log, `P1-20`); granting it accidentally here would be precisely the "normal path with the filter omitted" `docs/PLAN/08` warns against.
 
 ## Six Vulnerabilities Found and Fixed
 
@@ -96,13 +96,13 @@ Worth noting how close this came to being missed: the gate reported `skip` rathe
 
 | Abuse case | Source | Test |
 |---|---|---|
-| Credential written into an undeletable log | `PLAN/13`, `SECURITY/02` §16 | `TestPayloadIsRedactedBeforeStorage` |
-| Audit record for an action that did not happen | `SECURITY/02` §19 | `TestEventRollsBackWithItsTransaction` |
-| Event attributed to another tenant | `SECURITY/02` §2 | `TestEventCannotClaimAnotherTenant` |
-| Tenant reading instance-level events | `PLAN/08` Part B | `TestInstanceLevelEvent` |
-| Audit tampering via a new partition | `SECURITY/02` §19 | `TestNewPartitionsAreAppendOnly` |
-| Unbounded query against an unbounded table | `SECURITY/02` §10 | limit clamping |
-| Vulnerable dependencies | `SECURITY/02` §15 | `govulncheck` in CI and `check.sh` |
+| Credential written into an undeletable log | `docs/PLAN/13`, `docs/SECURITY/02` §16 | `TestPayloadIsRedactedBeforeStorage` |
+| Audit record for an action that did not happen | `docs/SECURITY/02` §19 | `TestEventRollsBackWithItsTransaction` |
+| Event attributed to another tenant | `docs/SECURITY/02` §2 | `TestEventCannotClaimAnotherTenant` |
+| Tenant reading instance-level events | `docs/PLAN/08` Part B | `TestInstanceLevelEvent` |
+| Audit tampering via a new partition | `docs/SECURITY/02` §19 | `TestNewPartitionsAreAppendOnly` |
+| Unbounded query against an unbounded table | `docs/SECURITY/02` §10 | limit clamping |
+| Vulnerable dependencies | `docs/SECURITY/02` §15 | `govulncheck` in CI and `check.sh` |
 
 ## Definition of Done Verification
 

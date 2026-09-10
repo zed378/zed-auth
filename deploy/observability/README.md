@@ -2,7 +2,7 @@
 
 Metrics, alerts, and tracing for the Auth Service.
 
-**Governing documents**: `PLAN/13-OBSERVABILITY.md` (what must be observable), `PLAN/12-PERFORMANCE.md` (the targets those observations are judged against).
+**Governing documents**: `docs/PLAN/13-OBSERVABILITY.md` (what must be observable), `docs/PLAN/12-PERFORMANCE.md` (the targets those observations are judged against).
 
 ---
 
@@ -10,9 +10,9 @@ Metrics, alerts, and tracing for the Auth Service.
 
 A **separate listener** from the public one, default `127.0.0.1:9090`, path `/metrics`.
 
-Separate rather than a route on the public server, because `PLAN/13` requires the endpoint not to be reachable from the public ingress and a separate binding makes that a property of the socket rather than something an ingress rule has to remember. It keeps holding when someone reconfigures the ingress without knowing the rule exists.
+Separate rather than a route on the public server, because `docs/PLAN/13` requires the endpoint not to be reachable from the public ingress and a separate binding makes that a property of the socket rather than something an ingress rule has to remember. It keeps holding when someone reconfigures the ingress without knowing the rule exists.
 
-**What the endpoint discloses**, since "metrics are harmless" is a common and wrong assumption: request rates per route, error rates, login success and failure counts, in-flight concurrency, database pool saturation, and the service version. That is a reconnaissance summary, and a reliable oracle for whether an attack is working (`SECURITY/02` §12). The config loader refuses `0.0.0.0` for this listener in production for that reason.
+**What the endpoint discloses**, since "metrics are harmless" is a common and wrong assumption: request rates per route, error rates, login success and failure counts, in-flight concurrency, database pool saturation, and the service version. That is a reconnaissance summary, and a reliable oracle for whether an attack is working (`docs/SECURITY/02` §12). The config loader refuses `0.0.0.0` for this listener in production for that reason.
 
 `pprof` is deliberately not mounted. It is genuinely useful and it exposes heap contents, which on this service means tokens and passwords in flight.
 
@@ -24,21 +24,21 @@ Named once, up front, including for phases not yet built. A metric renamed after
 
 | Metric | Phase | Why it exists |
 |---|---|---|
-| `http_request_duration_seconds` | now | The source of every p50/p95/p99 in `PLAN/12`'s table |
+| `http_request_duration_seconds` | now | The source of every p50/p95/p99 in `docs/PLAN/12`'s table |
 | `http_requests_total` | now | Error rate per endpoint |
 | `http_requests_in_flight` | now | Saturation, visible before latency shows it |
 | `audit_partition_runway_months` | now | The goroutine has no supervisor; this is how its failure becomes visible |
 | `audit_partition_maintenance_errors_total` | now | |
 | `audit_events_written_total` | now | Writes are in-transaction, so failures here mean actions are failing |
-| `db_instance_scoped_access_total` | now | `PLAN/08` Part B wants the cross-tenant path auditable |
-| `auth_login_attempts_total` | P1-12 | `PLAN/13`'s brute-force alert keys on the failure ratio |
-| `auth_tokens_issued_total` | P1-07 | Named in `PLAN/13` |
+| `db_instance_scoped_access_total` | now | `docs/PLAN/08` Part B wants the cross-tenant path auditable |
+| `auth_login_attempts_total` | P1-12 | `docs/PLAN/13`'s brute-force alert keys on the failure ratio |
+| `auth_tokens_issued_total` | P1-07 | Named in `docs/PLAN/13` |
 | `auth_lockouts_total` | P1-13 | |
-| `authz_check_duration_seconds` | P2-06 | `PLAN/12`: p95 < 80ms RBAC, < 150ms ABAC |
+| `authz_check_duration_seconds` | P2-06 | `docs/PLAN/12`: p95 < 80ms RBAC, < 150ms ABAC |
 | `authz_decisions_total` | P2-06 | A shift in the allow ratio is worth investigating |
-| `authz_policy_eval_duration_seconds` | P4B-02 | Named in `PLAN/13`; zero until Phase 4b, correctly |
-| `authz_project_grant_changes_total` | P4-01 | `PLAN/13` names an unusual spike as a possible misuse indicator |
-| `redis_operation_duration_seconds` | P1-11 | Named in `PLAN/13` |
+| `authz_policy_eval_duration_seconds` | P4B-02 | Named in `docs/PLAN/13`; zero until Phase 4b, correctly |
+| `authz_project_grant_changes_total` | P4-01 | `docs/PLAN/13` names an unusual spike as a possible misuse indicator |
+| `redis_operation_duration_seconds` | P1-11 | Named in `docs/PLAN/13` |
 | `postgres_*` | now | Pool statistics; saturation reads as latency everywhere at once |
 
 ### Two cardinality rules that are not optional
@@ -74,7 +74,7 @@ The same caveat applies to dashboards: a panel for `http_requests_total{status_c
 
 Off by default. Set `AUTH_OTLP_ENDPOINT` to enable; empty means a no-op tracer provider rather than an unset global, so instrumented code works unchanged either way and there is no `if tracingEnabled` branch scattered through the codebase.
 
-`AUTH_TRACE_SAMPLE_RATIO` defaults to 0.05. Sampling matters more here than usual: `/oauth/token` and `/v1/authz/check` are the highest-volume endpoints in the system (`PLAN/12`), and tracing every request would cost more than serving them.
+`AUTH_TRACE_SAMPLE_RATIO` defaults to 0.05. Sampling matters more here than usual: `/oauth/token` and `/v1/authz/check` are the highest-volume endpoints in the system (`docs/PLAN/12`), and tracing every request would cost more than serving them.
 
 W3C trace context propagation is enabled, so a trace started by a consumer application continues through this service rather than starting again. That continuity is most of the value — a consumer team debugging a slow login needs to see this service's spans inside their own trace.
 

@@ -18,9 +18,9 @@ Cross-tenant isolation moved from being something the application does to someth
 
 ## Why
 
-`PLAN/08-AUTHORIZATION.md` Part B asks for isolation that holds "even when the application layer forgets to filter". The application will keep filtering by `org_id` — that is not going away. But application-layer filtering is a code-review outcome, and this is a guarantee. One forgotten `WHERE` clause in one repository method is all it takes, and it is the kind of omission that reads as correct in a diff.
+`docs/PLAN/08-AUTHORIZATION.md` Part B asks for isolation that holds "even when the application layer forgets to filter". The application will keep filtering by `org_id` — that is not going away. But application-layer filtering is a code-review outcome, and this is a guarantee. One forgotten `WHERE` clause in one repository method is all it takes, and it is the kind of omission that reads as correct in a diff.
 
-`PLAN/18` R-02 rates cross-tenant leakage via a misscoped query as **Critical**, and names RLS as the mitigation.
+`docs/PLAN/18` R-02 rates cross-tenant leakage via a misscoped query as **Critical**, and names RLS as the mitigation.
 
 ## How, and What Was Decided
 
@@ -44,15 +44,15 @@ This is a constraint rather than a convenience: a repository method cannot forge
 
 ### The instance-scoped path is deliberately uncomfortable
 
-`PLAN/08` Part B requires cross-tenant access to be "explicit, documented, and auditable — not the normal path with the filter omitted". So `WithInstanceScope` is a differently-named function that requires a reason string and logs it. Using it is a visible choice in a diff rather than an omission.
+`docs/PLAN/08` Part B requires cross-tenant access to be "explicit, documented, and auditable — not the normal path with the filter omitted". So `WithInstanceScope` is a differently-named function that requires a reason string and logs it. Using it is a visible choice in a diff rather than an omission.
 
 It also still cannot read a policy-protected table by accident: instance scope sets the tenant to empty, which makes `current_org_id()` return NULL, which every policy evaluates as false. A second line of defence behind the naming.
 
 ### `project_grants` is visible to two tenants, on purpose
 
-The only table with a dual-tenant policy. A Project Grant is the delegation contract between a granting and a receiving organization (`PLAN/08` Part C), and each side needs it — the granter to manage and revoke it, the receiver to know which roles it may assign.
+The only table with a dual-tenant policy. A Project Grant is the delegation contract between a granting and a receiving organization (`docs/PLAN/08` Part C), and each side needs it — the granter to manage and revoke it, the receiver to know which roles it may assign.
 
-Writes are restricted to the granting side. A receiving organization that could insert or alter a grant row could widen its own delegation, which is exactly the privilege escalation `PLAN/09` § Delegation abuse names.
+Writes are restricted to the granting side. A receiving organization that could insert or alter a grant row could widen its own delegation, which is exactly the privilege escalation `docs/PLAN/09` § Delegation abuse names.
 
 Worth being precise about what this does not do: RLS makes the grant row *visible*, it does not enforce that assigned roles are a subset of `granted_role_keys`. That is a comparison between a request and a row, not a question of row visibility, and it stays application logic revalidated on every request (`P4-02`).
 
@@ -92,13 +92,13 @@ Covered: unfiltered reads across three tables, writes into another tenant, updat
 
 | Abuse case | Source | Test |
 |---|---|---|
-| Cross-tenant read via a misscoped query | `SECURITY/02` §2, `PLAN/18` R-02 | `TestUnfilteredQueryReturnsOnlyTheCurrentTenant` |
-| IDOR: acting on another tenant's row by known id | `SECURITY/02` §2, §14 | `TestCannotUpdateAnotherTenantsRowEvenWithItsID` |
-| Writing into another tenant | `SECURITY/02` §3 | `TestCannotWriteIntoAnotherTenant` |
-| Receiving org widening its own delegation | `PLAN/09` § Delegation abuse | `TestProjectGrantIsVisibleToBothSidesButWritableOnlyByTheGranter` |
-| Audit log leaking across tenants | `SECURITY/02` §19 | `TestAuditLogIsTenantIsolated` |
+| Cross-tenant read via a misscoped query | `docs/SECURITY/02` §2, `docs/PLAN/18` R-02 | `TestUnfilteredQueryReturnsOnlyTheCurrentTenant` |
+| IDOR: acting on another tenant's row by known id | `docs/SECURITY/02` §2, §14 | `TestCannotUpdateAnotherTenantsRowEvenWithItsID` |
+| Writing into another tenant | `docs/SECURITY/02` §3 | `TestCannotWriteIntoAnotherTenant` |
+| Receiving org widening its own delegation | `docs/PLAN/09` § Delegation abuse | `TestProjectGrantIsVisibleToBothSidesButWritableOnlyByTheGranter` |
+| Audit log leaking across tenants | `docs/SECURITY/02` §19 | `TestAuditLogIsTenantIsolated` |
 | Tenant context leaking via connection pooling | — | `TestTenantContextDoesNotLeakBetweenTransactions` |
-| Service run with an RLS-bypassing role | `PLAN/08` Part B | `TestAssertRoleIsNotPrivileged` |
+| Service run with an RLS-bypassing role | `docs/PLAN/08` Part B | `TestAssertRoleIsNotPrivileged` |
 
 ## Definition of Done Verification
 

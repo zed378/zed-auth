@@ -13,7 +13,7 @@ across organizations.
 
 :::warning[In development]
 
-Zed Auth is in Phase 0 of its [roadmap](https://github.com/zed378/zed-auth/blob/main/PLAN/16-IMPLEMENTATION-ROADMAP.md).
+Zed Auth is in Phase 0 of its [roadmap](https://github.com/zed378/zed-auth/blob/main/docs/PLAN/16-IMPLEMENTATION-ROADMAP.md).
 The service runs and is deployed, and the endpoints it currently serves are the
 operational probes in the [API reference](/docs/api-reference).
 

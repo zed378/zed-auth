@@ -1,6 +1,6 @@
 # P1-02 — Password Policy and Breached-Password Rejection
 
-Feature specification, per `PLAN/19-FEATURE-SPECIFICATION-TEMPLATE.md`. `CLAUDE.md` requires one for anything touching authentication.
+Feature specification, per `docs/PLAN/19-FEATURE-SPECIFICATION-TEMPLATE.md`. `CLAUDE.md` requires one for anything touching authentication.
 
 ---
 
@@ -25,15 +25,15 @@ The two halves address different failure modes and neither substitutes for the o
 
 ## 3. Functional Requirements
 
-- **FR-1** Evaluate a candidate password against `min_length`, `require_uppercase` and `max_age_days` read from `organizations.settings.password_policy` (`PLAN/08` Part B).
+- **FR-1** Evaluate a candidate password against `min_length`, `require_uppercase` and `max_age_days` read from `organizations.settings.password_policy` (`docs/PLAN/08` Part B).
 - **FR-2** Evaluation is a pure function of (password, policy) — no I/O, no clock, no database — so it is exhaustively testable and cannot behave differently under load.
 - **FR-3** Policy values come from the organization row. No rule value is a compile-time constant. Changing the row changes enforcement with no deploy (`P1-02` DoD item 5).
 - **FR-4** A policy that is absent, partial or malformed falls back to a documented **secure default**, and the fallback is visible rather than silent.
-- **FR-5** Check the candidate against a breached-password corpus using k-anonymity: send a hash prefix, never the password and never the full hash (`PLAN/09` § Passwords).
+- **FR-5** Check the candidate against a breached-password corpus using k-anonymity: send a hash prefix, never the password and never the full hash (`docs/PLAN/09` § Passwords).
 - **FR-6** Behaviour when the corpus service is unreachable is a single documented decision, recorded as an ADR (`P1-02` step 4). See §12.
 - **FR-7** Return every violation at once, not the first one — a form that reveals one problem per submit is a form the user fights.
 - **FR-8** Violations are returned as structured values. The *caller* decides how much of the structure reaches the response, because the answer differs between an authenticated change form and an unauthenticated login (`P1-02` step 6).
-- **FR-9** Serialize violations into `PLAN/05`'s error envelope with per-field `details[]`, so the console maps them to fields (`UI-UX/15` § Error Presentation).
+- **FR-9** Serialize violations into `docs/PLAN/05`'s error envelope with per-field `details[]`, so the console maps them to fields (`docs/UI-UX/15` § Error Presentation).
 - **FR-10** Expose password age as a pure predicate over (`password_changed_at`, policy, now), so `P1-11`/`P1-12` can enforce expiry at login without re-deriving the rule.
 
 ## 4. Non-Functional Requirements
@@ -41,7 +41,7 @@ The two halves address different failure modes and neither substitutes for the o
 - **NFR-1** Policy evaluation adds no measurable latency — it is string inspection over a bounded input.
 - **NFR-2** The breach check is bounded by an explicit timeout. Measured from the VM: 273ms and 77KB for one prefix against the live API. A password change may wait; a login may not, which is why expiry checking at login reads a timestamp and never calls out.
 - **NFR-3** The corpus client never blocks shutdown: it honours request context cancellation.
-- **NFR-4** No password, and no full password hash, is ever written to a log, a metric label, an error message, or an outbound request (`CLAUDE.md`, `PLAN/13`).
+- **NFR-4** No password, and no full password hash, is ever written to a log, a metric label, an error message, or an outbound request (`CLAUDE.md`, `docs/PLAN/13`).
 - **NFR-5** The corpus response is treated as untrusted input — it is a third-party document, parsed defensively, and a malformed one is an outage, never a pass.
 
 ## 5. Dependencies
@@ -64,9 +64,9 @@ Depended on by: `P1-11`/`P1-12` (login and hosted login page — expiry enforcem
 ALTER TABLE users ADD COLUMN password_changed_at timestamptz;
 ```
 
-Nullable, no default, no backfill. Backward-compatible per `PLAN/14`'s expand/contract rule: a previous-version instance running against this schema neither reads nor writes the column.
+Nullable, no default, no backfill. Backward-compatible per `docs/PLAN/14`'s expand/contract rule: a previous-version instance running against this schema neither reads nor writes the column.
 
-**This closes a plan gap, flagged rather than absorbed silently** (`CLAUDE.md`). `PLAN/08` Part B specifies `max_age_days` in the policy shape, and `PLAN/04` § `users` has no column recording when a password was last set — so as specified, `max_age_days` is unenforceable. It is registered as `PG-13` in `TASKS/BACKLOG.md` and `PLAN/04` should be amended through the deliberate plan-change process (`AGENTS.md` rule 9).
+**This closes a plan gap, flagged rather than absorbed silently** (`CLAUDE.md`). `docs/PLAN/08` Part B specifies `max_age_days` in the policy shape, and `docs/PLAN/04` § `users` has no column recording when a password was last set — so as specified, `max_age_days` is unenforceable. It is registered as `PG-13` in `TASKS/BACKLOG.md` and `docs/PLAN/04` should be amended through the deliberate plan-change process (`AGENTS.md` rule 9).
 
 The column is added now rather than with the login work that enforces it, because it accumulates data. Adding it in `P1-11` would mean every password set between now and then has no timestamp, and a NULL is indistinguishable from "set before we started recording".
 
@@ -91,7 +91,7 @@ The contract addition is the **error shape**, which already exists in `openapi/o
 }
 ```
 
-Multiple `details[]` entries share `field: "password"` — that is deliberate and matches `UI-UX/15`, which maps `details[].field` to a field and renders the issues beneath it.
+Multiple `details[]` entries share `field: "password"` — that is deliberate and matches `docs/UI-UX/15`, which maps `details[].field` to a field and renders the issues beneath it.
 
 ## 8. Frontend Changes
 
@@ -146,7 +146,7 @@ Policy is read from the organization the user belongs to, through the RLS-scoped
 | Length | Counted in **runes**, not bytes — a twelve-character passphrase in a non-Latin script is twelve characters, and a byte count would silently impose a different rule per language |
 | Unicode | Normalized (**NFC**) before the length is counted. Not NFKC: compatibility folding is built for search and identifier matching and rewrites characters in ways that are surprising in a length rule. Not applied to the string that reaches the hasher — `P1-01` stores what the user typed, and normalizing on the way in while verifying the raw input would reject correct passwords |
 
-**The 8-character floor is a policy on policies.** `PLAN/08`'s example is 12; that is a default, not a minimum. Without a floor, "min_length": 1 is a valid configuration and the mechanism built for administrator control becomes the mechanism by which an administrator disables it.
+**The 8-character floor is a policy on policies.** `docs/PLAN/08`'s example is 12; that is a default, not a minimum. Without a floor, "min_length": 1 is a valid configuration and the mechanism built for administrator control becomes the mechanism by which an administrator disables it.
 
 ## 12. Error Handling
 
@@ -180,7 +180,7 @@ Other errors:
 |---|---|
 | Password is exactly `min_length` | Accepted. Boundary is inclusive, and both sides of it are tested |
 | Password is `min_length - 1` runes but more bytes | Rejected. Runes are the unit |
-| Uppercase requirement, non-cased script (e.g. Japanese) | `require_uppercase` cannot be satisfied in a script with no case. Documented as a known consequence of `PLAN/08`'s rule; the mitigation is that an org can turn the rule off, and this is why the rule is configurable rather than constant |
+| Uppercase requirement, non-cased script (e.g. Japanese) | `require_uppercase` cannot be satisfied in a script with no case. Documented as a known consequence of `docs/PLAN/08`'s rule; the mitigation is that an org can turn the rule off, and this is why the rule is configurable rather than constant |
 | `max_age_days: 0` | No expiry. Not "expires immediately" — a zero that locks out every user is the kind of off-by-one that reads as a security control |
 | `password_changed_at` NULL | Not expired. §6 |
 | Clock skew makes `changed_at` future-dated | Not expired. Never negative-age arithmetic |
@@ -191,7 +191,7 @@ Other errors:
 
 ## 14. Abuse Cases
 
-Cross-referenced with `SECURITY/02-ATTACK-SURFACE-AND-SCENARIOS.md` and `PLAN/10-THREAT-MODEL.md`.
+Cross-referenced with `docs/SECURITY/02-ATTACK-SURFACE-AND-SCENARIOS.md` and `docs/PLAN/10-THREAT-MODEL.md`.
 
 | # | Abuse case | Control |
 |---|---|---|

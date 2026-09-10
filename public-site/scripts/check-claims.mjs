@@ -4,7 +4,7 @@
  *
  * `P0-19`'s Definition of Done asks that "a capability audit confirms every
  * claim on every published page maps to something either shipped or explicitly
- * labelled as planned". `UI-UX/21` § Content Governance and `CLAUDE.md` both
+ * labelled as planned". `docs/UI-UX/21` § Content Governance and `CLAUDE.md` both
  * make it a standing rule rather than a launch task.
  *
  * A read confirms it today. The rule has to hold in six months, when someone

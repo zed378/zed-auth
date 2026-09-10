@@ -1,7 +1,7 @@
 /**
  * Local ESLint rules enforcing the token discipline.
  *
- * `UI-UX/05-DESIGN-SYSTEM.md` § Governance requires token names rather than
+ * `docs/UI-UX/05-DESIGN-SYSTEM.md` § Governance requires token names rather than
  * raw values everywhere, so that a rebrand or theme adjustment never means
  * hunting through every page spec. A rule people are asked to remember is a
  * rule that holds until the week someone is in a hurry; these make it a build
@@ -85,9 +85,9 @@ export default {
       pattern: new RegExp(`${HEX.source}|${COLOUR_FN.source}`),
       messageId: "rawColour",
       message:
-        "Raw colour value. Use a design token (UI-UX/05 § Governance): a Tailwind " +
+        "Raw colour value. Use a design token (docs/UI-UX/05 § Governance): a Tailwind " +
         "class such as `text-text-primary`, or `var(--color-...)`. If no token fits, " +
-        "the token goes into UI-UX/05 and src/styles/tokens.css first — the design " +
+        "the token goes into docs/UI-UX/05 and src/styles/tokens.css first — the design " +
         "system is the source of truth, not the screen that needed something new.",
     }),
 
@@ -99,7 +99,7 @@ export default {
       messageId: "arbitrary",
       message:
         "Arbitrary Tailwind value. Use the 4px/8px spacing scale or the type scale " +
-        "from src/styles/tokens.css (UI-UX/05 § Spacing & Layout). A one-off value " +
+        "from src/styles/tokens.css (docs/UI-UX/05 § Spacing & Layout). A one-off value " +
         "here is how two screens end up a pixel apart for no reason.",
     }),
 

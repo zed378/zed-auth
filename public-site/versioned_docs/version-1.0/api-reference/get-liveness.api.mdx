@@ -43,7 +43,7 @@ checks and cannot fail while the process is able to respond at all.
 The distinction from `/readyz` is load-bearing. A liveness probe that
 checks the database restarts the service during a database outage,
 which converts a recoverable dependency failure into a crash loop that
-prevents recovery (`PLAN/14`).
+prevents recovery (`docs/PLAN/14`).
 
 
 <ParamsDetails>

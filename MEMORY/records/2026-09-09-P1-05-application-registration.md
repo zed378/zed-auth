@@ -20,9 +20,9 @@ No HTTP endpoints. `P1-18` exposes this; the split is the task card's and it is 
 
 ## Why
 
-`PLAN/04` § `applications` and `PLAN/09` § Protection Against Common Attacks. Two failure modes make this worth its own task rather than a CRUD screen.
+`docs/PLAN/04` § `applications` and `docs/PLAN/09` § Protection Against Common Attacks. Two failure modes make this worth its own task rather than a CRUD screen.
 
-A client secret that can be read back after creation is a secret that exists in a database, a backup, a support ticket and a screenshot. `UI-UX/08` states the rule — "shown once at creation only, never retrievable again" — and a screen cannot keep it; only a store that never held the plaintext can.
+A client secret that can be read back after creation is a secret that exists in a database, a backup, a support ticket and a screenshot. `docs/UI-UX/08` states the rule — "shown once at creation only, never retrievable again" — and a screen cannot keep it; only a store that never held the plaintext can.
 
 A redirect URI that matches more than the one URL it was meant to is the failure that turns a correct implementation of everything else into an account takeover. The authorization code is delivered to whoever the match let in.
 
@@ -77,7 +77,7 @@ The store takes a `*postgres.Tx` throughout, so each change and its audit event 
 
 ## Deviations from the Plan
 
-**One correction to the task card, not a deviation from the plan.** The card cites `SECURITY/02` §7 (SSRF) for the internal-address abuse case. That mapping is not right: a `redirect_uri` is never fetched by this server, it is handed to the user's browser, so there is no server-side request to forge. What an internal redirect target actually risks is an authorization code delivered to a host the *user's* machine can reach and its owner cannot observe. Link-local is refused for that reason; the control is the same, the reasoning is not, and a control kept for a wrong reason is one that gets removed when someone notices the reason is wrong.
+**One correction to the task card, not a deviation from the plan.** The card cites `docs/SECURITY/02` §7 (SSRF) for the internal-address abuse case. That mapping is not right: a `redirect_uri` is never fetched by this server, it is handed to the user's browser, so there is no server-side request to forge. What an internal redirect target actually risks is an authorization code delivered to a host the *user's* machine can reach and its owner cannot observe. Link-local is refused for that reason; the control is the same, the reasoning is not, and a control kept for a wrong reason is one that gets removed when someone notices the reason is wrong.
 
 ## Tests Added
 
@@ -103,17 +103,17 @@ The store takes a `*postgres.Tx` throughout, so each change and its audit event 
 
 | Abuse case | Source | Test |
 |---|---|---|
-| Open redirect via a shared prefix | `SECURITY/02` §1 | `TestRedirectURIMatchingIsExact` |
-| Suffix confusion (`app.example.com.attacker.net`) | `SECURITY/02` §1 | Same |
+| Open redirect via a shared prefix | `docs/SECURITY/02` §1 | `TestRedirectURIMatchingIsExact` |
+| Suffix confusion (`app.example.com.attacker.net`) | `docs/SECURITY/02` §1 | Same |
 | Public client using `client_credentials` | Task card | `TestPublicClientsCannotUseClientCredentials` |
 | Public client created with a secret | Task card | `TestPublicClientsGetNoSecret`, `TestTheDatabaseRefusesAPublicClientSecret` |
-| Secret read back after creation | `UI-UX/08`, `SECURITY/02` §16 | `TestOnlyTheHashIsStored` |
-| Secret leaked through a log or audit payload | `SECURITY/02` §16, §19 | `TestSecretDoesNotPrintItself`, `TestOnlyTheHashIsStored` |
-| Timing oracle on secret comparison | `SECURITY/02` §1 | Constant-time comparison; expired-vs-unrelated indistinguishability tested |
+| Secret read back after creation | `docs/UI-UX/08`, `docs/SECURITY/02` §16 | `TestOnlyTheHashIsStored` |
+| Secret leaked through a log or audit payload | `docs/SECURITY/02` §16, §19 | `TestSecretDoesNotPrintItself`, `TestOnlyTheHashIsStored` |
+| Timing oracle on secret comparison | `docs/SECURITY/02` §1 | Constant-time comparison; expired-vs-unrelated indistinguishability tested |
 | Expired previous secret accepted | — | `TestExpiredPreviousSecretIsJustWrong` |
 | Code delivered to a link-local address | §11 of the spec | `TestValidateRedirectURIRejects` |
-| Cross-tenant application access | `SECURITY/02` §2 | `TestApplicationsAreNotReadableAcrossTenants` |
-| CPU/memory exhaustion via wrong secrets | `SECURITY/02` §10 | ADR-016 is the control |
+| Cross-tenant application access | `docs/SECURITY/02` §2 | `TestApplicationsAreNotReadableAcrossTenants` |
+| CPU/memory exhaustion via wrong secrets | `docs/SECURITY/02` §10 | ADR-016 is the control |
 
 ## Definition of Done Verification
 

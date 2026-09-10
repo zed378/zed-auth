@@ -15,7 +15,7 @@
 -- also let the runtime role create arbitrary tables, which is a permanent
 -- privilege expansion to solve a narrow, scheduled maintenance need. The
 -- two-role split exists so that compromising the service yields as little as
--- possible (PLAN/08 Part B); handing it DDL rights undoes a good part of that.
+-- possible (docs/PLAN/08 Part B); handing it DDL rights undoes a good part of that.
 --
 -- THE FIX
 --
@@ -68,7 +68,7 @@ BEGIN
     -- A new partition must inherit the append-only rule. Without this, a
     -- partition created next month would accept UPDATE and DELETE, and the
     -- audit log would stop being append-only for exactly the recent events an
-    -- attacker would want to alter (SECURITY/02 §19).
+    -- attacker would want to alter (docs/SECURITY/02 §19).
     EXECUTE format('GRANT SELECT, INSERT ON public.%I TO auth_app', part_name);
     EXECUTE format('REVOKE UPDATE, DELETE ON public.%I FROM auth_app', part_name);
 

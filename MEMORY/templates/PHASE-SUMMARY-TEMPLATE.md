@@ -16,7 +16,7 @@ The capabilities that now exist and did not before, described in terms a stakeho
 
 ## Acceptance Criteria Verification
 
-Every criterion from `PLAN/17-ACCEPTANCE-CRITERIA.md` for this phase, with the evidence that satisfies it. "Evidence" means a test name, a metric, a log excerpt, or a recorded walkthrough — not an assertion that it works.
+Every criterion from `docs/PLAN/17-ACCEPTANCE-CRITERIA.md` for this phase, with the evidence that satisfies it. "Evidence" means a test name, a metric, a log excerpt, or a recorded walkthrough — not an assertion that it works.
 
 | Criterion | Evidence | Verified |
 |---|---|---|
@@ -24,7 +24,7 @@ Every criterion from `PLAN/17-ACCEPTANCE-CRITERIA.md` for this phase, with the e
 
 ## Performance Results
 
-Measurements against `PLAN/12-PERFORMANCE.md`'s targets, with the conditions they were taken under. A number without its conditions is not a measurement.
+Measurements against `docs/PLAN/12-PERFORMANCE.md`'s targets, with the conditions they were taken under. A number without its conditions is not a measurement.
 
 | Endpoint | Target (p50/p95/p99) | Measured | Met |
 |---|---|---|---|
@@ -52,7 +52,7 @@ Equally useful, and equally likely to be omitted.
 
 ## Risks Identified
 
-New entries for `PLAN/18-RISK-REGISTER.md`, or existing ones whose likelihood or impact changed during this phase.
+New entries for `docs/PLAN/18-RISK-REGISTER.md`, or existing ones whose likelihood or impact changed during this phase.
 
 ## Readiness for the Next Phase
 

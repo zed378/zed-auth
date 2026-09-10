@@ -11,7 +11,7 @@ PostgreSQL and Redis, with cross-tenant isolation enforced by the database rathe
 by application code.
 
 Nothing user-facing has shipped. This entry records what exists so the
-[roadmap](https://github.com/zed378/zed-auth/blob/main/PLAN/16-IMPLEMENTATION-ROADMAP.md)
+[roadmap](https://github.com/zed378/zed-auth/blob/main/docs/PLAN/16-IMPLEMENTATION-ROADMAP.md)
 can be read against something real.
 
 <!-- truncate -->

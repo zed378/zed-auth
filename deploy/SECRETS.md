@@ -2,13 +2,13 @@
 
 How secrets are stored, reached, separated, and rotated.
 
-**Governing documents**: `PLAN/07-BACKEND-ARCHITECTURE.md` § Infrastructure, `PLAN/09-SECURITY.md`, `PLAN/02-REQUIREMENTS.md` § Constraints, `SECURITY/02-ATTACK-SURFACE-AND-SCENARIOS.md` §16. Deployment context: [ADR-011](../MEMORY/DECISIONS.md).
+**Governing documents**: `docs/PLAN/07-BACKEND-ARCHITECTURE.md` § Infrastructure, `docs/PLAN/09-SECURITY.md`, `docs/PLAN/02-REQUIREMENTS.md` § Constraints, `docs/SECURITY/02-ATTACK-SURFACE-AND-SCENARIOS.md` §16. Deployment context: [ADR-011](../MEMORY/DECISIONS.md).
 
 ---
 
 ## The One Constraint That Cannot Be Traded Away
 
-> `PLAN/02-REQUIREMENTS.md` § Constraints: **No third-party dependency may hold the private signing key outside of Auth Service's own infrastructure/secret manager.**
+> `docs/PLAN/02-REQUIREMENTS.md` § Constraints: **No third-party dependency may hold the private signing key outside of Auth Service's own infrastructure/secret manager.**
 
 Everything below is arrangeable. That is not. A self-managed VM satisfies it trivially — the key never leaves the owner's machine — and any future move to a managed secret store must keep satisfying it.
 
@@ -40,7 +40,7 @@ Every secret this system holds. A secret that is not on this list is not managed
 
 | Secret | Holds | Storage | Rotation | Blast radius if leaked |
 |---|---|---|---|---|
-| **JWT signing private key** (`oidc`) | Signs every access and ID token | `file:` under `/etc/zed-auth/secrets/`, `0400`, owned by the service user. Referenced from `signing_keys.private_key_ref` | 90 days, with an overlap window (`PLAN/09`) | **Total.** An attacker can mint a valid token for any user in any organization. This is the highest-value secret in the system |
+| **JWT signing private key** (`oidc`) | Signs every access and ID token | `file:` under `/etc/zed-auth/secrets/`, `0400`, owned by the service user. Referenced from `signing_keys.private_key_ref` | 90 days, with an overlap window (`docs/PLAN/09`) | **Total.** An attacker can mint a valid token for any user in any organization. This is the highest-value secret in the system |
 | **SAML signing private key** (Phase 4) | Signs SAML assertions | Same, distinct key set from OIDC | 90 days | Impersonation of any user to any SAML service provider |
 | **PostgreSQL `auth_app` password** | Service runtime database access | Env var in the compose file's env file, `0600` | 180 days, or immediately on suspicion | Read and write of all tenant data, subject to RLS. Cannot alter the audit log — `auth_app` has no UPDATE or DELETE on `events` |
 | **PostgreSQL `auth_owner` password** | Schema owner; migrations only | Same file, but only ever loaded by the migration step | 180 days | **Higher than `auth_app`.** The owner bypasses row-level security and can alter the audit log |
@@ -53,7 +53,7 @@ Every secret this system holds. A secret that is not on this list is not managed
 
 ### Separation by Environment
 
-`PLAN/13-OBSERVABILITY.md` and `PLAN/14-DEPLOYMENT.md` both state it: **every environment has separate signing keys and databases. Production keys and data are never copied into staging.**
+`docs/PLAN/13-OBSERVABILITY.md` and `docs/PLAN/14-DEPLOYMENT.md` both state it: **every environment has separate signing keys and databases. Production keys and data are never copied into staging.**
 
 This is not bureaucratic. Staging is where debugging happens, where access is looser, and where a developer will reasonably dump a token to a terminal. A shared signing key means a staging token is a production token.
 
@@ -80,7 +80,7 @@ This is not bureaucratic. Staging is where debugging happens, where access is lo
 
 The service runs as an unprivileged `zedauth` user, not root. `/etc/zed-auth/env` stays root-owned and is read by the container runtime rather than by the service, so a compromise of the service process does not yield the database password from disk — only from its own environment, which it needs anyway.
 
-Rotation keeps three keys because `PLAN/09` requires an overlap window: `next` is published in JWKS before it signs anything, `current` signs, `previous` still verifies. A token issued a second before rotation must still verify after it.
+Rotation keeps three keys because `docs/PLAN/09` requires an overlap window: `next` is published in JWKS before it signs anything, `current` signs, `previous` still verifies. A token issued a second before rotation must still verify after it.
 
 ---
 
@@ -120,7 +120,7 @@ Same shape. Losing the Redis cache is recoverable — PostgreSQL is authoritativ
 
 ### Emergency rotation (suspected compromise)
 
-Do not follow the 90-day procedure. `SECURITY/04-INCIDENT-RESPONSE-PLAYBOOKS.md` governs; the shape is:
+Do not follow the 90-day procedure. `docs/SECURITY/04-INCIDENT-RESPONSE-PLAYBOOKS.md` governs; the shape is:
 
 1. Generate and promote a new signing key **immediately**, skipping the overlap window. This invalidates every outstanding token, which is the point.
 2. Revoke every session and every refresh token.

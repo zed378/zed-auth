@@ -45,7 +45,7 @@ python3 brand/check.py     # verify everything below is still true
    is verified against its original rather than trusted. A wrong coordinate
    would look plausible in every render.
 3. **The deployed copies match their source.** The console and the public site
-   each keep their own copy — `PLAN/20` allows them to share the visual
+   each keep their own copy — `docs/PLAN/20` allows them to share the visual
    language and no code — and this is what stops one updating without the
    other. The same guard `check-brand-tokens.mjs` applies to the colour values.
 
@@ -135,7 +135,7 @@ question — see `TASKS/BACKLOG.md`.
 ## Typography
 
 The concept sets the wordmark in Space Grotesk. Neither surface loads a
-webfont: `UI-UX/00` rules one out for the console specifically — "a webfont's
+webfont: `docs/UI-UX/00` rules one out for the console specifically — "a webfont's
 flash of unstyled text on a tool people open fifty times a day is a poor trade
 for a little personality" — and the public site follows the same system stack.
 

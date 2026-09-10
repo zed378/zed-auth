@@ -60,7 +60,7 @@ type Capabilities struct {
 
 	// GrantTypes actually accepted by the token endpoint.
 	//
-	// PLAN/05 § Supported Grant Types rules two out permanently: the implicit
+	// docs/PLAN/05 § Supported Grant Types rules two out permanently: the implicit
 	// flow (deprecated in OAuth 2.1) and resource owner password credentials.
 	// Neither may ever appear here, and a test asserts it — advertising a
 	// grant this service refuses invites a client to build against it.
@@ -76,13 +76,13 @@ type Capabilities struct {
 	SigningAlgorithms []string
 }
 
-// forbiddenGrants are the two PLAN/05 rules out permanently.
+// forbiddenGrants are the two docs/PLAN/05 rules out permanently.
 //
 // Checked at construction rather than trusted: a grant added to a slice
 // somewhere far from this file should fail loudly here, not be published.
 var forbiddenGrants = map[string]string{
-	"implicit": "deprecated in OAuth 2.1 (PLAN/05 § Supported Grant Types)",
-	"password": "resource owner password credentials are not supported (PLAN/05)",
+	"implicit": "deprecated in OAuth 2.1 (docs/PLAN/05 § Supported Grant Types)",
+	"password": "resource owner password credentials are not supported (docs/PLAN/05)",
 }
 
 // Validate reports whether the capabilities are internally coherent.

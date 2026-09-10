@@ -24,12 +24,12 @@ import (
 
 // Lifetimes.
 //
-// PLAN/09 § Tokens & Keys asks for "short-lived access tokens (5-15 minutes)".
+// docs/PLAN/09 § Tokens & Keys asks for "short-lived access tokens (5-15 minutes)".
 // Ten is the middle of that and the number to argue with: shorter multiplies
-// refresh traffic on the endpoint PLAN/12 already calls the most
+// refresh traffic on the endpoint docs/PLAN/12 already calls the most
 // latency-sensitive; longer widens the window in which a stolen access token
 // is useful, and an access token cannot be revoked because nothing looks it up
-// (PLAN/04: "storing them would add a lookup to the hottest path in the system
+// (docs/PLAN/04: "storing them would add a lookup to the hottest path in the system
 // for no security gain"). Ten minutes is where those meet.
 const (
 	AccessTokenLifetime = 10 * time.Minute
@@ -55,7 +55,7 @@ const (
 	FamilyLifetime = 90 * 24 * time.Hour
 )
 
-// RoleClaimNamespace builds the claim key PLAN/08 Part A specifies.
+// RoleClaimNamespace builds the claim key docs/PLAN/08 Part A specifies.
 //
 // Reserved here and populated by P2-04. Reserving it now means the claim
 // appears in the token's shape from the first release, so a consumer written

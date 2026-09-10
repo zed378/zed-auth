@@ -1,12 +1,12 @@
 # P1-07 — `POST /oauth/token`
 
-Feature specification, per `PLAN/19-FEATURE-SPECIFICATION-TEMPLATE.md`. `CLAUDE.md` requires one for anything touching authentication; the task card calls this the authentication core.
+Feature specification, per `docs/PLAN/19-FEATURE-SPECIFICATION-TEMPLATE.md`. `CLAUDE.md` requires one for anything touching authentication; the task card calls this the authentication core.
 
 ---
 
 ## 1. Business Objective
 
-Turn an authorization code into tokens a consumer application can actually use, and do it fast. `PLAN/12` calls this "the highest call volume, most latency-sensitive" endpoint in the system and gives it p50 < 50ms, p95 < 200ms — every consumer's login latency is this endpoint's latency, and so is every silent renewal.
+Turn an authorization code into tokens a consumer application can actually use, and do it fast. `docs/PLAN/12` calls this "the highest call volume, most latency-sensitive" endpoint in the system and gives it p50 < 50ms, p95 < 200ms — every consumer's login latency is this endpoint's latency, and so is every silent renewal.
 
 It is also where the flow finally closes. `P1-06` issues codes that nothing can redeem; after this, a consumer can complete a login end to end.
 
@@ -32,7 +32,7 @@ It is also where the flow finally closes. `P1-06` issues codes that nothing can 
 - **FR-7** Issue a refresh token stored only as a hash.
 - **FR-8** Return OAuth error codes with the correct HTTP status and no internal detail.
 - **FR-9** `Cache-Control: no-store` on every response.
-- **FR-10** Instrument latency against `PLAN/12`'s targets.
+- **FR-10** Instrument latency against `docs/PLAN/12`'s targets.
 
 ## 4. Non-Functional Requirements
 
@@ -63,7 +63,7 @@ Phase 1 writes `family_id` (each issuance starts its own family) and leaves `rep
 
 `POST /oauth/token`, `application/x-www-form-urlencoded`, joining `openapi/openapi.yaml`. Unlike `/oauth/authorize` this is a normal JSON endpoint and **is** generated from the spec — its parameters are form fields validated in one pass, with no ordering constraint, so the generated binding is a help rather than an obstacle.
 
-Errors are OAuth's JSON shape, not `PLAN/05`'s envelope:
+Errors are OAuth's JSON shape, not `docs/PLAN/05`'s envelope:
 
 ```json
 { "error": "invalid_grant", "error_description": "..." }
@@ -99,7 +99,7 @@ type Tokens struct {
 | Token | Form | Why |
 |---|---|---|
 | ID token | JWT, `typ: JWT`, `aud` = `client_id` | An assertion *about the user*, for the client that asked |
-| Access token | JWT, `typ: at+jwt` (RFC 9068), `aud` = the resource | A capability *at a resource server*, verified statelessly (`PLAN/12`: "storing them would add a lookup to the hottest path for no security gain") |
+| Access token | JWT, `typ: at+jwt` (RFC 9068), `aud` = the resource | A capability *at a resource server*, verified statelessly (`docs/PLAN/12`: "storing them would add a lookup to the hottest path for no security gain") |
 | Refresh token | **Opaque random**, stored as a hash | Must be revocable, so it must be looked up — which a JWT would defeat |
 
 The refresh token being opaque rather than a JWT also sidesteps `P1-03`'s finding directly. That record established that sixteen distinct base64url encodings of one RSA signature all verify, so **reuse detection keyed on a JWT string can be defeated by mutating one character**. An opaque random token has exactly one representation, and its SHA-256 is canonical. `P3-06` inherits a foundation where that trap cannot be walked into.
@@ -177,17 +177,17 @@ Every failure to redeem is `invalid_grant` with no detail about which check fail
 
 | # | Abuse case | Source | Control |
 |---|---|---|---|
-| A-1 | Code replay after successful redemption | `PLAN/10` | Atomic `GETDEL`; the second attempt finds nothing |
-| A-2 | Code redeemed without the verifier | `PLAN/10` | PKCE required and constant-time checked |
+| A-1 | Code replay after successful redemption | `docs/PLAN/10` | Atomic `GETDEL`; the second attempt finds nothing |
+| A-2 | Code redeemed without the verifier | `docs/PLAN/10` | PKCE required and constant-time checked |
 | A-3 | Cross-client code redemption | Task card | The code binds `client_id`; checked against the authenticated client |
 | A-4 | Client authentication bypass — a confidential client's code redeemed with no secret | Task card | A confidential client with no secret is `invalid_client`, never downgraded to public |
 | A-5 | Token substitution: an access token used where an ID token is expected | Task card | Different `typ` (`at+jwt` vs `JWT`) and different `aud` |
-| A-6 | A token with the wrong `aud` accepted | `PLAN/11` | `aud` is the client for ID tokens and the resource for access tokens; asserted in tests |
-| A-7 | Refresh token recovered from the database | `PLAN/04` | Stored as SHA-256 of an opaque 256-bit value |
+| A-6 | A token with the wrong `aud` accepted | `docs/PLAN/11` | `aud` is the client for ID tokens and the resource for access tokens; asserted in tests |
+| A-7 | Refresh token recovered from the database | `docs/PLAN/04` | Stored as SHA-256 of an opaque 256-bit value |
 | A-8 | Reuse detection defeated by mutating the token string | `P1-03` | Opaque token, not a JWT — one representation, canonical hash |
 | A-9 | Verifier brute-forced by retrying against a live code | — | The code is consumed before the verifier is checked |
-| A-10 | Timing oracle on client secret or verifier | `SECURITY/02` §1 | Constant-time comparison throughout |
-| A-11 | Token response cached by a proxy | `SECURITY/02` §16 | `Cache-Control: no-store`, asserted on the header |
+| A-10 | Timing oracle on client secret or verifier | `docs/SECURITY/02` §1 | Constant-time comparison throughout |
+| A-11 | Token response cached by a proxy | `docs/SECURITY/02` §16 | `Cache-Control: no-store`, asserted on the header |
 
 ## 15. Logging / Audit Requirements
 
@@ -196,7 +196,7 @@ Every failure to redeem is `invalid_grant` with no detail about which check fail
 | `token.issued` | client id, user id, org id, grant, scope, session id | any token, code, verifier, secret or hash |
 | `token.denied` | client id, grant, OAuth error code | the same |
 
-Metrics: `auth_tokens_issued_total{grant}`, `auth_token_errors_total{error}`, `auth_token_duration_seconds{grant}` — bucketed on `PLAN/12`'s targets so a quantile query answers "did we meet it" without interpolating, the way `P0-11` did for the request histogram.
+Metrics: `auth_tokens_issued_total{grant}`, `auth_token_errors_total{error}`, `auth_token_duration_seconds{grant}` — bucketed on `docs/PLAN/12`'s targets so a quantile query answers "did we meet it" without interpolating, the way `P0-11` did for the request histogram.
 
 ## 16. Security Controls
 

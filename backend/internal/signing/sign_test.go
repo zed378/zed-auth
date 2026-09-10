@@ -92,7 +92,7 @@ func TestSignedTokenCarriesItsKID(t *testing.T) {
 
 // --- the rotation property that matters ------------------------------------
 
-// PLAN/09's overlap period, and P1-03's Definition of Done: a token signed
+// docs/PLAN/09's overlap period, and P1-03's Definition of Done: a token signed
 // before a rotation must still verify after it.
 //
 // This is the test the whole four-state design exists for. If it fails, every
@@ -159,7 +159,7 @@ func TestOnlyCurrentKeySigns(t *testing.T) {
 	}
 }
 
-// --- abuse cases (spec §12, SECURITY/02 §1) --------------------------------
+// --- abuse cases (spec §12, docs/SECURITY/02 §1) --------------------------------
 
 // A-1. A token claiming no algorithm at all.
 //

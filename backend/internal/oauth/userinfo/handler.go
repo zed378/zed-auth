@@ -208,7 +208,7 @@ func (h *Handler) answer(
 	h.body(w, code, message)
 }
 
-// body writes PLAN/05's error envelope.
+// body writes docs/PLAN/05's error envelope.
 //
 // The WWW-Authenticate header is what an OAuth client library reads; the
 // envelope is what every other endpoint in this service speaks, and a client

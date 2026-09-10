@@ -29,7 +29,7 @@ func NewStore() *Store { return &Store{} }
 // The liveness predicate is the interesting part, and it is a deliberate
 // choice rather than an oversight in either direction.
 //
-// PLAN/04 § What Is Deliberately Not Stored Here says access tokens are not
+// docs/PLAN/04 § What Is Deliberately Not Stored Here says access tokens are not
 // stored because "storing them would add a lookup to the hottest path in the
 // system for no security gain". That reasoning is about the token endpoint and
 // about storing tokens; neither changes here. Nothing is stored, and this is

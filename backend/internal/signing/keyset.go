@@ -32,7 +32,7 @@ const (
 	StatusCurrent Status = "current"
 
 	// StatusPrevious verifies but no longer signs. This is the overlap window
-	// PLAN/09 requires. Retiring straight from current would invalidate every
+	// docs/PLAN/09 requires. Retiring straight from current would invalidate every
 	// token issued in the seconds before the rotation.
 	StatusPrevious Status = "previous"
 
@@ -85,7 +85,7 @@ func (k *Key) CanSign() bool { return k.Status == StatusCurrent && k.private != 
 //
 // Immutable on purpose: a set that could be mutated in place would need a lock
 // on every verification, which is the hot path for every protected request in
-// every consumer application (PLAN/12). Rotation replaces the whole snapshot.
+// every consumer application (docs/PLAN/12). Rotation replaces the whole snapshot.
 type KeySet struct {
 	keys    map[string]*Key
 	current *Key
@@ -166,7 +166,7 @@ func (s *KeySet) Verifying() []*Key {
 //
 // Public halves only, and every non-retired key. A token signed just before a
 // rotation must still verify afterwards, which requires its key to still be
-// published (PLAN/09's overlap period).
+// published (docs/PLAN/09's overlap period).
 func (s *KeySet) JWKS() jose.JSONWebKeySet {
 	verifying := s.Verifying()
 	out := jose.JSONWebKeySet{Keys: make([]jose.JSONWebKey, 0, len(verifying))}
@@ -196,7 +196,7 @@ type Loader func() (*KeySet, error)
 // Bounded in both directions, and both bounds are decisions:
 //
 //   - Verification must not touch the database. It runs on every protected
-//     request across every consumer application (PLAN/12), and a database
+//     request across every consumer application (docs/PLAN/12), and a database
 //     round trip there would make this service's availability a dependency of
 //     every authorization check in the estate.
 //   - A new key must reach every instance without a deploy. So the TTL is
@@ -234,7 +234,7 @@ func NewCache(load Loader, ttl time.Duration) *Cache {
 // That is deliberate: the keys have not changed just because the database is
 // briefly unreachable, and failing every token verification during a database
 // blip would turn a recoverable dependency failure into a total outage — the
-// same reasoning that keeps the liveness probe off the database (PLAN/14).
+// same reasoning that keeps the liveness probe off the database (docs/PLAN/14).
 //
 // The one case that does fail is having no snapshot at all, which only happens
 // before the first successful load.

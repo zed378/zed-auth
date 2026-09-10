@@ -1,6 +1,6 @@
 # Runbook — Rotating the Token Signing Key
 
-**Cadence**: every 90 days (`PLAN/09` § Tokens & Keys).
+**Cadence**: every 90 days (`docs/PLAN/09` § Tokens & Keys).
 **Duration**: about 10 minutes of work, then a wait measured in token lifetimes.
 **Blast radius if done wrong**: every user logged out, every consumer application rejecting every token.
 
@@ -21,7 +21,7 @@ generate ──▶ next ──rotate──▶ current ──rotate──▶ prev
 
 **Why a key is published before it signs.** Consumers cache JWKS. If the first token signed with a new key arrives before the consumer has fetched that key, the consumer rejects a perfectly good token. Publishing first removes the race.
 
-**Why a key keeps verifying after it stops signing.** A token issued one second before the rotation is valid for its full lifetime. Retiring immediately would kill it. This overlap is what `PLAN/09` means by an overlap period.
+**Why a key keeps verifying after it stops signing.** A token issued one second before the rotation is valid for its full lifetime. Retiring immediately would kill it. This overlap is what `docs/PLAN/09` means by an overlap period.
 
 **Never skip from `current` straight to `retired`.**
 
@@ -209,7 +209,7 @@ docker logs zedauth-authservice-1 2>&1 | tail -20
 
 ## What must never happen
 
-- **The private key must never leave the VM.** `PLAN/02` § Constraints is absolute. Do not copy it to a laptop to "look at it"; a key that has been on a laptop has been on a laptop.
+- **The private key must never leave the VM.** `docs/PLAN/02` § Constraints is absolute. Do not copy it to a laptop to "look at it"; a key that has been on a laptop has been on a laptop.
 - **Never store key material in `signing_keys.private_key_ref`.** The column holds a reference. A `CHECK` constraint refuses PEM headers, which is the one thing stopping this "simplification".
 - **Never rotate and retire in the same maintenance window.** The gap between them is the feature.
 

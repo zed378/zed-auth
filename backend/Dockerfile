@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 #
 # Multi-stage build producing a minimal, non-root runtime image.
-# SECURITY/02-ATTACK-SURFACE-AND-SCENARIOS.md §17 (Container / Runtime Security)
+# docs/SECURITY/02-ATTACK-SURFACE-AND-SCENARIOS.md §17 (Container / Runtime Security)
 # and §15 (Supply-Chain): every base image is pinned by digest, never :latest.
 
 # --- build stage ------------------------------------------------------------
@@ -20,7 +20,7 @@ ARG VERSION=dev
 # CGO_ENABLED=0 produces a static binary, which is what lets the runtime stage
 # be a scratch-like image with no libc and therefore almost no attack surface.
 # -trimpath keeps build-machine paths out of the binary and out of any panic
-# output (PLAN/10-THREAT-MODEL.md § Information Disclosure).
+# output (docs/PLAN/10-THREAT-MODEL.md § Information Disclosure).
 RUN CGO_ENABLED=0 GOOS=linux go build \
       -trimpath \
       -ldflags="-s -w -X main.version=${VERSION}" \
@@ -45,7 +45,7 @@ COPY --from=build /out/migrate /migrate
 
 # Migrations are a separate binary and a separate deployment step. They are
 # never run implicitly at service startup in production
-# (PLAN/14-DEPLOYMENT.md § Release Process).
+# (docs/PLAN/14-DEPLOYMENT.md § Release Process).
 COPY --from=build /src/migrations /migrations
 
 USER nonroot:nonroot

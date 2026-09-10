@@ -251,14 +251,14 @@ func TestGrantTypesByClientType(t *testing.T) {
 	}
 }
 
-// The two grants PLAN/05 rules out permanently are refused for EVERY type, so
+// The two grants docs/PLAN/05 rules out permanently are refused for EVERY type, so
 // no client type is a way around the rule P1-04's discovery document also
 // enforces.
 func TestForbiddenGrantsAreRefusedForEveryClientType(t *testing.T) {
 	for _, typ := range Types {
 		for _, grant := range []string{"implicit", "password"} {
 			if err := ValidateGrantTypes(typ, []string{grant}); err == nil {
-				t.Errorf("%s was allowed to use %q, which PLAN/05 rules out permanently", typ, grant)
+				t.Errorf("%s was allowed to use %q, which docs/PLAN/05 rules out permanently", typ, grant)
 			}
 		}
 	}

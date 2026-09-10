@@ -1,7 +1,7 @@
 /**
  * Skip to the main content.
  *
- * UI-UX/13 § Keyboard Navigation. Without it, a keyboard or screen reader user
+ * docs/UI-UX/13 § Keyboard Navigation. Without it, a keyboard or screen reader user
  * tabs through the whole navigation on every page load before reaching the
  * thing they came for — on a console someone opens fifty times a day that is
  * not a minor inconvenience.

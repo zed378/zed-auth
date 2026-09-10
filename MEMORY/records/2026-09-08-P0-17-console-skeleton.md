@@ -8,15 +8,15 @@
 
 ## What Was Built
 
-A React 19 + TypeScript SPA on Vite 8 and Tailwind 4: design tokens, routing, the navigation tree from `PLAN/06`, an error boundary, TanStack Query, and the typed API client generated from `openapi/openapi.yaml`.
+A React 19 + TypeScript SPA on Vite 8 and Tailwind 4: design tokens, routing, the navigation tree from `docs/PLAN/06`, an error boundary, TanStack Query, and the typed API client generated from `openapi/openapi.yaml`.
 
-No screens. Every nav destination renders a placeholder that names the phase it arrives in. `PLAN/16` forbids building a Phase N+1 feature while Phase N is incomplete, and the information architecture is a decision already made — encoding it now means Phase 1 adds page bodies rather than renegotiating structure.
+No screens. Every nav destination renders a placeholder that names the phase it arrives in. `docs/PLAN/16` forbids building a Phase N+1 feature while Phase N is incomplete, and the information architecture is a decision already made — encoding it now means Phase 1 adds page bodies rather than renegotiating structure.
 
 Four things carry the weight:
 
-**Tokens are the only way to name a value.** Every token `UI-UX/05` lists exists in `tokens.css` under that document's name. Three local ESLint rules — `no-raw-color`, `no-arbitrary-value`, `no-inline-style` — make a raw hex or a one-off `p-[13px]` a build failure. `UI-UX/05` § Governance asks for this; a rule people are asked to remember holds until the week someone is in a hurry.
+**Tokens are the only way to name a value.** Every token `docs/UI-UX/05` lists exists in `tokens.css` under that document's name. Three local ESLint rules — `no-raw-color`, `no-arbitrary-value`, `no-inline-style` — make a raw hex or a one-off `p-[13px]` a build failure. `docs/UI-UX/05` § Governance asks for this; a rule people are asked to remember holds until the week someone is in a hurry.
 
-**`color-danger` is un-overridable structurally.** The brandable set is a union of literal token names, so `applyBranding` cannot be called with `--color-danger` even by a caller holding one in a variable — plus a runtime filter, because branding arrives as JSON from an API where the type system has already ended. A custom accent is contrast-checked against the surface it will sit on before it is applied, which `UI-UX/13` requires at the point an org admin sets it.
+**`color-danger` is un-overridable structurally.** The brandable set is a union of literal token names, so `applyBranding` cannot be called with `--color-danger` even by a caller holding one in a variable — plus a runtime filter, because branding arrives as JSON from an API where the type system has already ended. A custom accent is contrast-checked against the surface it will sit on before it is applied, which `docs/UI-UX/13` requires at the point an org admin sets it.
 
 **Contrast is computed, not claimed.** `tokens.test.ts` parses `tokens.css` and computes WCAG ratios from the values actually in it, so changing a colour runs the check against the new one.
 
@@ -26,7 +26,7 @@ Four things carry the weight:
 
 ## The Bug That Justifies This Whole Record
 
-Every token was defined. Named exactly as `UI-UX/05` names them. Contrast verified. Lint clean, typecheck clean, 72 tests passing, build succeeding.
+Every token was defined. Named exactly as `docs/UI-UX/05` names them. Contrast verified. Lint clean, typecheck clean, 72 tests passing, build succeeding.
 
 And `text-body`, `text-heading-1`, `text-heading-2`, `text-heading-3`, `text-small` generated **no CSS at all**. Every piece of text in the console rendered at the browser's default size. So did `duration-quick`, `ease-standard`, and `w-nav` — the navigation had no width.
 
@@ -36,7 +36,7 @@ Nothing failed. **The tests passed because they read the source file**, and the 
 
 > A test that reads the input to a compiler cannot tell you what the compiler did.
 
-The fix keeps both vocabularies: `UI-UX/05`'s names hold the values (satisfying the DoD's "every token exists, by name"), and Tailwind's namespaces reference them, so there is one place to change a size. `@theme static` rather than a bare `@theme`, so a token exists whether or not a utility happens to use it yet — `--color-danger` has no user in the shell and must be there for the first destructive action that needs it.
+The fix keeps both vocabularies: `docs/UI-UX/05`'s names hold the values (satisfying the DoD's "every token exists, by name"), and Tailwind's namespaces reference them, so there is one place to change a size. `@theme static` rather than a bare `@theme`, so a token exists whether or not a utility happens to use it yet — `--color-danger` has no user in the shell and must be there for the first destructive action that needs it.
 
 `utilities.test.ts` now compiles Tailwind against the real source tree and asserts the classes the components use produce rules. Verified the only way worth trusting: the bug was deliberately reintroduced. The new test failed on all five sizes; the old source-reading test passed 48 of 48.
 
@@ -90,7 +90,7 @@ Deep links, headers and caching all confirmed on the public URL. `scripts/check.
 
 ## Outstanding
 
-- **`PG-12`**: `color-border` serves both input borders (WCAG 1.4.11 wants 3:1) and table dividers (which want a hairline). One token cannot do both well; it is set to the accessible value, so tables will read heavier than `UI-UX/00`'s density principle wants until `UI-UX/05` splits it.
+- **`PG-12`**: `color-border` serves both input borders (WCAG 1.4.11 wants 3:1) and table dividers (which want a hairline). One token cannot do both well; it is set to the accessible value, so tables will read heavier than `docs/UI-UX/00`'s density principle wants until `docs/UI-UX/05` splits it.
 - **`VITE_API_BASE_URL` is empty**, meaning same-origin. Nothing calls the API yet, so nothing is broken — but on `console.zedth.my.id` a Phase 1 call would go to that host rather than `auth.zedth.my.id`. Setting it is a build-time change plus a CORS decision on the backend, and belongs with `P1-03` when the console first authenticates.
-- The manual screen-reader pass `UI-UX/13` requires before Phase 5 has not happened. axe catches mechanical failures, not the ones needing judgement.
+- The manual screen-reader pass `docs/UI-UX/13` requires before Phase 5 has not happened. axe catches mechanical failures, not the ones needing judgement.
 - The console preview has no access control. It exposes the roadmap and the navigation structure and no data at all, which is a judgement the owner made deliberately in order to look at it.

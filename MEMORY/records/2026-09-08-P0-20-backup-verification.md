@@ -8,7 +8,7 @@
 
 ## The Operational Event
 
-**A backup of the staging database was restored successfully and verified against the source.** `PLAN/15` § Restore Testing puts it plainly: "a backup that's never been tested isn't a backup you can rely on", and `P0-20`'s Definition of Done asks for a restore executed at least once with the result recorded here.
+**A backup of the staging database was restored successfully and verified against the source.** `docs/PLAN/15` § Restore Testing puts it plainly: "a backup that's never been tested isn't a backup you can rely on", and `P0-20`'s Definition of Done asks for a restore executed at least once with the result recorded here.
 
 | | |
 |---|---|
@@ -48,7 +48,7 @@ Three of the five Definition-of-Done items are done. The other two are not mine 
 
 **Continuous deployment on merge to `main` is not set up.** It needs GitHub Actions to reach the VM, which means a deploy credential held by GitHub and a path into a machine that is currently reachable only through a tunnel. That is a decision about trust and exposure rather than a configuration task, and it is the owner's to make. Raised as `OQ-11`.
 
-**`AUTH_BACKUP_REMOTE` is unset, so backups are local only.** The script warns about it on every run, and the warning is right: a backup on the same disk as the database protects against `DROP TABLE` and against nothing else. Losing the VM loses the database and every backup of it together — which is exactly the failure domain `PLAN/15` requires backups to be outside of. Where they should go is a decision with a cost attached. Raised as `OQ-12`.
+**`AUTH_BACKUP_REMOTE` is unset, so backups are local only.** The script warns about it on every run, and the warning is right: a backup on the same disk as the database protects against `DROP TABLE` and against nothing else. Losing the VM loses the database and every backup of it together — which is exactly the failure domain `docs/PLAN/15` requires backups to be outside of. Where they should go is a decision with a cost attached. Raised as `OQ-12`.
 
 Two more items are **vacuously satisfied and should not be ticked as though they were achieved**: "staging signing keys and database are provably distinct from production" and "production promotion requires an explicit human action" are both trivially true because there is no production environment. They become real requirements when one exists, and marking them done now would mean nobody checks them then.
 

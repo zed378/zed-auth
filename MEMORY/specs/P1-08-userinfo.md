@@ -1,12 +1,12 @@
 # P1-08 — `GET /oauth/userinfo`
 
-Feature specification, per `PLAN/19-FEATURE-SPECIFICATION-TEMPLATE.md`. The card marks it "Spec required — data exposure", which is the right reason: this endpoint's whole job is to hand personal data to a caller, and every decision in it is about how much.
+Feature specification, per `docs/PLAN/19-FEATURE-SPECIFICATION-TEMPLATE.md`. The card marks it "Spec required — data exposure", which is the right reason: this endpoint's whole job is to hand personal data to a caller, and every decision in it is about how much.
 
 ---
 
 ## 1. Business Objective
 
-The endpoint a consumer application calls to find out who is holding an access token. It is the last piece of the OIDC core surface a conforming client expects, and `PLAN/12` measures it at `< 30ms` p50 / `< 100ms` p95 because SPAs call it on every page load.
+The endpoint a consumer application calls to find out who is holding an access token. It is the last piece of the OIDC core surface a conforming client expects, and `docs/PLAN/12` measures it at `< 30ms` p50 / `< 100ms` p95 because SPAs call it on every page load.
 
 Its objective is stated most usefully as a negative: **return exactly the claims the granted scopes authorise, and nothing else**. Every extra field is a field that leaks through every consumer that stores the response.
 
@@ -29,7 +29,7 @@ Its objective is stated most usefully as a negative: **return exactly the claims
 
 ## 4. Non-Functional Requirements
 
-- **NFR-1** One database round trip. `PLAN/12`'s budget is 100ms at p95 for the whole request, and the signature verification is already CPU work.
+- **NFR-1** One database round trip. `docs/PLAN/12`'s budget is 100ms at p95 for the whole request, and the signature verification is already CPU work.
 - **NFR-2** No token is logged, in any branch (`CLAUDE.md`).
 - **NFR-3** `Cache-Control: no-store`. The response is personal data addressed to one caller.
 
@@ -67,7 +67,7 @@ Response `200`:
 
 Every field but `sub` is present only when its scope was granted **and** the underlying column is not null. `sub` is always present.
 
-Errors carry the RFC 6750 challenge in `WWW-Authenticate` and `PLAN/05`'s envelope in the body — the header because that is what an OAuth client library reads, the body because every other endpoint in this service speaks the envelope and a client that reads bodies should not have to special-case this one.
+Errors carry the RFC 6750 challenge in `WWW-Authenticate` and `docs/PLAN/05`'s envelope in the body — the header because that is what an OAuth client library reads, the body because every other endpoint in this service speaks the envelope and a client that reads bodies should not have to special-case this one.
 
 ## 8. Frontend Changes
 
@@ -131,27 +131,27 @@ The exception is `insufficient_scope`, which is `403` and names the scope requir
 
 | # | Abuse case | Source | Control |
 |---|---|---|---|
-| A-1 | An ID token used as an access token | `SECURITY/02` §1 | `typ` must be `at+jwt`, checked before anything else about the token |
-| A-2 | `alg: none` or algorithm confusion | `SECURITY/02` §1 | `P1-03`'s closed algorithm list, applied before a key is fetched |
-| A-3 | A token minted by another issuer | `SECURITY/02` §1 | `iss` and signature both checked |
-| A-4 | A token for another audience replayed here | `SECURITY/02` §1 | `aud` checked |
-| A-5 | A stolen token used after logout | `SECURITY/02` §4 | Session liveness, §16 |
-| A-6 | Enumerating users by varying `sub` | `SECURITY/02` §12 | There is no parameter. The subject comes from the token |
-| A-7 | Learning whether a user exists from the error | `SECURITY/02` §12 | One `invalid_token` for every failure |
-| A-8 | Reading the response cross-origin from an attacker's page | `SECURITY/02` §12 | No CORS headers are sent, so a browser will not expose the body. See §21 |
-| A-9 | The token appearing in a proxy log | `SECURITY/02` §12 | Header only; no query parameter accepted |
+| A-1 | An ID token used as an access token | `docs/SECURITY/02` §1 | `typ` must be `at+jwt`, checked before anything else about the token |
+| A-2 | `alg: none` or algorithm confusion | `docs/SECURITY/02` §1 | `P1-03`'s closed algorithm list, applied before a key is fetched |
+| A-3 | A token minted by another issuer | `docs/SECURITY/02` §1 | `iss` and signature both checked |
+| A-4 | A token for another audience replayed here | `docs/SECURITY/02` §1 | `aud` checked |
+| A-5 | A stolen token used after logout | `docs/SECURITY/02` §4 | Session liveness, §16 |
+| A-6 | Enumerating users by varying `sub` | `docs/SECURITY/02` §12 | There is no parameter. The subject comes from the token |
+| A-7 | Learning whether a user exists from the error | `docs/SECURITY/02` §12 | One `invalid_token` for every failure |
+| A-8 | Reading the response cross-origin from an attacker's page | `docs/SECURITY/02` §12 | No CORS headers are sent, so a browser will not expose the body. See §21 |
+| A-9 | The token appearing in a proxy log | `docs/SECURITY/02` §12 | Header only; no query parameter accepted |
 
 ## 15. Logging / Audit
 
-**Not audited.** A successful userinfo call is a read of one's own claims by the holder of a token that was already audited when it was issued, and `PLAN/12` says SPAs call it on every page load — auditing it would add volume proportional to page views and no signal. `P1-09`'s spec makes the same call about introspection, for the same reason.
+**Not audited.** A successful userinfo call is a read of one's own claims by the holder of a token that was already audited when it was issued, and `docs/PLAN/12` says SPAs call it on every page load — auditing it would add volume proportional to page views and no signal. `P1-09`'s spec makes the same call about introspection, for the same reason.
 
 Failures are logged at INFO with the reason class and never the token. A metric counts outcomes.
 
 ## 16. Security Controls, and the one that costs something
 
-**Session liveness is checked, and it is a deliberate departure in spirit from `PLAN/04`.**
+**Session liveness is checked, and it is a deliberate departure in spirit from `docs/PLAN/04`.**
 
-`PLAN/04` § What Is Deliberately Not Stored Here says access tokens are not stored because "storing them would add a lookup to the hottest path in the system for no security gain". That reasoning is about the token endpoint and about storing tokens. Neither changes here: nothing is stored, and this is not the hottest path.
+`docs/PLAN/04` § What Is Deliberately Not Stored Here says access tokens are not stored because "storing them would add a lookup to the hottest path in the system for no security gain". That reasoning is about the token endpoint and about storing tokens. Neither changes here: nothing is stored, and this is not the hottest path.
 
 What would change without the check is real: a user clicks "log out", their session is revoked, and this endpoint keeps describing them for up to ten minutes — the access token's remaining life. For a page-load-time identity call that is the difference between logging out and appearing to.
 
@@ -185,7 +185,7 @@ The scope tests must assert absence, not just presence. A handler that returns e
 2. An expired token yields `401` and a correct challenge.
 3. No organization-internal identifier appears.
 4. Revoking the session invalidates the token here immediately.
-5. `PLAN/12`'s p95 target is met.
+5. `docs/PLAN/12`'s p95 target is met.
 
 ## 19. Implementation Sequence
 
@@ -202,11 +202,11 @@ No schema change. Rolling back removes the endpoint; discovery stops advertising
 
 ## 21. Gaps raised, not filled
 
-**PG-17 — there is no CORS policy anywhere in the plan.** `PLAN/12` says SPAs call this endpoint on every page load, which means a browser, which means cross-origin — and no plan document specifies an origin policy. `SECURITY/02` §12 names "overly permissive CORS" as a token-leak path, which is a warning without a rule to follow. The console (`P1-21`) is the second consumer and it is on a different hostname from the service.
+**PG-17 — there is no CORS policy anywhere in the plan.** `docs/PLAN/12` says SPAs call this endpoint on every page load, which means a browser, which means cross-origin — and no plan document specifies an origin policy. `docs/SECURITY/02` §12 names "overly permissive CORS" as a token-leak path, which is a warning without a rule to follow. The console (`P1-21`) is the second consumer and it is on a different hostname from the service.
 
 This endpoint sends **no CORS headers**, so a browser will not expose its body cross-origin. That is the safe default and it is also the one that makes a browser-based consumer not work, which is the honest state of affairs — the alternative is inventing an origin policy for an endpoint that returns email addresses. Doing it properly needs a per-application allowed-origins list, and the data model has nowhere to put one either.
 
-**PG-18 — `email_verified` has nothing behind it.** OIDC's `email` scope defines `email` and `email_verified`, and `PLAN/04` § `users` has no verification column. The claim is therefore **omitted** rather than returned as `false`: absent means "not asserted", which is true, while `false` would mean "we checked and it is not verified", which we did not. `P1-19.5` (invitation acceptance) is where verification would first be established.
+**PG-18 — `email_verified` has nothing behind it.** OIDC's `email` scope defines `email` and `email_verified`, and `docs/PLAN/04` § `users` has no verification column. The claim is therefore **omitted** rather than returned as `false`: absent means "not asserted", which is true, while `false` would mean "we checked and it is not verified", which we did not. `P1-19.5` (invitation acceptance) is where verification would first be established.
 
 ## 22. Technical Risks
 

@@ -18,15 +18,15 @@
 
 ## Why
 
-Both tasks were blocked on knowing where this runs. `P0-14`'s secret storage and `P0-20`'s entire content depend on it, and `PLAN/07` only said "Vault / cloud secret manager" without naming an environment.
+Both tasks were blocked on knowing where this runs. `P0-14`'s secret storage and `P0-20`'s entire content depend on it, and `docs/PLAN/07` only said "Vault / cloud secret manager" without naming an environment.
 
 ## The Deviation I Have to Flag
 
-`PLAN/14` § Environment Strategy and `PLAN/15` § High Availability both specify **Multi-AZ minimum for production**. A single VM is not that.
+`docs/PLAN/14` § Environment Strategy and `docs/PLAN/15` § High Availability both specify **Multi-AZ minimum for production**. A single VM is not that.
 
-This is not a technicality. `PLAN/09` opens by noting that a compromise here compromises every dependent application, and the same reasoning applies to an outage: a VM reboot takes authentication down platform-wide. Two Phase 5 tasks are also affected — `P5-06` requires horizontal scaling "verified in practice… by actually running a scale-out test", which one host cannot demonstrate, and `P5-07`'s DR drill wants an isolated environment to restore into.
+This is not a technicality. `docs/PLAN/09` opens by noting that a compromise here compromises every dependent application, and the same reasoning applies to an outage: a VM reboot takes authentication down platform-wide. Two Phase 5 tasks are also affected — `P5-06` requires horizontal scaling "verified in practice… by actually running a scale-out test", which one host cannot demonstrate, and `P5-07`'s DR drill wants an isolated environment to restore into.
 
-Recorded as **DV-01** in `TASKS/BACKLOG.md` with a new Open Deviations section, and in [ADR-011](../DECISIONS.md). It is reasonable now — the consumer applications that would define an SLA do not exist yet (`OQ-08` is open), and `PLAN/00`'s incremental principle argues against building HA before a single tenant is live. It stops being reasonable the moment something depends on it in production.
+Recorded as **DV-01** in `TASKS/BACKLOG.md` with a new Open Deviations section, and in [ADR-011](../DECISIONS.md). It is reasonable now — the consumer applications that would define an SLA do not exist yet (`OQ-08` is open), and `docs/PLAN/00`'s incremental principle argues against building HA before a single tenant is live. It stops being reasonable the moment something depends on it in production.
 
 ## How
 
@@ -34,7 +34,7 @@ Recorded as **DV-01** in `TASKS/BACKLOG.md` with a new Open Deviations section, 
 
 The design decision that makes the Kubernetes migration cheap: the service reads **references**, not values. `file:/etc/zed-auth/secrets/jwt-signing.pem` today; `vault:` or `awssm:` later. The scheme changes and nothing else does.
 
-It also matters for `signing_keys.private_key_ref`, which stores one of these (`PLAN/04`) and has a CHECK constraint refusing anything resembling key material.
+It also matters for `signing_keys.private_key_ref`, which stores one of these (`docs/PLAN/04`) and has a CHECK constraint refusing anything resembling key material.
 
 Three behaviors are worth naming because each prevents a specific real failure:
 
@@ -46,7 +46,7 @@ Trailing newlines are trimmed. An editor adds one, the value stops matching, and
 
 ### Deploy ordering
 
-`deploy.sh` enforces `PLAN/14` § Release Process as executable steps rather than documentation: refuse a tag (digest only), back up, migrate separately as the owner while the previous version still serves, roll out, smoke test **through the public TLS endpoint**, and on failure roll back the **application only**.
+`deploy.sh` enforces `docs/PLAN/14` § Release Process as executable steps rather than documentation: refuse a tag (digest only), back up, migrate separately as the owner while the previous version still serves, roll out, smoke test **through the public TLS endpoint**, and on failure roll back the **application only**.
 
 That last point is the one most likely to be "corrected" by someone later. The schema stays forward on rollback. That is safe precisely because migrations are expand/contract — the previous version tolerates the new schema — and rolling the database back would be the more dangerous action, not the safer one.
 
@@ -54,7 +54,7 @@ The smoke test goes through Caddy over TLS rather than hitting the container, be
 
 ### Backups verify themselves
 
-`PLAN/15` says a backup that has never been tested is not a backup you can rely on. So `backup.sh` does not finish at `pg_dump`: it restores into a throwaway database, checks all 14 tables arrived, and reports the `events` row count — the audit log being the thing most needed after an incident and most easily lost to a partition that was not dumped.
+`docs/PLAN/15` says a backup that has never been tested is not a backup you can rely on. So `backup.sh` does not finish at `pg_dump`: it restores into a throwaway database, checks all 14 tables arrived, and reports the `events` row count — the audit log being the thing most needed after an incident and most easily lost to a partition that was not dumped.
 
 It warns loudly when `AUTH_BACKUP_REMOTE` is unset, because a backup on the same disk as the database protects against `DROP TABLE` and nothing else, while providing the *feeling* of safety.
 
@@ -96,15 +96,15 @@ The permission tests skip on Windows, where POSIX mode bits are not meaningful. 
 
 | Abuse case | Source | Test |
 |---|---|---|
-| Secret readable by another service on the host | `SECURITY/02` §16 | `TestSecretResolver_RefusesBroadFilePermissions` |
-| Key material stored where a reference belongs | `PLAN/02` § Constraints | `TestIsSecretMaterial`, plus the DB constraint |
-| Secret path disclosed in logs | `SECURITY/02` §12 | `TestSecretRef_StringDoesNotDiscloseTheReference` |
-| Credential committed to the repository | `SECURITY/02` §16 | pre-commit hook, verified against six cases; gitleaks in CI |
-| Service reaching owner credentials | `PLAN/08` Part B, `SECURITY/02` §19 | CI assertion over the rendered compose config |
-| Rate-limit bypass via forged `X-Forwarded-For` | `SECURITY/02` §10 | Caddy overwrites rather than appends |
-| Correlation-ID collision by a caller | `SECURITY/02` §10 | Caddy strips inbound `X-Request-Id` |
-| Silent code substitution via a mutable tag | `SECURITY/02` §15 | `deploy.sh` refuses a non-digest image |
-| Staging token valid in production | `PLAN/13`, `PLAN/14` | `deploy.sh` fingerprints signing keys across environments |
+| Secret readable by another service on the host | `docs/SECURITY/02` §16 | `TestSecretResolver_RefusesBroadFilePermissions` |
+| Key material stored where a reference belongs | `docs/PLAN/02` § Constraints | `TestIsSecretMaterial`, plus the DB constraint |
+| Secret path disclosed in logs | `docs/SECURITY/02` §12 | `TestSecretRef_StringDoesNotDiscloseTheReference` |
+| Credential committed to the repository | `docs/SECURITY/02` §16 | pre-commit hook, verified against six cases; gitleaks in CI |
+| Service reaching owner credentials | `docs/PLAN/08` Part B, `docs/SECURITY/02` §19 | CI assertion over the rendered compose config |
+| Rate-limit bypass via forged `X-Forwarded-For` | `docs/SECURITY/02` §10 | Caddy overwrites rather than appends |
+| Correlation-ID collision by a caller | `docs/SECURITY/02` §10 | Caddy strips inbound `X-Request-Id` |
+| Silent code substitution via a mutable tag | `docs/SECURITY/02` §15 | `deploy.sh` refuses a non-digest image |
+| Staging token valid in production | `docs/PLAN/13`, `docs/PLAN/14` | `deploy.sh` fingerprints signing keys across environments |
 
 ## Definition of Done Verification
 
@@ -144,6 +144,6 @@ Both unmet items are stated rather than quietly ticked.
 
 **The `env_file` bug will want to come back.** `env_file` is shorter, more idiomatic, and looks obviously correct. The CI assertion is the only thing standing between convenience and handing the service RLS-bypassing credentials — if someone adds a variable and the assertion starts failing, the fix is to name the variable, not to relax the check.
 
-**`deploy.sh` has never run.** Its logic is sound and shellcheck is clean, but sound-and-unrun is exactly the state `PLAN/15` warns about for backups, and the same applies here. The first real deploy is the test.
+**`deploy.sh` has never run.** Its logic is sound and shellcheck is clean, but sound-and-unrun is exactly the state `docs/PLAN/15` warns about for backups, and the same applies here. The first real deploy is the test.
 
 **Certificate renewal is now a silent dependency.** Caddy renews automatically, which is why it was chosen — but nothing alerts if renewal fails. On a single VM an expired certificate is a total outage, and `P0-11` (metrics) or `P5-08` (monitoring) should add a certificate-expiry alert before this carries real traffic.

@@ -1,6 +1,6 @@
 # Serves a built console from the staging VM.
 #
-# A preview of the current build, not a production deployment. PLAN/06 puts the
+# A preview of the current build, not a production deployment. docs/PLAN/06 puts the
 # console on a CDN or static host, deployed independently of the backend; this
 # is the smallest thing that behaves the same way — same nginx config, same
 # SPA fallback, same headers — so what is verified here is what ships.

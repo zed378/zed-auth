@@ -53,7 +53,7 @@ func Build(s Subject, email string, scope []string) Claims {
 		// `sub` is always present and is the user's UUID.
 		//
 		// Not sequential, not guessable, and NOT the email address —
-		// SECURITY/02 §12 names all three. A `sub` that is an email is a
+		// docs/SECURITY/02 §12 names all three. A `sub` that is an email is a
 		// permanent link between an identifier a consumer stores forever and a
 		// value the user may change, and it hands every consumer a working
 		// address list.
@@ -82,7 +82,7 @@ func Build(s Subject, email string, scope []string) Claims {
 
 		// `email_verified` is deliberately ABSENT — see PG-18.
 		//
-		// OIDC's email scope defines both claims and PLAN/04 § users has no
+		// OIDC's email scope defines both claims and docs/PLAN/04 § users has no
 		// verification column, so there is nothing behind it. Returning
 		// `false` would be worse than omitting: absent means "not asserted",
 		// which is true, while false means "we checked and it is not

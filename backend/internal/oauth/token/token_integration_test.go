@@ -26,6 +26,7 @@ import (
 	"github.com/zed378/zed-auth/backend/internal/config"
 	"github.com/zed378/zed-auth/backend/internal/oauth/authorize"
 	"github.com/zed378/zed-auth/backend/internal/oauth/client"
+	"github.com/zed378/zed-auth/backend/internal/session"
 	"github.com/zed378/zed-auth/backend/internal/signing"
 	"github.com/zed378/zed-auth/backend/internal/storage/postgres"
 	"github.com/zed378/zed-auth/backend/internal/testsupport"
@@ -38,18 +39,19 @@ func discard() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, ni
 const testIssuer = "https://auth.example"
 
 type fixture struct {
-	db       *postgres.DB
-	rdb      *redis.Client
-	factory  *testsupport.Factory
-	handler  *Handler
-	codes    *authorize.Store
-	clients  *client.Store
-	orgID    string
-	userID   string
-	appID    string
-	secret   client.Secret
-	verifier string
-	keys     *signing.Cache
+	db        *postgres.DB
+	rdb       *redis.Client
+	factory   *testsupport.Factory
+	handler   *Handler
+	codes     *authorize.Store
+	clients   *client.Store
+	orgID     string
+	userID    string
+	appID     string
+	sessionID string
+	secret    client.Secret
+	verifier  string
+	keys      *signing.Cache
 }
 
 // setup builds the whole chain the token endpoint sits at the end of: a real
@@ -106,6 +108,27 @@ func setup(t *testing.T) fixture {
 
 	keys := signingKeys(t, stack)
 
+	// A REAL session, and the manager wired in.
+	//
+	// The fixture used to pin SessionID to "" and leave Sessions nil, which
+	// meant two things were never exercised: the `sid` claim, and the refresh
+	// grant's session-liveness check. P1-08 made the first one matter —
+	// /oauth/userinfo looks the session up by `sid`, so an access token
+	// without one is refused there — and a test written against the old
+	// fixture would have passed while every real token failed at userinfo.
+	sessions := session.NewManager(db, session.NewCache(rdb, nil), auditor, discard())
+
+	var browser session.Session
+	if err := db.WithTenant(context.Background(), orgID, func(tx *postgres.Tx) error {
+		var err error
+		browser, _, err = sessions.Create(context.Background(), tx, session.New{
+			UserID: userID, OrgID: orgID, AuthMethods: []string{"pwd"}, IP: "192.0.2.1",
+		}, session.DefaultPolicy, time.Now())
+		return err
+	}); err != nil {
+		t.Fatalf("creating the session: %v", err)
+	}
+
 	f := fixture{
 		db:       db,
 		rdb:      rdb,
@@ -118,17 +141,20 @@ func setup(t *testing.T) fixture {
 		secret:   secret,
 		verifier: "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk",
 		keys:     keys,
+
+		sessionID: browser.ID,
 	}
 
 	f.handler = &Handler{
-		Issuer:  testIssuer,
-		Clients: clientAdapter{store: clients, db: db},
-		Codes:   f.codes,
-		Refresh: NewRefreshStore(),
-		Signer:  signing.NewSigner(keys),
-		DB:      db,
-		Audit:   auditor,
-		Log:     discard(),
+		Issuer:   testIssuer,
+		Clients:  clientAdapter{store: clients, db: db},
+		Codes:    f.codes,
+		Refresh:  NewRefreshStore(),
+		Signer:   signing.NewSigner(keys),
+		Sessions: liveness{sessions: sessions},
+		DB:       db,
+		Audit:    auditor,
+		Log:      discard(),
 	}
 	return f
 }
@@ -171,6 +197,15 @@ func signingKeys(t *testing.T, stack *testsupport.Stack) *signing.Cache {
 	}, time.Minute)
 }
 
+// liveness is what main.go wires as sessionLiveness: the refresh grant refuses
+// a token whose session has ended. Reproduced here so the test exercises the
+// same seam rather than leaving Sessions nil and skipping the check.
+type liveness struct{ sessions *session.Manager }
+
+func (l liveness) IsLive(ctx context.Context, sessionID string, now time.Time) bool {
+	return l.sessions.IsLive(ctx, sessionID, now)
+}
+
 // clientAdapter is what main.go wires; reproduced here so the test exercises
 // the same seam.
 type clientAdapter struct {
@@ -195,7 +230,7 @@ func (f fixture) issueCode(t *testing.T, mutate func(*authorize.Code)) string {
 		RedirectURI:   "https://app.example.com/cb",
 		UserID:        f.userID,
 		OrgID:         f.orgID,
-		SessionID:     "",
+		SessionID:     f.sessionID,
 		Scope:         []string{"openid", "profile", "offline_access"},
 		CodeChallenge: challengeFor(f.verifier),
 		AuthMethods:   []string{"pwd"},
@@ -289,9 +324,28 @@ func TestTheIssuedIDTokenVerifiesAgainstTheJWKS(t *testing.T) {
 
 	// Verified through the same Verifier a consumer's library models, against
 	// the published key set rather than the private key.
-	payload, err := signing.NewVerifier(f.keys).Verify(idToken)
+	payload, err := signing.NewVerifier(f.keys).Verify(idToken, signing.TypeJWT)
 	if err != nil {
 		t.Fatalf("the issued id_token does not verify against the published keys: %v", err)
+	}
+
+	// And it does NOT verify as an access token. P1-08 relies on exactly this
+	// to refuse an id_token presented as a bearer credential (abuse case A-5),
+	// so the property is asserted where the tokens are actually issued rather
+	// than only where they are consumed.
+	if _, err := signing.NewVerifier(f.keys).Verify(idToken, signing.TypeAccessToken); err == nil {
+		t.Error("the issued id_token verifies as an access token; typ is not distinguishing them")
+	}
+
+	accessToken, _ := body["access_token"].(string)
+	if accessToken == "" {
+		t.Fatal("no access_token was issued")
+	}
+	if _, err := signing.NewVerifier(f.keys).Verify(accessToken, signing.TypeAccessToken); err != nil {
+		t.Errorf("the issued access token does not verify as at+jwt: %v", err)
+	}
+	if _, err := signing.NewVerifier(f.keys).Verify(accessToken, signing.TypeJWT); err == nil {
+		t.Error("the issued access token verifies as an id_token; typ is not distinguishing them")
 	}
 
 	var claims map[string]any
@@ -592,4 +646,80 @@ func TestRefusedGrantsAtTheEndpoint(t *testing.T) {
 			}
 		})
 	}
+}
+
+// P1-08 depends on this, and nothing asserted it until P1-08 was written.
+//
+// The `sid` claim is what /oauth/userinfo looks the session up by, so an
+// access token without one is refused there. A fresh token obviously carries
+// it; the one worth testing is the REFRESHED token, because the refresh path
+// builds its own Subject and dropping SessionID from that struct is a one-line
+// edit that breaks nothing here and makes every refreshed token fail at
+// userinfo with `invalid_token` — which reads like a signature problem and is
+// very hard to trace back.
+func TestSidSurvivesARefresh(t *testing.T) {
+	f := setup(t)
+
+	first := decode(t, f.exchange(t, f.issueCode(t, nil)))
+	original := claimsOf(t, f, first["access_token"].(string))
+
+	if original["sid"] == nil || original["sid"] == "" {
+		t.Fatal("a freshly issued access token carries no sid; userinfo cannot " +
+			"check the session behind it")
+	}
+
+	refresh, _ := first["refresh_token"].(string)
+	rec := f.post(t, url.Values{
+		"grant_type":    {GrantRefreshToken},
+		"refresh_token": {refresh},
+	}, true)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("the refresh failed: %d %s", rec.Code, rec.Body.String())
+	}
+
+	refreshed := claimsOf(t, f, decode(t, rec)["access_token"].(string))
+
+	if refreshed["sid"] != original["sid"] {
+		t.Errorf("sid = %v after a refresh, want the original %v — a refreshed "+
+			"token that loses its sid is refused by /oauth/userinfo",
+			refreshed["sid"], original["sid"])
+	}
+}
+
+// A client_credentials token has no user and must carry no sid: `sub` is the
+// client, and userinfo refuses it partly on that absence.
+func TestClientCredentialsCarriesNoSession(t *testing.T) {
+	f := setup(t)
+
+	rec := f.post(t, url.Values{"grant_type": {GrantClientCredentials}}, true)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("client_credentials failed: %d %s", rec.Code, rec.Body.String())
+	}
+
+	claims := claimsOf(t, f, decode(t, rec)["access_token"].(string))
+
+	if _, present := claims["sid"]; present {
+		t.Errorf("a client_credentials token carries sid=%v; there is no session "+
+			"and no user behind it", claims["sid"])
+	}
+	if claims["sub"] != f.appID {
+		t.Errorf("sub = %v, want the client id", claims["sub"])
+	}
+}
+
+// claimsOf verifies a token against the published key set and returns its
+// claims — the same path a resource server takes.
+func claimsOf(t *testing.T, f fixture, compact string) map[string]any {
+	t.Helper()
+
+	payload, err := signing.NewVerifier(f.keys).Verify(compact, signing.TypeAccessToken)
+	if err != nil {
+		t.Fatalf("verifying the access token: %v", err)
+	}
+
+	var claims map[string]any
+	if err := json.Unmarshal(payload, &claims); err != nil {
+		t.Fatalf("decoding claims: %v", err)
+	}
+	return claims
 }

@@ -132,7 +132,7 @@ func NewVerifier(cache *Cache) *Verifier { return &Verifier{cache: cache} }
 //	  key is fetched.
 //
 // The general rule: the algorithm is decided by the SERVER's policy, never by
-// the attacker-supplied header (SECURITY/02 §1).
+// the attacker-supplied header (docs/SECURITY/02 §1).
 var allowedAlgorithms = []jose.SignatureAlgorithm{jose.RS256, jose.ES256}
 
 // Verify checks a compact JWS of the expected type and returns its payload.

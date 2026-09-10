@@ -48,13 +48,21 @@ output-options:
   #     silently takes the first value. Parameter pollution is a real bypass
   #     technique and the handler refuses duplicates outright.
   #
-  # The endpoint stays in openapi.yaml, so it is documented, so the public API
-  # reference generates from it, and so openapi-shipped-paths.py still checks
-  # that the spec claims nothing beyond what ships. Only the code generation is
-  # skipped, and httpserver registers the handler explicitly.
+  # /oauth/userinfo needs the Authorization header for the same reason
+  # /oauth/token does: the bearer credential lives there, and the strict
+  # interface hands over neither the header nor the request. It also answers
+  # with an RFC 6750 WWW-Authenticate challenge whose contents depend on WHY
+  # the request failed, which is a header the generated wrapper has no way to
+  # set.
+  #
+  # The endpoints stay in openapi.yaml, so they are documented, so the public
+  # API reference generates from them, and so openapi-shipped-paths.py still
+  # checks that the spec claims nothing beyond what ships. Only the code
+  # generation is skipped, and httpserver registers the handlers explicitly.
   exclude-operation-ids:
     - authorize
     - token
+    - userinfo
 
 generate:
   # Request and response types. The whole point: a field renamed in the spec

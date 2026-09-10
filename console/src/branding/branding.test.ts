@@ -77,7 +77,7 @@ describe("branding is limited to the accent colour and the logo", () => {
 });
 
 describe("a custom accent is contrast-checked before it is applied", () => {
-  // UI-UX/13 § Colour & Contrast: validate at the point an org admin sets the
+  // docs/UI-UX/13 § Colour & Contrast: validate at the point an org admin sets the
   // colour, "rather than allowing an inaccessible combination to ship
   // silently". The accent is the focus ring, so an unreadable one is an
   // accessibility failure on every screen at once.

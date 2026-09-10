@@ -45,7 +45,7 @@ func newRequestID() string {
 // must only be true when the service sits behind a proxy that strips or
 // overwrites client-supplied values: otherwise any caller can choose their own
 // correlation ID, collide it with someone else's deliberately, and make an
-// incident timeline unreadable (SECURITY/02-ATTACK-SURFACE-AND-SCENARIOS.md §10
+// incident timeline unreadable (docs/SECURITY/02-ATTACK-SURFACE-AND-SCENARIOS.md §10
 // makes the same argument for rate-limit headers).
 func RequestID(trustProxyHeaders bool) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
@@ -115,7 +115,7 @@ func (r *statusRecorder) Unwrap() http.ResponseWriter { return r.ResponseWriter 
 //
 // It deliberately logs the URL *path* and never the raw query string: the query
 // string on /oauth/authorize carries code_challenge and state, and on the
-// callback it can carry an authorization code (PLAN/13-OBSERVABILITY.md).
+// callback it can carry an authorization code (docs/PLAN/13-OBSERVABILITY.md).
 func AccessLog(log *slog.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -132,7 +132,7 @@ func AccessLog(log *slog.Logger) func(http.Handler) http.Handler {
 			// A 5xx is a system failure. A 4xx is usually the client being
 			// wrong, which is expected traffic — logging it at error level is
 			// how error dashboards become noise nobody reads
-			// (PLAN/13-OBSERVABILITY.md § Logging).
+			// (docs/PLAN/13-OBSERVABILITY.md § Logging).
 			level := slog.LevelInfo
 			switch {
 			case status >= 500:
@@ -157,7 +157,7 @@ func AccessLog(log *slog.Logger) func(http.Handler) http.Handler {
 //
 // The response body is deliberately generic: a panic message or stack trace
 // returned to the caller is an information-disclosure bug
-// (PLAN/10-THREAT-MODEL.md § Information Disclosure).
+// (docs/PLAN/10-THREAT-MODEL.md § Information Disclosure).
 func Recover(log *slog.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -204,7 +204,7 @@ func SecurityHeaders(next http.Handler) http.Handler {
 		// This is an API and an auth surface; nothing here should be framed.
 		h.Set("X-Frame-Options", "DENY")
 		// No API response should ever be cached by an intermediary. Token
-		// responses set this too (PLAN/05-API-CONTRACT.md), but a default here
+		// responses set this too (docs/PLAN/05-API-CONTRACT.md), but a default here
 		// means a new endpoint cannot forget.
 		h.Set("Cache-Control", "no-store")
 		next.ServeHTTP(w, r)
@@ -216,7 +216,7 @@ func SecurityHeaders(next http.Handler) http.Handler {
 // Every dependency call must also carry its own timeout — this is a backstop,
 // not the primary mechanism. Without it a slow dependency holds a connection
 // open indefinitely, which is how a degraded dependency becomes an outage
-// (PLAN/13-OBSERVABILITY.md § Graceful Degradation).
+// (docs/PLAN/13-OBSERVABILITY.md § Graceful Degradation).
 func Timeout(d time.Duration) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.TimeoutHandler(next, d,

@@ -4,7 +4,7 @@
 // rather than an omission (P1-03 step 5). A scheduled rotation that fails at
 // 03:00 is worse than a deliberate one at 11:00: the failure modes here —
 // a key that cannot be resolved, a consumer whose JWKS cache has not
-// refreshed — are ones a person should be watching for. PLAN/09's 90-day
+// refreshed — are ones a person should be watching for. docs/PLAN/09's 90-day
 // cadence is the operational expectation, kept in the runbook and in a
 // calendar, not in this binary.
 //

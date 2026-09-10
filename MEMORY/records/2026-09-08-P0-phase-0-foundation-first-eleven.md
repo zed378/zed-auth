@@ -33,9 +33,9 @@ Five decisions were significant enough to record as ADRs ([ADR-006](../DECISIONS
 
 Beyond those, the choices worth naming here:
 
-**The Postgres role split is the load-bearing decision of the whole phase.** `auth_owner` owns the schema and runs migrations; `auth_app` is the service's runtime role, created `NOSUPERUSER NOBYPASSRLS` and owning nothing. `PLAN/08` Part B wants cross-tenant isolation to be a database property rather than a code-review outcome, and RLS is silently bypassed by both the table owner and any `BYPASSRLS` role. If the service connected as the owner, every RLS policy `P0-08` adds would be disabled while every test still passed. That is the worst kind of security failure — invisible — so it is asserted by an integration test rather than assumed.
+**The Postgres role split is the load-bearing decision of the whole phase.** `auth_owner` owns the schema and runs migrations; `auth_app` is the service's runtime role, created `NOSUPERUSER NOBYPASSRLS` and owning nothing. `docs/PLAN/08` Part B wants cross-tenant isolation to be a database property rather than a code-review outcome, and RLS is silently bypassed by both the table owner and any `BYPASSRLS` role. If the service connected as the owner, every RLS policy `P0-08` adds would be disabled while every test still passed. That is the worst kind of security failure — invisible — so it is asserted by an integration test rather than assumed.
 
-**`/healthz` deliberately checks nothing.** If liveness consulted Postgres, a brief database blip would make Kubernetes kill every pod simultaneously, converting a recoverable dependency failure into a full outage. `/readyz` does check dependencies, but its response body names none of them: it is reachable from the load balancer and is a standard reconnaissance target, so "postgres: connection refused at 10.0.4.2:5432" would hand over infrastructure topology (`SECURITY/02` §12). The detail goes to the logs, where an operator can see it.
+**`/healthz` deliberately checks nothing.** If liveness consulted Postgres, a brief database blip would make Kubernetes kill every pod simultaneously, converting a recoverable dependency failure into a full outage. `/readyz` does check dependencies, but its response body names none of them: it is reachable from the load balancer and is a standard reconnaissance target, so "postgres: connection refused at 10.0.4.2:5432" would hand over infrastructure topology (`docs/SECURITY/02` §12). The detail goes to the logs, where an operator can see it.
 
 **Graceful shutdown needed `context.WithoutCancel`.** The obvious implementation derives the shutdown deadline from the already-cancelled parent context, which makes `Shutdown` return immediately and drop exactly the in-flight requests it exists to protect. The test that catches this starts a slow request, cancels mid-flight, and asserts the response still arrives complete.
 
@@ -73,15 +73,15 @@ Beyond those, the choices worth naming here:
 
 | Abuse case | Source | Test |
 |---|---|---|
-| Audit log tampering | `SECURITY/02` §19 | `TestEventsAreAppendOnlyForTheApplicationRole` — UPDATE and DELETE both refused with permission denied |
-| Enumeration via health endpoint | `SECURITY/02` §12 | `TestHealth_ReadinessLeaksNoInfrastructureDetail` |
-| Information disclosure via panic | `PLAN/10` § Information Disclosure | `TestRecover_ReturnsGenericErrorAndKeepsServing` — asserts a connection string in the panic does not reach the body |
-| Log injection via correlation header | `SECURITY/02` §10 | `TestRequestID_RejectsMalformedProxyHeader` — six malformed shapes including newline and null byte |
-| Correlation-ID collision by an untrusted client | `SECURITY/02` §10 | `TestRequestID_IgnoresClientHeaderWhenProxyNotTrusted` |
-| Credential leakage into logs | `PLAN/13`, `CLAUDE.md` | `TestNewLogger_RedactsSensitiveKeys`, plus a CI grep refusing raw headers or bodies at a log call |
-| Private key material stored inline | `PLAN/02` § Constraints | `TestSigningKeysRefuseInlinePrivateKeyMaterial` |
-| Public client holding a secret | `PLAN/05` Part A | `TestPublicClientsCannotHoldASecret` |
-| Cross-tenant leakage via RLS bypass | `SECURITY/02` §2 | `TestAppRoleCannotBypassRowLevelSecurity`, `TestAppRoleDoesNotOwnTables` (preconditions; policies themselves are `P0-08`) |
+| Audit log tampering | `docs/SECURITY/02` §19 | `TestEventsAreAppendOnlyForTheApplicationRole` — UPDATE and DELETE both refused with permission denied |
+| Enumeration via health endpoint | `docs/SECURITY/02` §12 | `TestHealth_ReadinessLeaksNoInfrastructureDetail` |
+| Information disclosure via panic | `docs/PLAN/10` § Information Disclosure | `TestRecover_ReturnsGenericErrorAndKeepsServing` — asserts a connection string in the panic does not reach the body |
+| Log injection via correlation header | `docs/SECURITY/02` §10 | `TestRequestID_RejectsMalformedProxyHeader` — six malformed shapes including newline and null byte |
+| Correlation-ID collision by an untrusted client | `docs/SECURITY/02` §10 | `TestRequestID_IgnoresClientHeaderWhenProxyNotTrusted` |
+| Credential leakage into logs | `docs/PLAN/13`, `CLAUDE.md` | `TestNewLogger_RedactsSensitiveKeys`, plus a CI grep refusing raw headers or bodies at a log call |
+| Private key material stored inline | `docs/PLAN/02` § Constraints | `TestSigningKeysRefuseInlinePrivateKeyMaterial` |
+| Public client holding a secret | `docs/PLAN/05` Part A | `TestPublicClientsCannotHoldASecret` |
+| Cross-tenant leakage via RLS bypass | `docs/SECURITY/02` §2 | `TestAppRoleCannotBypassRowLevelSecurity`, `TestAppRoleDoesNotOwnTables` (preconditions; policies themselves are `P0-08`) |
 
 ## Definition of Done Verification
 

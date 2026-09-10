@@ -1,7 +1,7 @@
 // Package token implements POST /oauth/token — the exchange of an
 // authorization code, a refresh token, or client credentials for tokens.
 //
-// PLAN/12 calls this the highest-volume, most latency-sensitive endpoint in
+// docs/PLAN/12 calls this the highest-volume, most latency-sensitive endpoint in
 // the system: every consumer's login latency is this endpoint's latency, and
 // so is every silent renewal. ADR-016's choice of SHA-256 over Argon2id for
 // client secrets was made for this path specifically, and it is spent here.
@@ -25,7 +25,7 @@ import (
 // OAuth 2.1 token-endpoint errors.
 //
 // A JSON body here rather than the redirect parameters /oauth/authorize uses,
-// and different again from PLAN/05's envelope. Three vocabularies in one
+// and different again from docs/PLAN/05's envelope. Three vocabularies in one
 // service sounds like a mess and is not: each is what the caller at that
 // boundary already parses, and inventing a fourth to unify them would mean
 // every consumer library needed special handling for us.
@@ -69,15 +69,15 @@ const (
 	GrantClientCredentials = "client_credentials"
 )
 
-// refusedGrants are the two PLAN/05 rules out permanently.
+// refusedGrants are the two docs/PLAN/05 rules out permanently.
 //
 // Named explicitly rather than falling through to "unknown grant". A client
 // built against the password grant should be told the service will never
 // support it, not left wondering whether it typed the name wrong.
 var refusedGrants = map[string]string{
-	"password": "resource owner password credentials are not supported (PLAN/05); " +
+	"password": "resource owner password credentials are not supported (docs/PLAN/05); " +
 		"use the authorization code flow",
-	"implicit": "the implicit flow is deprecated in OAuth 2.1 and is not supported (PLAN/05); " +
+	"implicit": "the implicit flow is deprecated in OAuth 2.1 and is not supported (docs/PLAN/05); " +
 		"use the authorization code flow with PKCE",
 	// The URN forms, since a library may send either.
 	"urn:ietf:params:oauth:grant-type:jwt-bearer":   "assertion grants are not supported",
@@ -237,7 +237,7 @@ func AuthenticateClient(
 	if !stored.Verify(creds.Secret, now) {
 		// The same answer as "no such client", deliberately. Distinguishing
 		// them would confirm which client ids exist to anyone who can send a
-		// request (SECURITY/02 §12).
+		// request (docs/SECURITY/02 §12).
 		return Error{
 			Code: ErrInvalidClient, Status: http.StatusUnauthorized, Basic: creds.UsedBasic,
 			Description: "client authentication failed",

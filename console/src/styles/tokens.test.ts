@@ -29,8 +29,8 @@ function defined(name: string): boolean {
   return new RegExp(`^\\s*--${name}:`, "m").test(CSS);
 }
 
-// UI-UX/05-DESIGN-SYSTEM.md § Color, verbatim. Every one of the nine must
-// exist by this name — the DoD says "every token in UI-UX/05 exists in code,
+// docs/UI-UX/05-DESIGN-SYSTEM.md § Color, verbatim. Every one of the nine must
+// exist by this name — the DoD says "every token in docs/UI-UX/05 exists in code,
 // by name", and a token silently renamed is a page spec that no longer maps
 // onto anything.
 const COLOR_TOKENS = [
@@ -68,10 +68,10 @@ const SPACING_TOKENS = [
   "spacing-8",
 ] as const;
 
-// UI-UX/05 § Elevation: flat, raised, overlay. Three, not a scale.
+// docs/UI-UX/05 § Elevation: flat, raised, overlay. Three, not a scale.
 const ELEVATION_TOKENS = ["shadow-flat", "shadow-raised", "shadow-overlay"] as const;
 
-describe("every token UI-UX/05 names exists, by name", () => {
+describe("every token docs/UI-UX/05 names exists, by name", () => {
   it.each([...COLOR_TOKENS, ...TYPE_TOKENS, ...SPACING_TOKENS, ...ELEVATION_TOKENS])(
     "--%s",
     (name) => {
@@ -80,7 +80,7 @@ describe("every token UI-UX/05 names exists, by name", () => {
   );
 
   it("has exactly the nine colour tokens, no more", () => {
-    // A tenth colour token is a design-system change, and UI-UX/05 §
+    // A tenth colour token is a design-system change, and docs/UI-UX/05 §
     // Governance requires that to happen in the design system before a screen
     // uses it. This fails on a colour added here first.
     const declared = [...CSS.matchAll(/^\s*--(color-[a-z-]+):/gm)].map((m) => m[1]);
@@ -89,7 +89,7 @@ describe("every token UI-UX/05 names exists, by name", () => {
   });
 
   it("keeps the type scale to five steps", () => {
-    // UI-UX/05 asks for 5-6, "not an open-ended set".
+    // docs/UI-UX/05 asks for 5-6, "not an open-ended set".
     const sizes = [...CSS.matchAll(/^\s*--(font-size-[a-z0-9-]+):/gm)].map((m) => m[1]);
 
     expect(sizes).toHaveLength(5);
@@ -97,7 +97,7 @@ describe("every token UI-UX/05 names exists, by name", () => {
 });
 
 describe("text meets WCAG 2.1 AA against both background tokens", () => {
-  // UI-UX/05 states this for color-text-*, and UI-UX/13 § Colour & Contrast
+  // docs/UI-UX/05 states this for color-text-*, and docs/UI-UX/13 § Colour & Contrast
   // makes it a requirement of the accessibility target. Checked against BOTH
   // backgrounds because a token that passes on the page but fails inside a
   // card is a failure on every table in the console.
@@ -127,7 +127,7 @@ describe("text meets WCAG 2.1 AA against both background tokens", () => {
 
 describe("borders meet WCAG 2.1 AA non-text contrast", () => {
   // 1.4.11: 3:1 for the visual information that identifies a UI component. An
-  // input's border is exactly that, and UI-UX/05 gives one token for both
+  // input's border is exactly that, and docs/UI-UX/05 gives one token for both
   // input borders and table dividers — so the single token errs toward the
   // accessible reading. See BACKLOG PG-12 for the proposed split.
   it.each([
@@ -143,7 +143,7 @@ describe("borders meet WCAG 2.1 AA non-text contrast", () => {
 
 describe("the accessibility rules that are easy to delete by accident", () => {
   it("defines a focus ring using the accent token", () => {
-    // UI-UX/13: visible focus indicators on every focusable element, using
+    // docs/UI-UX/13: visible focus indicators on every focusable element, using
     // color-accent, "never suppressed for aesthetic reasons". The most common
     // way this regresses is someone removing the outline to tidy a design.
     expect(CSS).toMatch(/:focus-visible\s*\{/);
@@ -155,7 +155,7 @@ describe("the accessibility rules that are easy to delete by accident", () => {
   });
 
   it("honours prefers-reduced-motion", () => {
-    // UI-UX/13 § Motion calls this "a hard requirement, not a nice-to-have".
+    // docs/UI-UX/13 § Motion calls this "a hard requirement, not a nice-to-have".
     expect(CSS).toMatch(/@media \(prefers-reduced-motion: reduce\)/);
   });
 });

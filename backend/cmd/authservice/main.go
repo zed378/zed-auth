@@ -2,7 +2,7 @@
 // authentication, authorization, and the Management REST API.
 //
 // This file does wiring only. Business logic lives in internal/ packages, so
-// the modular monolith described in PLAN/07-BACKEND-ARCHITECTURE.md can be
+// the modular monolith described in docs/PLAN/07-BACKEND-ARCHITECTURE.md can be
 // split later without a rewrite.
 package main
 
@@ -30,6 +30,7 @@ import (
 	"github.com/zed378/zed-auth/backend/internal/oauth/authorize"
 	"github.com/zed378/zed-auth/backend/internal/oauth/client"
 	"github.com/zed378/zed-auth/backend/internal/oauth/token"
+	"github.com/zed378/zed-auth/backend/internal/oauth/userinfo"
 	"github.com/zed378/zed-auth/backend/internal/observability"
 	"github.com/zed378/zed-auth/backend/internal/oidc"
 	"github.com/zed378/zed-auth/backend/internal/session"
@@ -50,7 +51,7 @@ const partitionMonthsAhead = 3
 func main() {
 	// -healthcheck exists because the runtime image is distroless: it has no
 	// shell and no curl, so a container healthcheck has to be the binary
-	// itself (SECURITY/02-ATTACK-SURFACE-AND-SCENARIOS.md §17 — a runtime image
+	// itself (docs/SECURITY/02-ATTACK-SURFACE-AND-SCENARIOS.md §17 — a runtime image
 	// carrying a shell just to run a healthcheck is attack surface added for
 	// operational convenience).
 	healthcheck := flag.Bool("healthcheck", false, "probe the local readiness endpoint and exit 0 if ready")
@@ -106,7 +107,7 @@ func run() error {
 
 	// Cancelled on SIGINT or SIGTERM. Kubernetes sends SIGTERM before removing
 	// a pod from the load balancer, which is the window graceful shutdown uses
-	// to drain in-flight requests (PLAN/14-DEPLOYMENT.md).
+	// to drain in-flight requests (docs/PLAN/14-DEPLOYMENT.md).
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -150,12 +151,12 @@ func run() error {
 	// auth_owner — entirely plausible while debugging a permissions error —
 	// and every RLS policy stops applying. Nothing errors, no test fails, and
 	// cross-tenant isolation is gone. Refusing to boot is the only response
-	// proportionate to that (PLAN/08 Part B, P0-08).
+	// proportionate to that (docs/PLAN/08 Part B, P0-08).
 	if err := db.AssertRoleIsNotPrivileged(ctx); err != nil {
 		return fmt.Errorf("database role check: %w", err)
 	}
 
-	// PLAN/13 names pool utilisation explicitly: exhaustion presents as latency
+	// docs/PLAN/13 names pool utilisation explicitly: exhaustion presents as latency
 	// at every endpoint at once, which looks like a dozen unrelated problems
 	// until someone thinks to check the pool.
 	if err := metrics.RegisterDBStats("postgres", db.SQL()); err != nil {
@@ -163,12 +164,12 @@ func run() error {
 	}
 
 	// Forwarding to an external SIEM is nil until P5-08 supplies one. The seam
-	// exists now because PLAN/09 § Audit wants the log forwarded, and adding
+	// exists now because docs/PLAN/09 § Audit wants the log forwarded, and adding
 	// the seam later would mean touching every call site.
 	auditor := audit.NewWriter(db, log, nil)
 	auditor.SetObserver(auditObserver{m: metrics})
 
-	// PLAN/08 Part B requires the cross-tenant database path to be auditable.
+	// docs/PLAN/08 Part B requires the cross-tenant database path to be auditable.
 	// A hook rather than a direct call, because audit already imports postgres
 	// and importing back would be a cycle. It runs outside the scoped
 	// transaction: failing to record the access should not roll back the
@@ -181,14 +182,14 @@ func run() error {
 	//
 	// Without it the service works fine until the last events partition's range
 	// ends, at which point every INSERT into events fails — and since every
-	// security-sensitive action writes an audit event (PLAN/09 § Audit), every
+	// security-sensitive action writes an audit event (docs/PLAN/09 § Audit), every
 	// such action fails with it. At midnight on the first of a month, with no
 	// deploy to correlate against (P0-12).
 	go auditor.Run(ctx, partitionMonthsAhead)
 
 	// Redis: the session lookup cache (P1-11).
 	//
-	// PLAN/12 gives /oauth/authorize 150ms at p95 for the whole silent-SSO
+	// docs/PLAN/12 gives /oauth/authorize 150ms at p95 for the whole silent-SSO
 	// request, and a Redis round trip is how that is met. It is a cache, not a
 	// store: PostgreSQL is authoritative (ADR-003), so Redis being down costs
 	// latency rather than correctness — which is why it is a readiness check
@@ -258,7 +259,7 @@ func run() error {
 	//
 	// This is what makes an application rollback safe: key state lives in
 	// `signing_keys`, so rolling back the binary cannot invalidate tokens
-	// signed under a newer key (PLAN/14 § Rollback Strategy). A single key
+	// signed under a newer key (docs/PLAN/14 § Rollback Strategy). A single key
 	// reference in configuration would put that state in the deployment, which
 	// is the thing being rolled back.
 	keyStore := signing.NewStore(db.SQL(), config.NewSecretResolver(cfg.Environment != config.EnvLocal), signing.PurposeOIDC)
@@ -307,6 +308,18 @@ func run() error {
 		Log:      log,
 	}
 
+	// The userinfo endpoint (P1-08). The first consumer signing.Verifier has
+	// ever had — until now the service could sign tokens and had never once
+	// verified one of its own.
+	userInfoHandler := &userinfo.Handler{
+		Issuer:   cfg.Issuer,
+		Verifier: signing.NewVerifier(keys),
+		Subjects: userinfo.NewStore(),
+		DB:       db,
+		Observer: userInfoObserver{metrics},
+		Log:      log,
+	}
+
 	// The hosted login page (P1-12). It closes the loop: /oauth/authorize
 	// sends a browser here when there is no session, and Resume sends it back
 	// with a code once there is one.
@@ -341,8 +354,14 @@ func run() error {
 		// can finally configure itself and complete a login from the discovery
 		// URL alone — which is P1-04's first Definition-of-Done item, and the
 		// first moment it can honestly be ticked.
+		//
+		// P1-08 adds userinfo. Advertised in the same commit that serves it,
+		// which is the only way this document stays true — and the reason the
+		// capability struct treats an empty string as "not implemented"
+		// rather than publishing a URL that 404s.
 		AuthorizationEndpoint: cfg.Issuer + "/oauth/authorize",
 		TokenEndpoint:         cfg.Issuer + "/oauth/token",
+		UserInfoEndpoint:      cfg.Issuer + "/oauth/userinfo",
 		ResponseTypes:         []string{"code"},
 		GrantTypes: []string{
 			token.GrantAuthorizationCode,
@@ -377,6 +396,7 @@ func run() error {
 		Discovery: discovery,
 		Authorize: authorizeHandler,
 		Token:     tokenHandler,
+		UserInfo:  userInfoHandler,
 		Login:     loginHandler,
 		Forgot:    http.HandlerFunc(loginHandler.Forgot),
 		// Explicit configuration, not inferred from the environment: see the
@@ -416,7 +436,7 @@ func probeReadiness() int {
 	// URL is the shape of the bug regardless of today's reachability, and
 	// rebuilding from a validated integer means no attacker-influenceable
 	// string reaches the URL at all — which is a genuine fix rather than a
-	// suppressed warning (SECURITY/02-ATTACK-SURFACE-AND-SCENARIOS.md §7).
+	// suppressed warning (docs/SECURITY/02-ATTACK-SURFACE-AND-SCENARIOS.md §7).
 	portNum, convErr := strconv.Atoi(port)
 	if convErr != nil || portNum < 1 || portNum > 65535 {
 		fmt.Fprintf(os.Stderr, "healthcheck: AUTH_HTTP_ADDR has an invalid port %q\n", port)
@@ -643,7 +663,7 @@ func (c clientLookup) CredentialsFor(
 
 // authorizeObserver reports which path an authorization request took.
 //
-// Separate labels for silent and interactive because PLAN/12 sets a latency
+// Separate labels for silent and interactive because docs/PLAN/12 sets a latency
 // target for the silent path specifically, and an average across both would
 // hide it behind the time a human spends typing a password.
 type authorizeObserver struct{ m *observability.Metrics }
@@ -678,11 +698,24 @@ func (s sessionLiveness) IsLive(ctx context.Context, sessionID string, now time.
 	return s.sessions.IsLive(ctx, sessionID, now)
 }
 
+// userInfoObserver counts userinfo outcomes.
+//
+// One label, and coarse: every unusable token is "invalid_token". Separating
+// expired from revoked would put SECURITY/02 §12's disclosure into /metrics.
+type userInfoObserver struct{ m *observability.Metrics }
+
+func (o userInfoObserver) UserInfo(outcome string, d time.Duration) {
+	if o.m != nil {
+		o.m.UserInfoTotal.WithLabelValues(outcome).Inc()
+		o.m.UserInfoDuration.WithLabelValues(outcome).Observe(d.Seconds())
+	}
+}
+
 // loginObserver counts login attempts.
 //
 // The outcome label is coarse on purpose — "failed" covers a wrong password,
 // an unknown address and a locked account alike. Splitting them would move
-// SECURITY/02 §12's enumeration disclosure from the response body into
+// docs/SECURITY/02 §12's enumeration disclosure from the response body into
 // /metrics, which is scraped, retained and usually more widely readable than
 // the audit log.
 type loginObserver struct{ m *observability.Metrics }
@@ -695,7 +728,7 @@ func (o loginObserver) LoginAttempt(outcome string) {
 
 // tokenObserver reports token-endpoint outcomes.
 //
-// Bucketed and labelled by grant, because PLAN/12's targets are for this
+// Bucketed and labelled by grant, because docs/PLAN/12's targets are for this
 // endpoint as a whole but a client_credentials call and an authorization_code
 // call do very different amounts of work — averaging them would hide a
 // regression in either.

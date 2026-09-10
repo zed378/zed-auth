@@ -1,6 +1,6 @@
 # Serves the built public site from the staging VM.
 #
-# A preview of the current build. `PLAN/20` puts this on static hosting or a
+# A preview of the current build. `docs/PLAN/20` puts this on static hosting or a
 # CDN, deployed independently of the console and the backend — a separate
 # compose file rather than a service inside another one, because "independent"
 # that shares a lifecycle is not independent.

@@ -1,7 +1,7 @@
 // Package observability provides structured logging, and later metrics and
 // tracing, for the Auth Service.
 //
-// The redaction layer here exists because PLAN/13-OBSERVABILITY.md and
+// The redaction layer here exists because docs/PLAN/13-OBSERVABILITY.md and
 // CLAUDE.md both state the same rule: never log tokens, passwords, or raw
 // resource attributes sent to /v1/authz/check. That rule is enforced by the
 // logger itself rather than by developer discipline, because discipline fails
@@ -25,10 +25,10 @@ const Redacted = "[REDACTED]"
 // sensitiveKeys are logged as Redacted regardless of their value's type.
 //
 // Sources:
-//   - PLAN/13-OBSERVABILITY.md § Logging: tokens, passwords, raw /v1/authz/check
+//   - docs/PLAN/13-OBSERVABILITY.md § Logging: tokens, passwords, raw /v1/authz/check
 //     resource attributes.
-//   - PLAN/09-SECURITY.md § Passwords: never log passwords, even failed attempts.
-//   - SECURITY/02-ATTACK-SURFACE-AND-SCENARIOS.md §16: secret exposure.
+//   - docs/PLAN/09-SECURITY.md § Passwords: never log passwords, even failed attempts.
+//   - docs/SECURITY/02-ATTACK-SURFACE-AND-SCENARIOS.md §16: secret exposure.
 //
 // Matching is case-insensitive and also matches the final segment of a dotted
 // or slash-separated key, so `http.request.authorization` is caught as readily
@@ -50,7 +50,7 @@ var sensitiveKeys = map[string]struct{}{
 
 	// `session_id` is deliberately NOT here, and it was until P1-11.
 	//
-	// PLAN/04 originally had the session cookie carry the row's id, which made
+	// docs/PLAN/04 originally had the session cookie carry the row's id, which made
 	// the id a bearer credential and redacting it correct. PG-14 separated the
 	// two: the cookie now carries a token whose hash is stored, and `id` is an
 	// internal identifier that the sessions screen displays and the audit log

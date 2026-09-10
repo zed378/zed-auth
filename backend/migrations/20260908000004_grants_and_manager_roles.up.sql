@@ -1,8 +1,8 @@
 -- Grants (user x project x roles), cross-organization delegation, and the
 -- tiered administrative roles.
 --
--- PLAN/04-DATA-MODEL.md § user_grants, § project_grants, § manager_roles.
--- PLAN/08-AUTHORIZATION.md Part C is the source of truth for delegation.
+-- docs/PLAN/04-DATA-MODEL.md § user_grants, § project_grants, § manager_roles.
+-- docs/PLAN/08-AUTHORIZATION.md Part C is the source of truth for delegation.
 
 CREATE TABLE project_grants (
     id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -13,7 +13,7 @@ CREATE TABLE project_grants (
     -- The subset of the project's roles the receiving organization may assign.
     -- Every delegated assignment is validated against this list ON EVERY
     -- REQUEST, not only at creation (CLAUDE.md, AGENTS.md rule 3,
-    -- PLAN/08 Part C, PLAN/18 R-04). A grant narrowed or revoked after
+    -- docs/PLAN/08 Part C, docs/PLAN/18 R-04). A grant narrowed or revoked after
     -- creation must stop working immediately.
     granted_role_keys text[] NOT NULL DEFAULT '{}',
 
@@ -57,7 +57,7 @@ CREATE TABLE user_grants (
     -- a direct grant by the project's owning organization. This column is what
     -- distinguishes delegated from direct everywhere downstream, including the
     -- role-source badge every role-displaying screen must render
-    -- (PLAN/04 § user_grants, UI-UX/08 § Cross-Screen Requirements).
+    -- (docs/PLAN/04 § user_grants, docs/UI-UX/08 § Cross-Screen Requirements).
     project_grant_id  uuid REFERENCES project_grants(id) ON DELETE CASCADE,
 
     role_keys         text[] NOT NULL DEFAULT '{}',
@@ -65,7 +65,7 @@ CREATE TABLE user_grants (
     created_at        timestamptz NOT NULL DEFAULT now(),
     updated_at        timestamptz NOT NULL DEFAULT now(),
 
-    -- Least privilege (PLAN/08 § Least Privilege): a grant with no roles grants
+    -- Least privilege (docs/PLAN/08 § Least Privilege): a grant with no roles grants
     -- nothing, so it should not exist at all rather than sit as a confusing
     -- empty row that looks like access.
     CONSTRAINT user_grants_role_keys_not_empty CHECK (cardinality(role_keys) > 0)
@@ -83,7 +83,7 @@ CREATE TRIGGER user_grants_set_updated_at
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
 COMMENT ON COLUMN user_grants.project_grant_id IS
-  'NULL = direct grant. Non-NULL = delegated; role_keys must be a subset of the grant''s granted_role_keys, revalidated on every request (PLAN/08 Part C).';
+  'NULL = direct grant. Non-NULL = delegated; role_keys must be a subset of the grant''s granted_role_keys, revalidated on every request (docs/PLAN/08 Part C).';
 
 
 CREATE TABLE manager_roles (
@@ -92,7 +92,7 @@ CREATE TABLE manager_roles (
 
     -- Administrative roles governing who administers the Auth Service ITSELF,
     -- distinct from application roles governing access within consumer
-    -- applications (PLAN/08 Part C).
+    -- applications (docs/PLAN/08 Part C).
     role        text NOT NULL,
 
     -- The instance / organization / project / project_grant this role applies
@@ -116,4 +116,4 @@ CREATE INDEX manager_roles_user_idx  ON manager_roles (user_id);
 CREATE INDEX manager_roles_scope_idx ON manager_roles (scope_id, role);
 
 COMMENT ON TABLE manager_roles IS
-  'Tiered administrative roles. Permissions flow strictly downward: INSTANCE_OWNER holds every ORG_OWNER right, never the reverse (PLAN/08 Part C).';
+  'Tiered administrative roles. Permissions flow strictly downward: INSTANCE_OWNER holds every ORG_OWNER right, never the reverse (docs/PLAN/08 Part C).';

@@ -10,7 +10,7 @@ import { beforeAll, describe, expect, it } from "vitest";
  * actually produce CSS.
  *
  * This test exists because of a bug it would have caught and `tokens.test.ts`
- * could not. The tokens were all defined, correctly named after UI-UX/05, and
+ * could not. The tokens were all defined, correctly named after docs/UI-UX/05, and
  * verified for contrast — and `text-body`, `text-heading-1` and the rest
  * generated nothing at all, because Tailwind v4 reads font sizes from
  * `--text-*` and `--font-size-*` is not a namespace it knows. Every piece of
@@ -115,9 +115,9 @@ describe("the token-derived utilities the shell depends on", () => {
   });
 });
 
-describe("the responsive tracks from UI-UX/12", () => {
+describe("the responsive tracks from docs/UI-UX/12", () => {
   it("puts the tablet nav width behind the tablet breakpoint", () => {
-    // UI-UX/12 § Breakpoint Strategy: the persistent left nav is a desktop and
+    // docs/UI-UX/12 § Breakpoint Strategy: the persistent left nav is a desktop and
     // tablet affordance. Below that the shell stacks, so the width must be
     // inside the media query rather than applied unconditionally.
     //
@@ -143,7 +143,7 @@ describe("the responsive tracks from UI-UX/12", () => {
     expect(beforeFirstMedia).not.toContain(".tablet\\:w-nav");
   });
 
-  it("defines the three breakpoints UI-UX/12 names", () => {
+  it("defines the three breakpoints docs/UI-UX/12 names", () => {
     for (const width of ["768px", "1024px", "1440px"]) {
       expect(css).toContain(width);
     }

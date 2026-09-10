@@ -1,6 +1,6 @@
 # P1-01 — Argon2id Password Hashing
 
-Feature specification, per `PLAN/19-FEATURE-SPECIFICATION-TEMPLATE.md`. `CLAUDE.md` requires one for anything touching authentication.
+Feature specification, per `docs/PLAN/19-FEATURE-SPECIFICATION-TEMPLATE.md`. `CLAUDE.md` requires one for anything touching authentication.
 
 ---
 
@@ -21,14 +21,14 @@ The second half is what makes this more than "call a hash function". Parameters 
 
 ## 3. Functional Requirements
 
-- **FR-1** Hash with Argon2id (`PLAN/09` § Passwords, `PLAN/07` § Cryptography).
+- **FR-1** Hash with Argon2id (`docs/PLAN/09` § Passwords, `docs/PLAN/07` § Cryptography).
 - **FR-2** Encode parameters in the stored string using PHC format, so each row records the cost it was hashed at.
 - **FR-3** Verify a password against a stored hash, honouring that row's parameters rather than the current ones.
 - **FR-4** Report, on successful verification, whether the stored hash used weaker parameters than current — so the caller can rehash and store.
 - **FR-5** Verification of a nonexistent user costs approximately the same wall-clock time as a real one.
 - **FR-6** Reject malformed hashes as a verification failure, never as a panic or a pass.
 
-**Not implemented**: bcrypt. `PLAN/07` names it a fallback "if compatibility is needed", and `P1-01` step 5 says not to add it speculatively. There is no legacy system to migrate from. Adding it now would mean a verification path that accepts a weaker algorithm, maintained for a migration that may never happen.
+**Not implemented**: bcrypt. `docs/PLAN/07` names it a fallback "if compatibility is needed", and `P1-01` step 5 says not to add it speculatively. There is no legacy system to migrate from. Adding it now would mean a verification path that accepts a weaker algorithm, maintained for a migration that may never happen.
 
 ## 4. Non-Functional Requirements
 
@@ -83,7 +83,7 @@ Password **length** is capped at 1 KiB before hashing. Argon2's cost is dominate
 
 Verification returns `(false, nil)` for a wrong password and `(false, err)` only when the *stored hash* is unusable. The distinction matters to the caller: the first is a user error, the second is data corruption that should page somebody.
 
-No error, log line, or panic message carries the password or any prefix of it (`PLAN/09`: never log passwords, even failed attempts).
+No error, log line, or panic message carries the password or any prefix of it (`docs/PLAN/09`: never log passwords, even failed attempts).
 
 ## 13. Edge Cases
 
@@ -97,7 +97,7 @@ No error, log line, or panic message carries the password or any prefix of it (`
 
 ## 14. Abuse Cases
 
-Cross-referenced with `SECURITY/02-ATTACK-SURFACE-AND-SCENARIOS.md`.
+Cross-referenced with `docs/SECURITY/02-ATTACK-SURFACE-AND-SCENARIOS.md`.
 
 | Abuse | Mitigation | Tested |
 |---|---|---|
@@ -112,7 +112,7 @@ Cross-referenced with `SECURITY/02-ATTACK-SURFACE-AND-SCENARIOS.md`.
 
 This package logs **nothing**. It is a pure function; the caller owns the audit event.
 
-`PLAN/09` § Audit: the login attempt is audited by `P1-12` with its outcome, never with the credential.
+`docs/PLAN/09` § Audit: the login attempt is audited by `P1-12` with its outcome, never with the credential.
 
 ## 16. Security Controls
 
