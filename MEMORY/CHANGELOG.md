@@ -67,6 +67,15 @@ Format follows Keep a Changelog conventions, grouped by release once releases ex
 
 ### 2026-09-10
 
+**Added** — RP-initiated logout ([record](./records/2026-09-10-P1-10-logout.md), [spec](./specs/P1-10-logout.md))
+- `GET` and `POST /oidc/logout`, advertised by discovery as `end_session_endpoint`. The session lifecycle closes: `P1-12` starts one, `P1-11` maintains it, this ends it. (`P1-10`)
+- **A GET logs somebody out only when the request proves it came from a party that already holds a token for that very session** — an `id_token_hint` that verifies and whose `sid` and `sub` match the cookie's session. Everything else gets a confirmation click, because a GET is triggerable by any page on the internet and acting on a bare one is a forced-logout CSRF. A hint for somebody ELSE's session logs nobody out: not its own subject, and not the visitor.
+- The hint's **expiry is deliberately not checked**. An ID token lives five minutes and a user signing out an hour later is the ordinary case; the hint is evidence of who initiated the request, not a credential being honoured, and it still has to match the live session.
+- **Clearing the cookie is not logging out.** The row is revoked and the cache invalidated after the commit; the cookie is cleared as well, never instead. Tested as the consequence — the same cookie replayed at `/oauth/authorize` must land on the login page — rather than as a `revoked_at` column, which would pass against a system that keeps honouring the cookie from cache.
+- "Log out of all sessions" ends every session **and** revokes the refresh tokens. Without the second half an application holding one mints a fresh access token minutes later. Unchecked by default: signing out of one application should not silently end the others.
+- `post_logout_redirect_uri` is matched exactly, and an unregistered value is refused with **no redirect at all** — reporting the error by redirecting to it is the open-redirect vulnerability itself. An unknown client and an unregistered address answer identically.
+- `PG-20`: `docs/PLAN/05` treats RP-Initiated Logout and Back-Channel Logout as one specification. They are two, and read literally the sentence defers an endpoint the same document lists as core. `DF-09` narrowed to back-channel alone.
+
 **Added** — token introspection and revocation ([record](./records/2026-09-10-P1-09-introspect-revoke.md), [spec](./specs/P1-09-introspect-revoke.md))
 - `POST /oauth/introspect` (RFC 7662) and `POST /oauth/revoke` (RFC 7009), both advertised by discovery. (`P1-09`)
 - **A client may only see or destroy tokens issued to itself**, and another client's is answered exactly as an unknown one — `{"active": false}` or `200` and no action, never a `403`, which would confirm the token exists and belongs to somebody. The check lives inside the same function that identifies the token, because separating them invites a call site that does one and forgets the other.

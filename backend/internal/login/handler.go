@@ -620,6 +620,17 @@ func (h *Handler) notice(w http.ResponseWriter, r *http.Request, status int, not
 
 // write emits the response with the page's own headers.
 func (h *Handler) write(w http.ResponseWriter, status int, csp string, body []byte) {
+	writePage(w, status, csp, body)
+}
+
+// writePage is the one place any browser page in this package gets its
+// headers.
+//
+// A package-level function rather than a method, because P1-10's logout pages
+// need exactly the same set and a second copy is a second thing to forget. On
+// this surface the absence of any of these is exploitable, which is why they
+// are set here rather than relied upon from the middleware chain.
+func writePage(w http.ResponseWriter, status int, csp string, body []byte) {
 	head := w.Header()
 	head.Set("Content-Type", "text/html; charset=utf-8")
 	head.Set("Content-Security-Policy", csp)

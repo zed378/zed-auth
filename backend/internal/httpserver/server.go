@@ -70,6 +70,12 @@ type Deps struct {
 	// its RFC 6750 challenge header depends on why the request failed.
 	UserInfo http.Handler
 
+	// Logout serves GET and POST /oidc/logout (P1-10). Hand-registered like
+	// the other protocol endpoints: it answers with HTML or a redirect rather
+	// than the JSON envelope the generated interface produces, and its GET
+	// decides between acting and asking from the raw query.
+	Logout http.Handler
+
 	// Login serves GET and POST /login, and Forgot serves /login/forgot
 	// (P1-12). Hand-registered because they answer with HTML rather than with
 	// docs/PLAN/05's JSON envelope, which is what the generated interface produces.
@@ -184,6 +190,10 @@ func New(cfg config.HTTPConfig, deps Deps) *Server {
 		// OIDC Core 5.3.1 requires both methods.
 		mux.Method(http.MethodGet, "/oauth/userinfo", deps.UserInfo)
 		mux.Method(http.MethodPost, "/oauth/userinfo", deps.UserInfo)
+	}
+	if deps.Logout != nil {
+		mux.Method(http.MethodGet, "/oidc/logout", deps.Logout)
+		mux.Method(http.MethodPost, "/oidc/logout", deps.Logout)
 	}
 	if deps.Login != nil {
 		// One handler for both methods: the page and its submission share the
