@@ -274,15 +274,23 @@ func TestACallerLackingTheRoleIsRefused(t *testing.T) {
 }
 
 // Abuse case A-3, through the middleware: a role over one organization does
-// not reach another.
+// not reach another — and the refusal is a 404, not a 403.
+//
+// A 403 would answer "is org 8f3e... real?" for anybody willing to send one
+// request per guess, which is the disclosure docs/SECURITY/02 §2 and §14
+// describe. An organization the caller cannot see and one that does not exist
+// must be the same answer.
 func TestAnAdminOfOneOrganizationCannotReachAnother(t *testing.T) {
 	f := newFixture(t)
 	f.grants.grants = []Grant{{Role: OrgAdmin, ScopeID: orgA}}
 
 	w := f.call(t, orgScoped(), "/v1/organizations/{org_id}/users", orgB, true)
 
-	if w.Code != http.StatusForbidden {
-		t.Errorf("status = %d", w.Code)
+	if w.Code != http.StatusNotFound {
+		t.Errorf("status = %d, want 404", w.Code)
+	}
+	if code := decode(t, w)["code"]; code != "NOT_FOUND" {
+		t.Errorf("code = %v, want NOT_FOUND", code)
 	}
 	if f.served {
 		t.Error("the handler ran for another organization")
@@ -292,6 +300,30 @@ func TestAnAdminOfOneOrganizationCannotReachAnother(t *testing.T) {
 	own := newFixture(t)
 	if w := own.call(t, orgScoped(), "/v1/organizations/{org_id}/users", orgA, true); w.Code != http.StatusOK {
 		t.Fatalf("the caller was refused their own organization: %d", w.Code)
+	}
+}
+
+// The other half of the same rule: a caller who CAN see the organization gets a
+// 403, not a 404.
+//
+// An ORG_ADMIN asked for ORG_OWNER over an organization they already administer
+// knows perfectly well it exists. Hiding it from them buys nothing and turns a
+// clear "you need a higher role" into a puzzle.
+func TestAnInsufficientRoleOverAVisibleOrganizationIsForbidden(t *testing.T) {
+	f := newFixture(t)
+	f.grants.grants = []Grant{{Role: OrgAdmin, ScopeID: orgA}}
+
+	requirement := Requirement{Role: OrgOwner, Scope: ScopeOrganization}
+	w := f.call(t, requirement, "/v1/organizations/{org_id}/users", orgA, true)
+
+	if w.Code != http.StatusForbidden {
+		t.Errorf("status = %d, want 403", w.Code)
+	}
+	if code := decode(t, w)["code"]; code != "PERMISSION_DENIED" {
+		t.Errorf("code = %v, want PERMISSION_DENIED", code)
+	}
+	if f.served {
+		t.Error("the handler ran without the role")
 	}
 }
 

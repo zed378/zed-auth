@@ -120,14 +120,25 @@ func (m *Middleware) Require(req Requirement, next http.Handler) http.Handler {
 				m.Log.Info("a management request was refused",
 					"user_id", caller.UserID, "target_org", target, "reason", decision.Reason)
 			}
-			// PERMISSION_DENIED, and the reason stays in the log. "you are an
-			// ORG_ADMIN and this needs ORG_OWNER" told to a caller probing an
-			// organization they do not administer confirms it exists.
-			m.refuse(w, r, Fault{
+			// The reason stays in the log. "you are an ORG_ADMIN and this needs
+			// ORG_OWNER" told to a caller probing an organization they do not
+			// administer confirms it exists.
+			//
+			// And WHICH refusal depends on whether the caller can see the target
+			// at all. A caller holding nothing over it is told 404 — the same
+			// answer an organization that does not exist gets — because a 403
+			// would answer "is this id real?" for anybody willing to send a
+			// request per guess (abuse case A-3, docs/SECURITY/02 §2, §14).
+			fault := Fault{
 				Class:   Forbidden,
 				Message: "You do not have permission to perform this action.",
 				Reason:  decision.Reason,
-			})
+			}
+			if decision.Invisible {
+				fault.Class = NotFound
+				fault.Message = "The requested resource was not found."
+			}
+			m.refuse(w, r, fault)
 			return
 		}
 

@@ -67,6 +67,18 @@ Format follows Keep a Changelog conventions, grouped by release once releases ex
 
 ### 2026-09-10
 
+**Added** — the Management API foundation ([record](./records/2026-09-10-P1-15-management-api-foundation.md), [spec](./specs/P1-15-management-api-foundation.md))
+- `internal/management`: the permission model, bearer authentication, tenant scoping, `docs/PLAN/05`'s error envelope, keyset pagination, `Idempotency-Key`, per-client rate limiting and the audit guard — the mechanics every `/v1` endpoint depends on, built once because a control implemented per endpoint is one that will be missing from one of them. No endpoints; `/v1` is mounted and empty until `P1-16`. (`P1-15`)
+- `idempotency_records`, closing **`PG-21`**. PostgreSQL rather than Redis: the guarantee is to a caller retrying after a failure, and the failure that prompts a retry is the kind of event that also restarts things. The request is stored as a hash, never as itself. (`P1-15`)
+- Per-`client_id` request quotas with `X-RateLimit-*` on every response, closing **`PG-19`** for `/v1`. A different mechanism from `P1-13`'s: that one counts failures to make guessing expensive, this one counts requests to bound a client whose credentials are valid and stolen. Rotating a secret does not reset the bound. (`P1-15`)
+- `auth_management_unaudited_mutations_total`, which should be permanently zero. `docs/PLAN/09` requires every security-sensitive action to leave a record, and that requirement fails as one handler nobody remembered — invisibly, until an incident needs the record. (`P1-15`)
+
+**Found**
+- **A documented control that existed only in a comment.** `errors.go` said another organization's resource answers `404` rather than `403`, so an id cannot be probed for existence; `Require` wrote `Forbidden` for every authorization failure, and the unit test asserted `403`. Abuse case A-3 was open for as long as the comment had been there. (`P1-15`)
+- **A sweep that deleted nothing and reported success.** `Sweep` ran instance-scoped, where `current_org_id()` is `NULL` and the RLS policy matches no row — the `P0-20` shape exactly. Caught only because the test asserts the count rather than the absence of an error. Now a `SECURITY DEFINER` function, as `P0-12` and `P1-11` already do. (`P1-15`)
+- **A replay that returned different bytes.** The stored response was `jsonb`, which reorders keys and collapses whitespace, so a retry received equivalent JSON and a different document — silently broken for any client comparing a hash, an ETag or a signature. Now `text`. (`P1-15`)
+- **Two failures in the verification tooling itself.** A mutation harness with the wrong package path reported `SURVIVED` for tests that never ran, because `go test -run` prints `ok` when the pattern matches nothing. And `httptest.ResponseRecorder.Header()` is live rather than the snapshot, so a test asserting on it passes even when the header was written too late for a real client to receive. Both were making checks pass for no reason. (`P1-15`)
+
 **Added** — authentication audit events ([record](./records/2026-09-10-P1-14-authentication-audit.md))
 - The user agent on `user.login.success`, `user.login.failed` and `user.lockout`, bounded at 512 bytes. It is what distinguishes "signed in from a new laptop" from "somebody signed in as them"; the submitted address is still on none of them. (`P1-14`)
 - Verification the emitting did not have: no credential material in **any** payload one full login flow produces, ordering and timestamps that an incident timeline can rely on, and `EXPLAIN` asserting each of the three documented access patterns uses an index. (`P1-14`)
