@@ -67,6 +67,19 @@ Format follows Keep a Changelog conventions, grouped by release once releases ex
 
 ### 2026-09-10
 
+**Added** — the project endpoints ([record](./records/2026-09-10-P1-17-projects.md))
+- `GET`, `POST /v1/organizations/{org_id}/projects` and `GET`, `PATCH`, `DELETE .../{project_id}` — CRUD for the container an application, a role and, from Phase 4, a project grant all hang from. No migration: `projects` has had its RLS policy, its per-tenant unique index and its `ON DELETE RESTRICT` references since `P0-07`. (`P1-17`)
+- `project.created`, `project.updated`, `project.deleted`, written in the same transaction as the change. The rename event records the previous name; **a rename to the same name writes nothing**, because an audit log full of "renamed Billing to Billing" is one nobody reads. (`P1-17`)
+- `PROJECT_OWNER` reserved with a test that it grants nothing — `403` on every project endpoint, paired with the same caller holding `ORG_ADMIN` getting through, so the refusal is about the role rather than about the fixture. Phase 2 grants an existing role rather than introducing one. (`P1-17`)
+
+**Found**
+- **A boot-time guard that broke a test harness at runtime.** `httpserver.New` refuses a `/v1` chain with any half of the Management API missing, so `P1-16`'s integration harness — a real server, built before projects existed — panicked on every test. Caught by `check.sh`, not by the compiler: the harness is behind a build tag. The guard is right and stays; what to watch is that every endpoint task from here adds a required field every existing harness must name. (`P1-17`)
+
+**Kept**
+- **A tenant enforced by shape rather than by check.** The card said "never trust an `org_id` supplied in the body"; `store.go` has no `org_id` parameter in it anywhere, so there is nothing to trust because there is nowhere to put it. `Create` reads the organization from the transaction's own scope, and no query carries a tenant predicate — which is also what makes the RLS test honest, since a predicate would make it pass whether or not the policy existed. (`P1-17`)
+- **Deletion refuses with counts, not with a constraint violation.** A project with applications or roles attached answers `409` with `details` naming how many of each. The foreign key would stop it either way, but "violates foreign key constraint applications_project_id_fkey" is not something to put in front of an administrator and cannot say *how many*. Not cascaded: deleting a project would take every OIDC client in it, and every consumer configured against those client ids would stop authenticating. (`P1-17`)
+- **Hard delete, unlike `P1-16`'s organizations.** A project is not a tenant boundary and owns no audit history of its own — `events` carries `org_id` and no foreign key — so there is nothing for a tombstone to preserve. (`P1-17`)
+
 **Added** — the organization endpoints ([record](./records/2026-09-10-P1-16-organizations.md), [spec](./specs/P1-16-organizations.md))
 - `GET`, `POST /v1/organizations` and `GET`, `PATCH`, `DELETE /v1/organizations/{org_id}` — the first real `/v1` surface, generated from the contract and running behind `P1-15`'s chain. Each handler is short because everything cross-cutting happened before it ran. (`P1-16`)
 - `organizations.deleted_at`, closing **`PG-22`**. Soft delete: the row survives, the organization is `404` everywhere, its domain is released so it can be claimed again, every session in it is revoked, and its audit history is untouched. (`P1-16`)

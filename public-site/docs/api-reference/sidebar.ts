@@ -134,6 +134,42 @@ const sidebar: SidebarsConfig = {
         },
       ],
     },
+    {
+      type: "category",
+      label: "Projects",
+      items: [
+        {
+          type: "doc",
+          id: "api-reference/list-projects",
+          label: "List an organization's projects",
+          className: "api-method get",
+        },
+        {
+          type: "doc",
+          id: "api-reference/create-project",
+          label: "Create a project",
+          className: "api-method post",
+        },
+        {
+          type: "doc",
+          id: "api-reference/get-project",
+          label: "Read a project",
+          className: "api-method get",
+        },
+        {
+          type: "doc",
+          id: "api-reference/update-project",
+          label: "Rename a project",
+          className: "api-method patch",
+        },
+        {
+          type: "doc",
+          id: "api-reference/delete-project",
+          label: "Delete a project",
+          className: "api-method delete",
+        },
+      ],
+    },
   ],
 };
 

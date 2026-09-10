@@ -504,6 +504,87 @@ export interface paths {
         patch: operations["updateOrganization"];
         trace?: never;
     };
+    "/v1/organizations/{org_id}/projects": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The organization that owns the resource. Every request is scoped to exactly one. */
+                org_id: components["parameters"]["OrganizationId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * List an organization's projects
+         * @description Requires `ORG_ADMIN` over this organization.
+         *
+         *     A project is the container an application, a role and — from Phase 4 — a
+         *     project grant all hang from. It carries no configuration of its own,
+         *     which is why there is so little here.
+         */
+        get: operations["listProjects"];
+        put?: never;
+        /**
+         * Create a project
+         * @description Requires `ORG_ADMIN` over this organization.
+         *
+         *     The project belongs to the organization in the path. There is no
+         *     `org_id` in the request body, deliberately: a tenant taken from a body
+         *     is a tenant a caller can choose.
+         */
+        post: operations["createProject"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/organizations/{org_id}/projects/{project_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The organization that owns the resource. Every request is scoped to exactly one. */
+                org_id: components["parameters"]["OrganizationId"];
+                /** @description The project the resource belongs to. */
+                project_id: components["parameters"]["ProjectId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Read a project
+         * @description Requires `ORG_ADMIN` over the organization that owns it.
+         */
+        get: operations["getProject"];
+        put?: never;
+        post?: never;
+        /**
+         * Delete a project
+         * @description Requires `ORG_OWNER`.
+         *
+         *     **A project with applications or roles attached is refused**, with a
+         *     `409` whose `details` name what blocks it and how many there are. It is
+         *     not cascaded: deleting a project would take every OIDC client in it with
+         *     it, and every consumer application configured against those client ids
+         *     would stop authenticating — a far larger consequence than the request
+         *     appears to ask for.
+         *
+         *     A project with nothing attached is deleted outright rather than soft-
+         *     deleted. Unlike an organization it owns no audit history of its own and
+         *     holds no tenant boundary, so there is nothing for a tombstone to
+         *     preserve.
+         */
+        delete: operations["deleteProject"];
+        options?: never;
+        head?: never;
+        /**
+         * Rename a project
+         * @description Requires `ORG_ADMIN`. A project's name is the only thing it has, so this
+         *     is the only thing to change.
+         */
+        patch: operations["updateProject"];
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -608,6 +689,43 @@ export interface components {
              */
             status?: "active" | "suspended";
             settings?: components["schemas"]["OrganizationSettings"];
+        };
+        /**
+         * @description A container for applications, roles and — from Phase 4 — project grants.
+         *
+         *     It carries no configuration of its own. That is deliberate rather than
+         *     unfinished: settings that could live here would be settings with two
+         *     homes, since an application already has its own and an organization's
+         *     policy already applies to everything inside it.
+         */
+        Project: {
+            id: components["schemas"]["ResourceId"];
+            /**
+             * @description Unique within the organization, case-insensitively. Two projects
+             *     called "Billing" and "billing" in one tenant is a support ticket
+             *     waiting to be filed.
+             * @example Billing
+             */
+            name: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        ProjectList: {
+            projects: components["schemas"]["Project"][];
+            page_info?: components["schemas"]["PageInfo"];
+        };
+        /**
+         * @description There is no `org_id` here. The organization comes from the path, and a
+         *     tenant taken from a request body is a tenant the caller can choose
+         *     (`docs/SECURITY/02` §11).
+         */
+        ProjectCreate: {
+            name: string;
+        };
+        ProjectUpdate: {
+            name?: string;
         };
         /**
          * @description OpenID Provider metadata. Fields for unimplemented endpoints are
@@ -1000,6 +1118,8 @@ export interface components {
         PageToken: string;
         /** @description The organization that owns the resource. Every request is scoped to exactly one. */
         OrganizationId: components["schemas"]["ResourceId"];
+        /** @description The project the resource belongs to. */
+        ProjectId: components["schemas"]["ResourceId"];
         /**
          * @description A client-generated key making a retried `POST` safe. Replaying a
          *     request with the same key returns the original result rather than
@@ -1724,6 +1844,195 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Organization"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["RateLimited"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    listProjects: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Maximum items to return. The server may return fewer, and returning
+                 *     fewer never means the collection is exhausted — only an absent
+                 *     `next_page_token` means that.
+                 */
+                page_size?: components["parameters"]["PageSize"];
+                /**
+                 * @description The `next_page_token` from the previous response. Opaque: its contents
+                 *     are not part of the contract and must not be constructed, parsed, or
+                 *     persisted by a client.
+                 */
+                page_token?: components["parameters"]["PageToken"];
+            };
+            header?: never;
+            path: {
+                /** @description The organization that owns the resource. Every request is scoped to exactly one. */
+                org_id: components["parameters"]["OrganizationId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of projects. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectList"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["RateLimited"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    createProject: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description A client-generated key making a retried `POST` safe. Replaying a
+                 *     request with the same key returns the original result rather than
+                 *     creating a second resource — which matters most for automated
+                 *     provisioning, where a network timeout is indistinguishable from a
+                 *     failure (`docs/PLAN/05` Part B).
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                /** @description The organization that owns the resource. Every request is scoped to exactly one. */
+                org_id: components["parameters"]["OrganizationId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProjectCreate"];
+            };
+        };
+        responses: {
+            /** @description The project was created. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Project"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["RateLimited"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    getProject: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The organization that owns the resource. Every request is scoped to exactly one. */
+                org_id: components["parameters"]["OrganizationId"];
+                /** @description The project the resource belongs to. */
+                project_id: components["parameters"]["ProjectId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The project. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Project"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["RateLimited"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    deleteProject: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description A client-generated key making a retried `POST` safe. Replaying a
+                 *     request with the same key returns the original result rather than
+                 *     creating a second resource — which matters most for automated
+                 *     provisioning, where a network timeout is indistinguishable from a
+                 *     failure (`docs/PLAN/05` Part B).
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                /** @description The organization that owns the resource. Every request is scoped to exactly one. */
+                org_id: components["parameters"]["OrganizationId"];
+                /** @description The project the resource belongs to. */
+                project_id: components["parameters"]["ProjectId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The project was deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["RateLimited"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    updateProject: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The organization that owns the resource. Every request is scoped to exactly one. */
+                org_id: components["parameters"]["OrganizationId"];
+                /** @description The project the resource belongs to. */
+                project_id: components["parameters"]["ProjectId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProjectUpdate"];
+            };
+        };
+        responses: {
+            /** @description The updated project. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Project"];
                 };
             };
             400: components["responses"]["BadRequest"];
