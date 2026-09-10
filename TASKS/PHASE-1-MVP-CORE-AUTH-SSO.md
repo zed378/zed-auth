@@ -702,7 +702,7 @@ Also found: `session_id` was in the logger's redaction list — correct when the
 
 | | |
 |---|---|
-| **Status** | TODO |
+| **Status** | DONE — [record](../MEMORY/records/2026-09-10-P1-16-organizations.md), [spec](../MEMORY/specs/P1-16-organizations.md) |
 | **Depends on** | P1-15 |
 | **Plan refs** | `docs/PLAN/05-API-CONTRACT.md` § Endpoint Structure, `docs/PLAN/04-DATA-MODEL.md` § `organizations`, `docs/UI-UX/08-PAGE-SPECIFICATIONS.md` |
 | **Spec required** | Yes — data model surface |
@@ -719,11 +719,23 @@ Also found: `session_id` was in the logger's redaction list — correct when the
 6. Require an extra confirmation step for destructive operations (`docs/PLAN/08` § Least Privilege) — the typed-confirmation pattern in `docs/UI-UX/07-COMPONENT-SPECIFICATION.md`.
 
 **Definition of Done**
-- [ ] Every operation enforces `INSTANCE_OWNER` where the hierarchy requires it.
-- [ ] Invalid settings shapes are rejected with per-field errors.
-- [ ] Deleting an organization never destroys its audit history.
-- [ ] Organization lifecycle events are audited.
-- [ ] The endpoints are in the OpenAPI spec and the generated client builds.
+- [x] Every operation enforces `INSTANCE_OWNER` where the hierarchy requires it. Create, list and delete refuse an `ORG_OWNER` — the most powerful role that is not an instance owner — and `status` needs it too, checked on the **field** because route-level authorization cannot express "depends what is in the body". Paired with a control: the same caller can rename through the same endpoint, so the refusal is about the field rather than the route.
+- [x] Invalid settings shapes are rejected with per-field errors. **Every** unknown key is reported, not just the first — a caller fixing three typos should learn about three. This needs the raw body: `additionalProperties: false` is documentation, and `json.Unmarshal` silently drops `mfa_requried`, so the caller would be told a policy was saved that was not.
+- [x] Deleting an organization never destroys its audit history. `events` has no foreign key on `org_id` (`P0-12`), so this is asserted rather than assumed — by reading the rows back after the delete, not by inspecting the schema. Delete is soft, releases the domain, and revokes every session in the organization.
+- [x] Organization lifecycle events are audited. Created, updated, suspended, reactivated and deleted. Suspension and reactivation are their own events rather than updates, because "who un-suspended this tenant, and when" is asked during an incident and answering it should not require diffing two updates.
+- [x] The endpoints are in the OpenAPI spec and the generated client builds. Generated, not hand-registered — `oapi-codegen.yaml`'s exception is for the OAuth protocol endpoints, and these are REST.
+
+**What this task did not build**
+- **Hard delete, or a purge of soft-deleted rows.** A purge is a separate, auditable operation and not a Phase 1 need.
+- **Domain verification.** The column and its uniqueness exist; proving ownership is a later phase.
+- **`passkey` and `social`.** Named as planned and rejected with a message that says so, rather than accepted into a setting nothing honours.
+- **`/v1/instances/{instance_id}`.** In `docs/PLAN/05`'s endpoint list with no Phase 1 task.
+
+**Found while building it**
+- **A `P1-15` bug.** `InScope` routed an `INSTANCE_OWNER` acting on another organization through `WithInstanceScope`, where `current_org_id()` is `NULL` and every tenant policy is false for every row. The capability returned an **empty result** rather than a refusal, and `P1-15`'s test passed because its handler never touched a tenant-scoped table.
+- **`PG-22`** — organizations had no soft-delete and the card requires one. Additive `deleted_at`.
+- **`PG-23`** — the contract specified prefixed sortable ids while the data model, the token claims and the shipped `sub` all use UUIDs. Resolved toward UUIDs, deliberately and in the schema description.
+- **A third error path.** `ChiServerOptions.ErrorHandlerFunc` handles parameter binding, which happens before the strict wrapper runs — so a malformed id answered `text/plain` naming `*uuid.UUID`.
 
 ---
 

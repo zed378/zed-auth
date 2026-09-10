@@ -67,6 +67,21 @@ Format follows Keep a Changelog conventions, grouped by release once releases ex
 
 ### 2026-09-10
 
+**Added** — the organization endpoints ([record](./records/2026-09-10-P1-16-organizations.md), [spec](./specs/P1-16-organizations.md))
+- `GET`, `POST /v1/organizations` and `GET`, `PATCH`, `DELETE /v1/organizations/{org_id}` — the first real `/v1` surface, generated from the contract and running behind `P1-15`'s chain. Each handler is short because everything cross-cutting happened before it ran. (`P1-16`)
+- `organizations.deleted_at`, closing **`PG-22`**. Soft delete: the row survives, the organization is `404` everywhere, its domain is released so it can be claimed again, every session in it is revoked, and its audit history is untouched. (`P1-16`)
+- `management.Policy` — the permission of every `/v1` route in one table, with a test that walks what the router **actually registers** and fails on any route without an entry. An unannotated route is refused rather than opened; this is what stops "refused" from silently meaning "broken". (`P1-16`)
+
+**Found**
+- **`P1-15` shipped a cross-tenant capability that returned nothing.** `InScope` sent an `INSTANCE_OWNER` acting on another organization through `WithInstanceScope`, where `current_org_id()` is `NULL` and every tenant policy is false for every row. Not a refusal — an empty result, with no error and no log line. `P1-15`'s test passed because its handler never touched a tenant-scoped table. A request that names a target organization is now scoped to that organization, whoever the caller is, which is stricter than what it replaced. (`P1-16`)
+- **`additionalProperties: false` is documentation, not enforcement.** `oapi-codegen` renders it as a struct and `json.Unmarshal` discards the rest, so `{"settings":{"mfa_requried":true}}` would have been accepted and echoed back without it — an administrator believing MFA was on. The raw body is now kept so the handler can check the keys actually sent. (`P1-16`)
+- **A third error path in the generated router.** `ChiServerOptions.ErrorHandlerFunc` handles parameter binding, which runs before the strict wrapper — so a malformed organization id answered `text/plain` naming `*uuid.UUID` while the other two paths were correctly wired. (`P1-16`)
+- **The generated router was mounted where nothing is logged.** Correct for probes, wrong for `/v1`: a management request that is neither logged nor timed is one nobody can investigate. It moved to the main mux, and the probes keep their quiet by name. (`P1-16`)
+
+**Changed** — the API contract, amended deliberately
+- `ResourceId` becomes a UUID, closing **`PG-23`**. It specified prefixed sortable ids while `docs/PLAN/04`, the access token's `org_id` claim and the already-shipped OIDC `sub` all use UUIDs. Prefixing part of the surface gives one user two identifiers; prefixing all of it means changing a protocol field integrators have stored. The reasoning lives in the schema description, not only in the backlog. (`P1-16`)
+- The `Forbidden` response no longer claims a cross-tenant `403` in the same paragraph where it argues for a `404`. It now says what `P1-15` implements. (`P1-16`)
+
 **Added** — the Management API foundation ([record](./records/2026-09-10-P1-15-management-api-foundation.md), [spec](./specs/P1-15-management-api-foundation.md))
 - `internal/management`: the permission model, bearer authentication, tenant scoping, `docs/PLAN/05`'s error envelope, keyset pagination, `Idempotency-Key`, per-client rate limiting and the audit guard — the mechanics every `/v1` endpoint depends on, built once because a control implemented per endpoint is one that will be missing from one of them. No endpoints; `/v1` is mounted and empty until `P1-16`. (`P1-15`)
 - `idempotency_records`, closing **`PG-21`**. PostgreSQL rather than Redis: the guarantee is to a caller retrying after a failure, and the failure that prompts a retry is the kind of event that also restarts things. The request is stored as a hash, never as itself. (`P1-15`)
