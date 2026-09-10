@@ -67,6 +67,22 @@ Format follows Keep a Changelog conventions, grouped by release once releases ex
 
 ### 2026-09-10
 
+**Added** — the users screens and the audit log ([record](./records/2026-09-10-P1-23-P1-24-console-users-audit.md), [chain](../console/docs/implementation-chain-P1-23-P1-24.md))
+- The users list, user detail with a real tablist, the two-step invite panel, and the audit log with cursor pagination. Three screens and two components on `P1-22`'s design system, at a fraction of its effort — the shared-table rule paying its second instalment. (`P1-23`, `P1-24`)
+
+**Kept**
+- **Flow 1's second safeguard, honoured rather than deferred.** Role assignment is `P2`'s, and dropping step 2 would have removed the moment where access is considered at all — so step 2 stays, says roles arrive later, and gates the send button behind an explicit "no access yet" checkbox. The safeguard's purpose is that the choice is made deliberately. (`P1-23`)
+- **Unavailable is not empty.** An empty Sessions tab says this user has none; an unavailable one says we cannot tell you. The Sessions tab says the service *does* revoke sessions today and it is the screen that is missing. (`P1-23`)
+- **The deactivation dialog states the consequence, not a warning** — sessions, refresh tokens and live links all stop, which is what `P1-19` does inside the request — and says it is reversible, which "this cannot be undone" would have got wrong. (`P1-23`)
+- **The audit log filters no payload and offers no page numbers.** A second redaction policy in the browser would drift from the real one; page numbers on a keyset cursor mean an offset query against a table with no ceiling. (`P1-24`)
+
+**Fixed**
+- **The API client captured `globalThis.fetch` at module load**, so anything installed afterwards was ignored — instrumentation, a late service worker, a polyfill. Resolved per call now. (`P1-23`)
+- **An empty base URL produced relative request paths**, which nothing outside a browser can parse; the failure is `Invalid URL` from a layer naming neither the console nor the endpoint. Same-origin is spelled `window.location.origin` now. (`P1-23`)
+
+**Found**
+- **A test harness that answered every call with the success body.** With the client passing a `Request` object, `String(input)` produced `"[object Request]"`, which matched no branch of any stub handler — including the `POST` whose failure the test existed to check. It failed rather than passing vacuously only because it asserted on the error's presence; a test asserting an error's absence would have been green and meaningless. (`P1-23`)
+
 **Added** — the first three console screens ([record](./records/2026-09-10-P1-22-console-screens.md), [chain](../console/docs/implementation-chain-P1-22.md))
 - Organization Overview, the project list and the Applications tab, plus the design-system components they compose from: `Button`, `Table`, `Badge`, `Modal`, `ClientSecretModal` and the four state components. The components are the larger half, which is what `docs/UI-UX/08`'s "no screen invents its own table" rule buys — `P1-23` and `P1-24` add screens rather than tables. (`P1-22`)
 - The implementation chain committed alongside the code, with "not applicable" written out where it applies. It found three decisions that would otherwise have been made by accident, including the per-card dashboard error the obvious implementation gets wrong. (`P1-22`)

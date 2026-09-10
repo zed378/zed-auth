@@ -973,7 +973,7 @@ Also found: `session_id` was in the logger's redaction list — correct when the
 
 | | |
 |---|---|
-| **Status** | TODO |
+| **Status** | DONE — [record](../MEMORY/records/2026-09-10-P1-23-P1-24-console-users-audit.md), [chain](../console/docs/implementation-chain-P1-23-P1-24.md) |
 | **Depends on** | P1-21, P1-19 |
 | **Plan refs** | `docs/UI-UX/18-DETAILED-PAGE-SPECIFICATIONS.md` § Users List, `docs/UI-UX/04-USER-FLOWS.md` Flow 1, `docs/UI-UX/08-PAGE-SPECIFICATIONS.md`, `docs/UI-UX/15-FORM-UX.md` |
 | **Spec required** | No — implementation chain mandatory |
@@ -991,12 +991,12 @@ Also found: `session_id` was in the logger's redaction list — correct when the
 7. Run the full `docs/UI-UX/19` chain for every component.
 
 **Definition of Done**
-- [ ] Flow 1 from `docs/UI-UX/04` is implemented end-to-end and covered by an E2E test.
-- [ ] Search and filtering produce a correct "filtered to empty" state distinct from the genuine empty state.
-- [ ] Deactivation is confirmed, audited, and immediately effective.
-- [ ] Not-yet-available tabs are explicit about being unavailable in this phase.
-- [ ] Field-level API errors render against the correct fields.
-- [ ] Accessibility and responsive requirements are met.
+- [x] Flow 1 from `docs/UI-UX/04` is implemented end-to-end and covered by an E2E test. Both safeguards honoured literally: one flow in two announced steps, and "no access yet" as an explicit checkbox rather than a skip — because role assignment is `P2`’s and dropping step 2 would remove the moment where access is considered at all. Component tests cover the progression and the gate; the E2E is wired by `P1-27`.
+- [x] Search and filtering produce a correct "filtered to empty" state distinct from the genuine empty state. **Either control counts as a filter**: somebody who typed a search AND picked a status needs "nothing matches", not "invite your first user".
+- [x] Deactivation is confirmed, audited, and immediately effective. The dialog states the consequence rather than a warning — sessions, refresh tokens and live links all stop, which is what `P1-19` actually does inside the request — and says it is reversible, which "this cannot be undone" would have got wrong.
+- [x] Not-yet-available tabs are explicit about being unavailable in this phase. An empty Sessions tab and an unavailable one mean opposite things; the Sessions one says the service DOES revoke sessions today and it is the screen that is missing.
+- [x] Field-level API errors render against the correct fields, from `docs/PLAN/05`’s `details[]`, with `aria-invalid` and `aria-describedby` — and the panel returns to the step the field is on.
+- [x] Accessibility and responsive requirements are met. A real tablist with roving tabindex, focus trapped and restored in the panel and the dialog, visually hidden labels on search and filter, secondary columns dropped below 1024px, and an axe check.
 
 ---
 
@@ -1004,7 +1004,7 @@ Also found: `session_id` was in the logger's redaction list — correct when the
 
 | | |
 |---|---|
-| **Status** | TODO |
+| **Status** | DONE — [record](../MEMORY/records/2026-09-10-P1-23-P1-24-console-users-audit.md), [chain](../console/docs/implementation-chain-P1-23-P1-24.md) |
 | **Depends on** | P1-21, P1-20 |
 | **Plan refs** | `docs/UI-UX/08-PAGE-SPECIFICATIONS.md` (Audit Log), `docs/UI-UX/14-EMPTY-LOADING-ERROR-STATES.md`, `docs/PLAN/17-ACCEPTANCE-CRITERIA.md` |
 | **Spec required** | No |
