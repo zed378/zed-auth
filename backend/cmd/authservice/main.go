@@ -33,6 +33,7 @@ import (
 	"github.com/zed378/zed-auth/backend/internal/oauth/userinfo"
 	"github.com/zed378/zed-auth/backend/internal/observability"
 	"github.com/zed378/zed-auth/backend/internal/oidc"
+	"github.com/zed378/zed-auth/backend/internal/ratelimit"
 	"github.com/zed378/zed-auth/backend/internal/session"
 	"github.com/zed378/zed-auth/backend/internal/signing"
 	"github.com/zed378/zed-auth/backend/internal/storage/postgres"
@@ -336,6 +337,31 @@ func run() error {
 		Log:      log,
 	}
 
+	// The client-IP source, and the rate limiter it feeds (P1-13).
+	//
+	// Resolved before the login handler is built, because the handler must not
+	// be able to fall back to reading RemoteAddr on its own: on this
+	// deployment that is the Docker gateway and is the same for every user in
+	// the world.
+	clientIP, badCIDRs := httpserver.NewClientIP(cfg.HTTP.ClientIPHeader, cfg.HTTP.TrustedProxyCIDRs)
+	for _, bad := range badCIDRs {
+		// Reported rather than dropped: narrowing the trusted set to nothing
+		// looks identical to working and would quietly turn every user into
+		// one IP.
+		log.Error("AUTH_TRUSTED_PROXY_CIDRS contains an entry that is not a CIDR",
+			"entry", bad, "remedy", "correct or remove it; the other entries are still in use")
+	}
+	if !clientIP.Configured() {
+		// Loud, and it does NOT disable the per-IP bound. A limiter that
+		// quietly turns itself off is worse than one that is loudly
+		// misconfigured — the second gets fixed.
+		log.Warn("no client IP source is configured; per-IP rate limiting will treat "+
+			"every request as one client if anything is proxying in front of this service",
+			"remedy", "set AUTH_CLIENT_IP_HEADER and AUTH_TRUSTED_PROXY_CIDRS")
+	}
+
+	limiter := ratelimit.New(rdb, rateLimitObserver{metrics}, log)
+
 	// RP-initiated logout (P1-10). Shares the login package because the
 	// confirmation interstitial is the same kind of browser page.
 	logoutHandler := &login.LogoutHandler{
@@ -366,6 +392,8 @@ func run() error {
 		Observer:      loginObserver{metrics},
 		Log:           log,
 		Policy:        session.DefaultPolicy,
+		Limiter:       limiter,
+		IP:            clientIP,
 	}
 
 	discoveryCapabilities := oidc.Capabilities{
@@ -776,6 +804,21 @@ type lifecycleObserver struct{ m *observability.Metrics }
 func (o lifecycleObserver) Lifecycle(endpoint, outcome string) {
 	if o.m != nil {
 		o.m.TokenLifecycle.WithLabelValues(endpoint, outcome).Inc()
+	}
+}
+
+// rateLimitObserver reports what the limiter did.
+type rateLimitObserver struct{ m *observability.Metrics }
+
+func (o rateLimitObserver) Refused(bound string) {
+	if o.m != nil {
+		o.m.RateLimitRefusals.WithLabelValues(bound).Inc()
+	}
+}
+
+func (o rateLimitObserver) Unavailable() {
+	if o.m != nil {
+		o.m.RateLimitUnavailable.Inc()
 	}
 }
 

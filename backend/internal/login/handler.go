@@ -34,6 +34,7 @@ import (
 	"github.com/zed378/zed-auth/backend/internal/audit"
 	"github.com/zed378/zed-auth/backend/internal/authn"
 	"github.com/zed378/zed-auth/backend/internal/oauth/authorize"
+	"github.com/zed378/zed-auth/backend/internal/ratelimit"
 	"github.com/zed378/zed-auth/backend/internal/session"
 	"github.com/zed378/zed-auth/backend/internal/storage/postgres"
 )
@@ -116,6 +117,33 @@ type Brandings interface {
 	Branding(ctx context.Context, tx *postgres.Tx, orgID string) (Branding, []Rejection, error)
 }
 
+// Limiter bounds how often a credential may be guessed.
+//
+// Optional: nil means no limiting, which is what every test that is not about
+// limiting wants. In production it is always set, and the startup wiring is
+// what makes that true rather than a comment here.
+type Limiter interface {
+	// Check runs BEFORE the password is verified, which is the point: a
+	// refused attempt must not cost an Argon2 computation.
+	Check(ctx context.Context, address, ip string, now time.Time) (ratelimit.Decision, string)
+
+	// Fail records a failure and reports whether it began a cooldown, so the
+	// caller audits once per cooldown rather than once per attempt.
+	Fail(ctx context.Context, address, ip string, now time.Time) (bool, string)
+
+	// Succeed clears the address counter (FR-9).
+	Succeed(ctx context.Context, address string)
+}
+
+// ClientIP resolves the address a request came from.
+//
+// An interface rather than a bare function so this handler cannot quietly go
+// back to reading RemoteAddr: what counts as a client IP is a deployment
+// decision (httpserver.ClientIP) and this package should not re-decide it.
+type ClientIP interface {
+	Of(r *http.Request) string
+}
+
 // Observer counts attempts.
 //
 // The outcome vocabulary is deliberately coarser than the internal one:
@@ -131,6 +159,12 @@ const (
 	OutcomeSuccess = "success"
 	OutcomeFailed  = "failed"
 	OutcomeError   = "error"
+
+	// OutcomeRateLimited is counted separately from OutcomeFailed because the
+	// two mean opposite things operationally: a rise in "failed" is people
+	// mistyping or an attack getting through, a rise in "rate_limited" is the
+	// control working. Averaging them together would hide both.
+	OutcomeRateLimited = "rate_limited"
 )
 
 // Handler serves the login page.
@@ -144,6 +178,10 @@ type Handler struct {
 	Audit         Auditor
 	Observer      Observer
 	Log           *slog.Logger
+
+	// Limiter and IP are P1-13. Both optional; nil means no rate limiting.
+	Limiter Limiter
+	IP      ClientIP
 
 	// Policy is the session policy. P2-10 makes it per organization.
 	Policy session.Policy
@@ -363,6 +401,24 @@ func (h *Handler) submit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Before the password is verified, which is the point: a refused attempt
+	// must cost no Argon2 computation. It also means a refusal is measurably
+	// faster than a real attempt - a timing signal about the limiter's own
+	// state, which discloses nothing, because the attacker produced that state.
+	if h.Limiter != nil {
+		if decision, bound := h.Limiter.Check(r.Context(), email, h.clientIP(r), h.now()); !decision.Allowed {
+			if h.Log != nil {
+				h.Log.Info("a login attempt was rate limited",
+					"bound", bound, "retry_after", decision.RetryAfter.String())
+			}
+			page.Email = email
+			page.Error = MsgRateLimited
+			h.count(OutcomeRateLimited)
+			h.renderPage(w, r, http.StatusOK, page)
+			return
+		}
+	}
+
 	outcome, current, invalidate := h.authenticate(r, pending, email, password)
 
 	switch outcome.result {
@@ -377,6 +433,16 @@ func (h *Handler) submit(w http.ResponseWriter, r *http.Request) {
 		}
 
 		http.SetCookie(w, session.Cookie(outcome.token))
+
+		// FR-9. The ADDRESS counter is cleared because the person proved they
+		// are who they said. The IP counter is NOT: one success from an office
+		// does not vouch for the other four hundred attempts coming from it,
+		// and clearing it would hand an attacker a reset button - one valid
+		// credential of their own would clear the bound for everybody sharing
+		// that address.
+		if h.Limiter != nil {
+			h.Limiter.Succeed(r.Context(), email)
+		}
 		h.count(OutcomeSuccess)
 
 		// Hands off to P1-06, which consumes the pending request and issues
@@ -397,6 +463,7 @@ func (h *Handler) submit(w http.ResponseWriter, r *http.Request) {
 	default:
 		// resultRejected. One message, one status, one set of headers, for a
 		// wrong password and an unknown address and a locked account alike.
+		h.recordFailure(r, pending.App.OrgID, email)
 		page.Email = email
 		page.Error = MsgCredentials
 		h.count(OutcomeFailed)
@@ -436,7 +503,8 @@ func (h *Handler) authenticate(
 
 	ctx := r.Context()
 	now := h.now()
-	ip := clientIP(r)
+	ip := h.clientIP(r)
+	agent := r.UserAgent()
 
 	err := h.DB.WithTenant(ctx, pending.App.OrgID, func(tx *postgres.Tx) error {
 		user, verified, err := h.Users.Authenticate(ctx, tx, email, password)
@@ -451,7 +519,7 @@ func (h *Handler) authenticate(
 
 		if !verified || !user.CanSignIn() {
 			out.result = resultRejected
-			return h.auditFailure(ctx, tx, pending.App.OrgID, user, verified, ip)
+			return h.auditFailure(ctx, tx, pending.App.OrgID, user, verified, ip, agent)
 		}
 
 		// Expiry after verification, deliberately. Checking it first would
@@ -463,7 +531,7 @@ func (h *Handler) authenticate(
 		}
 		if authn.Expired(user.PasswordChangedAt, policy, now) {
 			out.result = resultExpired
-			return h.auditFailure(ctx, tx, pending.App.OrgID, user, true, ip)
+			return h.auditFailure(ctx, tx, pending.App.OrgID, user, true, ip, agent)
 		}
 
 		// Rehash-on-login. The only moment the plaintext and the stored hash
@@ -515,6 +583,11 @@ func (h *Handler) authenticate(
 				"session_id":   newSession.ID,
 				"client_id":    pending.App.ID,
 				"auth_methods": newSession.AuthMethods,
+				// P1-14 step 1. The user agent is what distinguishes "the user
+				// signed in from a new laptop" from "somebody signed in as
+				// them", and an incident timeline without it cannot tell those
+				// apart. Bounded by session.New's own limit before storage.
+				"user_agent": boundedUserAgent(r.UserAgent()),
 			},
 			IP: ip,
 		}); err != nil {
@@ -549,7 +622,8 @@ func (h *Handler) authenticate(
 // is not the response body. The uniformity requirement is about what the
 // browser can observe.
 func (h *Handler) auditFailure(
-	ctx context.Context, tx *postgres.Tx, orgID string, user authn.User, verified bool, ip string,
+	ctx context.Context, tx *postgres.Tx, orgID string, user authn.User,
+	verified bool, ip, userAgent string,
 ) error {
 	reason := "credentials"
 	actor := ""
@@ -569,8 +643,14 @@ func (h *Handler) auditFailure(
 		OrgID:       orgID,
 		ActorUserID: actor,
 		Type:        audit.EventLoginFailed,
-		Payload:     map[string]any{"reason": reason},
-		IP:          ip,
+		Payload: map[string]any{
+			"reason": reason,
+			// The user agent, and still not the address. A run of failures
+			// from one agent is the shape of an attack; the addresses tried
+			// are the artefact an attacker who reaches the log most wants.
+			"user_agent": boundedUserAgent(userAgent),
+		},
+		IP: ip,
 	})
 }
 
@@ -736,15 +816,92 @@ func boundedEmail(raw string) string {
 	return trimmed
 }
 
+// boundedUserAgent trims what goes into an audit payload.
+//
+// A user agent is attacker-controlled and unbounded, and the audit table is
+// append-only with a 24-month retention — so an unbounded one is a place to
+// park data that nothing can delete. 512 bytes is far more than any real
+// browser sends, and matches the bound session.New already applies.
+func boundedUserAgent(raw string) string {
+	const max = 512
+	if len(raw) > max {
+		return raw[:max]
+	}
+	return raw
+}
+
+// recordFailure tells the limiter, and audits the first refusal of a cooldown.
+//
+// Once per cooldown, not once per attempt: auditing every refused attempt
+// during one would let an attacker write to an append-only table as fast as
+// they can send requests, which is a different attack handed to them by the
+// control meant to stop the first.
+func (h *Handler) recordFailure(r *http.Request, orgID, email string) {
+	if h.Limiter == nil {
+		return
+	}
+
+	started, bound := h.Limiter.Fail(r.Context(), email, h.clientIP(r), h.now())
+	if !started {
+		return
+	}
+
+	if h.Log != nil {
+		h.Log.Warn("a sign-in cooldown started", "bound", bound)
+	}
+
+	if h.Audit == nil || h.DB == nil || orgID == "" {
+		return
+	}
+
+	// Recorded against the CLIENT'S organization, not instance-wide.
+	//
+	// The address may belong to no organization at all — that is the whole
+	// reason the counter is keyed on it — but the ATTEMPT belongs to one: it
+	// happened at that organization's login page, which is the same reasoning
+	// the failed-login event already uses.
+	//
+	// An earlier version passed "" here and called WithTenant, which returns
+	// ErrEmptyOrgID without doing anything. The error was discarded, so the
+	// lockout event was silently never written — and the unit test did not
+	// notice, because its fake tenant ignores the organization entirely. The
+	// integration test below it now asserts the row exists.
+	if err := h.DB.WithTenant(r.Context(), orgID, func(tx *postgres.Tx) error {
+		return h.Audit.Write(r.Context(), tx, audit.Event{
+			Type: audit.EventUserLockedOut,
+			// The bound and nothing else. NOT the address: P1-12 explains why
+			// the audit log must not become a list of addresses somebody
+			// tried, and a lockout entry is where that list would come from
+			// fastest.
+			Payload: map[string]any{
+				"bound":      bound,
+				"user_agent": boundedUserAgent(r.UserAgent()),
+			},
+			IP: h.clientIP(r),
+		})
+	}); err != nil && h.Log != nil {
+		// Reported rather than discarded. A lockout that is not recorded is a
+		// security event that did not happen as far as any investigation is
+		// concerned.
+		h.Log.Error("a sign-in cooldown was not audited", "error", err.Error())
+	}
+}
+
 // clientIP is the address the request came from.
 //
-// r.RemoteAddr and nothing else. X-Forwarded-For is not consulted, because a
-// header a client can set is not an address — and honouring it unconditionally
-// would let anybody write any IP into the audit log and, once P1-13 lands,
-// evade a rate limit by inventing a new one per request. A proxy-aware version
-// belongs with that task, which needs the same value and will have to decide
-// which hop to trust.
-func clientIP(r *http.Request) string {
+// Delegated to the configured resolver (httpserver.ClientIP) rather than read
+// here, because what counts as a client IP is a deployment decision: on this
+// service's own staging topology RemoteAddr is the Docker gateway and is the
+// same for every user in the world. With no resolver configured it falls back
+// to RemoteAddr, which is unforgeable and, behind a proxy, shared.
+func (h *Handler) clientIP(r *http.Request) string {
+	if h.IP != nil {
+		return h.IP.Of(r)
+	}
+	return remoteAddr(r)
+}
+
+func remoteAddr(r *http.Request) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		return r.RemoteAddr
