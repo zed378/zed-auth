@@ -3,7 +3,7 @@
 Single source of truth for where the project stands. Updated in the same commit as the work it describes (`00-TASK-CONVENTIONS.md` global DoD item 8).
 
 **Last updated**: 2026-09-09
-**Current phase**: Phase 1 — MVP Core Auth (10 / 28 done). Phase 0 is 20 / 21; `P0-20` stays WIP pending the pull-based deployment re-read
+**Current phase**: Phase 1 — MVP Core Auth (11 / 28 done). Phase 0 is 20 / 21; `P0-20` stays WIP pending the pull-based deployment re-read
 **Overall**: 28 / 177 tasks done
 
 Status values: `TODO` · `BLOCKED` · `SPEC` · `WIP` · `REVIEW` · `DONE` · `DROPPED`
@@ -16,7 +16,7 @@ Sizes: `S` under half a day · `M` one to two days · `L` several days · `XL` m
 | Phase | Tasks | Done | Status | Gate to enter |
 |---|---|---|---|---|
 | [Phase 0 — Foundation](./PHASE-0-FOUNDATION.md) | 21 | 20 | **ACTIVE** — `P0-20` only | — |
-| [Phase 1 — MVP: Core Auth + SSO](./PHASE-1-MVP-CORE-AUTH-SSO.md) | 28 | 10 | **ACTIVE** | Phase 0 exit checklist |
+| [Phase 1 — MVP: Core Auth + SSO](./PHASE-1-MVP-CORE-AUTH-SSO.md) | 28 | 11 | **ACTIVE** | Phase 0 exit checklist |
 | [Phase 2 — RBAC & Multi-Tenancy](./PHASE-2-RBAC-MULTITENANCY.md) | 17 | 0 | Not started | Phase 1 exit + `P1-28` |
 | [Phase 3 — Advanced Security](./PHASE-3-ADVANCED-SECURITY.md) | 15 | 0 | Not started | Phase 2 exit + threat model review |
 | [Phase 4 — Enterprise Interop](./PHASE-4-ENTERPRISE-INTEROP.md) | 16 | 0 | Not started | Phase 3 exit + threat model review |
@@ -72,7 +72,7 @@ Sizes: `S` under half a day · `M` one to two days · `L` several days · `XL` m
 | P1-06 | `GET /oauth/authorize` — code + PKCE | L | **DONE** — one item deferred to `P1-27`'s load test. Two-phase validation so a phase-1 error can never redirect; atomic code redemption proven with 32 concurrent racers | P1-05, P1-11 |
 | P1-07 | `POST /oauth/token` | L | **DONE** — one item deferred to `P1-27`'s load test. The flow closes: a consumer can complete a login, and `P1-04`'s last two DoD items are now true | P1-06, P1-03 |
 | P1-08 | `GET /oauth/userinfo` | S | **DONE** — the claims the scopes authorise and nothing else, with the exact key set asserted rather than a subset. Revoking the session invalidates the token immediately, which costs nothing because the liveness check rides in the user read. `signing.Verifier` finally has a caller | P1-07 |
-| P1-09 | `/oauth/introspect` and `/oauth/revoke` | M | TODO | P1-07 |
+| P1-09 | `/oauth/introspect` and `/oauth/revoke` | M | **DONE** — one item deferred to `PG-19`. A client may only see or destroy its own tokens, and another client's is answered as unknown rather than forbidden. Revoking a refresh token takes its whole family; an access token cannot be revoked and says so | P1-07 |
 | P1-10 | `GET /oidc/logout` | M | TODO | P1-11 |
 | P1-11 | Session management and SSO cookie | L | **DONE** — `PG-14` closed (the cookie is no longer the primary key); revocation is immediate, with the cache repopulate race closed by a tombstone | P0-07 |
 | P1-12 | Hosted login page | M | **DONE** — a human can now log in. A wrong password and an unknown address are byte-identical responses, proved by submitting the same address with the account deleted in between. `PG-16` closed: branding was specified, designed and half-built with nowhere to be read from | P1-01, P1-11 |

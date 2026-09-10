@@ -58,6 +58,12 @@ type Deps struct {
 	// generated strict interface passes a parsed body and no request.
 	Token http.Handler
 
+	// Introspect and Revoke serve POST /oauth/introspect and /oauth/revoke
+	// (P1-09), hand-registered for the same reason as Token: client
+	// credentials live in the Authorization header.
+	Introspect http.Handler
+	Revoke     http.Handler
+
 	// UserInfo serves GET and POST /oauth/userinfo, hand-registered for the
 	// same reason as Token: the bearer credential is in the Authorization
 	// header, which the generated strict interface does not hand over — and
@@ -167,6 +173,12 @@ func New(cfg config.HTTPConfig, deps Deps) *Server {
 	}
 	if deps.Token != nil {
 		mux.Method(http.MethodPost, "/oauth/token", deps.Token)
+	}
+	if deps.Introspect != nil {
+		mux.Method(http.MethodPost, "/oauth/introspect", deps.Introspect)
+	}
+	if deps.Revoke != nil {
+		mux.Method(http.MethodPost, "/oauth/revoke", deps.Revoke)
 	}
 	if deps.UserInfo != nil {
 		// OIDC Core 5.3.1 requires both methods.
