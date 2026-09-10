@@ -66,6 +66,12 @@ const sidebar: SidebarsConfig = {
           label: "Token endpoint",
           className: "api-method post",
         },
+        {
+          type: "doc",
+          id: "api-reference/userinfo",
+          label: "UserInfo endpoint",
+          className: "api-method get",
+        },
       ],
     },
   ],

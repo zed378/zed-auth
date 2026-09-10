@@ -12,7 +12,7 @@ import (
 
 // The lookup copy in front of PostgreSQL.
 //
-// PLAN/12 allows 150ms at p95 for the whole /oauth/authorize silent-SSO
+// docs/PLAN/12 allows 150ms at p95 for the whole /oauth/authorize silent-SSO
 // request. A cache is how that is met, and a cache in front of an
 // authoritative store normally means a revocation takes effect after a TTL —
 // which is precisely what P1-11's Definition of Done forbids.

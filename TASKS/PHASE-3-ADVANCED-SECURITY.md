@@ -2,11 +2,11 @@
 
 **Goal**: raise the bar on what "authenticated" means — multi-factor authentication, refresh token rotation with reuse detection, login anomaly detection, and self-service session management.
 
-**Why now**: Phase 1 and 2 established identity and permissions. This phase hardens the identity half against the attacks that actually happen — stolen passwords, stolen tokens, and stolen sessions. `PLAN/16` notes that Phase 3 and Phase 4 can be swapped as whole phases if an enterprise client needs SAML sooner; they must not be interleaved task by task.
+**Why now**: Phase 1 and 2 established identity and permissions. This phase hardens the identity half against the attacks that actually happen — stolen passwords, stolen tokens, and stolen sessions. `docs/PLAN/16` notes that Phase 3 and Phase 4 can be swapped as whole phases if an enterprise client needs SAML sooner; they must not be interleaved task by task.
 
 **Prerequisite**: Phase 2 exit checklist fully satisfied, plus the Phase 3 threat-model review from `P2-17`.
 
-**Roadmap reference**: `PLAN/16-IMPLEMENTATION-ROADMAP.md` § Phase 3.
+**Roadmap reference**: `docs/PLAN/16-IMPLEMENTATION-ROADMAP.md` § Phase 3.
 
 ---
 
@@ -38,7 +38,7 @@
 |---|---|
 | **Status** | TODO |
 | **Depends on** | P1-11, P2-10 |
-| **Plan refs** | `PLAN/05-API-CONTRACT.md` § MFA, `PLAN/04-DATA-MODEL.md` § `sessions` (`auth_methods`), `PLAN/08-AUTHORIZATION.md` § Least Privilege |
+| **Plan refs** | `docs/PLAN/05-API-CONTRACT.md` § MFA, `docs/PLAN/04-DATA-MODEL.md` § `sessions` (`auth_methods`), `docs/PLAN/08-AUTHORIZATION.md` § Least Privilege |
 | **Spec required** | Yes — authentication core |
 | **Surface** | backend |
 
@@ -47,8 +47,8 @@
 **Steps**
 1. Define a factor interface covering enrollment, verification, and removal, so `P3-02` and `P3-05` are implementations rather than parallel systems.
 2. Extend the login flow with a distinct MFA challenge step, holding partially-authenticated state server-side with a short expiry. A partially-authenticated session must be unusable for anything except completing the challenge.
-3. Record every factor actually used in `sessions.auth_methods` (`PLAN/04`), and propagate it into the token's `amr` claim (`PLAN/05`).
-4. Implement step-up: an action requiring a stronger factor can force re-verification even within a valid session, using `prompt=login` and an ACR/`amr` requirement. `PLAN/08` § Least Privilege recommends step-up for sensitive administrative actions specifically.
+3. Record every factor actually used in `sessions.auth_methods` (`docs/PLAN/04`), and propagate it into the token's `amr` claim (`docs/PLAN/05`).
+4. Implement step-up: an action requiring a stronger factor can force re-verification even within a valid session, using `prompt=login` and an ACR/`amr` requirement. `docs/PLAN/08` § Least Privilege recommends step-up for sensitive administrative actions specifically.
 5. Rate-limit MFA verification attempts per session and per user, mirroring `P1-13`'s cooldown-not-lockout approach.
 6. Audit enrollment, verification success and failure, and removal — factor removal in particular is a favorite account-takeover step.
 7. Handle the multi-factor case: a user may enroll both TOTP and a passkey, and losing one must not lock them out.
@@ -62,9 +62,9 @@
 - [ ] All MFA lifecycle events are audited.
 
 **Abuse cases to test**
-- Skipping the MFA step by manipulating the partially-authenticated state (`SECURITY/02` §3, §11).
+- Skipping the MFA step by manipulating the partially-authenticated state (`docs/SECURITY/02` §3, §11).
 - Brute-forcing a six-digit TOTP within its validity window.
-- Removing another user's factor (`SECURITY/02` §2).
+- Removing another user's factor (`docs/SECURITY/02` §2).
 - Downgrade: forcing a weaker factor when a stronger one is enrolled.
 
 ---
@@ -75,14 +75,14 @@
 |---|---|
 | **Status** | TODO |
 | **Depends on** | P3-01 |
-| **Plan refs** | `PLAN/02-REQUIREMENTS.md` FR-2, `PLAN/05-API-CONTRACT.md` § MFA, `UI-UX/08-PAGE-SPECIFICATIONS.md` (MFA tab) |
+| **Plan refs** | `docs/PLAN/02-REQUIREMENTS.md` FR-2, `docs/PLAN/05-API-CONTRACT.md` § MFA, `docs/UI-UX/08-PAGE-SPECIFICATIONS.md` (MFA tab) |
 | **Spec required** | Yes — credential handling |
 | **Surface** | backend |
 
 **Goal** — Standard RFC 6238 TOTP enrollment where the shared secret is treated as the credential it is.
 
 **Steps**
-1. Generate a cryptographically random secret of adequate length, stored in `user_mfa_factors.secret_encrypted` encrypted at rest (`PLAN/04`, `PLAN/09` § Transport & Storage).
+1. Generate a cryptographically random secret of adequate length, stored in `user_mfa_factors.secret_encrypted` encrypted at rest (`docs/PLAN/04`, `docs/PLAN/09` § Transport & Storage).
 2. Return the provisioning URI and a QR code once, during enrollment only.
 3. Require verification of a generated code before the factor is activated — enrolling without proof is how users lock themselves out.
 4. Require the user's current password (or a recent authentication) to begin enrollment, so a hijacked session cannot silently add a factor.
@@ -106,23 +106,23 @@
 |---|---|
 | **Status** | TODO |
 | **Depends on** | P3-02 |
-| **Plan refs** | `PLAN/05-API-CONTRACT.md` § MFA, `PLAN/11-TESTING.md` § E2E, `PLAN/17-ACCEPTANCE-CRITERIA.md` § Phase 3 |
+| **Plan refs** | `docs/PLAN/05-API-CONTRACT.md` § MFA, `docs/PLAN/11-TESTING.md` § E2E, `docs/PLAN/17-ACCEPTANCE-CRITERIA.md` § Phase 3 |
 | **Spec required** | Yes — authentication |
 | **Surface** | backend |
 
-**Goal** — The challenge step in the login flow: correct password plus wrong code is rejected, which `PLAN/11` names explicitly as an E2E test case.
+**Goal** — The challenge step in the login flow: correct password plus wrong code is rejected, which `docs/PLAN/11` names explicitly as an E2E test case.
 
 **Steps**
 1. After successful password verification, if a factor is enrolled, transition to the challenge step rather than issuing a session.
 2. Rate-limit code attempts aggressively per challenge — a six-digit code has a small keyspace, and unlimited attempts defeat the factor entirely.
 3. Expire the challenge after a short window, requiring a restart from the password step.
 4. Keep messaging uniform: whether the password or the code was wrong must not be distinguishable to an attacker probing the flow.
-5. Record `["password", "totp"]` in `auth_methods` on success (`PLAN/04`'s own example).
+5. Record `["password", "totp"]` in `auth_methods` on success (`docs/PLAN/04`'s own example).
 6. Support the "remember this device" option only if it is designed properly — a signed, revocable device token with a bounded lifetime, visible and revocable from the sessions screen. If that cannot be delivered in this phase, omit it rather than shipping a weak version.
 7. Audit MFA verification success and failure separately from password success and failure.
 
 **Definition of Done**
-- [ ] Correct password with a wrong code is rejected — the literal `PLAN/11` E2E case.
+- [ ] Correct password with a wrong code is rejected — the literal `docs/PLAN/11` E2E case.
 - [ ] Code attempts are rate-limited per challenge and per user.
 - [ ] Challenges expire.
 - [ ] `auth_methods` and `amr` both reflect the factors used.
@@ -137,7 +137,7 @@
 |---|---|
 | **Status** | TODO |
 | **Depends on** | P3-02 |
-| **Plan refs** | `PLAN/17-ACCEPTANCE-CRITERIA.md` § Phase 3 ("including recovery from a lost device — documented process, even if manual at first") |
+| **Plan refs** | `docs/PLAN/17-ACCEPTANCE-CRITERIA.md` § Phase 3 ("including recovery from a lost device — documented process, even if manual at first") |
 | **Spec required** | Yes — account recovery is an attack path |
 | **Surface** | backend |
 
@@ -147,9 +147,9 @@
 1. Generate single-use recovery codes at enrollment, displayed exactly once, stored hashed with the same rigor as passwords.
 2. Each code is usable once; consuming one invalidates it. Warn the user as the remaining count runs low.
 3. Allow regeneration, which invalidates all previous codes and requires re-authentication.
-4. Define the administrator-assisted reset path: which manager role may reset another user's MFA, what identity verification is required out-of-band, and how it is audited. `PLAN/17` accepts a manual process — it does not accept an undocumented one.
+4. Define the administrator-assisted reset path: which manager role may reset another user's MFA, what identity verification is required out-of-band, and how it is audited. `docs/PLAN/17` accepts a manual process — it does not accept an undocumented one.
 5. Rate-limit recovery code attempts as strictly as password attempts.
-6. Audit every recovery use and every admin-assisted reset with elevated visibility; these are exactly the events an incident review will look for (`SECURITY/04-INCIDENT-RESPONSE-PLAYBOOKS.md`).
+6. Audit every recovery use and every admin-assisted reset with elevated visibility; these are exactly the events an incident review will look for (`docs/SECURITY/04-INCIDENT-RESPONSE-PLAYBOOKS.md`).
 
 **Definition of Done**
 - [ ] Recovery codes are shown once, stored hashed, and single-use.
@@ -171,14 +171,14 @@
 |---|---|
 | **Status** | TODO |
 | **Depends on** | P3-01 |
-| **Plan refs** | `PLAN/02-REQUIREMENTS.md` FR-2, `PLAN/05-API-CONTRACT.md` § MFA, § Passwordless |
+| **Plan refs** | `docs/PLAN/02-REQUIREMENTS.md` FR-2, `docs/PLAN/05-API-CONTRACT.md` § MFA, § Passwordless |
 | **Spec required** | Yes — authentication |
 | **Surface** | backend |
 
-**Goal** — Phishing-resistant authentication via WebAuthn, as a second factor and — per `PLAN/05` — potentially as the sole factor later.
+**Goal** — Phishing-resistant authentication via WebAuthn, as a second factor and — per `docs/PLAN/05` — potentially as the sole factor later.
 
 **Steps**
-1. Implement registration and authentication ceremonies with a well-maintained library. Do not implement the CBOR and attestation parsing by hand (`PLAN/07`: don't reinvent cryptography).
+1. Implement registration and authentication ceremonies with a well-maintained library. Do not implement the CBOR and attestation parsing by hand (`docs/PLAN/07`: don't reinvent cryptography).
 2. Configure the Relying Party ID correctly for the deployment's domain structure. This interacts directly with `P2-09`'s tenant resolution — a subdomain-per-org strategy has real consequences for credential scoping, and getting it wrong means credentials that work on one subdomain and not another.
 3. Verify challenge, origin, and signature counter on every authentication. Skipping the origin check discards the phishing resistance that is the entire point.
 4. Support multiple registered credentials per user, so losing one device is not an account loss.
@@ -198,7 +198,7 @@
 **Abuse cases to test**
 - Phishing via a lookalike origin (must fail on the origin check).
 - Credential replay across origins.
-- Registering a credential to another user's account (`SECURITY/02` §2).
+- Registering a credential to another user's account (`docs/SECURITY/02` §2).
 
 ---
 
@@ -208,31 +208,31 @@
 |---|---|
 | **Status** | TODO |
 | **Depends on** | P1-07 |
-| **Plan refs** | `PLAN/09-SECURITY.md` § Tokens & Keys, `PLAN/11-TESTING.md` § Security Testing, `PLAN/17-ACCEPTANCE-CRITERIA.md` § Phase 3, `PLAN/10-THREAT-MODEL.md` |
+| **Plan refs** | `docs/PLAN/09-SECURITY.md` § Tokens & Keys, `docs/PLAN/11-TESTING.md` § Security Testing, `docs/PLAN/17-ACCEPTANCE-CRITERIA.md` § Phase 3, `docs/PLAN/10-THREAT-MODEL.md` |
 | **Spec required** | Yes — token security core |
 | **Surface** | backend |
 
-**Goal** — A rotated refresh token cannot be reused, verified by automated test — the exact wording of `PLAN/17`'s Phase 3 criterion.
+**Goal** — A rotated refresh token cannot be reused, verified by automated test — the exact wording of `docs/PLAN/17`'s Phase 3 criterion.
 
 **Steps**
 1. On every refresh, issue a new refresh token and invalidate the old one atomically.
-2. Track the token family via `refresh_tokens.family_id` and mark rotation with `replaced_by` (`PLAN/04`) — presenting a token that already has a `replaced_by` is the reuse signal.
+2. Track the token family via `refresh_tokens.family_id` and mark rotation with `replaced_by` (`docs/PLAN/04`) — presenting a token that already has a `replaced_by` is the reuse signal.
 3. On detecting reuse of an already-rotated token, **revoke the entire family immediately**. Reuse means either the token was stolen or a client is misbehaving; in both cases the safe action is the same.
-4. Alert on reuse detection (`PLAN/13` § Alerting) and audit it — this is a strong theft signal, not routine noise.
+4. Alert on reuse detection (`docs/PLAN/13` § Alerting) and audit it — this is a strong theft signal, not routine noise.
 5. Handle the legitimate race: a client that retries a refresh after a network timeout may present the same token twice. Distinguish this from theft with a short grace window keyed to the immediately-preceding token, and document the reasoning. Getting this wrong logs real users out constantly, which trains teams to disable the protection.
 6. Enforce both an absolute family lifetime and an idle timeout.
-7. Store only hashes (`PLAN/04`), and ensure revocation is immediate rather than TTL-bound.
+7. Store only hashes (`docs/PLAN/04`), and ensure revocation is immediate rather than TTL-bound.
 8. Bind refresh tokens to the client, and consider binding to the session where the flow allows.
 
 **Definition of Done**
-- [ ] A rotated refresh token cannot be reused — automated test, per `PLAN/17`.
+- [ ] A rotated refresh token cannot be reused — automated test, per `docs/PLAN/17`.
 - [ ] Reuse revokes the entire family and raises an alert.
 - [ ] The retry grace window is documented and tested for both the legitimate and the malicious case.
 - [ ] Only hashes are stored.
 - [ ] Family absolute and idle lifetimes are enforced.
 
 **Abuse cases to test**
-- Token replay after rotation (`PLAN/10` § High-Priority Abuse Scenarios).
+- Token replay after rotation (`docs/PLAN/10` § High-Priority Abuse Scenarios).
 - Stolen refresh token used in parallel with the legitimate client — must be detected and the family killed.
 - Refresh token used by a different client.
 - Indefinite session extension by continuous refreshing beyond the absolute lifetime.
@@ -245,7 +245,7 @@
 |---|---|
 | **Status** | TODO |
 | **Depends on** | P3-03, P2-10 |
-| **Plan refs** | `PLAN/02-REQUIREMENTS.md` FR-6, `PLAN/08-AUTHORIZATION.md` Part B, `PLAN/17-ACCEPTANCE-CRITERIA.md` § Phase 2 |
+| **Plan refs** | `docs/PLAN/02-REQUIREMENTS.md` FR-6, `docs/PLAN/08-AUTHORIZATION.md` Part B, `docs/PLAN/17-ACCEPTANCE-CRITERIA.md` § Phase 2 |
 | **Spec required** | Yes — policy enforcement |
 | **Surface** | backend |
 
@@ -264,7 +264,7 @@
 - [ ] Grace behavior is documented and implemented deliberately.
 - [ ] Any exemption is explicit, audited, and visible.
 - [ ] The admin sees the impact count before enabling.
-- [ ] `PLAN/17`'s Phase 2 criterion about MFA-required being enforced rather than merely stored is now fully satisfied.
+- [ ] `docs/PLAN/17`'s Phase 2 criterion about MFA-required being enforced rather than merely stored is now fully satisfied.
 
 ---
 
@@ -274,19 +274,19 @@
 |---|---|
 | **Status** | TODO |
 | **Depends on** | P1-11, P1-14 |
-| **Plan refs** | `PLAN/09-SECURITY.md` § Audit & Anomaly Detection, `PLAN/13-OBSERVABILITY.md` § Alerting, `SECURITY/03-DETECTION-AND-MONITORING.md` |
+| **Plan refs** | `docs/PLAN/09-SECURITY.md` § Audit & Anomaly Detection, `docs/PLAN/13-OBSERVABILITY.md` § Alerting, `docs/SECURITY/03-DETECTION-AND-MONITORING.md` |
 | **Spec required** | Yes — detection control |
 | **Surface** | backend |
 
 **Goal** — Notice and notify on logins that look unlike the user's normal pattern — new device, new location, impossible travel — without generating so much noise that the notifications get filtered.
 
 **Steps**
-1. Build a lightweight device fingerprint from stable signals already collected in `sessions` (`PLAN/04`: `ip`, `user_agent`). Avoid invasive fingerprinting — this is an identity provider, and the privacy posture matters.
+1. Build a lightweight device fingerprint from stable signals already collected in `sessions` (`docs/PLAN/04`: `ip`, `user_agent`). Avoid invasive fingerprinting — this is an identity provider, and the privacy posture matters.
 2. Coarse geolocation from IP for new-location detection. Coarse is deliberate: city-level is enough to notify, and finer resolution adds privacy risk without adding signal.
 3. Impossible-travel detection: two successful logins from locations that cannot both be true given the elapsed time.
 4. Notify the user on a genuinely new device or location, with a clear path to report "this wasn't me" that revokes sessions and forces a password change.
 5. Tune the threshold honestly. A notification on every login trains users to ignore them, which is worse than no notification at all.
-6. Feed the signals into `PLAN/13`'s alerting and `SECURITY/03`'s monitoring.
+6. Feed the signals into `docs/PLAN/13`'s alerting and `docs/SECURITY/03`'s monitoring.
 7. Decide whether anomalies trigger step-up or only notification. Step-up on a false positive is disruptive; notification alone is passive. Record the decision and its reasoning.
 
 **Definition of Done**
@@ -295,7 +295,7 @@
 - [ ] The "this wasn't me" path revokes sessions and forces a credential change.
 - [ ] The false-positive rate is measured against real staging traffic before enabling notifications broadly.
 - [ ] The step-up-versus-notify decision is recorded in `MEMORY/DECISIONS.md`.
-- [ ] Signals appear in monitoring per `SECURITY/03`.
+- [ ] Signals appear in monitoring per `docs/SECURITY/03`.
 
 ---
 
@@ -305,7 +305,7 @@
 |---|---|
 | **Status** | TODO |
 | **Depends on** | P1-11 |
-| **Plan refs** | `PLAN/02-REQUIREMENTS.md` FR-5, `PLAN/05-API-CONTRACT.md` § Endpoint Structure, `UI-UX/04-USER-FLOWS.md` Flow 4, `PLAN/17-ACCEPTANCE-CRITERIA.md` § Phase 3 |
+| **Plan refs** | `docs/PLAN/02-REQUIREMENTS.md` FR-5, `docs/PLAN/05-API-CONTRACT.md` § Endpoint Structure, `docs/UI-UX/04-USER-FLOWS.md` Flow 4, `docs/PLAN/17-ACCEPTANCE-CRITERIA.md` § Phase 3 |
 | **Spec required** | Yes — session control |
 | **Surface** | backend |
 
@@ -314,9 +314,9 @@
 **Steps**
 1. Implement `GET /v1/organizations/{org_id}/users/{user_id}/sessions` and `DELETE .../sessions/{session_id}`, plus a self-service path for the authenticated user's own sessions.
 2. Return useful, non-sensitive detail: device and browser summary, coarse location, creation time, last activity, and a clear marker for the current session.
-3. Make revocation immediate — not TTL-bound. `PLAN/17` requires that a revoked session is immediately unusable, and a cache TTL is not "immediately."
+3. Make revocation immediate — not TTL-bound. `docs/PLAN/17` requires that a revoked session is immediately unusable, and a cache TTL is not "immediately."
 4. Revoking a session also revokes the refresh tokens issued through it.
-5. Authorize correctly: a user sees only their own sessions; `ORG_ADMIN` and `ORG_OWNER` see any user's in their organization (`UI-UX/08`).
+5. Authorize correctly: a user sees only their own sessions; `ORG_ADMIN` and `ORG_OWNER` see any user's in their organization (`docs/UI-UX/08`).
 6. Support "revoke all other sessions" as a single action, which is what a user who suspects compromise actually wants.
 7. Audit every revocation with actor and target.
 
@@ -328,7 +328,7 @@
 - [ ] Revocations are audited.
 
 **Abuse cases to test**
-- Revoking another user's session without authorization (`SECURITY/02` §2).
+- Revoking another user's session without authorization (`docs/SECURITY/02` §2).
 - A revoked session still usable through a cached path.
 - Session detail leaking precise location or full user-agent fingerprints to an admin beyond what is justified.
 
@@ -340,19 +340,19 @@
 |---|---|
 | **Status** | TODO |
 | **Depends on** | P3-02, P3-05 |
-| **Plan refs** | `UI-UX/08-PAGE-SPECIFICATIONS.md` (MFA tab), `UI-UX/19-FRONTEND-IMPLEMENTATION-CHAIN.md` |
+| **Plan refs** | `docs/UI-UX/08-PAGE-SPECIFICATIONS.md` (MFA tab), `docs/UI-UX/19-FRONTEND-IMPLEMENTATION-CHAIN.md` |
 | **Spec required** | No — implementation chain mandatory |
 | **Surface** | console |
 
-**Goal** — Admins see MFA status read-only; users manage their own factors fully — the split `UI-UX/08` specifies.
+**Goal** — Admins see MFA status read-only; users manage their own factors fully — the split `docs/UI-UX/08` specifies.
 
 **Steps**
-1. Run the full `UI-UX/19` chain.
+1. Run the full `docs/UI-UX/19` chain.
 2. Admin view: enrolled factor types and enrollment dates as badges, strictly read-only, plus the audited reset action from `P3-04` where permitted.
 3. Self-service view: enroll TOTP with a QR code, register a passkey, remove a factor, and regenerate recovery codes.
 4. Recovery codes display once, with copy and download affordances and unmistakable warning copy.
 5. Removing the last factor while `mfa_required` is on must be blocked with a clear explanation, not a silent failure.
-6. Enrollment errors — wrong code, expired challenge, unsupported browser — each get their own message per `UI-UX/14`.
+6. Enrollment errors — wrong code, expired challenge, unsupported browser — each get their own message per `docs/UI-UX/14`.
 
 **Definition of Done**
 - [ ] Admins cannot enroll or remove factors for another user except via the audited reset path.
@@ -369,22 +369,22 @@
 |---|---|
 | **Status** | TODO |
 | **Depends on** | P3-09 |
-| **Plan refs** | `UI-UX/08-PAGE-SPECIFICATIONS.md` (Sessions tab), `UI-UX/04-USER-FLOWS.md` Flow 4, `UI-UX/19-FRONTEND-IMPLEMENTATION-CHAIN.md` § Worked Example |
+| **Plan refs** | `docs/UI-UX/08-PAGE-SPECIFICATIONS.md` (Sessions tab), `docs/UI-UX/04-USER-FLOWS.md` Flow 4, `docs/UI-UX/19-FRONTEND-IMPLEMENTATION-CHAIN.md` § Worked Example |
 | **Spec required** | No — implementation chain mandatory |
 | **Surface** | console |
 
-**Goal** — Implement `UI-UX/04` Flow 4 exactly, following the worked example in `UI-UX/19` — which specifies this component down to its screen-reader label.
+**Goal** — Implement `docs/UI-UX/04` Flow 4 exactly, following the worked example in `docs/UI-UX/19` — which specifies this component down to its screen-reader label.
 
 **Steps**
-1. Follow `UI-UX/19`'s worked example for the revoke button precisely: secondary-styled button per row, single click with no modal (it is low-risk per `UI-UX/09`'s feedback-timing table), optimistic removal with rollback on error, spinner at constant width, inline error next to the row.
-2. Screen-reader label must be "Revoke session on [device/browser]", not just "Revoke" — `UI-UX/19` calls this out specifically because multiple sessions are listed.
+1. Follow `docs/UI-UX/19`'s worked example for the revoke button precisely: secondary-styled button per row, single click with no modal (it is low-risk per `docs/UI-UX/09`'s feedback-timing table), optimistic removal with rollback on error, spinner at constant width, inline error next to the row.
+2. Screen-reader label must be "Revoke session on [device/browser]", not just "Revoke" — `docs/UI-UX/19` calls this out specifically because multiple sessions are listed.
 3. Table showing device, location, created, last active, with the current session clearly marked and not accidentally revocable without warning.
 4. "Revoke all other sessions" as a separate, prominent action.
-5. This screen is in scope for full mobile optimization via personal account settings (`UI-UX/16-MOBILE-UX.md`), so the button must remain a single tap target at mobile width.
+5. This screen is in scope for full mobile optimization via personal account settings (`docs/UI-UX/16-MOBILE-UX.md`), so the button must remain a single tap target at mobile width.
 6. Empty state: "no other active sessions" reads differently from "no sessions," since the current one always exists.
 
 **Definition of Done**
-- [ ] The implementation matches `UI-UX/19`'s worked example on every one of its twelve rows.
+- [ ] The implementation matches `docs/UI-UX/19`'s worked example on every one of its twelve rows.
 - [ ] The screen-reader label disambiguates between sessions.
 - [ ] Optimistic update with rollback is covered by a component test.
 - [ ] Flow 4 is covered end-to-end by an E2E test.
@@ -398,23 +398,23 @@
 |---|---|
 | **Status** | TODO |
 | **Depends on** | P3-09, P3-10 |
-| **Plan refs** | `UI-UX/08-PAGE-SPECIFICATIONS.md` (Personal account settings), `UI-UX/16-MOBILE-UX.md`, `UI-UX/12-RESPONSIVE-BEHAVIOR.md` |
+| **Plan refs** | `docs/UI-UX/08-PAGE-SPECIFICATIONS.md` (Personal account settings), `docs/UI-UX/16-MOBILE-UX.md`, `docs/UI-UX/12-RESPONSIVE-BEHAVIOR.md` |
 | **Spec required** | No — implementation chain mandatory |
 | **Surface** | console |
 
-**Goal** — The self-service surface for end users — and the **only** console screen requiring full mobile optimization, because end users, unlike admins, will reasonably open it on a phone (`UI-UX/08` § Responsive Scope).
+**Goal** — The self-service surface for end users — and the **only** console screen requiring full mobile optimization, because end users, unlike admins, will reasonably open it on a phone (`docs/UI-UX/08` § Responsive Scope).
 
 **Steps**
-1. Run the full `UI-UX/19` chain for every component on the screen.
+1. Run the full `docs/UI-UX/19` chain for every component on the screen.
 2. Change password, with the current password required and `P1-02`'s policy shown before submission rather than only on rejection.
 3. Manage own MFA factors, reusing `P3-10`'s self-service components.
 4. Manage own sessions, reusing `P3-11`'s components.
 5. Show linked social logins as a placeholder state until Phase 4 delivers them — labelled as unavailable, never implied as working.
-6. Full mobile optimization per `UI-UX/16`: touch targets, no horizontal scroll, and forms that work with a mobile keyboard.
+6. Full mobile optimization per `docs/UI-UX/16`: touch targets, no horizontal scroll, and forms that work with a mobile keyboard.
 7. Reachable from anywhere in the console, since a user may arrive at it from any context.
 
 **Definition of Done**
-- [ ] Every action works on a real mobile viewport, verified against `UI-UX/16`.
+- [ ] Every action works on a real mobile viewport, verified against `docs/UI-UX/16`.
 - [ ] Password change enforces the org policy and shows requirements up front.
 - [ ] MFA and session management are fully self-service here.
 - [ ] Social login is shown as unavailable rather than broken.
@@ -428,7 +428,7 @@
 |---|---|
 | **Status** | TODO |
 | **Depends on** | P3-05, P3-06 |
-| **Plan refs** | `PLAN/20-PUBLIC-SITE-ARCHITECTURE.md`, `UI-UX/21-CONTENT-AND-COPY-STRATEGY.md` |
+| **Plan refs** | `docs/PLAN/20-PUBLIC-SITE-ARCHITECTURE.md`, `docs/UI-UX/21-CONTENT-AND-COPY-STRATEGY.md` |
 | **Spec required** | No |
 | **Surface** | docs |
 
@@ -454,21 +454,21 @@
 |---|---|
 | **Status** | TODO |
 | **Depends on** | all Phase 3 implementation tasks |
-| **Plan refs** | `PLAN/11-TESTING.md`, `PLAN/10-THREAT-MODEL.md`, `SECURITY/05-VERIFICATION-AND-REDTEAM-PLAN.md` |
+| **Plan refs** | `docs/PLAN/11-TESTING.md`, `docs/PLAN/10-THREAT-MODEL.md`, `docs/SECURITY/05-VERIFICATION-AND-REDTEAM-PLAN.md` |
 | **Spec required** | No |
 | **Surface** | backend, console |
 
 **Steps**
 1. **Unit**: TOTP generation and verification including skew boundaries; recovery code hashing and consumption; refresh token family logic.
 2. **Integration**: full MFA enrollment and login flows for both factor types; rotation and reuse detection against a real store; session revocation propagation.
-3. **E2E**: `PLAN/11`'s named case — correct password with wrong TOTP is rejected; session revocation from the console; the full lost-device recovery path.
-4. **Security**: every abuse case listed on every Phase 3 task, plus `PLAN/11` § Security Testing's "used (rotated) refresh token cannot be reused."
+3. **E2E**: `docs/PLAN/11`'s named case — correct password with wrong TOTP is rejected; session revocation from the console; the full lost-device recovery path.
+4. **Security**: every abuse case listed on every Phase 3 task, plus `docs/PLAN/11` § Security Testing's "used (rotated) refresh token cannot be reused."
 5. Add a timing test confirming MFA verification does not leak validity through response time.
 6. Verify anomaly detection against synthetic impossible-travel and new-device data.
 
 **Definition of Done**
 - [ ] Every Phase 3 abuse case has a passing test.
-- [ ] The rotated-refresh-token test explicitly satisfies `PLAN/17`'s Phase 3 criterion.
+- [ ] The rotated-refresh-token test explicitly satisfies `docs/PLAN/17`'s Phase 3 criterion.
 - [ ] Both factor types are covered end-to-end.
 - [ ] The suite is green in CI.
 
@@ -480,23 +480,23 @@
 |---|---|
 | **Status** | TODO |
 | **Depends on** | P3-14 |
-| **Plan refs** | `PLAN/17-ACCEPTANCE-CRITERIA.md` § Phase 3, `PLAN/09-SECURITY.md` |
+| **Plan refs** | `docs/PLAN/17-ACCEPTANCE-CRITERIA.md` § Phase 3, `docs/PLAN/09-SECURITY.md` |
 | **Spec required** | No |
 | **Surface** | all |
 
 **Steps**
-1. Verify each `PLAN/17` Phase 3 criterion with recorded evidence:
+1. Verify each `docs/PLAN/17` Phase 3 criterion with recorded evidence:
    - TOTP enrollment and verification work end-to-end, including documented lost-device recovery.
    - A rotated refresh token cannot be reused, proven by an automated test.
    - A user can view and revoke their own sessions, and a revoked session is immediately unusable.
 2. Re-run the load test; MFA adds a step to the login path and its latency cost should be measured, not assumed.
-3. Run the Phase 4 threat-model review — SAML and social login both add substantial new attack surface (`SECURITY/02` §7 SSRF, and XML parsing risks).
+3. Run the Phase 4 threat-model review — SAML and social login both add substantial new attack surface (`docs/SECURITY/02` §7 SSRF, and XML parsing risks).
 4. Write the phase summary in `MEMORY/`.
 5. Update `PROGRESS.md`; tag; publish the changelog.
 
 **Definition of Done**
-- [ ] All three `PLAN/17` Phase 3 criteria verified with evidence.
-- [ ] Login-path latency with MFA is measured against `PLAN/12`.
+- [ ] All three `docs/PLAN/17` Phase 3 criteria verified with evidence.
+- [ ] Login-path latency with MFA is measured against `docs/PLAN/12`.
 - [ ] The Phase 4 threat-model review is complete.
 - [ ] A phase summary exists in `MEMORY/`.
 
@@ -504,7 +504,7 @@
 
 ## Phase 3 Exit Checklist
 
-From `PLAN/17-ACCEPTANCE-CRITERIA.md` § Phase 3:
+From `docs/PLAN/17-ACCEPTANCE-CRITERIA.md` § Phase 3:
 
 - [ ] TOTP enrollment and verification work end-to-end, including recovery from a lost device via a documented process.
 - [ ] A rotated refresh token cannot be reused, verified by an automated test.

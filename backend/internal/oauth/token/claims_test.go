@@ -158,7 +158,7 @@ func TestTheRoleNamespaceIsReservedAndEmpty(t *testing.T) {
 
 	key := RoleClaimNamespace(in.ProjectID)
 	if !strings.HasPrefix(key, "urn:authservice:iam:org:project:") {
-		t.Errorf("the namespace does not match PLAN/08 Part A: %q", key)
+		t.Errorf("the namespace does not match docs/PLAN/08 Part A: %q", key)
 	}
 
 	roles, present := claims[key]
@@ -218,10 +218,10 @@ func TestClaimsRequireTheirInputs(t *testing.T) {
 	}
 }
 
-// The lifetimes PLAN/09 asks for.
+// The lifetimes docs/PLAN/09 asks for.
 func TestLifetimesAreWithinThePlansBounds(t *testing.T) {
 	if AccessTokenLifetime < 5*time.Minute || AccessTokenLifetime > 15*time.Minute {
-		t.Errorf("AccessTokenLifetime is %s; PLAN/09 § Tokens & Keys asks for 5-15 minutes",
+		t.Errorf("AccessTokenLifetime is %s; docs/PLAN/09 § Tokens & Keys asks for 5-15 minutes",
 			AccessTokenLifetime)
 	}
 	if RefreshTokenLifetime <= AccessTokenLifetime {

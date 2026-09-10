@@ -136,7 +136,7 @@ type stubChecker struct {
 func (s stubChecker) Name() string                { return s.name }
 func (s stubChecker) Check(context.Context) error { return s.err }
 
-// PLAN/14-DEPLOYMENT.md: liveness stays healthy when a dependency is down, so a
+// docs/PLAN/14-DEPLOYMENT.md: liveness stays healthy when a dependency is down, so a
 // transient database problem does not make the orchestrator kill every pod.
 func TestHealth_LivenessIgnoresDependencies(t *testing.T) {
 	h := &Health{Checks: []Checker{stubChecker{"postgres", errors.New("connection refused")}}}
@@ -176,7 +176,7 @@ func TestHealth_ReadinessReflectsDependencies(t *testing.T) {
 	})
 }
 
-// SECURITY/02-ATTACK-SURFACE-AND-SCENARIOS.md §12: the readiness endpoint is
+// docs/SECURITY/02-ATTACK-SURFACE-AND-SCENARIOS.md §12: the readiness endpoint is
 // reachable from the load balancer and is a standard reconnaissance target. It
 // must not name dependencies, hosts, versions, or error text.
 func TestHealth_ReadinessLeaksNoInfrastructureDetail(t *testing.T) {
@@ -311,7 +311,7 @@ func TestRequestID_RejectsMalformedProxyHeader(t *testing.T) {
 	}
 }
 
-// PLAN/10-THREAT-MODEL.md § Information Disclosure: a panic message or stack
+// docs/PLAN/10-THREAT-MODEL.md § Information Disclosure: a panic message or stack
 // trace returned to the caller is an information-disclosure bug.
 func TestRecover_ReturnsGenericErrorAndKeepsServing(t *testing.T) {
 	// The password is the repository's designated placeholder rather than an
@@ -406,7 +406,7 @@ func TestServer_ServesHealthEndpoints(t *testing.T) {
 	}
 }
 
-// PLAN/14-DEPLOYMENT.md: finish in-flight requests before terminating, since
+// docs/PLAN/14-DEPLOYMENT.md: finish in-flight requests before terminating, since
 // this service sits on the critical path of many others.
 func TestServer_GracefulShutdownCompletesInFlightRequests(t *testing.T) {
 	port := freePort(t)

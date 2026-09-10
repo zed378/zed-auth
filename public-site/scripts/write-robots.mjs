@@ -10,7 +10,7 @@
  *
  * It fails quietly, which is the problem. Nothing 404s for a visitor; a
  * crawler follows the pointer, finds nothing, and the site is simply not
- * indexed — on the surface whose entire job is discovery (`PLAN/20`).
+ * indexed — on the surface whose entire job is discovery (`docs/PLAN/20`).
  *
  * Generating it from the same `SITE_URL` that Docusaurus uses for canonical
  * URLs means the two cannot disagree.
@@ -23,7 +23,7 @@ import { fileURLToPath } from "node:url";
 const here = dirname(fileURLToPath(import.meta.url));
 const url = (process.env.SITE_URL ?? "https://zedth.my.id").replace(/\/$/, "");
 
-const robots = `# The public site is meant to be found: PLAN/20 names SEO as critical, since
+const robots = `# The public site is meant to be found: docs/PLAN/20 names SEO as critical, since
 # this is how the product gets discovered.
 #
 # Generated at build time from SITE_URL so the sitemap pointer always matches

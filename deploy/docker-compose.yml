@@ -5,11 +5,11 @@
 #   docker compose -f deploy/docker-compose.yml up -d
 #
 # Images are pinned to a minor version rather than :latest
-# (SECURITY/02-ATTACK-SURFACE-AND-SCENARIOS.md §15 Supply-Chain).
+# (docs/SECURITY/02-ATTACK-SURFACE-AND-SCENARIOS.md §15 Supply-Chain).
 #
 # Every credential here is a local-only placeholder. Real values come from the
 # secret manager in deployed environments and never from a committed file
-# (PLAN/07-BACKEND-ARCHITECTURE.md § Infrastructure).
+# (docs/PLAN/07-BACKEND-ARCHITECTURE.md § Infrastructure).
 
 name: zed-auth
 
@@ -49,7 +49,7 @@ services:
     restart: unless-stopped
     # appendonly yes: sessions and rate-limit counters survive a container
     # restart during development. In production Redis is a cache in front of
-    # PostgreSQL for sessions (PLAN/04-DATA-MODEL.md § sessions), so losing it
+    # PostgreSQL for sessions (docs/PLAN/04-DATA-MODEL.md § sessions), so losing it
     # is recoverable — but losing it on every local restart is just friction.
     command: ["redis-server", "--appendonly", "yes", "--save", ""]
     ports:

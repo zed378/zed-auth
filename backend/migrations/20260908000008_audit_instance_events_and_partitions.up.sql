@@ -5,20 +5,20 @@
 -- the previous application version tolerates because it never writes NULL and
 -- never reads a row it did not write. No column is dropped, renamed, or
 -- narrowed, so an application rollback needs no database rollback
--- (PLAN/14 § Rollback Strategy).
+-- (docs/PLAN/14 § Rollback Strategy).
 
 -- --- Instance-level events --------------------------------------------------
 --
 -- Not every auditable event belongs to a tenant. P0-08 added an explicit
 -- instance-scoped database path (WithInstanceScope) whose whole purpose is to
--- span organizations, and PLAN/08 Part B requires that path to be auditable.
+-- span organizations, and docs/PLAN/08 Part B requires that path to be auditable.
 -- An event recording its use cannot itself carry an org_id, because the point
 -- of the event is that no single organization owns the action.
 --
 -- Signing key rotation (P1-03) is the next one, and the instance audit log
--- screen (UI-UX/08) reads exactly these rows.
+-- screen (docs/UI-UX/08) reads exactly these rows.
 --
--- This is a real need rather than speculation, which is the bar PLAN/00 sets.
+-- This is a real need rather than speculation, which is the bar docs/PLAN/00 sets.
 
 ALTER TABLE events ALTER COLUMN org_id DROP NOT NULL;
 
@@ -42,9 +42,9 @@ CREATE INDEX events_instance_level_idx ON events (created_at DESC)
 -- path read every organization's events. current_org_id() is NULL there, so
 -- `org_id = current_org_id()` is still false for every tenant row. Reading the
 -- cross-organization audit log is a separate capability that needs a
--- deliberate design (UI-UX/08's Instance audit log screen, P1-20), and
+-- deliberate design (docs/UI-UX/08's Instance audit log screen, P1-20), and
 -- granting it accidentally here would be exactly the "normal path with the
--- filter omitted" that PLAN/08 Part B warns against.
+-- filter omitted" that docs/PLAN/08 Part B warns against.
 
 DROP POLICY IF EXISTS events_tenant_read ON events;
 DROP POLICY IF EXISTS events_tenant_insert ON events;
@@ -71,7 +71,7 @@ CREATE POLICY events_insert ON events
 --
 -- That is a scheduled outage, not an untidiness: when the last partition's
 -- range ends, every INSERT into events fails, and because every
--- security-sensitive action writes an audit event (PLAN/09 § Audit), every
+-- security-sensitive action writes an audit event (docs/PLAN/09 § Audit), every
 -- such action fails with it. At midnight on the 1st, with no deploy and no
 -- code change to point at.
 --
@@ -115,7 +115,7 @@ BEGIN
     -- A new partition must inherit the append-only rule. Without this a
     -- partition created next month would silently accept UPDATE and DELETE,
     -- and the audit log would stop being append-only for recent events only —
-    -- the ones an attacker would want to alter (SECURITY/02 §19).
+    -- the ones an attacker would want to alter (docs/SECURITY/02 §19).
     EXECUTE format('GRANT SELECT, INSERT ON %I TO auth_app', part_name);
     EXECUTE format('REVOKE UPDATE, DELETE ON %I FROM auth_app', part_name);
 

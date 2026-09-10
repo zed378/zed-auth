@@ -1,7 +1,7 @@
 # Deployed stack for a self-managed VM (ADR-011).
 #
 # Used for both staging and production, distinguished entirely by which env
-# file is loaded. PLAN/13 and PLAN/14 both require every environment to have
+# file is loaded. docs/PLAN/13 and docs/PLAN/14 both require every environment to have
 # separate signing keys and databases; nothing here is shared between them.
 #
 #   /etc/zed-auth/env            secrets and per-environment configuration
@@ -11,7 +11,7 @@
 #   systemctl start zed-auth
 #
 # Known limitation, tracked as DV-01 in TASKS/BACKLOG.md: a single VM does not
-# meet PLAN/14's Multi-AZ requirement for production. This file implements the
+# meet docs/PLAN/14's Multi-AZ requirement for production. This file implements the
 # strongest single-host posture available, so the gap stays bounded and
 # measured rather than unknown.
 
@@ -20,7 +20,7 @@ name: zed-auth
 services:
   # --- TLS termination ------------------------------------------------------
   caddy:
-    # TLS is mandatory everywhere with no HTTP fallback (PLAN/09). Caddy is
+    # TLS is mandatory everywhere with no HTTP fallback (docs/PLAN/09). Caddy is
     # used rather than nginx because it obtains and renews Let's Encrypt
     # certificates without a separate certbot timer — on a self-managed host,
     # an expired certificate is the most likely cause of an outage, and the
@@ -57,8 +57,8 @@ services:
     # `env_file: /etc/zed-auth/env` would pass the WHOLE file into this
     # container, including AUTH_POSTGRES_OWNER_PASSWORD and AUTH_MIGRATE_DSN.
     # Those are the schema owner's credentials, and the owner bypasses
-    # row-level security and can alter the audit log (PLAN/08 Part B,
-    # SECURITY/02 §19). The service must never be able to reach them: if it is
+    # row-level security and can alter the audit log (docs/PLAN/08 Part B,
+    # docs/SECURITY/02 §19). The service must never be able to reach them: if it is
     # compromised, the blast radius should stop at what auth_app can do.
     #
     # systemd's EnvironmentFile puts the file's values in the *compose process*
@@ -85,7 +85,7 @@ services:
       # compose network can reach it; on the HOST it is published to loopback
       # only (see the ports entry). The endpoint is unauthenticated and
       # discloses request and error rates, so it must never reach the public
-      # ingress (PLAN/13, SECURITY/02 §12).
+      # ingress (docs/PLAN/13, docs/SECURITY/02 §12).
       AUTH_ADMIN_ADDR: "0.0.0.0:9090"
       AUTH_ADMIN_ENABLED: "true"
       # Required, because AUTH_ADMIN_ADDR above is not loopback INSIDE the
@@ -140,7 +140,7 @@ services:
       POSTGRES_INITDB_ARGS: "--locale=C --encoding=UTF8"
     command:
       # WAL archiving is what makes point-in-time recovery possible
-      # (PLAN/15 § Backup Strategy). Without it a backup can only restore to
+      # (docs/PLAN/15 § Backup Strategy). Without it a backup can only restore to
       # the moment it was taken, and RPO becomes the backup interval.
       #
       # The archive lives INSIDE the data volume rather than in a separate

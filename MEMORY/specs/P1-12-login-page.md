@@ -1,6 +1,6 @@
 # P1-12 — Hosted Login Page
 
-Feature specification, per `PLAN/19-FEATURE-SPECIFICATION-TEMPLATE.md`. `CLAUDE.md` requires one for anything touching authentication.
+Feature specification, per `docs/PLAN/19-FEATURE-SPECIFICATION-TEMPLATE.md`. `CLAUDE.md` requires one for anything touching authentication.
 
 ---
 
@@ -24,7 +24,7 @@ It is also the last piece of the Phase 1 login flow. `P1-06` issues codes, `P1-0
 - **FR-1** Server-render from the auth service itself, not the console SPA.
 - **FR-2** The page works with JavaScript disabled.
 - **FR-3** Email/username and password, with CSRF protection on the POST.
-- **FR-4** `UI-UX/15`'s field-label-helper-error pattern, and `UI-UX/13`'s accessibility requirements.
+- **FR-4** `docs/UI-UX/15`'s field-label-helper-error pattern, and `docs/UI-UX/13`'s accessibility requirements.
 - **FR-5** A wrong password and a nonexistent account produce identical responses.
 - **FR-6** The pending authorization request travels by opaque server-side reference only.
 - **FR-7** Restrictive headers on this page specifically: strict CSP with no inline script, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`.
@@ -59,15 +59,15 @@ Depended on by: `P1-13` (rate limiting hooks into the failure path), `P1-14` (au
 
 Registered in `TASKS/BACKLOG.md`.
 
-`PLAN/01-PRODUCT-SCOPE.md` and `UI-UX/05-DESIGN-SYSTEM.md` both specify per-organization branding as logo plus accent colour, and `UI-UX/08` gives an Organization Settings screen for editing it. `console/src/branding/branding.ts` already implements applying it, carefully — a closed union of overridable tokens so that `color-danger` can never be re-pointed.
+`docs/PLAN/01-PRODUCT-SCOPE.md` and `docs/UI-UX/05-DESIGN-SYSTEM.md` both specify per-organization branding as logo plus accent colour, and `docs/UI-UX/08` gives an Organization Settings screen for editing it. `console/src/branding/branding.ts` already implements applying it, carefully — a closed union of overridable tokens so that `color-danger` can never be re-pointed.
 
-`PLAN/04` § `organizations` has `settings jsonb`, and `PLAN/08` Part B enumerates its shape: `password_policy`, `mfa_required`, `session_lifetime_hours`, `allowed_login_methods`. No branding. So a capability that is specified, designed, and half-implemented in the console has no column, and step 7 of this task cannot be satisfied by reading anything.
+`docs/PLAN/04` § `organizations` has `settings jsonb`, and `docs/PLAN/08` Part B enumerates its shape: `password_policy`, `mfa_required`, `session_lifetime_hours`, `allowed_login_methods`. No branding. So a capability that is specified, designed, and half-implemented in the console has no column, and step 7 of this task cannot be satisfied by reading anything.
 
 Closed by treating `settings.branding` as a documented key with the shape `{ "logo_url": string, "accent_color": string }` — no schema change, because `settings` is already `jsonb` and already the place per-organization policy lives. What it needs is to be *specified* rather than invented at each read.
 
 **Nothing writes it yet.** `P2-14` makes it editable. Until then every organization renders unbranded, and the login page says so in the record rather than implying otherwise.
 
-`PLAN/08` Part B should be amended to list the key.
+`docs/PLAN/08` Part B should be amended to list the key.
 
 ## 7. API Contract
 
@@ -79,7 +79,7 @@ Three routes, all HTML, none in the JSON API:
 
 **They are deliberately NOT in `openapi/openapi.yaml`**, and that is a change from the first draft of this section, which said they should join it "for the same reason `/oauth/authorize` did".
 
-That reason does not carry. `/oauth/authorize` is in the spec because it is a protocol endpoint an integrator codes against: a consumer builds its URL, reads its redirect, and needs the parameter list to be a contract. Nobody ever calls `/login` — a browser is its only client, it is reached only by a redirect this service itself issues, and its form fields are an implementation detail that may change without any consumer noticing. `PLAN/20` renders `/docs/api-reference` directly from the spec, so putting it there would publish an "endpoint" to integrators that no integrator should ever touch, with a request and response shape we do not intend to keep stable.
+That reason does not carry. `/oauth/authorize` is in the spec because it is a protocol endpoint an integrator codes against: a consumer builds its URL, reads its redirect, and needs the parameter list to be a contract. Nobody ever calls `/login` — a browser is its only client, it is reached only by a redirect this service itself issues, and its form fields are an implementation detail that may change without any consumer noticing. `docs/PLAN/20` renders `/docs/api-reference` directly from the spec, so putting it there would publish an "endpoint" to integrators that no integrator should ever touch, with a request and response shape we do not intend to keep stable.
 
 Nothing checks the reverse direction — `openapi-shipped-paths.py` fails on documented-but-unshipped, not on served-but-undocumented — so this is a decision rather than a rule being evaded. It should be revisited if a served-surface audit is ever added, and the answer then is likely a separate list of browser routes rather than an entry in the API contract.
 
@@ -87,7 +87,7 @@ Nothing checks the reverse direction — `openapi-shipped-paths.py` fails on doc
 
 None in `console/`. That is the point of FR-1: the login page must not depend on the console's deploy cycle, and must work when the console is broken.
 
-The page carries its own CSS inline in a `<style>` element with a CSP nonce, reusing the token *values* from `UI-UX/05` rather than importing anything. Duplication on purpose, and the same trade `check-brand-tokens.mjs` already governs for the public site.
+The page carries its own CSS inline in a `<style>` element with a CSP nonce, reusing the token *values* from `docs/UI-UX/05` rather than importing anything. Duplication on purpose, and the same trade `check-brand-tokens.mjs` already governs for the public site.
 
 ## 9. Backend Changes
 
@@ -157,16 +157,16 @@ Other conditions:
 
 | # | Abuse case | Source | Control |
 |---|---|---|---|
-| A-1 | Username enumeration through error text | `SECURITY/02` §12 | One message for every credential failure |
+| A-1 | Username enumeration through error text | `docs/SECURITY/02` §12 | One message for every credential failure |
 | A-2 | Enumeration through status or headers | Same | Identical status and headers, asserted byte for byte |
 | A-3 | Enumeration through timing | Same | `P1-01`'s equal-cost not-found path |
 | A-4 | Enumeration through a locked-account message | Same | Locked and deactivated give the same message as wrong |
-| A-5 | Clickjacking the form | `SECURITY/02` §6 | `X-Frame-Options: DENY` **and** `frame-ancestors 'none'` |
-| A-6 | CSRF against the login POST | `SECURITY/02` §5 | Per-request token, constant-time comparison, `SameSite` cookie |
-| A-7 | Reflected XSS via `error` or `state` | `SECURITY/02` §6 | No query parameter is rendered; errors are selected from a fixed table |
-| A-8 | Stored XSS via an organization's logo URL | `SECURITY/02` §6 | Rendered as `src` only, `img-src` restricted, `javascript:` refused |
+| A-5 | Clickjacking the form | `docs/SECURITY/02` §6 | `X-Frame-Options: DENY` **and** `frame-ancestors 'none'` |
+| A-6 | CSRF against the login POST | `docs/SECURITY/02` §5 | Per-request token, constant-time comparison, `SameSite` cookie |
+| A-7 | Reflected XSS via `error` or `state` | `docs/SECURITY/02` §6 | No query parameter is rendered; errors are selected from a fixed table |
+| A-8 | Stored XSS via an organization's logo URL | `docs/SECURITY/02` §6 | Rendered as `src` only, `img-src` restricted, `javascript:` refused |
 | A-9 | Password leaking into the referer of an outbound link | — | `Referrer-Policy: no-referrer` |
-| A-10 | The page loading an attacker's script | `SECURITY/02` §6 | `default-src 'none'`; there is no script to permit |
+| A-10 | The page loading an attacker's script | `docs/SECURITY/02` §6 | `default-src 'none'`; there is no script to permit |
 | A-11 | The pending request replayed | — | Single-use; `P1-06`'s `LoadPending` is a `GETDEL` |
 
 ## 15. Logging / Audit Requirements

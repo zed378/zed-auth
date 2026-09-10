@@ -3,7 +3,7 @@ import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
-// PLAN/06-FRONTEND-ARCHITECTURE.md: a static SPA build served from a CDN,
+// docs/PLAN/06-FRONTEND-ARCHITECTURE.md: a static SPA build served from a CDN,
 // calling the Management API over HTTPS. Deliberately decoupled from the
 // backend deploy — a console fix must not require shipping the auth service,
 // and vice versa.

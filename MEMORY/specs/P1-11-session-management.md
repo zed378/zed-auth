@@ -1,12 +1,12 @@
 # P1-11 — Session Management and the SSO Cookie
 
-Feature specification, per `PLAN/19-FEATURE-SPECIFICATION-TEMPLATE.md`. `CLAUDE.md` requires one for anything touching authentication; the task card calls this "the mechanism SSO depends on".
+Feature specification, per `docs/PLAN/19-FEATURE-SPECIFICATION-TEMPLATE.md`. `CLAUDE.md` requires one for anything touching authentication; the task card calls this "the mechanism SSO depends on".
 
 ---
 
 ## 1. Business Objective
 
-Make step 6 of `PLAN/03`'s data flow work: a user who has authenticated once at the Auth Service reaches the *second* application without seeing a login screen. That is the entire value proposition of running a central identity provider rather than a login form per application, and it is one browser cookie and one lookup.
+Make step 6 of `docs/PLAN/03`'s data flow work: a user who has authenticated once at the Auth Service reaches the *second* application without seeing a login screen. That is the entire value proposition of running a central identity provider rather than a login form per application, and it is one browser cookie and one lookup.
 
 Everything else in this task exists because that cookie is a bearer credential with the same power as the password that created it. It survives in a browser for hours, travels on every navigation to this origin, and cannot be un-issued once stolen — only revoked, and only if revocation is actually immediate.
 
@@ -25,21 +25,21 @@ Everything else in this task exists because that cookie is a bearer credential w
 
 ## 3. Functional Requirements
 
-- **FR-1** Create a session on successful authentication with `user_id`, `org_id`, `auth_methods`, `ip`, `user_agent`, `created_at`, `last_seen_at`, `expires_at` (`PLAN/04` § `sessions`).
+- **FR-1** Create a session on successful authentication with `user_id`, `org_id`, `auth_methods`, `ip`, `user_agent`, `created_at`, `last_seen_at`, `expires_at` (`docs/PLAN/04` § `sessions`).
 - **FR-2** `auth_methods` records the factors actually used, accurately, from Phase 1 onward.
 - **FR-3** The cookie is `HttpOnly`, `Secure`, `SameSite=Lax`, `Path=/`, with no `Domain` attribute.
 - **FR-4** The cookie carries a cryptographically random opaque token and no user data.
 - **FR-5** The session token presented before authentication is never adopted afterwards.
 - **FR-6** Redis serves the lookup; PostgreSQL is authoritative (ADR-003).
-- **FR-7** Enforce an absolute lifetime and an idle timeout, defaulting from `organizations.settings.session_lifetime_hours` (`PLAN/08` Part B).
+- **FR-7** Enforce an absolute lifetime and an idle timeout, defaulting from `organizations.settings.session_lifetime_hours` (`docs/PLAN/08` Part B).
 - **FR-8** Record IP and user agent; do **not** fail on a change to either.
 - **FR-9** Revocation of one session and of all a user's sessions, effective on the next request.
 - **FR-10** Expired sessions become unusable and are removed rather than accumulating.
 
 ## 4. Non-Functional Requirements
 
-- **NFR-1** Session lookup must fit inside `PLAN/12`'s `/oauth/authorize` silent-SSO budget: p95 < 150ms for the whole endpoint, so the lookup itself has to be a single Redis round trip in the common case.
-- **NFR-2** The service stays stateless (`PLAN/12` § Design Decisions): no session state in process memory, so any instance can serve any request.
+- **NFR-1** Session lookup must fit inside `docs/PLAN/12`'s `/oauth/authorize` silent-SSO budget: p95 < 150ms for the whole endpoint, so the lookup itself has to be a single Redis round trip in the common case.
+- **NFR-2** The service stays stateless (`docs/PLAN/12` § Design Decisions): no session state in process memory, so any instance can serve any request.
 - **NFR-3** Redis being unavailable degrades latency, not correctness — the read path falls back to PostgreSQL.
 - **NFR-4** No session token, and no hash of one, reaches a log, a metric label, an error message, or an audit payload.
 - **NFR-5** `last_seen_at` maintenance must not put a write on every authenticated request.
@@ -67,15 +67,15 @@ CREATE UNIQUE INDEX sessions_token_hash_key ON sessions (token_hash);
 
 ### PG-14 — the cookie must not carry the primary key
 
-`PLAN/04` § `sessions` and `P0-07`'s migration comment both say the cookie carries the row's `id`: *"Stored as an opaque cookie ID in the browser."* Opaque it is; safe to expose it is not, and the data model already contains the places it gets exposed.
+`docs/PLAN/04` § `sessions` and `P0-07`'s migration comment both say the cookie carries the row's `id`: *"Stored as an opaque cookie ID in the browser."* Opaque it is; safe to expose it is not, and the data model already contains the places it gets exposed.
 
-`PLAN/05` Part B routes `/v1/organizations/{org_id}/users/{user_id}/sessions`. An organization administrator listing another user's sessions would receive, for each row, the exact string that authenticates as that user. The sessions screen would be a credential-disclosure endpoint whose whole purpose is to be looked at.
+`docs/PLAN/05` Part B routes `/v1/organizations/{org_id}/users/{user_id}/sessions`. An organization administrator listing another user's sessions would receive, for each row, the exact string that authenticates as that user. The sessions screen would be a credential-disclosure endpoint whose whole purpose is to be looked at.
 
 It does not stop there. `refresh_tokens.session_id` is a foreign key, so a token row carries a live session credential. Any audit payload naming a `session_id` — and revocation events will want to — writes one into an append-only table with 24-month retention. A support ticket quoting a session id from a screen is a handover of the account.
 
 So: the cookie carries a fresh 256-bit token, the database stores only `sha256(token)`, and `id` stays an internal identifier that is safe to display, join on, and audit. The token is verified by looking up its hash, exactly as `P1-05` verifies a client secret.
 
-Nullable, no backfill: there are no sessions yet. `PLAN/04` should be amended through the deliberate plan-change process (`AGENTS.md` rule 9); registered in `TASKS/BACKLOG.md`.
+Nullable, no backfill: there are no sessions yet. `docs/PLAN/04` should be amended through the deliberate plan-change process (`AGENTS.md` rule 9); registered in `TASKS/BACKLOG.md`.
 
 **Why not reuse `id` and simply never display it?** Because that is a rule every future endpoint, screen and log line has to remember, and one of them will not. Separating the credential from the identifier makes the rule unnecessary.
 
@@ -187,15 +187,15 @@ Other failures:
 
 | # | Abuse case | Source | Control |
 |---|---|---|---|
-| A-1 | Session fixation: attacker sets a known cookie before the victim logs in | `SECURITY/02` §4 | The token presented at login is never adopted; a fresh one is always generated and the old session revoked |
-| A-2 | Stolen cookie replayed | `SECURITY/02` §4 | Visible in the sessions list with its IP and user agent; revocable, and revocation is immediate |
-| A-3 | Cookie sent over plain HTTP | `PLAN/09` § Transport | `Secure`, enforced by the `__Host-` prefix rather than only by our own attribute string |
-| A-4 | Cookie read by injected JavaScript | `SECURITY/02` §6 | `HttpOnly` |
-| A-5 | Cross-site request rides the session | `SECURITY/02` §5 | `SameSite=Lax` withholds it on cross-site POST |
-| A-6 | Session token harvested from the sessions API or an audit log | `SECURITY/02` §16 | **PG-14**: the cookie is not the row id, and only a hash is stored |
+| A-1 | Session fixation: attacker sets a known cookie before the victim logs in | `docs/SECURITY/02` §4 | The token presented at login is never adopted; a fresh one is always generated and the old session revoked |
+| A-2 | Stolen cookie replayed | `docs/SECURITY/02` §4 | Visible in the sessions list with its IP and user agent; revocable, and revocation is immediate |
+| A-3 | Cookie sent over plain HTTP | `docs/PLAN/09` § Transport | `Secure`, enforced by the `__Host-` prefix rather than only by our own attribute string |
+| A-4 | Cookie read by injected JavaScript | `docs/SECURITY/02` §6 | `HttpOnly` |
+| A-5 | Cross-site request rides the session | `docs/SECURITY/02` §5 | `SameSite=Lax` withholds it on cross-site POST |
+| A-6 | Session token harvested from the sessions API or an audit log | `docs/SECURITY/02` §16 | **PG-14**: the cookie is not the row id, and only a hash is stored |
 | A-7 | Revoked session used during a cache window | Task DoD | Write-through invalidation plus the tombstone-guarded populate (§12) |
 | A-8 | Session token brute-forced | — | 256 bits; the same argument as ADR-016 |
-| A-9 | Cross-tenant session lookup | `SECURITY/02` §2 | The token→session resolution is instance-scoped and audited; everything after it is tenant-scoped |
+| A-9 | Cross-tenant session lookup | `docs/SECURITY/02` §2 | The token→session resolution is instance-scoped and audited; everything after it is tenant-scoped |
 | A-10 | Expired sessions accumulate until the table is a liability | DoD item 4 | The sweep, on the same pattern as `P0-12`'s partition maintenance |
 
 ## 15. Logging / Audit Requirements
@@ -253,7 +253,7 @@ The race test is the one worth writing carefully. It has to interleave deliberat
 
 ## 19. Definition of Done
 
-The task's six items plus the global DoD. Item 3 (latency) is measured against `PLAN/12`'s budget with the cache warm and cold, and the number recorded — a budget nobody measured is a budget nobody meets.
+The task's six items plus the global DoD. Item 3 (latency) is measured against `docs/PLAN/12`'s budget with the cache warm and cold, and the number recorded — a budget nobody measured is a budget nobody meets.
 
 ## 20. Implementation Sequence
 

@@ -5,16 +5,16 @@
 # from it, so a handler whose signature no longer matches this file fails to
 # compile rather than failing in production.
 #
-# Governing document: PLAN/05-API-CONTRACT.md. Where the two disagree, PLAN/05
+# Governing document: docs/PLAN/05-API-CONTRACT.md. Where the two disagree, docs/PLAN/05
 # is right and this file is a bug.
 #
 # On what is NOT here: this spec describes only endpoints that exist. The
-# endpoint structure in PLAN/05 Part B lists the full v1 surface, and it is
+# endpoint structure in docs/PLAN/05 Part B lists the full v1 surface, and it is
 # tempting to write it all out now as a design exercise. It is not written out,
 # because /docs/api-reference renders from this file, and an endpoint in the
 # public reference is a claim that the endpoint exists. Documenting the whole
 # roadmap here would put that claim on the public site for every unbuilt
-# endpoint at once (UI-UX/21 § governance, CLAUDE.md).
+# endpoint at once (docs/UI-UX/21 § governance, CLAUDE.md).
 #
 # The component schemas below are different in kind. They are contract
 # infrastructure — the shapes every future endpoint will reuse — and settling
@@ -41,7 +41,7 @@ info:
 
     **Every capability in the management console is available here.** The
     console is a client of this API and has no privileged path around it
-    (`PLAN/02` FR-14). If the console can do something this API cannot, that is
+    (`docs/PLAN/02` FR-14). If the console can do something this API cannot, that is
     a defect.
 
     ## Current status
@@ -53,7 +53,7 @@ info:
     ## Versioning
 
     Management endpoints are prefixed `/v1`. Breaking changes go to `/v2` with a
-    published deprecation window for `/v1` (`PLAN/05` Part B). The operational
+    published deprecation window for `/v1` (`docs/PLAN/05` Part B). The operational
     probes are unversioned: they describe the process, not the API.
 
     ## Authentication
@@ -62,7 +62,7 @@ info:
     the Client Credentials grant for service accounts. Authorization is
     enforced server-side on every request without exception — the console
     hiding a control is a user-experience decision, never a security one
-    (`PLAN/08`).
+    (`docs/PLAN/08`).
   contact:
     name: Responsible disclosure
     email: security@zedth.my.id
@@ -94,7 +94,7 @@ tags:
       Process-level probes. Unauthenticated by design, and deliberately
       uninformative: they answer whether the process can serve traffic and
       nothing else. A probe that reports which dependency is unhealthy is a
-      reconnaissance endpoint (`SECURITY/02` §12).
+      reconnaissance endpoint (`docs/SECURITY/02` §12).
 
 paths:
   /.well-known/openid-configuration:
@@ -144,7 +144,7 @@ paths:
         Every key that can still verify a token is published, including one
         that has stopped signing. That overlap is what lets a key rotate
         without invalidating tokens issued moments before it
-        (`PLAN/09` § Tokens & Keys).
+        (`docs/PLAN/09` § Tokens & Keys).
 
         Verification is local: fetch this once, cache it, and validating a
         token does not depend on this service being reachable.
@@ -167,7 +167,7 @@ paths:
         "503":
           description: |
             The key set could not be read. The body names no dependency: this
-            endpoint is public and unauthenticated (`SECURITY/02` §12).
+            endpoint is public and unauthenticated (`docs/SECURITY/02` §12).
           content:
             application/json:
               schema:
@@ -190,7 +190,7 @@ paths:
         `?error=invalid_request&error_description=...&state=...`.
 
         **PKCE is mandatory for every client type**, public and confidential
-        alike. `PLAN/05` states this explicitly and it is stricter than OAuth
+        alike. `docs/PLAN/05` states this explicitly and it is stricter than OAuth
         2.1's baseline: a confidential client's secret protects the token
         request, not the code in transit, and a code intercepted from a browser
         redirect is useless without the verifier regardless of what the client
@@ -288,7 +288,7 @@ paths:
             redirect to, and inventing one is the vulnerability.
 
             The two causes are reported identically, so this cannot be used to
-            discover which client ids exist (`SECURITY/02` §12).
+            discover which client ids exist (`docs/SECURITY/02` §12).
           content:
             text/html:
               schema: { type: string }
@@ -300,7 +300,7 @@ paths:
       summary: Token endpoint
       description: |
         Exchanges an authorization code, a refresh token, or client
-        credentials for tokens. `PLAN/12` calls this the highest-volume,
+        credentials for tokens. `docs/PLAN/12` calls this the highest-volume,
         most latency-sensitive endpoint in the system.
 
         **This endpoint does not use the standard error envelope.** OAuth 2.1
@@ -404,6 +404,87 @@ paths:
               schema:
                 $ref: "#/components/schemas/OAuthError"
 
+  /oauth/userinfo:
+    get:
+      tags: [OAuth]
+      operationId: userinfo
+      summary: UserInfo endpoint
+      description: |
+        Returns the claims the presented access token's scopes authorise, and
+        nothing beyond them.
+
+        **Send the token in the `Authorization` header.** RFC 6750 also defines
+        an `access_token` query parameter and calls it NOT RECOMMENDED; this
+        service does not accept one. A query parameter is written to the access
+        log of every proxy in the path, to the browser's history, and to the
+        `Referer` of whatever the page loads next.
+
+        **Scopes decide the claims.** `openid` yields `sub`; `profile` yields
+        `name`, `preferred_username` and `updated_at`; `email` yields `email`.
+        A claim outside the granted scopes is never returned, and a claim whose
+        underlying value is not set is omitted rather than returned empty.
+
+        `email_verified` is **not** returned. Nothing in this service verifies
+        an address yet, and asserting `false` would say we checked and it is
+        not verified — which we did not.
+
+        **`sub` is the user's identifier and is stable.** It is not sequential,
+        not guessable, and never the email address. Store it as the user's
+        permanent key; an address may change.
+
+        **The token stops working the moment the session behind it ends.** An
+        access token is not looked up, but the session it was issued from is —
+        so a logout, a revocation, or a deactivated account invalidates it
+        immediately rather than at its expiry.
+
+        **Every unusable token gets the same answer**: `401` with
+        `WWW-Authenticate: Bearer error="invalid_token"`. Expired, forged,
+        wrong audience, and revoked are not distinguished, because a caller
+        that could tell them apart could ask this endpoint whether a user has
+        logged out.
+
+        A token that is otherwise valid but lacks the `openid` scope gets `403`
+        with `error="insufficient_scope"`, which is a different thing and is
+        worth telling you: your token is fine, and it does not cover this.
+      security:
+        - oauth2: [openid]
+      responses:
+        "200":
+          description: The claims the granted scopes authorise.
+          headers:
+            Cache-Control:
+              description: Always `no-store`. The response is personal data addressed to one caller.
+              schema: { type: string }
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserInfo"
+        "401":
+          description: |
+            The access token is missing, expired, forged, for another
+            audience, or its session has ended. All of these are the same
+            answer, deliberately.
+          headers:
+            WWW-Authenticate:
+              description: |
+                `Bearer realm="<issuer>"`, with
+                `error="invalid_token"` when a credential was presented.
+              schema: { type: string }
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: The token is valid and does not carry the `openid` scope.
+          headers:
+            WWW-Authenticate:
+              description: '`Bearer error="insufficient_scope", scope="openid"`.'
+              schema: { type: string }
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
   /healthz:
     get:
       tags: [Operations]
@@ -416,7 +497,7 @@ paths:
         The distinction from `/readyz` is load-bearing. A liveness probe that
         checks the database restarts the service during a database outage,
         which converts a recoverable dependency failure into a crash loop that
-        prevents recovery (`PLAN/14`).
+        prevents recovery (`docs/PLAN/14`).
       security: []
       responses:
         "200":
@@ -476,7 +557,7 @@ components:
       description: |
         OAuth 2.0 access tokens. Authorization Code with PKCE for interactive
         clients including the console itself; Client Credentials for service
-        accounts (`PLAN/05` Part A).
+        accounts (`docs/PLAN/05` Part A).
       flows:
         authorizationCode:
           authorizationUrl: https://auth.zedth.my.id/oauth/authorize
@@ -535,7 +616,7 @@ components:
         request with the same key returns the original result rather than
         creating a second resource — which matters most for automated
         provisioning, where a network timeout is indistinguishable from a
-        failure (`PLAN/05` Part B).
+        failure (`docs/PLAN/05` Part B).
       schema:
         type: string
         minLength: 1
@@ -583,7 +664,7 @@ components:
           type: array
           description: |
             Never contains `implicit` or `password`: both are ruled out
-            permanently by `PLAN/05` § Supported Grant Types, and advertising
+            permanently by `docs/PLAN/05` § Supported Grant Types, and advertising
             a grant this service refuses invites a client to build against it.
           items: { type: string }
         subject_types_supported:
@@ -699,7 +780,7 @@ components:
         Deliberately coarse. A code per failure mode leaks internal structure
         and becomes an enumeration oracle — `USER_NOT_FOUND` versus
         `PERMISSION_DENIED` tells an attacker which addresses are registered
-        (`SECURITY/02` §12).
+        (`docs/SECURITY/02` §12).
       enum:
         - VALIDATION_ERROR
         - UNAUTHENTICATED
@@ -759,6 +840,45 @@ components:
           type: string
           description: The granted scope, space-delimited.
 
+    UserInfo:
+      type: object
+      description: |
+        The claims the presented access token's scopes authorise.
+
+        Only `sub` is guaranteed. Every other property appears when its scope
+        was granted AND the underlying value is set — an absent claim means the
+        value is not known or not authorised, and the two are deliberately not
+        distinguished.
+      required: [sub]
+      properties:
+        sub:
+          type: string
+          format: uuid
+          description: |
+            The user's stable identifier. Not sequential, not guessable, and
+            never the email address — store this as the user's permanent key.
+        name:
+          type: string
+          description: Display name. Requires the `profile` scope.
+        preferred_username:
+          type: string
+          description: |
+            Requires the `profile` scope. A user may change it, so it is not
+            an identifier — use `sub`.
+        updated_at:
+          type: integer
+          format: int64
+          description: |
+            Seconds since the epoch, when the user record last changed
+            (OIDC Core 5.1). Requires the `profile` scope.
+        email:
+          type: string
+          format: email
+          description: |
+            Requires the `email` scope. `email_verified` is deliberately not
+            returned: nothing in this service verifies an address yet, and
+            asserting `false` would claim a check that never happened.
+
     OAuthError:
       type: object
       description: |
@@ -787,7 +907,7 @@ components:
       type: object
       description: |
         The error envelope for every non-2xx response, without exception
-        (`PLAN/05` Part B § Standard Error Format). One shape means a client
+        (`docs/PLAN/05` Part B § Standard Error Format). One shape means a client
         writes one error path rather than one per endpoint.
       required: [error]
       additionalProperties: false
@@ -804,7 +924,7 @@ components:
               description: |
                 Human-readable, safe to surface in a UI, and never containing a
                 token, a password, a raw `/v1/authz/check` resource attribute,
-                a stack trace, or a SQL fragment (`PLAN/13`, `CLAUDE.md`).
+                a stack trace, or a SQL fragment (`docs/PLAN/13`, `CLAUDE.md`).
             details:
               type: array
               description: Field-level problems. Omitted when there are none.
@@ -865,7 +985,7 @@ components:
         Authenticated, but not permitted. Returned for a resource in another
         organization even when it exists — distinguishing "forbidden" from "not
         found" across a tenant boundary confirms the resource's existence to
-        someone with no right to know it (`PLAN/08`, `SECURITY/02` §3).
+        someone with no right to know it (`docs/PLAN/08`, `docs/SECURITY/02` §3).
       content:
         application/json:
           schema:
@@ -907,7 +1027,7 @@ components:
       description: |
         Too many requests. Limits are applied per `client_id` or API key rather
         than per IP, so one noisy tenant behind a shared NAT cannot exhaust
-        another's budget (`PLAN/05` Part B).
+        another's budget (`docs/PLAN/05` Part B).
       headers:
         X-RateLimit-Limit:
           description: Requests permitted in the current window.

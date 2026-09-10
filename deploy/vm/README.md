@@ -2,15 +2,15 @@
 
 Deploying the Auth Service to a self-managed VM. Covers first-time setup, routine deploys, backup and restore, and the move to Kubernetes later.
 
-**Context**: [ADR-011](../../MEMORY/DECISIONS.md). **Secrets**: [../SECRETS.md](../SECRETS.md). **Governing plan**: `PLAN/14-DEPLOYMENT.md`, `PLAN/15-DISASTER-RECOVERY.md`.
+**Context**: [ADR-011](../../MEMORY/DECISIONS.md). **Secrets**: [../SECRETS.md](../SECRETS.md). **Governing plan**: `docs/PLAN/14-DEPLOYMENT.md`, `docs/PLAN/15-DISASTER-RECOVERY.md`.
 
 ---
 
 ## Read This First
 
-> **This deployment does not meet `PLAN/14`'s Multi-AZ requirement for production.** A single VM is a single point of failure for every consumer application's authentication: a reboot, a kernel panic, or a failed deploy takes login down platform-wide.
+> **This deployment does not meet `docs/PLAN/14`'s Multi-AZ requirement for production.** A single VM is a single point of failure for every consumer application's authentication: a reboot, a kernel panic, or a failed deploy takes login down platform-wide.
 >
-> Tracked as **DV-01** in `TASKS/BACKLOG.md`. It is accepted as interim, and it must be closed by the Kubernetes migration — or formally risk-accepted in `PLAN/18-RISK-REGISTER.md` with an owner and a date — before any consumer application depends on this in production.
+> Tracked as **DV-01** in `TASKS/BACKLOG.md`. It is accepted as interim, and it must be closed by the Kubernetes migration — or formally risk-accepted in `docs/PLAN/18-RISK-REGISTER.md` with an owner and a date — before any consumer application depends on this in production.
 
 Everything below is the strongest posture a single host allows, so the gap stays **bounded and measured** rather than unknown.
 
@@ -95,7 +95,7 @@ Run `secrets.sh fix` again after adding any file by hand. It is idempotent.
 
 ### 3. Signing keys
 
-Generate them **on this machine**. `PLAN/02` § Constraints: no third party holds the private signing key. A key generated on a laptop and copied over has been on a laptop.
+Generate them **on this machine**. `docs/PLAN/02` § Constraints: no third party holds the private signing key. A key generated on a laptop and copied over has been on a laptop.
 
 ```bash
 sudo openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 \
@@ -171,7 +171,7 @@ sudo systemctl enable --now zed-auth-backup.timer
 sudo /opt/zed-auth/deploy/vm/backup.sh   # run once now, and read the output
 ```
 
-**Set `AUTH_BACKUP_REMOTE`.** Without it, backups sit on the same disk as the database they protect — which guards against `DROP TABLE` and against nothing else. `PLAN/15` requires a separate failure domain, and `backup.sh` warns loudly when this is unset because a local-only backup gives the *feeling* of safety without it.
+**Set `AUTH_BACKUP_REMOTE`.** Without it, backups sit on the same disk as the database they protect — which guards against `DROP TABLE` and against nothing else. `docs/PLAN/15` requires a separate failure domain, and `backup.sh` warns loudly when this is unset because a local-only backup gives the *feeling* of safety without it.
 
 ---
 
@@ -210,7 +210,7 @@ sudo docker compose exec -T postgres pg_restore -U auth_owner -d auth --no-owner
 sudo systemctl start zed-auth
 ```
 
-**Signing keys are backed up separately from the database** (`PLAN/15`), and restoring the two out of sync is the subtle failure `PLAN/15` § Restore Testing warns about: tokens issued before the restore fail verification, and the error points at neither.
+**Signing keys are backed up separately from the database** (`docs/PLAN/15`), and restoring the two out of sync is the subtle failure `docs/PLAN/15` § Restore Testing warns about: tokens issued before the restore fail verification, and the error points at neither.
 
 Point-in-time recovery is possible because WAL archiving is on. `P5-07` is where the full drill happens and where RTO and RPO get measured — they are still unset (`OQ-05`), which means a drill can be executed but not yet judged successful.
 

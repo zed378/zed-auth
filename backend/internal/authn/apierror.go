@@ -17,12 +17,12 @@ import (
 
 // PasswordField is the JSON path violations are reported against.
 //
-// UI-UX/15 § Error Presentation maps details[].field back to a form field, so
+// docs/UI-UX/15 § Error Presentation maps details[].field back to a form field, so
 // this string is what makes the errors render under the password input rather
 // than in a banner at the top of the form.
 const PasswordField = "password"
 
-// ValidationError renders violations in PLAN/05's error envelope, with one
+// ValidationError renders violations in docs/PLAN/05's error envelope, with one
 // details[] entry per unmet rule.
 //
 // **For authenticated password-set paths only** — a change form, a reset with
@@ -31,7 +31,7 @@ const PasswordField = "password"
 // to know precisely why theirs was refused.
 //
 // Every violation appears, sharing the same field. That is deliberate and
-// matches UI-UX/15: a form that reveals one problem per submit is a form the
+// matches docs/UI-UX/15: a form that reveals one problem per submit is a form the
 // user fights, and each round trip is one we pay for.
 func ValidationError(violations []Violation) api.Error {
 	var e api.Error
@@ -58,7 +58,7 @@ func ValidationError(violations []Violation) api.Error {
 //
 // For any path where the caller is not authenticated. Policy detail there
 // tells an anonymous caller the composition rules for a tenant, which narrows
-// a credential-stuffing search space for free (SECURITY/02 §12) — and the
+// a credential-stuffing search space for free (docs/SECURITY/02 §12) — and the
 // rules are the same for every user in the organization, so leaking them once
 // leaks them for everyone.
 //

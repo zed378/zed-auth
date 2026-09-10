@@ -5,12 +5,12 @@ import { themes as prismThemes } from "prism-react-renderer";
 /**
  * The public site: landing, about, docs, changelog, contact.
  *
- * **Governing documents**: `PLAN/20-PUBLIC-SITE-ARCHITECTURE.md` (technical),
- * `UI-UX/20-PUBLIC-SITE-SPECIFICATIONS.md` (design),
- * `UI-UX/21-CONTENT-AND-COPY-STRATEGY.md` (copy).
+ * **Governing documents**: `docs/PLAN/20-PUBLIC-SITE-ARCHITECTURE.md` (technical),
+ * `docs/UI-UX/20-PUBLIC-SITE-SPECIFICATIONS.md` (design),
+ * `docs/UI-UX/21-CONTENT-AND-COPY-STRATEGY.md` (copy).
  *
- * One project rather than two (ADR-014). `PLAN/20` suggests a marketing SSG
- * alongside a separate docs framework, and `UI-UX/20` § Cross-Page
+ * One project rather than two (ADR-014). `docs/PLAN/20` suggests a marketing SSG
+ * alongside a separate docs framework, and `docs/UI-UX/20` § Cross-Page
  * Requirements requires every page to share the same header and footer so that
  * moving Landing → Docs "never feels like a different product". Two projects
  * make that navigation a duplicated component, which is precisely how it
@@ -21,7 +21,7 @@ import { themes as prismThemes } from "prism-react-renderer";
 // The site's own address. Wrong values here are not cosmetic: they produce
 // canonical URLs and sitemap entries pointing somewhere that does not exist,
 // which is an SEO problem on the surface whose entire job is discovery
-// (`PLAN/20`).
+// (`docs/PLAN/20`).
 const url = process.env.SITE_URL ?? "https://zedth.my.id";
 const baseUrl = process.env.SITE_BASE_URL ?? "/";
 
@@ -67,7 +67,7 @@ const config: Config = {
 
           // Versioning is enabled from the first commit, deliberately.
           //
-          // `PLAN/20` § Versioning Strategy requires old-version docs to stay
+          // `docs/PLAN/20` § Versioning Strategy requires old-version docs to stay
           // reachable through a version's deprecation window, and retrofitting
           // versioning once v1 docs exist means reorganising every file at the
           // moment there is the most content to break. Cheap now, painful
@@ -105,7 +105,7 @@ const config: Config = {
         },
 
         blog: {
-          // The blog plugin, used as the changelog (`PLAN/20` § Site
+          // The blog plugin, used as the changelog (`docs/PLAN/20` § Site
           // Structure). Reverse-chronological release notes are what a blog
           // engine already is; a second content type would be the same
           // machinery under a different name.
@@ -164,9 +164,9 @@ const config: Config = {
 
     // Local search, indexed at build time.
     //
-    // `PLAN/20` names Algolia DocSearch or a built-in local search. Local,
+    // `docs/PLAN/20` names Algolia DocSearch or a built-in local search. Local,
     // because Algolia means an external crawler and an API key for a site that
-    // currently has a dozen pages — and `UI-UX/20` § Docs Home requires fuzzy
+    // currently has a dozen pages — and `docs/UI-UX/20` § Docs Home requires fuzzy
     // matching because "a developer often doesn't know the exact terminology
     // this project uses yet", which local search does.
     [
@@ -230,11 +230,11 @@ const config: Config = {
         },
         {
           // The primary call to action, present in the navigation on every
-          // page. `UI-UX/20` § Above-the-fold lists it alongside the logo and
+          // page. `docs/UI-UX/20` § Above-the-fold lists it alongside the logo and
           // the Docs and About links.
           //
           // It says "Read the docs" rather than "Get Started", and the same
-          // words appear in the hero and the closing section. `UI-UX/20` §
+          // words appear in the hero and the closing section. `docs/UI-UX/20` §
           // Interaction asks for exactly one primary CTA style used
           // consistently — three labels for one action is the five-competing-
           // CTAs failure in slower motion.
@@ -269,7 +269,7 @@ const config: Config = {
           title: "Contact",
           items: [
             { label: "Contact", to: "/contact" },
-            // The responsible-disclosure path, which `PLAN/20` § What Never
+            // The responsible-disclosure path, which `docs/PLAN/20` § What Never
             // Gets Published requires to exist and be documented — a
             // researcher with nowhere to report goes public instead.
             { label: "Report a security issue", to: "/contact#security" },

@@ -59,7 +59,7 @@ func TestUnreadableSettingsStillRender(t *testing.T) {
 	}
 }
 
-// UI-UX/05 § Color: an organization overrides the accent and the logo, and
+// docs/UI-UX/05 § Color: an organization overrides the accent and the logo, and
 // nothing else. The struct has nowhere to put a third value, so the test that
 // this holds is that a settings document naming other tokens changes nothing.
 func TestOnlyTwoValuesAreBrandable(t *testing.T) {
@@ -82,7 +82,7 @@ func TestOnlyTwoValuesAreBrandable(t *testing.T) {
 		t.Error("a token an organization may not override reached the stylesheet")
 	}
 	if !strings.Contains(string(css), "--color-danger:#b42318") {
-		t.Error("color-danger is not the reserved value; UI-UX/05 requires it to be " +
+		t.Error("color-danger is not the reserved value; docs/UI-UX/05 requires it to be " +
 			"the same in every tenant so red keeps meaning irreversible")
 	}
 }

@@ -17,7 +17,7 @@ import (
 // until now. The keys have not changed just because the database is briefly
 // unreachable, and failing every token verification during a blip would turn
 // a recoverable dependency failure into a total outage — the same reasoning
-// that keeps the liveness probe off the database (PLAN/14).
+// that keeps the liveness probe off the database (docs/PLAN/14).
 func TestCacheServesTheLastGoodSetWhenReloadFails(t *testing.T) {
 	key := newKey(t, RS256, StatusCurrent)
 	set, err := NewKeySet([]*Key{key})

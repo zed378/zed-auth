@@ -1,9 +1,9 @@
 // Package audit writes the append-only event log.
 //
-// PLAN/09-SECURITY.md § Audit requires every identity- or permission-changing
-// event to be recorded, and PLAN/04 makes the table append-only at the
+// docs/PLAN/09-SECURITY.md § Audit requires every identity- or permission-changing
+// event to be recorded, and docs/PLAN/04 makes the table append-only at the
 // database level — the application role has no UPDATE or DELETE privilege on
-// it (SECURITY/02 §19).
+// it (docs/SECURITY/02 §19).
 //
 // One entry point exists so that no feature invents its own audit format. The
 // value of an audit log is that an investigator can reason about it uniformly;
@@ -26,7 +26,7 @@ import (
 // EventType names what happened, as noun.verb.outcome.
 //
 // Constants rather than free strings: the console filters on these
-// (UI-UX/08 Audit Log), alerting keys on them (PLAN/13 § Alerting), and a
+// (docs/UI-UX/08 Audit Log), alerting keys on them (docs/PLAN/13 § Alerting), and a
 // typo in a literal produces an event that is silently never matched by either.
 type EventType string
 
@@ -112,7 +112,7 @@ const (
 	EventSigningKeyRotated EventType = "signing_key.rotated"
 
 	// EventInstanceScopedAccess records a use of the cross-tenant database
-	// path. PLAN/08 Part B requires that path to be auditable, not merely
+	// path. docs/PLAN/08 Part B requires that path to be auditable, not merely
 	// possible.
 	EventInstanceScopedAccess EventType = "instance.scoped_access"
 )
@@ -159,7 +159,7 @@ type Writer struct {
 	// observer is optional; nil means metrics are not wired.
 	observer Observer
 
-	// forwarder ships events to an external SIEM. PLAN/09 § Audit says the log
+	// forwarder ships events to an external SIEM. docs/PLAN/09 § Audit says the log
 	// should "ideally" be forwarded; this is the seam, a no-op until P5-08
 	// wires a real one.
 	forwarder Forwarder
@@ -169,7 +169,7 @@ type Writer struct {
 //
 // An audit log that lives only in the database it audits is one an attacker
 // with database access can reason about. Forwarding puts a copy somewhere they
-// would have to compromise separately (SECURITY/02 §19).
+// would have to compromise separately (docs/SECURITY/02 §19).
 type Forwarder interface {
 	Forward(ctx context.Context, e Event) error
 }
@@ -193,7 +193,7 @@ func (w *Writer) SetObserver(o Observer) { w.observer = o }
 // cannot be trusted is worse than no log, because decisions get made from it.
 //
 // The cost is real and accepted: if the audit write fails, the action fails.
-// For an identity provider that is the right trade. PLAN/09 requires every
+// For an identity provider that is the right trade. docs/PLAN/09 requires every
 // permission-changing event to be captured, and "captured unless the insert
 // happened to fail" is not that.
 func (w *Writer) Write(ctx context.Context, tx *postgres.Tx, e Event) error {
@@ -445,7 +445,7 @@ func (w *Writer) Query(ctx context.Context, tx *postgres.Tx, f Filter) ([]Record
 //
 // This exists because its absence is a scheduled outage. When the last
 // partition's range ends, every INSERT into events fails — and since every
-// security-sensitive action writes an audit event (PLAN/09 § Audit), every
+// security-sensitive action writes an audit event (docs/PLAN/09 § Audit), every
 // such action fails with it. At midnight on the first of a month, with no
 // deploy and no code change to point at.
 //

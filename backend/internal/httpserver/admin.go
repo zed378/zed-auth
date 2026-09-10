@@ -15,7 +15,7 @@ import (
 
 // AdminServer carries the internal endpoints: metrics, and later profiling.
 //
-// It is a SEPARATE listener from the public server, not a route on it. PLAN/13
+// It is a SEPARATE listener from the public server, not a route on it. docs/PLAN/13
 // requires the metrics endpoint not to be reachable from the public ingress,
 // and separating the listener makes that a property of the binding rather than
 // something an ingress rule has to remember — it keeps holding when the
@@ -26,7 +26,7 @@ import (
 // rates, login success and failure counts, in-flight concurrency, database
 // pool saturation, and the service version. That is a reconnaissance summary
 // and a reliable oracle for whether an attack is working
-// (SECURITY/02-ATTACK-SURFACE-AND-SCENARIOS.md §12).
+// (docs/SECURITY/02-ATTACK-SURFACE-AND-SCENARIOS.md §12).
 type AdminServer struct {
 	cfg  config.AdminConfig
 	log  *slog.Logger
@@ -90,7 +90,7 @@ func NewAdmin(cfg config.AdminConfig, deps AdminDeps) *AdminServer {
 // The failure response is deliberately bare: no WWW-Authenticate challenge
 // naming a scheme, no hint about what was wrong. This endpoint should not
 // advertise that it exists or what it wants to anyone probing it
-// (SECURITY/02 §12).
+// (docs/SECURITY/02 §12).
 func requireBearerToken(token string, next http.Handler) http.Handler {
 	want := []byte(token)
 

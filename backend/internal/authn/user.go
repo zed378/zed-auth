@@ -30,7 +30,7 @@ import (
 // form being a way to push bytes into a LIKE-free but still indexed lookup.
 const maxEmailLength = 320
 
-// Status values from PLAN/04 § users.
+// Status values from docs/PLAN/04 § users.
 //
 // Only StatusActive may sign in. The other three are enumerated rather than
 // left as a string comparison at the call site, because "not active" is the
@@ -68,7 +68,7 @@ type User struct {
 // Locked, invited and deactivated are all false, and the caller must give the
 // same answer for all three as it gives for a wrong password. "This account is
 // locked" confirms the account exists, which is the enumeration disclosure the
-// uniform message exists to prevent (SECURITY/02 §12).
+// uniform message exists to prevent (docs/SECURITY/02 §12).
 func (u User) CanSignIn() bool { return u.Status == StatusActive }
 
 // UserStore reads users for authentication.

@@ -11,6 +11,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	strictnethttp "github.com/oapi-codegen/runtime/strictmiddleware/nethttp"
+	openapi_types "github.com/oapi-codegen/runtime/types"
 )
 
 // Defines values for ErrorCode.
@@ -52,7 +53,7 @@ const (
 )
 
 // Error The error envelope for every non-2xx response, without exception
-// (`PLAN/05` Part B § Standard Error Format). One shape means a client
+// (`docs/PLAN/05` Part B § Standard Error Format). One shape means a client
 // writes one error path rather than one per endpoint.
 type Error struct {
 	Error struct {
@@ -62,7 +63,7 @@ type Error struct {
 		// Deliberately coarse. A code per failure mode leaks internal structure
 		// and becomes an enumeration oracle — `USER_NOT_FOUND` versus
 		// `PERMISSION_DENIED` tells an attacker which addresses are registered
-		// (`SECURITY/02` §12).
+		// (`docs/SECURITY/02` §12).
 		Code ErrorCode `json:"code"`
 
 		// Details Field-level problems. Omitted when there are none.
@@ -70,7 +71,7 @@ type Error struct {
 
 		// Message Human-readable, safe to surface in a UI, and never containing a
 		// token, a password, a raw `/v1/authz/check` resource attribute,
-		// a stack trace, or a SQL fragment (`PLAN/13`, `CLAUDE.md`).
+		// a stack trace, or a SQL fragment (`docs/PLAN/13`, `CLAUDE.md`).
 		Message string `json:"message"`
 	} `json:"error"`
 }
@@ -81,7 +82,7 @@ type Error struct {
 // Deliberately coarse. A code per failure mode leaks internal structure
 // and becomes an enumeration oracle — `USER_NOT_FOUND` versus
 // `PERMISSION_DENIED` tells an attacker which addresses are registered
-// (`SECURITY/02` §12).
+// (`docs/SECURITY/02` §12).
 type ErrorCode string
 
 // ErrorDetail One specific problem within a failed request. Present for
@@ -158,7 +159,7 @@ type OpenIDConfiguration struct {
 	EndSessionEndpoint            *string   `json:"end_session_endpoint,omitempty"`
 
 	// GrantTypesSupported Never contains `implicit` or `password`: both are ruled out
-	// permanently by `PLAN/05` § Supported Grant Types, and advertising
+	// permanently by `docs/PLAN/05` § Supported Grant Types, and advertising
 	// a grant this service refuses invites a client to build against it.
 	GrantTypesSupported              *[]string `json:"grant_types_supported,omitempty"`
 	IdTokenSigningAlgValuesSupported []string  `json:"id_token_signing_alg_values_supported"`
@@ -243,6 +244,34 @@ type TokenResponse struct {
 // TokenResponseTokenType defines model for TokenResponse.TokenType.
 type TokenResponseTokenType string
 
+// UserInfo The claims the presented access token's scopes authorise.
+//
+// Only `sub` is guaranteed. Every other property appears when its scope
+// was granted AND the underlying value is set — an absent claim means the
+// value is not known or not authorised, and the two are deliberately not
+// distinguished.
+type UserInfo struct {
+	// Email Requires the `email` scope. `email_verified` is deliberately not
+	// returned: nothing in this service verifies an address yet, and
+	// asserting `false` would claim a check that never happened.
+	Email *openapi_types.Email `json:"email,omitempty"`
+
+	// Name Display name. Requires the `profile` scope.
+	Name *string `json:"name,omitempty"`
+
+	// PreferredUsername Requires the `profile` scope. A user may change it, so it is not
+	// an identifier — use `sub`.
+	PreferredUsername *string `json:"preferred_username,omitempty"`
+
+	// Sub The user's stable identifier. Not sequential, not guessable, and
+	// never the email address — store this as the user's permanent key.
+	Sub openapi_types.UUID `json:"sub"`
+
+	// UpdatedAt Seconds since the epoch, when the user record last changed
+	// (OIDC Core 5.1). Requires the `profile` scope.
+	UpdatedAt *int64 `json:"updated_at,omitempty"`
+}
+
 // IdempotencyKey defines model for IdempotencyKey.
 type IdempotencyKey = string
 
@@ -259,37 +288,37 @@ type PageSize = int
 type PageToken = string
 
 // BadRequest The error envelope for every non-2xx response, without exception
-// (`PLAN/05` Part B § Standard Error Format). One shape means a client
+// (`docs/PLAN/05` Part B § Standard Error Format). One shape means a client
 // writes one error path rather than one per endpoint.
 type BadRequest = Error
 
 // Conflict The error envelope for every non-2xx response, without exception
-// (`PLAN/05` Part B § Standard Error Format). One shape means a client
+// (`docs/PLAN/05` Part B § Standard Error Format). One shape means a client
 // writes one error path rather than one per endpoint.
 type Conflict = Error
 
 // Forbidden The error envelope for every non-2xx response, without exception
-// (`PLAN/05` Part B § Standard Error Format). One shape means a client
+// (`docs/PLAN/05` Part B § Standard Error Format). One shape means a client
 // writes one error path rather than one per endpoint.
 type Forbidden = Error
 
 // InternalError The error envelope for every non-2xx response, without exception
-// (`PLAN/05` Part B § Standard Error Format). One shape means a client
+// (`docs/PLAN/05` Part B § Standard Error Format). One shape means a client
 // writes one error path rather than one per endpoint.
 type InternalError = Error
 
 // NotFound The error envelope for every non-2xx response, without exception
-// (`PLAN/05` Part B § Standard Error Format). One shape means a client
+// (`docs/PLAN/05` Part B § Standard Error Format). One shape means a client
 // writes one error path rather than one per endpoint.
 type NotFound = Error
 
 // RateLimited The error envelope for every non-2xx response, without exception
-// (`PLAN/05` Part B § Standard Error Format). One shape means a client
+// (`docs/PLAN/05` Part B § Standard Error Format). One shape means a client
 // writes one error path rather than one per endpoint.
 type RateLimited = Error
 
 // Unauthorized The error envelope for every non-2xx response, without exception
-// (`PLAN/05` Part B § Standard Error Format). One shape means a client
+// (`docs/PLAN/05` Part B § Standard Error Format). One shape means a client
 // writes one error path rather than one per endpoint.
 type Unauthorized = Error
 

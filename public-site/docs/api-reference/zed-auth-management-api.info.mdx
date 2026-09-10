@@ -33,7 +33,7 @@ The Management REST API for the Zed Auth service.
 
 **Every capability in the management console is available here.** The
 console is a client of this API and has no privileged path around it
-(`PLAN/02` FR-14). If the console can do something this API cannot, that is
+(`docs/PLAN/02` FR-14). If the console can do something this API cannot, that is
 a defect.
 
 ## Current status
@@ -45,7 +45,7 @@ Phase 1 and are deliberately absent from this document until they are real.
 ## Versioning
 
 Management endpoints are prefixed `/v1`. Breaking changes go to `/v2` with a
-published deprecation window for `/v1` (`PLAN/05` Part B). The operational
+published deprecation window for `/v1` (`docs/PLAN/05` Part B). The operational
 probes are unversioned: they describe the process, not the API.
 
 ## Authentication
@@ -54,7 +54,7 @@ Management endpoints require an OAuth 2.0 Bearer access token, including
 the Client Credentials grant for service accounts. Authorization is
 enforced server-side on every request without exception — the console
 hiding a control is a user-experience decision, never a security one
-(`PLAN/08`).
+(`docs/PLAN/08`).
 
 
 <div
@@ -77,7 +77,7 @@ hiding a control is a user-experience decision, never a security one
       
       OAuth 2.0 access tokens. Authorization Code with PKCE for interactive
       clients including the console itself; Client Credentials for service
-      accounts (`PLAN/05` Part A).
+      accounts (`docs/PLAN/05` Part A).
       
       
       <div>

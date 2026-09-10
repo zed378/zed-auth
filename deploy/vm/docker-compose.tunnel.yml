@@ -23,7 +23,7 @@
 #   Caddy stripped inbound X-Request-Id so a caller could not choose their own
 #   correlation ID. `cloudflared` does NOT strip it. The service therefore runs
 #   with AUTH_TRUST_PROXY_HEADERS=false, which makes it generate its own ID and
-#   ignore whatever arrives (SECURITY/02 §10). That is why that setting is
+#   ignore whatever arrives (docs/SECURITY/02 §10). That is why that setting is
 #   explicit configuration rather than inferred from the environment.
 #
 # Ports: everything above 10000, per the host's existing allocations. Only the
@@ -83,7 +83,7 @@ services:
       # compose network can reach it; on the HOST it is published to loopback
       # only (see the ports entry). The endpoint is unauthenticated and
       # discloses request and error rates, so it must never reach the public
-      # ingress (PLAN/13, SECURITY/02 §12).
+      # ingress (docs/PLAN/13, docs/SECURITY/02 §12).
       AUTH_ADMIN_ADDR: "0.0.0.0:9090"
       AUTH_ADMIN_ENABLED: "true"
       # Required, because AUTH_ADMIN_ADDR above is not loopback INSIDE the
@@ -103,7 +103,7 @@ services:
       # tunnel is up. Leaving it there afterwards means the service is
       # reachable over plain HTTP from the whole subnet, bypassing the TLS that
       # Cloudflare terminates — every credential and token in clear text on the
-      # LAN (PLAN/09 § Transport & Storage: TLS everywhere, no HTTP fallback).
+      # LAN (docs/PLAN/09 § Transport & Storage: TLS everywhere, no HTTP fallback).
       #
       # Verify with: ss -tlnp | grep <port>  — it must show 127.0.0.1, not 0.0.0.0.
       - "${AUTH_BIND_ADDR:-127.0.0.1}:${AUTH_PUBLIC_PORT:-10800}:8080"
@@ -160,7 +160,7 @@ services:
       POSTGRES_INITDB_ARGS: "--locale=C --encoding=UTF8"
     command:
       # WAL archiving is what makes point-in-time recovery possible
-      # (PLAN/15 § Backup Strategy). Without it a backup can only restore to
+      # (docs/PLAN/15 § Backup Strategy). Without it a backup can only restore to
       # the moment it was taken, and RPO becomes the backup interval.
       #
       # The archive lives INSIDE the data volume rather than in a separate

@@ -5,7 +5,7 @@
 // These run against a real PostgreSQL because the properties under test are
 // database properties, not application properties: a privilege revocation, a
 // composite unique index, and a partition boundary cannot be verified against
-// a mock. PLAN/11-TESTING.md § Integration Testing requires exactly this.
+// a mock. docs/PLAN/11-TESTING.md § Integration Testing requires exactly this.
 //
 // Run with:
 //
@@ -101,7 +101,7 @@ func seedOrg(t *testing.T, db *sql.DB, name string) string {
 
 // If the application connected as the table owner or as a BYPASSRLS role, every
 // row-level security policy would be silently disabled while every test still
-// passed. PLAN/08 Part B wants cross-tenant isolation to be a database
+// passed. docs/PLAN/08 Part B wants cross-tenant isolation to be a database
 // property, and this is the precondition for that.
 func TestAppRoleCannotBypassRowLevelSecurity(t *testing.T) {
 	db := appDB(t)
@@ -152,7 +152,7 @@ func TestAppRoleDoesNotOwnTables(t *testing.T) {
 
 // --- P0-07: the audit log is append-only at the database level --------------
 
-// SECURITY/02-ATTACK-SURFACE-AND-SCENARIOS.md §19. A convention holds until
+// docs/SECURITY/02-ATTACK-SURFACE-AND-SCENARIOS.md §19. A convention holds until
 // someone writes an UPDATE; a revoked privilege holds regardless.
 func TestEventsAreAppendOnlyForTheApplicationRole(t *testing.T) {
 	owner := ownerDB(t)
@@ -282,7 +282,7 @@ func TestEventsIsPartitionedByMonth(t *testing.T) {
 
 // --- P0-07: email uniqueness is per organization, not global ----------------
 
-// PLAN/04 § users. A global constraint would let the first tenant to register
+// docs/PLAN/04 § users. A global constraint would let the first tenant to register
 // an address block every other tenant from ever inviting it — two different
 // companies may legitimately employ the same person.
 func TestUserEmailIsUniquePerOrganizationNotGlobally(t *testing.T) {
@@ -318,7 +318,7 @@ func TestUserEmailIsUniquePerOrganizationNotGlobally(t *testing.T) {
 
 // --- P0-07: credential columns and constraints ------------------------------
 
-// PLAN/02 § Constraints is absolute: no third-party dependency holds the
+// docs/PLAN/02 § Constraints is absolute: no third-party dependency holds the
 // private signing key outside this service's own infrastructure. The column
 // holds a secret-manager reference, and the constraint refuses the
 // "simplification" that would silently violate that.
@@ -336,14 +336,14 @@ func TestSigningKeysRefuseInlinePrivateKeyMaterial(t *testing.T) {
 		VALUES ('test-kid-inline', 'RS256', 'public-material', $1)`, pem)
 	if err == nil {
 		db.Exec(`DELETE FROM signing_keys WHERE kid = 'test-kid-inline'`)
-		t.Fatal("PEM private key material was accepted into private_key_ref — PLAN/02's constraint is violated silently")
+		t.Fatal("PEM private key material was accepted into private_key_ref — docs/PLAN/02's constraint is violated silently")
 	}
 	if !strings.Contains(strings.ToLower(err.Error()), "constraint") {
 		t.Errorf("expected a check-constraint violation, got: %v", err)
 	}
 }
 
-// PLAN/05 Part A: a public client cannot keep a secret confidential in a
+// docs/PLAN/05 Part A: a public client cannot keep a secret confidential in a
 // browser or a shipped mobile binary, so holding one implies a false sense of
 // security. It must use PKCE instead.
 func TestPublicClientsCannotHoldASecret(t *testing.T) {
@@ -384,7 +384,7 @@ func TestPublicClientsCannotHoldASecret(t *testing.T) {
 	})
 }
 
-// PLAN/08 § Least Privilege: a grant with no roles grants nothing, so it should
+// docs/PLAN/08 § Least Privilege: a grant with no roles grants nothing, so it should
 // not exist rather than sit as an empty row that looks like access.
 func TestUserGrantsRefuseEmptyRoleSets(t *testing.T) {
 	db := ownerDB(t)
@@ -411,7 +411,7 @@ func TestUserGrantsRefuseEmptyRoleSets(t *testing.T) {
 	}
 }
 
-// PLAN/08 Part C: delegating a project to its own owner creates a second,
+// docs/PLAN/08 Part C: delegating a project to its own owner creates a second,
 // confusing path to access the organization already has.
 func TestProjectGrantsRefuseSelfGrants(t *testing.T) {
 	db := ownerDB(t)
@@ -432,7 +432,7 @@ func TestProjectGrantsRefuseSelfGrants(t *testing.T) {
 	}
 }
 
-// --- P0-07: the schema matches PLAN/04 --------------------------------------
+// --- P0-07: the schema matches docs/PLAN/04 --------------------------------------
 
 func TestEveryTableFromThePlanExists(t *testing.T) {
 	db := ownerDB(t)
@@ -460,13 +460,13 @@ func TestEveryTableFromThePlanExists(t *testing.T) {
 				t.Fatalf("check table: %v", err)
 			}
 			if !exists {
-				t.Errorf("table %q from PLAN/04-DATA-MODEL.md does not exist", table)
+				t.Errorf("table %q from docs/PLAN/04-DATA-MODEL.md does not exist", table)
 			}
 		})
 	}
 }
 
-// PLAN/04 § users: nullable because login can also happen via social or
+// docs/PLAN/04 § users: nullable because login can also happen via social or
 // passwordless only. A NOT NULL here would force a fake hash for every
 // federated user, which is worse than an honest NULL.
 func TestNullableColumnsThePlanRequiresToBeNullable(t *testing.T) {
@@ -492,7 +492,7 @@ func TestNullableColumnsThePlanRequiresToBeNullable(t *testing.T) {
 				t.Fatalf("inspect column: %v", err)
 			}
 			if nullable != "YES" {
-				t.Errorf("%s.%s must be nullable per PLAN/04", c.table, c.column)
+				t.Errorf("%s.%s must be nullable per docs/PLAN/04", c.table, c.column)
 			}
 		})
 	}

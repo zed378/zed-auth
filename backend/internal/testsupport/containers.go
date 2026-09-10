@@ -4,7 +4,7 @@
 // It exists because the integration suite used to reach for a database at a
 // DSN from the environment and call t.Skipf when nothing answered. That is
 // worse than it sounds: a machine without PostgreSQL ran the suite, skipped
-// every test that matters, and reported success. `PLAN/11` § Integration
+// every test that matters, and reported success. `docs/PLAN/11` § Integration
 // Testing asks for tests against a real database and Redis, and a suite that
 // silently declines to run is not that.
 //

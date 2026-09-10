@@ -39,12 +39,12 @@ export default tseslint.config(
     rules: {
       ...reactHooks.configs.recommended.rules,
 
-      // UI-UX/13 targets WCAG 2.1 AA and says it is built in from the first
+      // docs/UI-UX/13 targets WCAG 2.1 AA and says it is built in from the first
       // screen rather than retrofitted. These are errors, not warnings: a
       // warning in a lint run of a hundred files is a line people scroll past.
       ...jsxA11y.configs.recommended.rules,
 
-      // The token discipline (UI-UX/05 § Governance, console/README.md).
+      // The token discipline (docs/UI-UX/05 § Governance, console/README.md).
       "local/no-raw-color": "error",
       "local/no-arbitrary-value": "error",
       "local/no-inline-style": "error",

@@ -15,7 +15,7 @@ import (
 
 // Authorization codes and pending requests live in Redis.
 //
-// PLAN/04 § What Is Deliberately Not Stored Here says why: both are single-use
+// docs/PLAN/04 § What Is Deliberately Not Stored Here says why: both are single-use
 // and very short-lived, so durability across a restart is not required, and an
 // automatic expiry is stronger than a cleanup job that can fail silently.
 //
@@ -37,7 +37,7 @@ var ErrPendingNotFound = errors.New("authorize: pending authorization request no
 
 // CodeTTL is how long an authorization code lives.
 //
-// PLAN/04 requires under 60 seconds. Sixty is the ceiling, not the target: the
+// docs/PLAN/04 requires under 60 seconds. Sixty is the ceiling, not the target: the
 // code travels from a redirect to the consumer's backend, which is a round trip
 // measured in milliseconds. Thirty seconds is generous for that and halves the
 // window in which a code glimpsed in a URL bar or a proxy log is still worth
@@ -97,7 +97,7 @@ func pendingKey(id string) string { return "oauth:pending:" + id }
 // IssueCode stores a code and returns its opaque value.
 func (s *Store) IssueCode(ctx context.Context, c Code, ttl time.Duration) (string, error) {
 	if ttl <= 0 || ttl > time.Minute {
-		// PLAN/04's bound, enforced rather than trusted to the caller: a code
+		// docs/PLAN/04's bound, enforced rather than trusted to the caller: a code
 		// that outlives a minute is a credential sitting in a URL.
 		return "", fmt.Errorf("authorize: code TTL must be positive and under a minute, got %s", ttl)
 	}
@@ -129,7 +129,7 @@ func (s *Store) IssueCode(ctx context.Context, c Code, ttl time.Duration) (strin
 // RedeemCode consumes a code, returning what it bound.
 //
 // GETDEL, which is atomic: two concurrent redemptions yield exactly one
-// success, as PLAN/04 requires. The obvious alternative — GET, check, DEL —
+// success, as docs/PLAN/04 requires. The obvious alternative — GET, check, DEL —
 // has a window between the read and the delete in which a second caller reads
 // the same code, and it passes every sequential test.
 func (s *Store) RedeemCode(ctx context.Context, code string) (Code, error) {

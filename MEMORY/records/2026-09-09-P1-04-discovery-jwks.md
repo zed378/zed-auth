@@ -20,7 +20,7 @@ Three things changed around the endpoints to make them behave correctly. `AUTH_J
 
 ## Why
 
-`PLAN/05-API-CONTRACT.md` § Core Endpoints and `PLAN/03-ARCHITECTURE.md` § OIDC/OAuth2 Provider. The point of discovery is that an integrator points a library at a URL instead of copying values out of a wiki page that has been wrong since the last rotation.
+`docs/PLAN/05-API-CONTRACT.md` § Core Endpoints and `docs/PLAN/03-ARCHITECTURE.md` § OIDC/OAuth2 Provider. The point of discovery is that an integrator points a library at a URL instead of copying values out of a wiki page that has been wrong since the last rotation.
 
 That only works if the document is true, which makes this a governance problem more than a serialisation one. `P1-04` step 2 and `CLAUDE.md`'s rule about never describing unshipped capability apply harder to a machine-readable document than to marketing copy: a human reading a brochure is sceptical, a client library is not. A client that configures successfully from a document naming `/oauth/token` and then fails at its first login produces an error in the *consumer's* logs, not ours.
 
@@ -30,7 +30,7 @@ That only works if the document is true, which makes this a governance problem m
 
 So `main.go` currently sets only `Issuer`, `JWKSURI` and `SigningAlgorithms`. The authorization and token endpoints arrive in `P1-06`/`P1-07`, and until then it is *not possible* to advertise them: nothing else writes those fields.
 
-`Validate()` runs at startup, so a misconfiguration is a refusal to boot rather than a document that quietly lies to every client that reads it. It rejects an empty issuer, an issuer with a trailing slash (clients compare `iss` byte for byte), a missing `jwks_uri`, and any appearance of `implicit` or `password` in the grant list — `PLAN/05` rules both out permanently, and checking at construction means a grant added to a slice far from this file fails loudly instead of being published.
+`Validate()` runs at startup, so a misconfiguration is a refusal to boot rather than a document that quietly lies to every client that reads it. It rejects an empty issuer, an issuer with a trailing slash (clients compare `iss` byte for byte), a missing `jwks_uri`, and any appearance of `implicit` or `password` in the grant list — `docs/PLAN/05` rules both out permanently, and checking at construction means a grant added to a slice far from this file fails loudly instead of being published.
 
 `code_challenge_methods_supported` is `S256` and is only emitted once there is an authorization endpoint to apply it to. `plain` is in the PKCE spec and is deliberately absent: it transmits the verifier unprotected, which removes the entire reason PKCE exists, and advertising it invites a client library to negotiate down to it.
 
@@ -87,10 +87,10 @@ None.
 
 | Abuse case | Source | Test |
 |---|---|---|
-| Private key material leaked through the JWKS | `SECURITY/02` § Information Disclosure | `TestJWKSExposesNoPrivateParameters` |
-| Dependency failure disclosed to an anonymous caller | `SECURITY/02` §12 | `TestJWKSFailureRevealsNothing` |
-| Client negotiated down to PKCE `plain` | `SECURITY/02` §1 | `TestPKCEAdvertisesS256AndNeverPlain` |
-| A deprecated grant advertised and then built against | `PLAN/05` § Supported Grant Types | `TestForbiddenGrantsAreRejectedAtConstruction` |
+| Private key material leaked through the JWKS | `docs/SECURITY/02` § Information Disclosure | `TestJWKSExposesNoPrivateParameters` |
+| Dependency failure disclosed to an anonymous caller | `docs/SECURITY/02` §12 | `TestJWKSFailureRevealsNothing` |
+| Client negotiated down to PKCE `plain` | `docs/SECURITY/02` §1 | `TestPKCEAdvertisesS256AndNeverPlain` |
+| A deprecated grant advertised and then built against | `docs/PLAN/05` § Supported Grant Types | `TestForbiddenGrantsAreRejectedAtConstruction` |
 
 ## Definition of Done Verification
 

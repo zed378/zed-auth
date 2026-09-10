@@ -255,7 +255,7 @@ func TestLoadFailsWhenThePrivateKeyIsUnreadable(t *testing.T) {
 
 // The schema refuses PEM material in the reference column (P0-07). That
 // constraint is the one stopping the "simplification" that would violate
-// PLAN/02 § Constraints while every test still passed.
+// docs/PLAN/02 § Constraints while every test still passed.
 func TestSchemaRefusesPrivateKeyMaterialAsAReference(t *testing.T) {
 	store, _, _ := newStore(t)
 

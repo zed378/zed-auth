@@ -12,8 +12,8 @@ import (
 
 // Metrics holds the instruments this service exposes.
 //
-// PLAN/13-OBSERVABILITY.md § Metrics lists what must be measurable, and
-// PLAN/12-PERFORMANCE.md sets the targets those measurements are judged
+// docs/PLAN/13-OBSERVABILITY.md § Metrics lists what must be measurable, and
+// docs/PLAN/12-PERFORMANCE.md sets the targets those measurements are judged
 // against. The two are deliberately connected: a latency target nobody
 // measures is an aspiration, and a metric with no target is a number nobody
 // knows how to read.
@@ -27,7 +27,7 @@ type Metrics struct {
 
 	// --- HTTP (all phases) ---
 
-	// RequestDuration is the source of every p50/p95/p99 in PLAN/12's table.
+	// RequestDuration is the source of every p50/p95/p99 in docs/PLAN/12's table.
 	//
 	// The buckets are chosen around those targets rather than left at the
 	// client library's defaults: the defaults top out at 10s, which wastes
@@ -40,7 +40,7 @@ type Metrics struct {
 
 	// --- Authentication (P1-12, P1-13) ---
 
-	// LoginAttempts is labelled by outcome. PLAN/13 § Alerting wants a spike
+	// LoginAttempts is labelled by outcome. docs/PLAN/13 § Alerting wants a spike
 	// in failures from one IP or account to be visible, and a single counter
 	// split by outcome is what makes the ratio queryable.
 	LoginAttempts *prometheus.CounterVec
@@ -58,11 +58,26 @@ type Metrics struct {
 	// names a misconfigured service account.
 	TokenErrors *prometheus.CounterVec
 
-	// TokenDuration is bucketed on PLAN/12's targets (p50 < 50ms, p95 < 200ms,
+	// TokenDuration is bucketed on docs/PLAN/12's targets (p50 < 50ms, p95 < 200ms,
 	// p99 < 400ms) so a quantile query answers "did we meet it" without
 	// interpolating across a wide bucket — the same reasoning P0-11 applied to
 	// the request histogram.
 	TokenDuration *prometheus.HistogramVec
+
+	// --- UserInfo endpoint (P1-08) ---
+
+	// UserInfoTotal is labelled by outcome only, and the outcome vocabulary is
+	// deliberately coarse: "invalid_token" covers expired, forged, wrong
+	// audience and revoked-session alike. Splitting them would move the oracle
+	// the response body refuses to be into /metrics, which is scraped,
+	// retained, and usually more widely readable than the audit log.
+	UserInfoTotal *prometheus.CounterVec
+
+	// UserInfoDuration exists because docs/PLAN/12 gives this endpoint its own
+	// target — p95 < 100ms — on the grounds that consumer SPAs call it on
+	// every page load. An endpoint with a named budget needs a named
+	// measurement, or the budget is a sentence nobody can check.
+	UserInfoDuration *prometheus.HistogramVec
 
 	// --- Authorization endpoint (P1-06) ---
 
@@ -71,7 +86,7 @@ type Metrics struct {
 	// failing" into "this client is sending the wrong redirect_uri".
 	AuthorizeTotal *prometheus.CounterVec
 
-	// AuthorizeDuration measures the silent path only. PLAN/12 sets a target
+	// AuthorizeDuration measures the silent path only. docs/PLAN/12 sets a target
 	// for it specifically (p95 < 150ms), and including the interactive path
 	// would average in the time a human spends typing a password.
 	AuthorizeDuration *prometheus.HistogramVec
@@ -82,7 +97,7 @@ type Metrics struct {
 	SessionsRevoked *prometheus.CounterVec
 
 	// SessionLookupDuration is labelled by source, so the cache hit rate is
-	// readable from the same metric that shows the latency. PLAN/12 gives
+	// readable from the same metric that shows the latency. docs/PLAN/12 gives
 	// /oauth/authorize 150ms at p95 for everything, and this is the part of it
 	// that a cache is supposed to make free.
 	SessionLookupDuration *prometheus.HistogramVec
@@ -107,13 +122,13 @@ type Metrics struct {
 
 	AuthzCheckDuration *prometheus.HistogramVec
 	AuthzDecisions     *prometheus.CounterVec
-	// PolicyEvalDuration is named in PLAN/13 explicitly. It stays at zero
+	// PolicyEvalDuration is named in docs/PLAN/13 explicitly. It stays at zero
 	// until Phase 4b, which is correct and visible.
 	PolicyEvalDuration prometheus.Histogram
 
 	// --- Delegation (P4-01) ---
 
-	// ProjectGrantChanges exists because PLAN/13 names an unusual spike in
+	// ProjectGrantChanges exists because docs/PLAN/13 names an unusual spike in
 	// grant creation or revocation as a possible misuse indicator.
 	ProjectGrantChanges *prometheus.CounterVec
 
@@ -133,12 +148,12 @@ type Metrics struct {
 
 	RedisDuration *prometheus.HistogramVec
 	// InstanceScopedAccess counts uses of the cross-tenant database path.
-	// PLAN/08 Part B wants that path auditable; a rising count without a
+	// docs/PLAN/08 Part B wants that path auditable; a rising count without a
 	// matching change in operations is worth a question.
 	InstanceScopedAccess *prometheus.CounterVec
 }
 
-// Latency buckets in seconds, chosen around PLAN/12's targets: the tightest
+// Latency buckets in seconds, chosen around docs/PLAN/12's targets: the tightest
 // is /v1/authz/check at p50 < 20ms, the loosest Management API CRUD at
 // p99 < 600ms. Bucket edges sit near each target so a query can answer
 // "are we meeting it" without interpolating across a wide bucket.
@@ -165,7 +180,7 @@ func NewMetrics(service, version string) *Metrics {
 
 		RequestDuration: factory.histogramVec(
 			"http_request_duration_seconds",
-			"HTTP request latency. The source of every p50/p95/p99 in PLAN/12's target table.",
+			"HTTP request latency. The source of every p50/p95/p99 in docs/PLAN/12's target table.",
 			latencyBuckets, "method", "route", "status_class"),
 
 		RequestsTotal: factory.counterVec(
@@ -179,7 +194,7 @@ func NewMetrics(service, version string) *Metrics {
 
 		LoginAttempts: factory.counterVec(
 			"auth_login_attempts_total",
-			"Login attempts by outcome. PLAN/13 § Alerting keys the brute-force alert on the failure rate.",
+			"Login attempts by outcome. docs/PLAN/13 § Alerting keys the brute-force alert on the failure rate.",
 			"outcome"),
 
 		TokenErrors: factory.counterVec(
@@ -188,9 +203,19 @@ func NewMetrics(service, version string) *Metrics {
 			"grant", "error"),
 		TokenDuration: factory.histogramVec(
 			"auth_token_duration_seconds",
-			"Token endpoint latency by grant, bucketed on PLAN/12's targets.",
+			"Token endpoint latency by grant, bucketed on docs/PLAN/12's targets.",
 			[]float64{0.01, 0.025, 0.05, 0.1, 0.2, 0.4, 0.8},
 			"grant"),
+
+		UserInfoTotal: factory.counterVec(
+			"auth_userinfo_total",
+			"UserInfo requests by outcome. The outcome is coarse on purpose: every unusable token is one label.",
+			"outcome"),
+		UserInfoDuration: factory.histogramVec(
+			"auth_userinfo_duration_seconds",
+			"UserInfo latency. docs/PLAN/12 targets p50 < 30ms and p95 < 100ms; SPAs call this on every page load.",
+			[]float64{0.005, 0.01, 0.025, 0.03, 0.05, 0.1, 0.2, 0.4},
+			"outcome"),
 
 		AuthorizeTotal: factory.counterVec(
 			"auth_authorize_total",
@@ -198,7 +223,7 @@ func NewMetrics(service, version string) *Metrics {
 			"outcome", "path"),
 		AuthorizeDuration: factory.histogramVec(
 			"auth_authorize_duration_seconds",
-			"Silent-SSO latency. PLAN/12 targets p95 < 150ms for this path specifically.",
+			"Silent-SSO latency. docs/PLAN/12 targets p95 < 150ms for this path specifically.",
 			[]float64{0.005, 0.01, 0.025, 0.05, 0.1, 0.15, 0.3, 0.6},
 			"path"),
 
@@ -239,7 +264,7 @@ func NewMetrics(service, version string) *Metrics {
 
 		AuthzCheckDuration: factory.histogramVec(
 			"authz_check_duration_seconds",
-			"Authorization decision latency. PLAN/12: p95 < 80ms for RBAC, < 150ms with ABAC.",
+			"Authorization decision latency. docs/PLAN/12: p95 < 80ms for RBAC, < 150ms with ABAC.",
 			latencyBuckets, "mode"),
 
 		AuthzDecisions: factory.counterVec(
@@ -249,12 +274,12 @@ func NewMetrics(service, version string) *Metrics {
 
 		PolicyEvalDuration: factory.histogram(
 			"authz_policy_eval_duration_seconds",
-			"OPA policy evaluation duration. Named in PLAN/13; zero until Phase 4b.",
+			"OPA policy evaluation duration. Named in docs/PLAN/13; zero until Phase 4b.",
 			latencyBuckets),
 
 		ProjectGrantChanges: factory.counterVec(
 			"authz_project_grant_changes_total",
-			"Project Grant creations and revocations. PLAN/13 names an unusual spike as a possible misuse indicator.",
+			"Project Grant creations and revocations. docs/PLAN/13 names an unusual spike as a possible misuse indicator.",
 			"action"),
 
 		AuditWrites: factory.counterVec(
@@ -272,12 +297,12 @@ func NewMetrics(service, version string) *Metrics {
 
 		RedisDuration: factory.histogramVec(
 			"redis_operation_duration_seconds",
-			"Redis operation latency (PLAN/13).",
+			"Redis operation latency (docs/PLAN/13).",
 			latencyBuckets, "operation"),
 
 		InstanceScopedAccess: factory.counterVec(
 			"db_instance_scoped_access_total",
-			"Uses of the cross-tenant database path, by reason (PLAN/08 Part B).",
+			"Uses of the cross-tenant database path, by reason (docs/PLAN/08 Part B).",
 			"reason"),
 	}
 
@@ -293,7 +318,7 @@ func NewMetrics(service, version string) *Metrics {
 
 // RegisterDBStats exposes connection pool statistics.
 //
-// PLAN/13 names pool utilisation explicitly, and for good reason: pool
+// docs/PLAN/13 names pool utilisation explicitly, and for good reason: pool
 // exhaustion presents as latency at every endpoint at once, which looks like
 // a dozen unrelated problems until someone thinks to check the pool.
 func (m *Metrics) RegisterDBStats(name string, db *sql.DB) error {

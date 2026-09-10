@@ -1,7 +1,7 @@
 -- Organizations (tenants) and users.
 --
--- PLAN/04-DATA-MODEL.md § organizations, § users.
--- PLAN/08-AUTHORIZATION.md Part B for the settings shape.
+-- docs/PLAN/04-DATA-MODEL.md § organizations, § users.
+-- docs/PLAN/08-AUTHORIZATION.md Part B for the settings shape.
 
 CREATE TABLE organizations (
     id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -9,12 +9,12 @@ CREATE TABLE organizations (
     name         text NOT NULL,
 
     -- For domain-based tenant resolution and email-domain routing
-    -- (PLAN/08 Part B § Tenant Resolution). Verification itself is a later
+    -- (docs/PLAN/08 Part B § Tenant Resolution). Verification itself is a later
     -- phase; the column exists now so activating it needs no migration.
     domain       text,
 
     -- Password policy, mandatory MFA, session lifetime, allowed login methods.
-    -- Shape documented in PLAN/08 Part B § Policies per Organization.
+    -- Shape documented in docs/PLAN/08 Part B § Policies per Organization.
     -- Defaults here are the instance defaults the MVP runs with; P2-10 makes
     -- them editable per organization without a schema change.
     settings     jsonb NOT NULL DEFAULT '{
@@ -47,7 +47,7 @@ CREATE TRIGGER organizations_set_updated_at
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
 COMMENT ON COLUMN organizations.settings IS
-  'Per-org policy. Shape in PLAN/08-AUTHORIZATION.md Part B. Enforced at login by P2-10.';
+  'Per-org policy. Shape in docs/PLAN/08-AUTHORIZATION.md Part B. Enforced at login by P2-10.';
 
 
 CREATE TABLE users (
@@ -58,7 +58,7 @@ CREATE TABLE users (
     username       text,
 
     -- Nullable because login can also happen via social or passwordless only
-    -- (PLAN/04 § users). A NOT NULL here would force a fake hash for every
+    -- (docs/PLAN/04 § users). A NOT NULL here would force a fake hash for every
     -- federated user, which is worse than an honest NULL.
     password_hash  text,
 
@@ -69,7 +69,7 @@ CREATE TABLE users (
     status         text NOT NULL DEFAULT 'invited',
 
     -- Denormalized fast flag for the login path. user_mfa_factors is the source
-    -- of truth once Phase 3 creates it (PLAN/04 § user_mfa_factors).
+    -- of truth once Phase 3 creates it (docs/PLAN/04 § user_mfa_factors).
     mfa_enabled    boolean NOT NULL DEFAULT false,
 
     display_name   text,
@@ -82,12 +82,12 @@ CREATE TABLE users (
     -- Not full RFC 5322 validation, which is a well-known rabbit hole. This
     -- catches the structurally impossible; real validation happens in the
     -- application layer where it can return a useful field-level error
-    -- (PLAN/05 § Standard Error Format).
+    -- (docs/PLAN/05 § Standard Error Format).
     CONSTRAINT users_email_shape CHECK (email LIKE '%_@_%'),
     CONSTRAINT users_username_not_blank CHECK (username IS NULL OR length(btrim(username)) > 0)
 );
 
--- Email is unique PER ORGANIZATION, not globally (PLAN/04 § users).
+-- Email is unique PER ORGANIZATION, not globally (docs/PLAN/04 § users).
 -- Two different companies may legitimately both employ the same person, and a
 -- global constraint would let the first tenant to register an address block
 -- every other tenant from ever inviting it.
@@ -98,7 +98,7 @@ CREATE UNIQUE INDEX users_org_username_key
     WHERE username IS NOT NULL;
 
 -- The login lookup path: resolve a user by tenant and email
--- (PLAN/12-PERFORMANCE.md — /oauth/authorize p95 < 150ms).
+-- (docs/PLAN/12-PERFORMANCE.md — /oauth/authorize p95 < 150ms).
 -- Covered by users_org_email_key above; this index serves listing and search.
 CREATE INDEX users_org_status_idx ON users (org_id, status);
 CREATE INDEX users_org_created_at_idx ON users (org_id, created_at DESC);

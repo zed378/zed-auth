@@ -2,7 +2,7 @@
 /**
  * Verifies the public site shares no code with the console.
  *
- * `PLAN/20` § Why a Separate Surface and `UI-UX/20` both require these two to
+ * `docs/PLAN/20` § Why a Separate Surface and `docs/UI-UX/20` both require these two to
  * be separate projects: different audience, different auth, different SEO
  * requirements, different update cadence. "Sharing a codebase between the two
  * would force compromises in both directions."
@@ -78,7 +78,7 @@ if (problems.length > 0) {
   console.error("The public site is reaching into the console:\n");
   for (const problem of problems) console.error(`  ${problem}`);
   console.error(
-    "\nThese are deliberately separate projects (PLAN/20 § Why a Separate " +
+    "\nThese are deliberately separate projects (docs/PLAN/20 § Why a Separate " +
       "Surface). The visual language is shared as duplicated token VALUES, " +
       "checked by check-brand-tokens.mjs — code is not shared at all.",
   );

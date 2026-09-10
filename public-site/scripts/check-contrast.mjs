@@ -2,7 +2,7 @@
 /**
  * Checks every colour token against WCAG 2.1 AA, in both themes.
  *
- * `UI-UX/13` applies to this site as much as to the console, and `UI-UX/20`
+ * `docs/UI-UX/13` applies to this site as much as to the console, and `docs/UI-UX/20`
  * says so explicitly: "a public marketing site failing basic accessibility is
  * both an exclusion problem and, in many jurisdictions, a compliance risk".
  *
@@ -113,7 +113,7 @@ for (const theme of ["light", "dark"]) {
 }
 
 if (problems.length > 0) {
-  console.error("Contrast failures (UI-UX/13 targets WCAG 2.1 AA):\n");
+  console.error("Contrast failures (docs/UI-UX/13 targets WCAG 2.1 AA):\n");
   for (const problem of problems) console.error(`  ${problem}`);
   process.exit(1);
 }

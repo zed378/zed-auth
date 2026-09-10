@@ -1,6 +1,6 @@
 -- Row-level security: cross-tenant isolation as a database property.
 --
--- PLAN/08-AUTHORIZATION.md Part B is explicit about why this exists:
+-- docs/PLAN/08-AUTHORIZATION.md Part B is explicit about why this exists:
 -- "so a misscoped query can't leak data across organizations". The application
 -- layer also filters by org_id, and will keep doing so — but application
 -- filtering is a code-review outcome, and this is a guarantee. One forgotten
@@ -110,7 +110,7 @@ CREATE POLICY user_tokens_tenant_isolation ON user_tokens
 -- next month must not silently arrive without isolation.
 --
 -- Read and insert only. auth_app has no UPDATE or DELETE privilege at all
--- (SECURITY/02 §19), so those need no policy — the privilege is the control.
+-- (docs/SECURITY/02 §19), so those need no policy — the privilege is the control.
 
 ALTER TABLE events ENABLE ROW LEVEL SECURITY;
 
@@ -127,7 +127,7 @@ CREATE POLICY events_tenant_insert ON events
 --
 -- The one table visible to TWO tenants, and deliberately so: a Project Grant
 -- is the delegation contract between a granting and a receiving organization
--- (PLAN/08 Part C). Each side must see it — the granting org to manage and
+-- (docs/PLAN/08 Part C). Each side must see it — the granting org to manage and
 -- revoke it, the receiving org to know which roles it may assign.
 --
 -- Note what this policy does NOT do. It makes the grant row visible to the
@@ -146,7 +146,7 @@ CREATE POLICY project_grants_tenant_isolation ON project_grants
     )
     -- Writes are restricted to the GRANTING side. A receiving organization
     -- that could insert or alter a grant row could widen its own delegation,
-    -- which is the privilege escalation PLAN/09 § Delegation abuse names.
+    -- which is the privilege escalation docs/PLAN/09 § Delegation abuse names.
     WITH CHECK (granting_org_id = current_org_id());
 
 

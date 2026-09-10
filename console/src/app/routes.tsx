@@ -5,7 +5,7 @@ import { OverviewPage } from "../pages/OverviewPage";
 import { PlaceholderPage } from "../pages/PlaceholderPage";
 
 /**
- * Routes, matching PLAN/06-FRONTEND-ARCHITECTURE.md § Information Architecture.
+ * Routes, matching docs/PLAN/06-FRONTEND-ARCHITECTURE.md § Information Architecture.
  *
  * The organization-scoped screens are all present as placeholders. Two things
  * that must be true of them once they carry real content, stated here because
@@ -15,11 +15,11 @@ import { PlaceholderPage } from "../pages/PlaceholderPage";
  *   (console/README.md). Hiding a nav item leaves the route reachable by
  *   typing the URL.
  *
- *   The API enforces every check independently regardless (PLAN/08,
- *   SECURITY/02 §2-§3). A route guard is a user-experience feature; it is
+ *   The API enforces every check independently regardless (docs/PLAN/08,
+ *   docs/SECURITY/02 §2-§3). A route guard is a user-experience feature; it is
  *   never the control.
  *
- * The Instance group (PLAN/06's INSTANCE_OWNER section) is absent until the
+ * The Instance group (docs/PLAN/06's INSTANCE_OWNER section) is absent until the
  * console can read a role claim from an access token, which is P1-03.
  */
 export function AppRoutes() {

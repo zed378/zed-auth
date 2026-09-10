@@ -2,7 +2,7 @@
 
 **Task**: `P1-03`
 **Date**: 2026-09-09
-**Template**: `PLAN/19-FEATURE-SPECIFICATION-TEMPLATE.md`
+**Template**: `docs/PLAN/19-FEATURE-SPECIFICATION-TEMPLATE.md`
 **Spec required because**: cryptographic core (`CLAUDE.md`)
 
 ---
@@ -13,7 +13,7 @@ Every token this service issues is trusted because of a signature. This is the c
 
 Two properties have to hold at once, and they pull against each other:
 
-- **Only this service can sign.** `PLAN/02` § Constraints is absolute: no third party holds the private key.
+- **Only this service can sign.** `docs/PLAN/02` § Constraints is absolute: no third party holds the private key.
 - **Anyone can verify, without asking us.** Consumer services validate tokens against a published public key, so an authorization check does not depend on this service being reachable at that instant.
 
 Rotation is where both get tested. A rotation that invalidates outstanding tokens logs every user out simultaneously; one that leaves the old key signing forever is not a rotation.
@@ -29,7 +29,7 @@ Rotation is where both get tested. A rotation that invalidates outstanding token
 
 ## 3. Functional Requirements
 
-**FR-1** — Generate RS256 or ES256 key pairs. Never HS256 (`PLAN/07`).
+**FR-1** — Generate RS256 or ES256 key pairs. Never HS256 (`docs/PLAN/07`).
 
 **FR-2** — Private keys are stored via the `P0-14` secret reference (`file:`/`env:`). The `signing_keys` table holds a *reference*, never material — enforced by a `CHECK` constraint from `P0-07`.
 
@@ -44,15 +44,15 @@ Rotation is where both get tested. A rotation that invalidates outstanding token
 
 **FR-4** — JWKS publishes every non-retired key, each with a stable distinct `kid`.
 
-**FR-5** — Rotation is an explicit operator command, not a timer. `PLAN/09`'s 90-day cadence is an operational expectation, not an automatic job. A rotation that fails at 03:00 is worse than one done deliberately at 11:00.
+**FR-5** — Rotation is an explicit operator command, not a timer. `docs/PLAN/09`'s 90-day cadence is an operational expectation, not an automatic job. A rotation that fails at 03:00 is worse than one done deliberately at 11:00.
 
-**FR-6** — Key state lives in the database, never in the binary or its config, so rolling the application back does not invalidate tokens signed under a newer key (`PLAN/14` § Rollback Strategy).
+**FR-6** — Key state lives in the database, never in the binary or its config, so rolling the application back does not invalidate tokens signed under a newer key (`docs/PLAN/14` § Rollback Strategy).
 
 **FR-7** — The key set is cached with a bounded TTL; a new key is picked up by every instance within it.
 
 ## 4. Non-Functional Requirements
 
-- Verification must not hit the database on the hot path — `/v1/authz/check` is called on every protected request across every consumer app (`PLAN/12`).
+- Verification must not hit the database on the hot path — `/v1/authz/check` is called on every protected request across every consumer app (`docs/PLAN/12`).
 - Signing adds to every token issuance; the cache makes it a memory lookup plus the signature itself.
 
 ## 5. Dependencies
@@ -95,7 +95,7 @@ A key that cannot be loaded is a startup failure, not a degraded mode. A service
 
 ## 12. Abuse Cases
 
-From `SECURITY/02` §1 and the task card. Each gets a test.
+From `docs/SECURITY/02` §1 and the task card. Each gets a test.
 
 **A-1 — `alg: none`.** A token whose header claims no algorithm must be rejected. Verification pins the expected algorithm rather than reading it from the header.
 
