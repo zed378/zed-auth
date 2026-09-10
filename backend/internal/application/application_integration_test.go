@@ -32,6 +32,7 @@ import (
 
 	"github.com/zed378/zed-auth/backend/internal/api"
 	"github.com/zed378/zed-auth/backend/internal/audit"
+	"github.com/zed378/zed-auth/backend/internal/auditlog"
 	"github.com/zed378/zed-auth/backend/internal/config"
 	"github.com/zed378/zed-auth/backend/internal/httpserver"
 	"github.com/zed378/zed-auth/backend/internal/management"
@@ -43,6 +44,7 @@ import (
 	"github.com/zed378/zed-auth/backend/internal/signing"
 	"github.com/zed378/zed-auth/backend/internal/storage/postgres"
 	"github.com/zed378/zed-auth/backend/internal/testsupport"
+	"github.com/zed378/zed-auth/backend/internal/user"
 )
 
 const issuer = "https://auth.example.test"
@@ -136,6 +138,12 @@ func setup(t *testing.T) *fixture {
 		},
 		ProjectAPI:     &project.Handler{Store: project.NewStore(), DB: db, Audit: auditor, Log: discard()},
 		ApplicationAPI: New(db, auditor, discard()),
+		// Fourth of four. Nothing here calls it; httpserver.New refuses a /v1
+		// chain with any half of the Management API missing, and the handler
+		// refuses a deactivation it cannot make real rather than panicking on
+		// a nil revoker.
+		UserAPI:  &user.Handler{Store: user.NewStore(), DB: db, Audit: auditor, Log: discard()},
+		AuditAPI: &auditlog.Handler{DB: db, Log: discard()},
 	})
 
 	return &fixture{

@@ -1330,6 +1330,321 @@ paths:
         "429": { $ref: "#/components/responses/RateLimited" }
         "500": { $ref: "#/components/responses/InternalError" }
 
+  /v1/organizations/{org_id}/users:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationId"
+
+    get:
+      tags: [Users]
+      operationId: listUsers
+      summary: List an organization's users
+      description: |
+        Requires `ORG_ADMIN` over this organization.
+
+        `search` matches the email, username and display name. It is a
+        substring match, not a prefix one, because an administrator looking for
+        somebody usually remembers the middle of a name rather than its start.
+      parameters:
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - name: search
+          in: query
+          required: false
+          description: Filter by email, username or display name.
+          schema:
+            type: string
+            maxLength: 200
+      responses:
+        "200":
+          description: A page of users.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserList"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+    post:
+      tags: [Users]
+      operationId: createUser
+      summary: Invite a user
+      description: |
+        Requires `ORG_ADMIN` over this organization.
+
+        The user is created with `status: "invited"` and **no password**. There
+        is no password field on this request, deliberately: an account whose
+        first password was chosen by somebody other than its owner is an
+        account its owner cannot be held responsible for. They set it
+        themselves, through a link sent to the address being invited — which is
+        also what proves the address is theirs.
+
+        `invite_email_sent` in the response reports what actually happened
+        rather than what was asked for. A `201` with `false` means the user
+        exists and the invitation could not be delivered, so the link must be
+        conveyed another way; rolling the user back because a mail server was
+        busy would be the worse outcome (ADR-018).
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserCreate"
+      responses:
+        "201":
+          description: The user was created and invited.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserCreated"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+  /v1/organizations/{org_id}/users/{user_id}:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationId"
+      - $ref: "#/components/parameters/UserId"
+
+    get:
+      tags: [Users]
+      operationId: getUser
+      summary: Read a user
+      description: Requires `ORG_ADMIN` over the organization they belong to.
+      responses:
+        "200":
+          description: The user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+    patch:
+      tags: [Users]
+      operationId: updateUser
+      summary: Update a user's profile
+      description: |
+        Requires `ORG_ADMIN`.
+
+        **Profile fields only.** `status` is not here — deactivation and
+        reactivation are their own operations, because "who deactivated this
+        account and when" is asked during an incident and answering it should
+        not require diffing two updates. `email_verified` is not here because
+        it is a statement about what happened, not a setting. `id` and `org_id`
+        are not here because a user does not move.
+
+        A body naming any of them is **refused**, not ignored: silently
+        dropping a field tells the caller a change happened when it did not.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserUpdate"
+      responses:
+        "200":
+          description: The updated user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+  /v1/organizations/{org_id}/users/{user_id}/deactivate:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationId"
+      - $ref: "#/components/parameters/UserId"
+
+    post:
+      tags: [Users]
+      operationId: deactivateUser
+      summary: Deactivate a user
+      description: |
+        Requires `ORG_ADMIN`.
+
+        **Deactivation, not deletion.** A deleted user makes every audit entry
+        naming them unresolvable, which is the opposite of what an audit log is
+        for. The row stays, the account stops working, and the history stays
+        readable.
+
+        Every live session is revoked, the session cache is tombstoned, and
+        every refresh token is revoked — all before this returns. A deactivated
+        user who can still act is not deactivated, and any one of those three
+        left out leaves them working.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "204":
+          description: The user is deactivated and their sessions are gone.
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+  /v1/organizations/{org_id}/users/{user_id}/reactivate:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationId"
+      - $ref: "#/components/parameters/UserId"
+
+    post:
+      tags: [Users]
+      operationId: reactivateUser
+      summary: Reactivate a user
+      description: |
+        Requires `ORG_ADMIN`. Returns the account to `active`.
+
+        It does **not** restore the sessions deactivation ended. Those are gone
+        and the user signs in again, which is the correct outcome: the reason
+        an account was deactivated is not known to have stopped being true.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "204":
+          description: The user is active again.
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+  /v1/organizations/{org_id}/users/{user_id}/password-reset:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationId"
+      - $ref: "#/components/parameters/UserId"
+
+    post:
+      tags: [Users]
+      operationId: resetUserPassword
+      summary: Send a password-reset link
+      description: |
+        Requires `ORG_ADMIN`. Issues a single-use, short-lived token and mails
+        the link to the user's own address.
+
+        **The link is not returned.** The administrator triggering this cannot
+        see it, and that is the point: a reset link is a bearer credential for
+        the account, so the only party who should hold it is the one who can
+        read that mailbox. An administrator who needs to set a password
+        directly does not have that capability, deliberately.
+
+        This is the administrator-initiated path. The self-service one is the
+        hosted page at `/login/forgot`, which is unauthenticated and answers
+        identically whether or not the address exists.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "202":
+          description: A reset link was issued and delivery was attempted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ResetRequested"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+  /v1/organizations/{org_id}/events:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationId"
+
+    get:
+      tags: [Audit]
+      operationId: listEvents
+      summary: Read the audit log
+      description: |
+        Requires `ORG_ADMIN` over this organization.
+
+        **This resource has exactly one operation.** There is no create, no
+        update and no delete, and that is a property rather than an omission:
+        `events` is append-only at the database level — the application role
+        holds no `UPDATE` or `DELETE` privilege on it (`docs/SECURITY/02` §19) —
+        and an API that offered a way around that would make the guarantee a
+        matter of trust instead of a matter of privilege.
+
+        Ordered **newest first**, unlike every other list in this API. An audit
+        log is read from the end: the question is almost always "what just
+        happened", and paging from the beginning of a table that grows without
+        bound answers it slowly and last.
+
+        Payloads are stored already redacted (`P0-12`), so nothing here carries
+        a token, a password, or the raw resource attributes sent to
+        `/v1/authz/check`.
+      parameters:
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - name: event_type
+          in: query
+          required: false
+          description: |
+            Exact match on the event type, for example `user.login.failed`.
+            May be repeated; repeating it matches any of them.
+          schema:
+            type: array
+            items:
+              type: string
+              maxLength: 100
+          style: form
+          explode: true
+        - name: actor_id
+          in: query
+          required: false
+          description: |
+            The user who performed the action. Events with no actor — a failed
+            login against an address that does not exist, a scheduled job —
+            match no value of this filter, which is correct: they have none.
+          schema:
+            $ref: "#/components/schemas/ResourceId"
+        - name: from
+          in: query
+          required: false
+          description: Inclusive lower bound on when the event happened.
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          required: false
+          description: Exclusive upper bound on when the event happened.
+          schema:
+            type: string
+            format: date-time
+      responses:
+        "200":
+          description: A page of events, newest first.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventList"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
 components:
   securitySchemes:
     oauth2:
@@ -1384,6 +1699,14 @@ components:
       in: path
       required: true
       description: The organization that owns the resource. Every request is scoped to exactly one.
+      schema:
+        $ref: "#/components/schemas/ResourceId"
+
+    UserId:
+      name: user_id
+      in: path
+      required: true
+      description: The user this operation acts on.
       schema:
         $ref: "#/components/schemas/ResourceId"
 
@@ -1814,6 +2137,227 @@ components:
           description: |
             When the superseded secret stops working. Null when the rotation
             retired it immediately.
+
+    User:
+      type: object
+      description: |
+        A person who can sign in to one organization.
+
+        **No password appears here in either direction.** Not on create, not on
+        update, not in a response. A password is set only by the person who
+        holds the account, through a link sent to their own address — which is
+        also the only thing that proves the address is theirs.
+      required: [id, email, status, mfa_enabled, email_verified, created_at, updated_at]
+      additionalProperties: false
+      properties:
+        id:
+          $ref: "#/components/schemas/ResourceId"
+        email:
+          type: string
+          format: email
+          description: |
+            Unique within the organization, case-insensitively, and stored
+            lowercased. Two accounts differing only in case is a support ticket
+            waiting to be filed.
+          example: budi@company.com
+        username:
+          type: string
+          nullable: true
+          maxLength: 100
+        display_name:
+          type: string
+          nullable: true
+          maxLength: 200
+          example: Budi Santoso
+        status:
+          $ref: "#/components/schemas/UserStatus"
+        mfa_enabled:
+          type: boolean
+          description: Phase 3 owns the factors; this is the flag the login path reads.
+        email_verified:
+          type: boolean
+          description: |
+            Whether this address has been proven reachable, by an invitation
+            being accepted through a link sent to it.
+
+            Derived from a timestamp column rather than stored as a boolean:
+            "when" answers questions "whether" cannot, and an audit needs it.
+            The API exposes the question a caller actually asks.
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    UserStatus:
+      type: string
+      enum: [invited, active, locked, deactivated]
+      description: |
+        `invited` — created, no password set, holding an unused invitation.
+        `active` — can sign in.
+        `locked` — temporarily barred by the login rate limiter (`P1-13`).
+        `deactivated` — barred by an administrator, and reversible.
+
+        Not settable through an update. Deactivation and reactivation are their
+        own operations, because "who deactivated this account and when" is
+        asked during an incident and answering it should not require diffing
+        two updates.
+
+    UserList:
+      type: object
+      required: [users]
+      additionalProperties: false
+      properties:
+        users:
+          type: array
+          items:
+            $ref: "#/components/schemas/User"
+        page_info:
+          $ref: "#/components/schemas/PageInfo"
+
+    UserCreate:
+      type: object
+      description: |
+        There is no `org_id` and no `password`. The organization comes from the
+        path; the password comes from the person the account belongs to.
+      required: [email]
+      additionalProperties: false
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 320
+        username:
+          type: string
+          maxLength: 100
+        display_name:
+          type: string
+          maxLength: 200
+        send_invite_email:
+          type: boolean
+          default: true
+          description: |
+            Whether to mail the invitation. `false` creates the account and its
+            invitation token without sending anything — for a bulk import, or
+            for an organization that distributes links through its own channel.
+
+    UserCreated:
+      allOf:
+        - $ref: "#/components/schemas/User"
+        - type: object
+          required: [invite_email_sent]
+          properties:
+            invite_email_sent:
+              type: boolean
+              description: |
+                What actually happened, not what was asked for. `false` with a
+                `201` means the account exists and the invitation was not
+                delivered — resend it, or convey the link another way.
+
+    UserUpdate:
+      type: object
+      description: |
+        Profile fields only. `status`, `email_verified`, `id` and `org_id` are
+        absent on purpose, and a body carrying any of them is **refused**
+        rather than ignored — silently dropping a field tells the caller a
+        change happened when it did not.
+      additionalProperties: false
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 320
+          description: |
+            Changing it clears `email_verified`: a verification is a statement
+            about one address, not about the user who holds it.
+        username:
+          type: string
+          nullable: true
+          maxLength: 100
+        display_name:
+          type: string
+          nullable: true
+          maxLength: 200
+
+    ResetRequested:
+      type: object
+      required: [email_sent]
+      additionalProperties: false
+      properties:
+        email_sent:
+          type: boolean
+          description: |
+            Whether the message left the service. The link itself is never in
+            this response — it is a bearer credential for the account, and the
+            only party who should hold it is the one who can read that mailbox.
+
+    Event:
+      type: object
+      description: |
+        One entry in the append-only audit log.
+
+        Read-only in the strongest sense available: there is no operation on
+        this API that writes one, and the application database role cannot
+        `UPDATE` or `DELETE` the table it lives in.
+      required: [id, event_type, occurred_at]
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          description: |
+            A stable identifier for the entry. A string rather than an integer
+            because the underlying key is `(id, created_at)` on a partitioned
+            table — a bare number would not be unique across partitions, and a
+            consumer treating it as one would eventually deduplicate two real
+            events into one.
+          example: "8f3e6b2a:2026-09-10T13:37:11Z"
+        event_type:
+          type: string
+          description: "`noun.verb.outcome`, for example `user.login.failed`."
+          example: user.login.failed
+        actor_user_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: |
+            Who did it. **Null is legitimate and common**: a failed login
+            against an address that does not exist has no authenticated actor,
+            and neither does a scheduled job. A consumer that assumes an actor
+            will crash on the entries that matter most during an incident.
+        occurred_at:
+          type: string
+          format: date-time
+        ip:
+          type: string
+          nullable: true
+          description: The address the request came from, when one was resolved.
+        request_id:
+          type: string
+          nullable: true
+          description: |
+            Ties the entry to the request that caused it, which is what makes a
+            timeline reconstructable across the log and the audit trail.
+        payload:
+          type: object
+          additionalProperties: true
+          description: |
+            The event's detail, redacted before storage (`P0-12`). Its shape
+            varies by `event_type` and is deliberately not constrained here:
+            constraining it would mean a schema change for every new event, and
+            the console renders it as data rather than parsing it.
+
+    EventList:
+      type: object
+      required: [events]
+      additionalProperties: false
+      properties:
+        events:
+          type: array
+          items:
+            $ref: "#/components/schemas/Event"
+        page_info:
+          $ref: "#/components/schemas/PageInfo"
 
     OpenIDConfiguration:
       type: object

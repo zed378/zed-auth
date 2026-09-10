@@ -2,6 +2,7 @@ package ratelimit
 
 import (
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -127,4 +128,26 @@ func ClientKey(clientID string, windowStart time.Time) string {
 		return ""
 	}
 	return "ratelimit:client:" + clientID + ":" + strconv.FormatInt(windowStart.Unix(), 10)
+}
+
+// BoundMail names the email-amplification bound in metrics and logs.
+const BoundMail = "mail"
+
+// MailKey is the counter for one recipient in one window.
+//
+// **Keyed on the recipient, not on the caller.** The abuse this bounds is
+// invite-flooding a THIRD PARTY (`docs/SECURITY/02` §10): an administrator with
+// a legitimate account sending twenty invitations an hour to somebody who never
+// asked for one. A per-caller bound does not touch that — the caller is
+// entitled to be there, and it is the mailbox that suffers.
+//
+// The address is lowercased for the same reason AddressKey lowercases it: two
+// spellings of one mailbox must share one counter, or the bound is a
+// formality.
+func MailKey(address string, windowStart time.Time) string {
+	address = strings.ToLower(strings.TrimSpace(address))
+	if address == "" {
+		return ""
+	}
+	return "ratelimit:mail:" + address + ":" + strconv.FormatInt(windowStart.Unix(), 10)
 }

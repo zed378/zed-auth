@@ -33,6 +33,7 @@ import (
 	"github.com/zed378/zed-auth/backend/internal/session"
 	"github.com/zed378/zed-auth/backend/internal/storage/postgres"
 	"github.com/zed378/zed-auth/backend/internal/testsupport"
+	"github.com/zed378/zed-auth/backend/internal/user"
 )
 
 // The whole chain, against real Postgres and real Redis.
@@ -60,6 +61,8 @@ type stack struct {
 	auth     *authorize.Handler
 	sessions *session.Manager
 	login    *Handler
+	users    *user.Store
+	mailer   *capturingMailer
 	orgID    string
 	userID   string
 	appID    string
@@ -142,6 +145,9 @@ func setup(t *testing.T) *stack {
 		Policy:    session.DefaultPolicy,
 	}
 
+	userStore := user.NewStore()
+	mailer := &capturingMailer{}
+
 	loginHandler := &Handler{
 		Authorization: authHandler,
 		Sessions:      sessions,
@@ -152,11 +158,23 @@ func setup(t *testing.T) *stack {
 		Audit:         auditor,
 		Log:           discard(),
 		Policy:        session.DefaultPolicy,
+
+		// P1-19's two hosted pages, wired the way cmd/authservice wires them.
+		Password: &PasswordFlow{
+			Users:   userStore,
+			Policy:  testPolicy{store: authn.NewPolicyStore(discard())},
+			Mailer:  mailer,
+			BaseURL: "https://auth.example.test",
+			Lookup: func(ctx context.Context, tok string, now time.Time) (user.Claim, error) {
+				return userStore.LookupToken(ctx, db, tok, now)
+			},
+		},
 	}
 
 	return &stack{
 		db: db, rdb: rdb, factory: factory, codes: codes,
 		auth: authHandler, login: loginHandler, sessions: sessions,
+		users: userStore, mailer: mailer,
 		orgID: orgID, userID: userID, appID: app.ID,
 	}
 }

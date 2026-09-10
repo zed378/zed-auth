@@ -186,6 +186,11 @@ type Handler struct {
 	// Policy is the session policy. P2-10 makes it per organization.
 	Policy session.Policy
 
+	// Password carries P1-19's two hosted pages. Nil means self-service reset
+	// is not configured, which is what P1-12 shipped and is still a valid
+	// deployment — the forgot page then says so rather than pretending.
+	Password *PasswordFlow
+
 	// Now is overridable for tests.
 	Now func() time.Time
 }
@@ -224,19 +229,6 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // 404s or to a form that silently does nothing — a reset page that appears to
 // work and does not is worse than an honest dead end, because the person
 // waiting for an email never asks anybody for help.
-func (h *Handler) Forgot(w http.ResponseWriter, r *http.Request) {
-	back := ""
-	if id := r.URL.Query().Get("request"); validPendingID(id) {
-		back = Path + "?request=" + url.QueryEscape(id)
-	}
-
-	h.notice(w, r, http.StatusOK, Notice{
-		Title: "Resetting your password",
-		Body: "Self-service password reset is not available yet. " +
-			"Please ask your organization's administrator to set a new password for you.",
-		BackPath: back,
-	})
-}
 
 // --- GET ----------------------------------------------------------------------
 
@@ -278,6 +270,23 @@ func (h *Handler) showForm(w http.ResponseWriter, r *http.Request) {
 	page.CSRFToken = token
 
 	h.renderPage(w, r, http.StatusOK, page)
+}
+
+// csrfFor returns the request's CSRF token, minting one if there is none.
+//
+// Reuses an existing token rather than minting per render, for the reason
+// showForm does: minting would invalidate every other tab the user has open,
+// and a user with two tabs is not doing anything wrong.
+func (h *Handler) csrfFor(w http.ResponseWriter, r *http.Request) (string, error) {
+	if token, ok := csrfFromRequest(r); ok {
+		return token, nil
+	}
+	token, err := newCSRFToken()
+	if err != nil {
+		return "", err
+	}
+	http.SetCookie(w, csrfCookie(token))
+	return token, nil
 }
 
 // page assembles everything the form needs from the database.

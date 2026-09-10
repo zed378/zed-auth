@@ -58,6 +58,15 @@ SHIPPED = {
     "/v1/organizations/{org_id}/projects/{project_id}/applications",
     "/v1/organizations/{org_id}/projects/{project_id}/applications/{application_id}",
     "/v1/organizations/{org_id}/projects/{project_id}/applications/{application_id}/rotate-secret",
+    # P1-19. Users, and the two verb sub-resources the card asks for instead
+    # of a delete.
+    "/v1/organizations/{org_id}/users",
+    "/v1/organizations/{org_id}/users/{user_id}",
+    "/v1/organizations/{org_id}/users/{user_id}/deactivate",
+    "/v1/organizations/{org_id}/users/{user_id}/reactivate",
+    "/v1/organizations/{org_id}/users/{user_id}/password-reset",
+    # P1-20. The audit log, read-only and deliberately so.
+    "/v1/organizations/{org_id}/events",
 }
 
 SPEC = Path(__file__).resolve().parent.parent / "openapi" / "openapi.yaml"

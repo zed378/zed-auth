@@ -814,7 +814,7 @@ Also found: `session_id` was in the logger's redaction list — correct when the
 
 | | |
 |---|---|
-| **Status** | TODO |
+| **Status** | DONE — [record](../MEMORY/records/2026-09-10-P1-19-users.md), [spec](../MEMORY/specs/P1-19-users.md), [ADR-018](../MEMORY/DECISIONS.md) |
 | **Depends on** | P1-15, P1-01 |
 | **Plan refs** | `docs/PLAN/05-API-CONTRACT.md` § Example: Create a User, `docs/PLAN/04-DATA-MODEL.md` § `users`, `docs/UI-UX/04-USER-FLOWS.md` Flow 1, `docs/UI-UX/08-PAGE-SPECIFICATIONS.md` |
 | **Spec required** | Yes — identity data |
@@ -838,11 +838,11 @@ Also found: `session_id` was in the logger's redaction list — correct when the
 6. Audit every user lifecycle event.
 
 **Definition of Done**
-- [ ] The create response matches `docs/PLAN/05`'s documented example field-for-field.
-- [ ] Reset and invite tokens are single-use, expiring, and stored hashed.
-- [ ] Requesting a reset for a nonexistent email is indistinguishable from a real one.
-- [ ] Deactivation kills sessions and refresh tokens within one request cycle, verified end-to-end.
-- [ ] Every user lifecycle event is audited.
+- [x] The create response matches `docs/PLAN/05`'s documented example field-for-field. Asserted against the raw JSON rather than a decoded struct — a struct tolerates a missing key by leaving a zero value — and paired with an assertion that `password`, `password_hash`, `invite_token` and `invite_link` are all absent.
+- [x] Reset and invite tokens are single-use, expiring, and stored hashed. Single use is one conditional `UPDATE` and is tested with **sixteen goroutines racing on one token**, because a sequential test passes against a read-then-write. The plaintext appears nowhere in the stored row, checked against the whole row rather than the one column.
+- [x] Requesting a reset for a nonexistent email is indistinguishable from a real one. The **full body, status and headers** compared, plus a deactivated account matching an unknown one, plus a timing comparison — and the control that exactly one message was sent across the two requests, so the answers are not identical because nothing happened.
+- [x] Deactivation kills sessions and refresh tokens within one request cycle, verified end-to-end. A real session through the real manager and a real refresh token through the real store, both working before and neither after — through their own interfaces rather than by reading a column. Plus the session cache tombstone, whose absence would leave the table saying revoked while the cache said valid.
+- [x] Every user lifecycle event is audited. Created, updated, invite accepted, reset requested, deactivated, reactivated — and **no** event for a reset requested against an unknown address, which would be the enumeration list stored durably.
 
 **Abuse cases to test**
 - User enumeration through create conflicts, reset responses, or timing (`docs/SECURITY/02` §12).
@@ -850,13 +850,19 @@ Also found: `session_id` was in the logger's redaction list — correct when the
 - A reset token issued for user A being used to set user B's password (`docs/SECURITY/02` §11).
 - Privilege escalation by self-updating a role or status field (`docs/SECURITY/02` §3).
 
+
+**Found while building it**
+- **`OQ-04` blocked this task and is now closed** by [ADR-018](../MEMORY/DECISIONS.md): plain SMTP by URL, no provider SDK, and nothing waits on delivery. Decided rather than deferred, and recorded so it is a decision rather than a default.
+- **The shared `Deps` constructor `P1-18` predicted is not possible.** It would have to import every handler package, and each has an in-package integration test that would import it back — a cycle. The escape is making four large test files external, which costs more than the one line per harness this actually costs.
+- **Three test bugs, each of which would have hidden something**: taking `Issue`'s family id as the token plaintext, backdating a row past a `CHECK` that forbids it, and asserting an event the test's own helper would have had to write.
+- **Every hosted-page test failed on the password policy — and that was the policy working.** The page has no rules of its own; it uses `P1-02`'s evaluator over the organization's settings, which is why a lowercase test password was refused.
 ---
 
 ## P1-20 — Management API: Audit Log Read
 
 | | |
 |---|---|
-| **Status** | TODO |
+| **Status** | DONE — [record](../MEMORY/records/2026-09-10-P1-20-audit-log-read.md) |
 | **Depends on** | P1-15, P0-12 |
 | **Plan refs** | `docs/PLAN/04-DATA-MODEL.md` § `events`, `docs/UI-UX/08-PAGE-SPECIFICATIONS.md` (Audit Log), `docs/SECURITY/02` §19 |
 | **Spec required** | No |
@@ -872,11 +878,19 @@ Also found: `session_id` was in the logger's redaction list — correct when the
 5. Ensure the time-range query is index-backed (`P0-07`), since this table grows without bound.
 
 **Definition of Done**
-- [ ] Filtering works across every documented combination, with correct pagination.
-- [ ] A non-admin caller is refused.
-- [ ] No mutating operation exists on this resource.
-- [ ] A large-table query stays within `docs/PLAN/12`'s Management API latency budget.
+- [x] Filtering works across every documented combination, with correct pagination. Eleven combinations, run against a neighbouring tenant seeded with the SAME event type, actor id and instant — plus the control that the unfiltered read returns our own event, so the absences are not an endpoint returning nothing. Six events at one instant page without repeating, because the cursor carries the id as well as the timestamp.
+- [x] A non-admin caller is refused. No role at all, and `PROJECT_OWNER` — reserved by `P1-17` and granting nothing — both refused, with `ORG_ADMIN` succeeding as the control.
+- [x] No mutating operation exists on this resource. Asserted against what the ROUTER registers rather than against what the package implements: exactly one operation under `/events`, and it is a `GET`. Backed by every other method answering 405/404 over the wire, and by the application role being unable to `UPDATE` or `DELETE` the table at all — which is what makes the missing endpoint a privilege guarantee rather than a promise.
+- [x] A large-table query stays within `docs/PLAN/12`’s Management API latency budget. Measured over five thousand events after warming the plan, and the figure is logged so a regression is visible even when it passes. The bound in the assertion is looser than the budget on purpose — it runs in a container on a developer machine, and what it catches is a sequential scan, which is orders of magnitude away rather than a few milliseconds.
 
+
+**Found while building it**
+- **A payload that is not an object cannot exist.** `events_payload_object` is a `CHECK`, so the "tolerates a malformed payload" test could not create the state it was written for. The nil fallback stays as defence in depth; the test now asserts the guarantee that makes it unreachable.
+- **`events` has no partitions in the past.** `P0-12`’s maintenance creates them three months ahead, not behind, so a backdated bulk insert has nowhere to land.
+
+**What this task did not build**
+- **Export.** A CSV or NDJSON download of a filtered range is a reasonable next thing to want and is not in the card.
+- **Instance-level reads.** `events` carries rows with no `org_id` — signing key rotation among them — and no endpoint reaches them. The same gap `P1-16` noted about `/v1/instances/{instance_id}`.
 ---
 
 ## P1-21 — Console: OIDC Login (Dogfooding)
