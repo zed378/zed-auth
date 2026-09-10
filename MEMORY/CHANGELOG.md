@@ -67,6 +67,15 @@ Format follows Keep a Changelog conventions, grouped by release once releases ex
 
 ### 2026-09-10
 
+**Added** — the first three console screens ([record](./records/2026-09-10-P1-22-console-screens.md), [chain](../console/docs/implementation-chain-P1-22.md))
+- Organization Overview, the project list and the Applications tab, plus the design-system components they compose from: `Button`, `Table`, `Badge`, `Modal`, `ClientSecretModal` and the four state components. The components are the larger half, which is what `docs/UI-UX/08`'s "no screen invents its own table" rule buys — `P1-23` and `P1-24` add screens rather than tables. (`P1-22`)
+- The implementation chain committed alongside the code, with "not applicable" written out where it applies. It found three decisions that would otherwise have been made by accident, including the per-card dashboard error the obvious implementation gets wrong. (`P1-22`)
+
+**Kept**
+- **The four states are a set, and the types enforce it.** `EmptyState` takes `filtered` — "no projects yet" and "none match that search" are different copy and different recovery — and `ErrorState` takes a kind, where a `permission` refusal gets **no** retry button, because the same request will be refused again. (`P1-22`)
+- **The client secret dialog resists Escape and gates `Done` behind an acknowledgement.** Every choice follows from the service genuinely being unable to show it again rather than from a convention, and it is not opened at all for a public client. (`P1-22`)
+- **`color-danger` stayed reserved.** A `deactivated` badge and a "no secret" state were both tempting and neither is a destructive action; `Badge` has no danger tone at all. (`P1-22`)
+
 **Added** — the console logs in ([record](./records/2026-09-10-P1-21-console-login.md), [spec](./specs/P1-21-console-login.md))
 - Authorization Code with PKCE in the browser, through the same hosted login page and the same endpoints any other `type: spa` client uses. **It changed no backend code**, which is the measure of the dogfooding constraint rather than a happy accident. (`P1-21`)
 - `RequireAuth` on the route rather than on the navigation item, so a screen the claims do not permit is unreachable by typing its URL. It says in three places that this is a user-experience feature and the API is the only enforcement point. (`P1-21`)

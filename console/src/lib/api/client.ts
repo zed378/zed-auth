@@ -101,4 +101,13 @@ api.use({
  */
 export const queryKeys = {
   health: ["health"] as const,
+
+  // Every key below is combined with the organization id at the call site.
+  // Without that, switching organizations renders the previous one's cached
+  // data — a leak in the UI even with a correct API (PF-20).
+  organizations: ["organizations"] as const,
+  projects: ["projects"] as const,
+  applications: ["applications"] as const,
+  users: ["users"] as const,
+  events: ["events"] as const,
 } as const;
