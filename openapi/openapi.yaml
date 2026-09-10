@@ -1118,6 +1118,218 @@ paths:
         "429": { $ref: "#/components/responses/RateLimited" }
         "500": { $ref: "#/components/responses/InternalError" }
 
+  /v1/organizations/{org_id}/projects/{project_id}/applications:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationId"
+      - $ref: "#/components/parameters/ProjectId"
+
+    get:
+      tags: [Applications]
+      operationId: listApplications
+      summary: List a project's applications
+      description: |
+        Requires `ORG_ADMIN` over this organization.
+
+        **No response here carries a client secret.** The secret is returned
+        once, in the body of the request that issued it, and never again — so
+        this list answers `has_secret` and nothing more.
+      parameters:
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+      responses:
+        "200":
+          description: A page of applications.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApplicationList"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+    post:
+      tags: [Applications]
+      operationId: createApplication
+      summary: Register an application
+      description: |
+        Requires `ORG_ADMIN` over this organization.
+
+        **The `client_secret` in this response is the only time it exists
+        outside the service.** It is stored as a hash and cannot be recovered;
+        an application whose secret is lost is rotated, not recalled.
+
+        A public client — `spa` or `native` — gets no secret at all. It cannot
+        keep one confidential in a browser or a shipped binary, so it uses PKCE
+        instead, and a secret issued to it would be a false reassurance rather
+        than a control.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApplicationCreate"
+      responses:
+        "201":
+          description: The application was registered.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApplicationCreated"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+  /v1/organizations/{org_id}/projects/{project_id}/applications/{application_id}:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationId"
+      - $ref: "#/components/parameters/ProjectId"
+      - $ref: "#/components/parameters/ApplicationId"
+
+    get:
+      tags: [Applications]
+      operationId: getApplication
+      summary: Read an application
+      description: |
+        Requires `ORG_ADMIN`. Carries no secret — see `has_secret`.
+      responses:
+        "200":
+          description: The application.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Application"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+    patch:
+      tags: [Applications]
+      operationId: updateApplication
+      summary: Update an application
+      description: |
+        Requires `ORG_ADMIN`.
+
+        **`type` is not updatable and naming it is an error, not a no-op.**
+        A client's type decides whether it can hold a secret, so changing it
+        would either strand a secret on a now-public client or leave a
+        confidential one with none. Delete and re-register instead, which
+        appears in the audit log as two events rather than one silent
+        reclassification.
+
+        Redirect URIs are validated here by exactly the same rules as on
+        create. An update is where a permissive URI would be smuggled in, and
+        a validator that runs on one path and not the other is not a validator.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApplicationUpdate"
+      responses:
+        "200":
+          description: The updated application.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Application"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+    delete:
+      tags: [Applications]
+      operationId: deleteApplication
+      summary: Delete an application
+      description: |
+        Requires `ORG_OWNER`.
+
+        Every user signing in through this client stops being able to, at once
+        and without warning to the consumer application — which is why this is
+        the one operation on an application that an `ORG_ADMIN` cannot perform.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "204":
+          description: The application was deleted.
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+  /v1/organizations/{org_id}/projects/{project_id}/applications/{application_id}/rotate-secret:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationId"
+      - $ref: "#/components/parameters/ProjectId"
+      - $ref: "#/components/parameters/ApplicationId"
+
+    post:
+      tags: [Applications]
+      operationId: rotateApplicationSecret
+      summary: Issue a new client secret
+      description: |
+        Requires `ORG_ADMIN` — deliberately not `ORG_OWNER`. Rotation is the
+        response to a suspected leak, and a control that requires waking the
+        organization owner is a control that gets skipped at 3am. It is loud in
+        the audit log instead.
+
+        The previous secret keeps working for `overlap_hours`, so a consumer
+        application can take the new one without a simultaneous redeploy.
+        **`overlap_hours: 0` retires it immediately** — the compromised-secret
+        path, where the outage is the point.
+
+        A public client has no secret to rotate and is refused.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - name: overlap_hours
+          in: query
+          required: false
+          description: |
+            How long the previous secret keeps authenticating. Defaults to 24.
+            `0` retires it immediately — the compromised-secret path, where the
+            outage for anything still using it is the point.
+
+            A query parameter rather than a request body, and that is a
+            deviation worth naming: the contract said an optional body, and
+            `oapi-codegen` decodes one unconditionally, so `POST` with no body
+            answered `400 can't decode JSON body`. Requiring `{}` for the
+            common case would be a contract that describes a papercut; this
+            keeps `POST .../rotate-secret` working with nothing at all. The
+            value is not a credential, so it is fine in an access log.
+          schema:
+            type: integer
+            minimum: 0
+            maximum: 168
+            default: 24
+      responses:
+        "200":
+          description: A new secret was issued.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RotatedSecret"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
 components:
   securitySchemes:
     oauth2:
@@ -1172,6 +1384,15 @@ components:
       in: path
       required: true
       description: The organization that owns the resource. Every request is scoped to exactly one.
+      schema:
+        $ref: "#/components/schemas/ResourceId"
+
+    ApplicationId:
+      name: application_id
+      in: path
+      required: true
+      description: |
+        The application. This value is also its OIDC `client_id`.
       schema:
         $ref: "#/components/schemas/ResourceId"
 
@@ -1415,6 +1636,184 @@ components:
           type: string
           minLength: 1
           maxLength: 200
+
+    Application:
+      type: object
+      description: |
+        A registered OIDC client.
+
+        `id` **is** the `client_id`. There is no separate field, because two
+        identifiers for one thing is how a console shows the wrong one
+        (`docs/PLAN/04` § applications).
+      required: [id, project_id, name, type, redirect_uris, post_logout_redirect_uris, grant_types, has_secret, created_at, updated_at]
+      additionalProperties: false
+      properties:
+        id:
+          $ref: "#/components/schemas/ResourceId"
+        project_id:
+          $ref: "#/components/schemas/ResourceId"
+        name:
+          type: string
+          maxLength: 200
+          example: Billing portal
+        type:
+          $ref: "#/components/schemas/ApplicationType"
+        redirect_uris:
+          type: array
+          items:
+            type: string
+            format: uri
+          description: |
+            Matched by **exact string comparison** at authorization time, never
+            by prefix or pattern. Prefix matching is the open-redirect
+            vulnerability (`docs/PLAN/09` § Protection Against Common Attacks).
+          example: ["https://billing.example.com/callback"]
+        post_logout_redirect_uris:
+          type: array
+          items:
+            type: string
+            format: uri
+        grant_types:
+          type: array
+          items:
+            type: string
+          example: ["authorization_code", "refresh_token"]
+        has_secret:
+          type: boolean
+          description: |
+            Whether a client secret is configured. A boolean, never the secret
+            and never its hash — it answers the only question a reader
+            legitimately has without answering what the value is or how long
+            it is.
+        previous_secret_expires_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: |
+            While set and in the future, the previous secret still
+            authenticates. This is the overlap that lets a consumer take a new
+            secret without a simultaneous redeploy.
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    ApplicationType:
+      type: string
+      enum: [web, native, spa, api, saml]
+      description: |
+        Decides whether the client can hold a secret. `spa` and `native` are
+        public — they cannot keep one confidential in a browser or a shipped
+        binary, so they use PKCE and are refused a secret at the database
+        level.
+
+        **Immutable after creation.** Changing it would either strand a secret
+        on a now-public client or leave a confidential one with none.
+
+    ApplicationList:
+      type: object
+      required: [applications]
+      additionalProperties: false
+      properties:
+        applications:
+          type: array
+          items:
+            $ref: "#/components/schemas/Application"
+        page_info:
+          $ref: "#/components/schemas/PageInfo"
+
+    ApplicationCreate:
+      type: object
+      description: |
+        There is no `project_id` or `org_id` here — both come from the path.
+      required: [name, type]
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        type:
+          $ref: "#/components/schemas/ApplicationType"
+        redirect_uris:
+          type: array
+          items:
+            type: string
+            format: uri
+        post_logout_redirect_uris:
+          type: array
+          items:
+            type: string
+            format: uri
+        grant_types:
+          type: array
+          items:
+            type: string
+          description: |
+            Defaults to `["authorization_code", "refresh_token"]`. `implicit`
+            and `password` are refused for every type: both hand credentials or
+            tokens to places that cannot protect them, and OAuth 2.1 removes
+            them.
+
+    ApplicationCreated:
+      allOf:
+        - $ref: "#/components/schemas/Application"
+        - type: object
+          properties:
+            client_secret:
+              type: string
+              description: |
+                **The only time this value exists outside the service.** It is
+                stored as a hash and cannot be recovered — an application whose
+                secret is lost is rotated, not recalled.
+
+                Absent for a public client, which has none.
+
+    ApplicationUpdate:
+      type: object
+      description: |
+        Every field is optional; an omitted field is left alone. `type` is
+        absent from this schema on purpose, and a body carrying it is rejected
+        rather than ignored — silently dropping it would let a caller believe
+        a reclassification happened.
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        redirect_uris:
+          type: array
+          items:
+            type: string
+            format: uri
+        post_logout_redirect_uris:
+          type: array
+          items:
+            type: string
+            format: uri
+        grant_types:
+          type: array
+          items:
+            type: string
+
+    RotatedSecret:
+      type: object
+      required: [client_secret]
+      additionalProperties: false
+      properties:
+        client_secret:
+          type: string
+          description: The new secret. Shown once, exactly as at creation.
+        previous_secret_expires_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: |
+            When the superseded secret stops working. Null when the rotation
+            retired it immediately.
 
     OpenIDConfiguration:
       type: object

@@ -55,6 +55,22 @@ var Policy = map[string]Requirement{
 	"GET /v1/organizations/{org_id}/projects/{project_id}":    {Role: OrgAdmin, Scope: ScopeOrganization},
 	"PATCH /v1/organizations/{org_id}/projects/{project_id}":  {Role: OrgAdmin, Scope: ScopeOrganization},
 	"DELETE /v1/organizations/{org_id}/projects/{project_id}": {Role: OrgOwner, Scope: ScopeOrganization},
+
+	// --- Applications (P1-18) ---
+	//
+	// Organization-scoped like everything nested under one. DELETE is the only
+	// one raised: deleting a registration stops every login through that client
+	// at once, without warning to the consumer application.
+	//
+	// Rotation deliberately stays at ORG_ADMIN. It is the response to a
+	// suspected leak, and a control that needs the organization owner woken up
+	// is a control that gets skipped at 3am. It is loud in the audit log instead.
+	"GET /v1/organizations/{org_id}/projects/{project_id}/applications":                                 {Role: OrgAdmin, Scope: ScopeOrganization},
+	"POST /v1/organizations/{org_id}/projects/{project_id}/applications":                                {Role: OrgAdmin, Scope: ScopeOrganization},
+	"GET /v1/organizations/{org_id}/projects/{project_id}/applications/{application_id}":                {Role: OrgAdmin, Scope: ScopeOrganization},
+	"PATCH /v1/organizations/{org_id}/projects/{project_id}/applications/{application_id}":              {Role: OrgAdmin, Scope: ScopeOrganization},
+	"POST /v1/organizations/{org_id}/projects/{project_id}/applications/{application_id}/rotate-secret": {Role: OrgAdmin, Scope: ScopeOrganization},
+	"DELETE /v1/organizations/{org_id}/projects/{project_id}/applications/{application_id}":             {Role: OrgOwner, Scope: ScopeOrganization},
 }
 
 // PolicyKey names a route the way Policy does.

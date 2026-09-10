@@ -34,12 +34,27 @@ var ErrNotFound = errors.New("client: application not found")
 // keep one.
 var ErrPublicClientSecret = errors.New("client: public clients have no secret")
 
-// Store reads and writes applications.
-type Store struct {
-	audit *audit.Writer
+// Recorder writes an audit event inside the caller's transaction.
+//
+// An interface rather than *audit.Writer, because P1-15's chain needs to know
+// that a mutating request wrote one. Its guard watches a per-request trail
+// that only management.Audit marks, so a store writing straight at the writer
+// would leave every successful application mutation looking unaudited — and
+// auth_management_unaudited_mutations_total is a metric that is supposed to be
+// permanently zero. A false alarm on every normal request is worse than no
+// alarm: it is the one that gets muted.
+//
+// *audit.Writer satisfies this, so nothing that already passes one changes.
+type Recorder interface {
+	Write(ctx context.Context, tx *postgres.Tx, e audit.Event) error
 }
 
-func NewStore(auditor *audit.Writer) *Store { return &Store{audit: auditor} }
+// Store reads and writes applications.
+type Store struct {
+	audit Recorder
+}
+
+func NewStore(recorder Recorder) *Store { return &Store{audit: recorder} }
 
 // Record is an application as stored, with its credential state.
 //
@@ -219,6 +234,72 @@ func (s *Store) Get(ctx context.Context, tx *postgres.Tx, id string) (Record, er
 		return Record{}, fmt.Errorf("client: reading application: %w", err)
 	}
 	return rec, nil
+}
+
+// GetInProject reads one application and refuses one belonging to a different
+// project.
+//
+// **RLS is the tenant boundary, not a general-purpose filter.** It confines
+// this transaction to one organization, and applications.project_id is not a
+// tenant column — so the project boundary is an ordinary predicate, and
+// assuming otherwise is how a project boundary quietly stops existing.
+//
+// project_id is immutable, so a caller that passes this gate and then acts by
+// id alone cannot be acting on a different project's row by the time it does.
+func (s *Store) GetInProject(ctx context.Context, tx *postgres.Tx, id, projectID string) (Record, error) {
+	row := tx.QueryRow(ctx,
+		`SELECT `+columns+` FROM applications WHERE id = $1 AND project_id = $2`, id, projectID)
+
+	rec, err := scan(row)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		// Also the answer for an application in another project of the same
+		// organization. One error for "does not exist" and "is not here", so
+		// neither can be told from the other by sending one request per guess.
+		return Record{}, fmt.Errorf("%w: %s", ErrNotFound, id)
+	case err != nil:
+		return Record{}, fmt.Errorf("client: reading application: %w", err)
+	}
+	return rec, nil
+}
+
+// List returns a page of a project's applications, ordered by (created_at, id).
+//
+// Takes the cursor as primitives rather than management.Cursor: this package
+// is imported by the token endpoint and the login page, and neither has any
+// business depending on the Management API's pagination.
+//
+// Returns size+1 rows when there are more, so the caller can tell.
+func (s *Store) List(
+	ctx context.Context, tx *postgres.Tx, projectID string, afterTime time.Time, afterID string, size int,
+) ([]Record, error) {
+	var after any
+	var afterUUID any
+	if afterID != "" {
+		after, afterUUID = afterTime, afterID
+	}
+
+	rows, err := tx.Query(ctx, `
+		SELECT `+columns+`
+		  FROM applications
+		 WHERE project_id = $1
+		   AND (($2::timestamptz IS NULL) OR ((created_at, id) > ($2, $3::uuid)))
+		 ORDER BY created_at, id
+		 LIMIT $4`, projectID, after, afterUUID, size+1)
+	if err != nil {
+		return nil, fmt.Errorf("client: listing applications: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var out []Record
+	for rows.Next() {
+		rec, err := scan(rows)
+		if err != nil {
+			return nil, fmt.Errorf("client: listing applications: %w", err)
+		}
+		out = append(out, rec)
+	}
+	return out, rows.Err()
 }
 
 // Update changes the mutable parts of a registration.

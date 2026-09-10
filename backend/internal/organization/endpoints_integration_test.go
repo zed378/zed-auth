@@ -24,6 +24,7 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	"github.com/zed378/zed-auth/backend/internal/api"
+	"github.com/zed378/zed-auth/backend/internal/application"
 	"github.com/zed378/zed-auth/backend/internal/audit"
 	"github.com/zed378/zed-auth/backend/internal/config"
 	"github.com/zed378/zed-auth/backend/internal/httpserver"
@@ -113,6 +114,8 @@ func setupEndpoints(t *testing.T) *endpoints {
 		ProjectAPI: &project.Handler{
 			Store: project.NewStore(), DB: db, Audit: auditor, Log: discard(),
 		},
+		// Third of three, for the reason the comment above gives.
+		ApplicationAPI: application.New(db, auditor, discard()),
 	})
 
 	return &endpoints{

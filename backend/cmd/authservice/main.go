@@ -22,6 +22,7 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
+	"github.com/zed378/zed-auth/backend/internal/application"
 	"github.com/zed378/zed-auth/backend/internal/audit"
 	"github.com/zed378/zed-auth/backend/internal/authn"
 	"github.com/zed378/zed-auth/backend/internal/config"
@@ -390,6 +391,12 @@ func run() error {
 		Store: project.NewStore(), DB: db, Audit: auditor, Log: log,
 	}
 
+	// Its own client.Store, built over an audit recorder that marks P1-15's
+	// per-request trail. The `clients` store above writes straight at the
+	// audit writer, which is right for the token endpoint — there is no HTTP
+	// guard there — and wrong here.
+	applications := application.New(db, auditor, log)
+
 	v1 := &management.Chain{
 		Auth: &management.Middleware{
 			Issuer:   cfg.Issuer,
@@ -521,21 +528,22 @@ func run() error {
 	}
 
 	srv := httpserver.New(cfg.HTTP, httpserver.Deps{
-		Logger:        log,
-		Health:        health,
-		Metrics:       metrics,
-		Discovery:     discovery,
-		Authorize:     authorizeHandler,
-		Token:         tokenHandler,
-		Introspect:    http.HandlerFunc(lifecycleHandler.Introspect),
-		Revoke:        http.HandlerFunc(lifecycleHandler.Revoke),
-		UserInfo:      userInfoHandler,
-		Logout:        logoutHandler,
-		Login:         loginHandler,
-		Forgot:        http.HandlerFunc(loginHandler.Forgot),
-		V1:            v1,
-		Organizations: organizations,
-		ProjectAPI:    projects,
+		Logger:         log,
+		Health:         health,
+		Metrics:        metrics,
+		Discovery:      discovery,
+		Authorize:      authorizeHandler,
+		Token:          tokenHandler,
+		Introspect:     http.HandlerFunc(lifecycleHandler.Introspect),
+		Revoke:         http.HandlerFunc(lifecycleHandler.Revoke),
+		UserInfo:       userInfoHandler,
+		Logout:         logoutHandler,
+		Login:          loginHandler,
+		Forgot:         http.HandlerFunc(loginHandler.Forgot),
+		V1:             v1,
+		Organizations:  organizations,
+		ProjectAPI:     projects,
+		ApplicationAPI: applications,
 		// Explicit configuration, not inferred from the environment: see the
 		// comment on config.HTTPConfig.TrustProxyHeaders. Defaults to false,
 		// so a deployment behind a proxy that forwards client headers

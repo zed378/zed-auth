@@ -67,6 +67,22 @@ Format follows Keep a Changelog conventions, grouped by release once releases ex
 
 ### 2026-09-10
 
+**Added** — the application endpoints ([record](./records/2026-09-10-P1-18-applications.md), [spec](./specs/P1-18-applications.md))
+- `GET`, `POST .../projects/{project_id}/applications`, `GET`, `PATCH`, `DELETE .../{application_id}`, and `POST .../{application_id}/rotate-secret`. No migration and almost no new logic: `P1-05` already owned secret generation, hashing, redirect canonicalisation, the grant rules and the audit events. (`P1-18`)
+- `client.ErrInvalid`, wrapping all twenty validator messages, so a caller mistake is a `400` carrying the reason. (`P1-18`)
+- `client.GetInProject` and `client.List` — the project predicate in one place every other operation passes through first. (`P1-18`)
+
+**Found**
+- **A caller's typo was a 500.** Validation errors were told from internal ones by matching on the error text; `P1-05`'s validators share no common prefix, so a wildcard redirect URI, a removed grant type and a malformed URI all arrived as `500 An unexpected error occurred`. A string check standing in for a type, and it did not work. (`P1-18`)
+- **The audit guard could not see any application mutation.** `P1-05`'s store writes straight at `audit.Writer`, which does not mark `P1-15`'s per-request trail — so every successful mutation would have incremented a metric that is supposed to be permanently zero. **A false alarm on every normal request is worse than a missing one**: it is the alert that gets muted. `NewStore` takes an interface now, and the Management API hands it an adapter. (`P1-18`)
+- **`oapi-codegen` decodes an optional request body unconditionally.** `requestBody: {required: false}` still produced `400 can't decode JSON body` for a `POST` with none. `overlap_hours` moved to a query parameter rather than requiring `{}` on the one operation people perform under stress. (`P1-18`)
+- **An update was not canonicalising its redirect URIs, and every test passed.** Found by a mutation that survived: `Application.Validate` already rejects a bad URI, so removing `canonicalise` from `Update` removed only the *canonicalisation* — which nothing checked. Redirect matching is exact string comparison against the stored form, so a client updated with `HTTPS://App.Example.TEST/cb` would never match the browser's `https://app.example.test/cb`. (`P1-18`)
+- **An import cycle from the third required handler.** `httpserver.New` refuses a `/v1` chain missing any half of the Management API, so each endpoint package's harness names every other one; this package's check into `internal/project` then closed a loop with `P1-17`'s own harness. The dependency bought nothing and is a bare `SELECT EXISTS`. At four handlers the answer is a shared `Deps` constructor, not a weaker guard. (`P1-18`)
+
+**Kept**
+- **RLS is the tenant boundary, not a general-purpose filter.** `applications.project_id` is not a tenant column, so two projects in one organization are one tenant to the database. The project boundary is an ordinary predicate, tested with the same caller, role and organization through the wrong project's path — and paired with the same operations succeeding through the right one. (`P1-18`)
+- **The secret leaves the process exactly twice** and the test asserts its *characters* appear in no subsequent body, not that a field is absent — which would pass against a service returning it under another key. The stored hash and a half-length prefix are checked too, each probe paired with `has_secret: true` so the absence is not simply a lost credential. (`P1-18`)
+
 **Added** — the project endpoints ([record](./records/2026-09-10-P1-17-projects.md))
 - `GET`, `POST /v1/organizations/{org_id}/projects` and `GET`, `PATCH`, `DELETE .../{project_id}` — CRUD for the container an application, a role and, from Phase 4, a project grant all hang from. No migration: `projects` has had its RLS policy, its per-tenant unique index and its `ON DELETE RESTRICT` references since `P0-07`. (`P1-17`)
 - `project.created`, `project.updated`, `project.deleted`, written in the same transaction as the change. The rename event records the previous name; **a rename to the same name writes nothing**, because an audit log full of "renamed Billing to Billing" is one nobody reads. (`P1-17`)
