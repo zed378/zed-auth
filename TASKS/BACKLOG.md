@@ -365,6 +365,25 @@ Read literally the sentence defers the endpoint **the same document lists in its
 
 Found by running the system rather than by reading the plan.
 
+### BL-05 — `AUTH_CLIENT_IP_HEADER` is not set on staging, so per-IP rate limiting sees one client
+
+**Found**: 2026-09-10, building `P1-13`. **Affects**: staging only.
+
+`cloudflared` runs as a host service and reaches the published port, so the service sees the Docker gateway as `RemoteAddr` for **every request in the world**. `P1-13`'s per-IP bound computed from that is not a per-IP bound; it is a global one, and a single attacker could reach it and lock every user out of the service.
+
+The service warns loudly at startup when no client-IP source is configured, and does **not** disable the bound — a limiter that quietly turns itself off is worse than one that is loudly misconfigured.
+
+**The fix is configuration, not code.** On the VM, in `/home/infra/auth-state/.env`:
+
+```
+AUTH_CLIENT_IP_HEADER=CF-Connecting-IP
+AUTH_TRUSTED_PROXY_CIDRS=172.16.0.0/12
+```
+
+The CIDR must be the range `cloudflared` actually connects from — check `docker inspect` for the bridge subnet before setting it, because a wrong range means the header is ignored and nothing changes, silently.
+
+**The per-address bound is unaffected** and is the one that stops a targeted attack. What is currently missing is the credential-stuffing bound, and the exposure is that reaching it locks out everyone rather than one attacker.
+
 ### BL-04 — The public API reference cites internal plan documents by bare path
 
 **Found**: 2026-09-10, moving the reference documentation under `docs/`. **Affects**: `/docs/api-reference` on the public site, and `P1-25`.

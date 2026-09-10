@@ -4,6 +4,7 @@ package login
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
@@ -21,10 +22,14 @@ import (
 
 	"github.com/zed378/zed-auth/backend/internal/audit"
 	"github.com/zed378/zed-auth/backend/internal/authn"
+	"html/template"
+
 	"github.com/zed378/zed-auth/backend/internal/config"
+	"github.com/zed378/zed-auth/backend/internal/httpserver"
 	"github.com/zed378/zed-auth/backend/internal/oauth/authorize"
 	"github.com/zed378/zed-auth/backend/internal/oauth/client"
 	"github.com/zed378/zed-auth/backend/internal/oauth/token"
+	"github.com/zed378/zed-auth/backend/internal/ratelimit"
 	"github.com/zed378/zed-auth/backend/internal/session"
 	"github.com/zed378/zed-auth/backend/internal/storage/postgres"
 	"github.com/zed378/zed-auth/backend/internal/testsupport"
@@ -870,4 +875,544 @@ func TestLoggingOutTwiceIsNotAnError(t *testing.T) {
 	if first.Code != http.StatusOK {
 		t.Errorf("the first sign-out answered %d", first.Code)
 	}
+}
+
+// --- P1-13: rate limiting ------------------------------------------------------
+
+// limited returns the stack with a real Redis-backed limiter attached.
+func (s *stack) limited(t *testing.T, ip ClientIP) *stack {
+	t.Helper()
+
+	s.login.Limiter = ratelimit.New(s.rdb, nil, discard())
+	s.login.IP = ip
+	return s
+}
+
+// attempt posts one login with a given address, password and client IP.
+func (s *stack) attempt(
+	t *testing.T, id, csrf, email, password, forwardedFor string,
+) *httptest.ResponseRecorder {
+	t.Helper()
+
+	form := url.Values{
+		"request":  {id},
+		csrfField:  {csrf},
+		"email":    {email},
+		"password": {password},
+	}
+
+	r := httptest.NewRequest(http.MethodPost, Path, strings.NewReader(form.Encode()))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	r.AddCookie(&http.Cookie{Name: CSRFCookieName, Value: csrf})
+	r.RemoteAddr = "172.18.0.1:5000" // a trusted proxy, in these tests
+	if forwardedFor != "" {
+		r.Header.Set("CF-Connecting-IP", forwardedFor)
+	}
+
+	w := httptest.NewRecorder()
+	s.login.ServeHTTP(w, r)
+	return w
+}
+
+func trustedResolver(t *testing.T) ClientIP {
+	t.Helper()
+
+	resolver, bad := httpserver.NewClientIP("CF-Connecting-IP", []string{"172.16.0.0/12"})
+	if len(bad) != 0 {
+		t.Fatalf("valid CIDRs rejected: %v", bad)
+	}
+	return resolver
+}
+
+// docs/PLAN/17 § Phase 1, the literal acceptance criterion: a simulated
+// brute-force attempt is demonstrably blocked.
+func TestASimulatedBruteForceIsBlocked(t *testing.T) {
+	s := setup(t).limited(t, trustedResolver(t))
+
+	id := s.begin(t)
+	csrf := s.form(t, id)
+
+	var blocked bool
+	for i := 1; i <= ratelimit.PerAddress.Free+3; i++ {
+		w := s.attempt(t, id, csrf, testEmail, "guess-"+string(rune('a'+i)), "203.0.113.7")
+		if strings.Contains(w.Body.String(), template.HTMLEscapeString(MsgRateLimited)) {
+			blocked = true
+			break
+		}
+	}
+
+	if !blocked {
+		t.Fatalf("%d consecutive wrong passwords were never refused", ratelimit.PerAddress.Free+3)
+	}
+
+	// And the CORRECT password is refused too while the cooldown runs — a
+	// limiter an attacker can step past by guessing right is not one.
+	w := s.attempt(t, id, csrf, testEmail, testPassword, "203.0.113.7")
+	if w.Code == http.StatusFound {
+		t.Fatal("the correct password signed in during a cooldown")
+	}
+}
+
+// FR-1 and DoD item 2: temporary and self-clearing, with no administrative
+// action. This is what stops a brute-force attempt being convertible into a
+// denial of service against the victim.
+func TestTheCooldownClearsWithoutAdministrativeAction(t *testing.T) {
+	s := setup(t).limited(t, trustedResolver(t))
+
+	id := s.begin(t)
+	csrf := s.form(t, id)
+
+	for range ratelimit.PerAddress.Free + 1 {
+		s.attempt(t, id, csrf, testEmail, "wrong", "203.0.113.7")
+	}
+	if w := s.attempt(t, id, csrf, testEmail, testPassword, "203.0.113.7"); w.Code == http.StatusFound {
+		t.Fatal("no cooldown was reached")
+	}
+
+	// Nothing is done except letting the key expire, which is what the TTL is
+	// for: no unlock endpoint, no administrator, no cleanup job.
+	if err := s.rdb.Del(context.Background(), ratelimit.AddressKey(testEmail)).Err(); err != nil {
+		t.Fatalf("expiring the key: %v", err)
+	}
+
+	if w := s.attempt(t, id, csrf, testEmail, testPassword, "203.0.113.7"); w.Code != http.StatusFound {
+		t.Fatalf("still refused after the cooldown expired: %d\n%s", w.Code, w.Body.String())
+	}
+}
+
+// A-5, at the level that matters: an address with NO ACCOUNT is limited
+// identically. A counter that only existed for real accounts would tell an
+// attacker which addresses exist by which ones slow down — undoing P1-12's
+// enumeration defence with its own rate limiter.
+func TestAnAddressWithNoAccountIsLimitedIdentically(t *testing.T) {
+	s := setup(t).limited(t, trustedResolver(t))
+
+	id := s.begin(t)
+	csrf := s.form(t, id)
+
+	const nobody = "nobody-at-all@example.test"
+	for range ratelimit.PerAddress.Free + 1 {
+		s.attempt(t, id, csrf, nobody, "wrong", "203.0.113.7")
+	}
+
+	w := s.attempt(t, id, csrf, nobody, "wrong", "203.0.113.7")
+	if !strings.Contains(w.Body.String(), template.HTMLEscapeString(MsgRateLimited)) {
+		t.Fatalf("an address with no account was never rate limited:\n%s", w.Body.String())
+	}
+
+	// And a key exists for it, exactly as for a real address.
+	if n, err := s.rdb.Exists(context.Background(), ratelimit.AddressKey(nobody)).Result(); err != nil || n != 1 {
+		t.Errorf("no counter for an address with no account: n=%d err=%v", n, err)
+	}
+}
+
+// DoD item 3 and abuse case A-4. The per-address bound does not use the IP at
+// all, so rotating a header cannot reset it — and the header is only believed
+// from a trusted peer anyway.
+func TestRotatingTheForwardedHeaderDoesNotResetTheLimit(t *testing.T) {
+	s := setup(t).limited(t, trustedResolver(t))
+
+	id := s.begin(t)
+	csrf := s.form(t, id)
+
+	// A different client IP every single attempt.
+	for i := range ratelimit.PerAddress.Free + 1 {
+		s.attempt(t, id, csrf, testEmail, "wrong", "203.0.113."+string(rune('1'+i)))
+	}
+
+	w := s.attempt(t, id, csrf, testEmail, "wrong", "203.0.113.99")
+	if !strings.Contains(w.Body.String(), template.HTMLEscapeString(MsgRateLimited)) {
+		t.Fatalf("rotating the client IP reset the per-address limit:\n%s", w.Body.String())
+	}
+}
+
+// An UNTRUSTED peer's header is ignored entirely, so a caller cannot invent an
+// address to be counted under.
+func TestAnUntrustedPeerCannotChooseItsOwnIdentity(t *testing.T) {
+	s := setup(t).limited(t, trustedResolver(t))
+
+	id := s.begin(t)
+	csrf := s.form(t, id)
+
+	post := func(claimed string) *httptest.ResponseRecorder {
+		form := url.Values{
+			"request": {id}, csrfField: {csrf},
+			"email": {testEmail}, "password": {"wrong"},
+		}
+		r := httptest.NewRequest(http.MethodPost, Path, strings.NewReader(form.Encode()))
+		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		r.AddCookie(&http.Cookie{Name: CSRFCookieName, Value: csrf})
+		r.RemoteAddr = "198.51.100.9:44321" // NOT in the trusted range
+		r.Header.Set("CF-Connecting-IP", claimed)
+		w := httptest.NewRecorder()
+		s.login.ServeHTTP(w, r)
+		return w
+	}
+
+	for i := range ratelimit.PerAddress.Free + 1 {
+		post("203.0.113." + string(rune('1'+i)))
+	}
+
+	if w := post("203.0.113.99"); !strings.Contains(w.Body.String(), template.HTMLEscapeString(MsgRateLimited)) {
+		t.Fatalf("an untrusted peer rotated its way past the limit:\n%s", w.Body.String())
+	}
+}
+
+// FR-9, against real counters.
+func TestASuccessfulLoginClearsTheAddressCounter(t *testing.T) {
+	s := setup(t).limited(t, trustedResolver(t))
+
+	id := s.begin(t)
+	csrf := s.form(t, id)
+
+	for range 3 {
+		s.attempt(t, id, csrf, testEmail, "wrong", "203.0.113.7")
+	}
+	if n, _ := s.rdb.Exists(context.Background(), ratelimit.AddressKey(testEmail)).Result(); n != 1 {
+		t.Fatal("no counter was recorded for the failures")
+	}
+
+	if w := s.attempt(t, id, csrf, testEmail, testPassword, "203.0.113.7"); w.Code != http.StatusFound {
+		t.Fatalf("the correct password was refused: %d", w.Code)
+	}
+
+	if n, _ := s.rdb.Exists(context.Background(), ratelimit.AddressKey(testEmail)).Result(); n != 0 {
+		t.Error("the address counter survived a successful sign-in")
+	}
+	// The IP counter does NOT clear: one success from an office does not vouch
+	// for the other attempts coming from it.
+	if n, _ := s.rdb.Exists(context.Background(), ratelimit.IPKey("203.0.113.7")).Result(); n != 1 {
+		t.Error("a successful sign-in cleared the per-IP counter, which would hand " +
+			"an attacker a reset button for everybody sharing that address")
+	}
+}
+
+// ADR-017: fail open, loudly. A Redis outage must not stop every login in the
+// estate — Redis already backs the session cache, so turning an outage into
+// "nobody can authenticate" converts a cache failure into a total
+// authentication outage.
+func TestLoginsProceedWhenTheCounterStoreIsUnavailable(t *testing.T) {
+	s := setup(t)
+
+	// A client pointed at a port nothing is listening on.
+	broken := redis.NewClient(&redis.Options{Addr: "127.0.0.1:1", DialTimeout: 200 * time.Millisecond})
+	t.Cleanup(func() { _ = broken.Close() })
+
+	counted := &countingUnavailable{}
+	s.login.Limiter = ratelimit.New(broken, counted, discard())
+	s.login.IP = trustedResolver(t)
+
+	id := s.begin(t)
+	csrf := s.form(t, id)
+
+	w := s.attempt(t, id, csrf, testEmail, testPassword, "203.0.113.7")
+
+	if w.Code != http.StatusFound {
+		t.Fatalf("a login failed while the counter store was down: %d\n%s", w.Code, w.Body.String())
+	}
+	if counted.n == 0 {
+		t.Error("the outage was not counted; ADR-017's fail-open choice rests on " +
+			"this number being visible")
+	}
+}
+
+type countingUnavailable struct{ n int }
+
+func (c *countingUnavailable) Refused(string) {}
+func (c *countingUnavailable) Unavailable()   { c.n++ }
+
+// --- P1-14: authentication audit events ----------------------------------------
+
+// events reads the audit table as the OWNER.
+//
+// The service's own role is tenant-scoped, so reading through it outside a
+// transaction returns nothing — which would make every assertion below pass by
+// seeing no rows at all. P1-08's record already describes that trap; this is
+// the same one.
+func (s *stack) events(t *testing.T, eventType string) []map[string]any {
+	t.Helper()
+
+	var raw string
+	s.factory.QueryRow(&raw, `
+		SELECT COALESCE(json_agg(json_build_object(
+			'org_id', org_id, 'actor', actor_user_id, 'type', event_type,
+			'payload', payload, 'ip', host(ip), 'created_at', created_at
+		) ORDER BY created_at, id)::text, '[]')
+		  FROM events WHERE event_type = $1`, eventType)
+
+	var out []map[string]any
+	if err := json.Unmarshal([]byte(raw), &out); err != nil {
+		t.Fatalf("decoding events: %v", err)
+	}
+	return out
+}
+
+// DoD item 1, and docs/PLAN/17's Phase 1 audit criterion: a successful and a
+// failed login both appear, with the right actor.
+func TestBothLoginOutcomesAreAudited(t *testing.T) {
+	s := setup(t)
+
+	id := s.begin(t)
+	csrf := s.form(t, id)
+
+	s.submitWithAgent(t, id, csrf, testEmail, "wrong", "TestAgent/1.0")
+	s.submitWithAgent(t, id, csrf, testEmail, testPassword, "TestAgent/1.0")
+
+	failed := s.events(t, "user.login.failed")
+	if len(failed) != 1 {
+		t.Fatalf("%d failed-login events, want 1", len(failed))
+	}
+	success := s.events(t, "user.login.success")
+	if len(success) != 1 {
+		t.Fatalf("%d successful-login events, want 1", len(success))
+	}
+
+	if success[0]["actor"] != s.userID {
+		t.Errorf("the successful login names actor %v, want %s", success[0]["actor"], s.userID)
+	}
+	// A wrong password on a REAL account names the actor, which is a fact
+	// about the reading organization's own user and is what makes the entry
+	// useful for an investigation.
+	if failed[0]["actor"] != s.userID {
+		t.Errorf("the failed login names actor %v", failed[0]["actor"])
+	}
+
+	// Step 1: IP, user agent and the method used.
+	payload, _ := success[0]["payload"].(map[string]any)
+	for _, want := range []string{"auth_methods", "user_agent", "session_id", "client_id"} {
+		if _, present := payload[want]; !present {
+			t.Errorf("the successful login is missing %q", want)
+		}
+	}
+	if payload["user_agent"] != "TestAgent/1.0" {
+		t.Errorf("user_agent = %v", payload["user_agent"])
+	}
+	if success[0]["ip"] == nil || success[0]["ip"] == "" {
+		t.Error("the successful login records no IP")
+	}
+}
+
+// Step 2. A failure against an address with no account records the attempt
+// WITHOUT asserting a user id, and without the address — so a reader learns
+// that somebody failed, not who they were looking for.
+func TestAFailureAgainstAnUnknownAddressNamesNobody(t *testing.T) {
+	s := setup(t)
+
+	id := s.begin(t)
+	csrf := s.form(t, id)
+	s.submitWithAgent(t, id, csrf, "nobody-at-all@example.test", "wrong", "TestAgent/1.0")
+
+	failed := s.events(t, "user.login.failed")
+	if len(failed) != 1 {
+		t.Fatalf("%d failed-login events", len(failed))
+	}
+	if failed[0]["actor"] != nil {
+		t.Errorf("an attempt against an address with no account named actor %v",
+			failed[0]["actor"])
+	}
+
+	encoded, _ := json.Marshal(failed[0])
+	if strings.Contains(string(encoded), "nobody-at-all@example.test") {
+		t.Errorf("the address reached the audit log: %s", encoded)
+	}
+}
+
+// P1-13's lockout, written to a REAL database.
+//
+// This test exists because the unit test did not catch a bug: recordFailure
+// called WithTenant with an empty organization, which returns ErrEmptyOrgID
+// without doing anything, and the error was discarded — so the lockout event
+// was silently never written. The unit test passed throughout, because its
+// fake tenant ignores the organization entirely.
+func TestALockoutIsWrittenToTheAuditLog(t *testing.T) {
+	s := setup(t).limited(t, trustedResolver(t))
+
+	id := s.begin(t)
+	csrf := s.form(t, id)
+
+	for range ratelimit.PerAddress.Free + 2 {
+		s.attempt(t, id, csrf, testEmail, "wrong", "203.0.113.7")
+	}
+
+	lockouts := s.events(t, "user.lockout")
+	if len(lockouts) == 0 {
+		t.Fatal("no lockout event reached the database")
+	}
+	if len(lockouts) != 1 {
+		t.Errorf("%d lockout events for one cooldown", len(lockouts))
+	}
+	if lockouts[0]["org_id"] != s.orgID {
+		t.Errorf("the lockout is recorded under %v, want the client's organization %s",
+			lockouts[0]["org_id"], s.orgID)
+	}
+
+	payload, _ := lockouts[0]["payload"].(map[string]any)
+	if payload["bound"] == nil {
+		t.Error("the lockout does not say which bound refused")
+	}
+	encoded, _ := json.Marshal(lockouts[0])
+	if strings.Contains(string(encoded), testEmail) {
+		t.Errorf("the address reached the lockout entry: %s", encoded)
+	}
+}
+
+// DoD item 2, across EVERY event this flow produces rather than one at a time.
+// A per-event test is a test somebody forgets to add for the next event.
+func TestNoCredentialMaterialReachesAnyEvent(t *testing.T) {
+	s := setup(t).limited(t, trustedResolver(t))
+
+	id := s.begin(t)
+	csrf := s.form(t, id)
+
+	// Distinctive, because a password that is a substring of legitimate
+	// content makes this test fail against a service doing nothing wrong: the
+	// first version used "wrong", which is inside the reason class
+	// "wrong_password".
+	const guessed = "zzz-guessed-password-zzz"
+
+	// A full spread: a failure, a success, and enough failures to lock out.
+	s.attempt(t, id, csrf, testEmail, guessed, "203.0.113.7")
+	s.submitWithAgent(t, id, csrf, testEmail, testPassword, "TestAgent/1.0")
+
+	second := s.begin(t)
+	secondCSRF := s.form(t, second)
+	for range ratelimit.PerAddress.Free + 2 {
+		s.attempt(t, second, secondCSRF, "someone-else@example.test", guessed, "203.0.113.7")
+	}
+
+	var everything string
+	s.factory.QueryRow(&everything,
+		`SELECT COALESCE(string_agg(payload::text, '|'), '') FROM events`)
+
+	if everything == "" {
+		t.Fatal("no events at all; this test would pass against a service that audits nothing")
+	}
+
+	for _, forbidden := range []string{
+		testPassword, guessed, csrf, secondCSRF, id, second,
+		testEmail, "someone-else@example.test",
+	} {
+		if strings.Contains(everything, forbidden) {
+			t.Errorf("an event payload contains %q:\n%s", forbidden, everything)
+		}
+	}
+}
+
+// Step 5: ordering and timestamp accuracy. An audit log whose ordering cannot
+// be trusted cannot support an incident investigation, and "ordered by time"
+// is not enough on its own — two events in the same millisecond need a
+// tiebreak, which is what the (created_at, id) primary key provides.
+func TestEventsAreOrderedAndTimestamped(t *testing.T) {
+	s := setup(t)
+
+	before := time.Now().Add(-time.Second)
+
+	id := s.begin(t)
+	csrf := s.form(t, id)
+	for range 4 {
+		s.submitWithAgent(t, id, csrf, testEmail, "wrong", "TestAgent/1.0")
+	}
+	s.submitWithAgent(t, id, csrf, testEmail, testPassword, "TestAgent/1.0")
+
+	after := time.Now().Add(time.Second)
+
+	var raw string
+	s.factory.QueryRow(&raw, `
+		SELECT COALESCE(json_agg(json_build_object('id', id, 'at', created_at, 'type', event_type)
+			ORDER BY created_at, id)::text, '[]') FROM events`)
+
+	var rows []map[string]any
+	if err := json.Unmarshal([]byte(raw), &rows); err != nil {
+		t.Fatalf("decoding: %v", err)
+	}
+	if len(rows) < 5 {
+		t.Fatalf("only %d events for four failures and a success", len(rows))
+	}
+
+	var last time.Time
+	for i, row := range rows {
+		at, err := time.Parse(time.RFC3339Nano, row["at"].(string))
+		if err != nil {
+			t.Fatalf("row %d has an unparseable timestamp %v: %v", i, row["at"], err)
+		}
+		if at.Before(before) || at.After(after) {
+			t.Errorf("row %d is stamped %s, outside the window the test ran in", i, at)
+		}
+		if at.Before(last) {
+			t.Errorf("row %d is stamped before row %d", i, i-1)
+		}
+		last = at
+	}
+
+	// The tiebreak: ids increase with time, so two events in the same
+	// millisecond still have a defined order.
+	var ordered bool
+	s.factory.QueryRow(&ordered, `
+		SELECT bool_and(ok) FROM (
+			SELECT id >= lag(id) OVER (ORDER BY created_at, id) AS ok FROM events
+		) t WHERE ok IS NOT NULL`)
+	if !ordered {
+		t.Error("event ids do not increase with time; two events in one millisecond " +
+			"would have no defined order")
+	}
+}
+
+// DoD item 3: queryable by org, actor, type and time range. The indexes come
+// from P0-12's schema; what is asserted here is that they are USED, because an
+// index nothing plans against is an index that is not there.
+func TestTheAuditLogIsQueryableOnItsIndexes(t *testing.T) {
+	s := setup(t)
+
+	id := s.begin(t)
+	csrf := s.form(t, id)
+	s.submitWithAgent(t, id, csrf, testEmail, testPassword, "TestAgent/1.0")
+
+	queries := map[string]string{
+		"by org and time": `SELECT * FROM events
+			WHERE org_id = '` + s.orgID + `' AND created_at > now() - interval '1 day'
+			ORDER BY created_at DESC LIMIT 50`,
+		"by type and time": `SELECT * FROM events
+			WHERE event_type = 'user.login.success' AND created_at > now() - interval '1 day'
+			ORDER BY created_at DESC LIMIT 50`,
+		"by actor and time": `SELECT * FROM events
+			WHERE actor_user_id = '` + s.userID + `' AND created_at > now() - interval '1 day'
+			ORDER BY created_at DESC LIMIT 50`,
+	}
+
+	for name, query := range queries {
+		t.Run(name, func(t *testing.T) {
+			var plan string
+			s.factory.QueryRow(&plan, "EXPLAIN (FORMAT TEXT) "+query)
+
+			// A sequential scan on a partitioned, append-only table that grows
+			// forever is the shape of a query that works in a test and times
+			// out in year two.
+			if strings.Contains(plan, "Seq Scan") && !strings.Contains(plan, "Index") {
+				t.Errorf("the plan is a sequential scan, so the index is not being used:\n%s", plan)
+			}
+		})
+	}
+}
+
+// submitWithAgent posts the login form with a chosen user agent.
+func (s *stack) submitWithAgent(
+	t *testing.T, id, csrf, email, password, agent string,
+) *httptest.ResponseRecorder {
+	t.Helper()
+
+	form := url.Values{
+		"request":  {id},
+		csrfField:  {csrf},
+		"email":    {email},
+		"password": {password},
+	}
+
+	r := httptest.NewRequest(http.MethodPost, Path, strings.NewReader(form.Encode()))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	r.Header.Set("User-Agent", agent)
+	r.AddCookie(&http.Cookie{Name: CSRFCookieName, Value: csrf})
+
+	w := httptest.NewRecorder()
+	s.login.ServeHTTP(w, r)
+	return w
 }

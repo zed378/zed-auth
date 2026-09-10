@@ -92,6 +92,21 @@ const (
 
 	MsgEmailRequired    = "Enter your email address."
 	MsgPasswordRequired = "Enter your password."
+
+	// MsgRateLimited is shown when the attempt was refused before the password
+	// was even looked at.
+	//
+	// It says something TRUE and specific, unlike every other refusal on this
+	// page, and that is safe precisely because the counter is keyed on the
+	// SUBMITTED ADDRESS rather than on a resolved user (P1-13). The counter
+	// exists for an address with no account exactly as it does for a real one,
+	// so this message tells an attacker only about their own behaviour - which
+	// they already know, because they produced it.
+	//
+	// Being vague here would be worse than useless: a user told "your email or
+	// password is incorrect" while actually in a cooldown will keep retrying,
+	// which is both a worse experience and more load.
+	MsgRateLimited = "Too many sign-in attempts. Please wait a few minutes and try again."
 )
 
 // styleTemplate is the page's CSS.
