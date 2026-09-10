@@ -36,6 +36,7 @@ internal/session:$FLOOR:P1-11
 internal/oauth/authorize:$FLOOR:P1-06
 internal/oauth/token:$FLOOR:P1-07
 internal/login:$FLOOR:P1-12
+internal/ratelimit:$FLOOR:P1-13
 internal/oauth/userinfo:$FLOOR:P1-08
 "
 

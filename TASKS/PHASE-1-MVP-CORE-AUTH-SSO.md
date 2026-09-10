@@ -565,7 +565,7 @@ Also found: `session_id` was in the logger's redaction list — correct when the
 
 | | |
 |---|---|
-| **Status** | TODO |
+| **Status** | DONE — [record](../MEMORY/records/2026-09-10-P1-13-rate-limiting.md), [spec](../MEMORY/specs/P1-13-rate-limiting.md), [ADR-017](../MEMORY/DECISIONS.md) |
 | **Depends on** | P1-12 |
 | **Plan refs** | `docs/PLAN/05-API-CONTRACT.md` § Rate Limiting & Brute-Force Protection, `docs/PLAN/09-SECURITY.md`, `docs/PLAN/17-ACCEPTANCE-CRITERIA.md` § Phase 1, `docs/SECURITY/02` §10, §13 |
 | **Spec required** | Yes — security control |
@@ -585,11 +585,21 @@ Also found: `session_id` was in the logger's redaction list — correct when the
 9. Reset counters on successful authentication.
 
 **Definition of Done**
-- [ ] A simulated brute-force attempt is demonstrably blocked — the literal Phase 1 acceptance criterion in `docs/PLAN/17`.
-- [ ] Lockout is temporary and self-clearing; no admin action is needed to restore a legitimate user.
-- [ ] Rotating `X-Forwarded-For` does not reset the limit.
-- [ ] The Redis-unavailable decision is recorded in `MEMORY/DECISIONS.md`.
-- [ ] Lockouts appear in the audit log and in metrics.
+- [x] A simulated brute-force attempt is demonstrably blocked. The test also asserts the part that makes it a limiter rather than a nuisance: **the correct password is refused too while the cooldown runs** — one an attacker can step past by guessing right is not one.
+- [x] Lockout is temporary and self-clearing; no admin action is needed. There is no unlock endpoint and no cleanup job: the key's TTL is the whole mechanism, and a test waits it out rather than clearing anything.
+- [x] Rotating `X-Forwarded-For` does not reset the limit — tested with a different client IP on **every single attempt**, and separately that an untrusted peer cannot choose its own identity at all.
+- [x] The Redis-unavailable decision is recorded as [ADR-017](../MEMORY/DECISIONS.md): fail open, loudly.
+- [x] Lockouts appear in the audit log (once per cooldown, never once per attempt) and in `auth_rate_limit_refusals_total`.
+
+**What this task also produced**
+- `httpserver.ClientIP` — a configured, trusted-peer-gated client address. Needed because on this service's own deployment `RemoteAddr` is the Docker gateway and is the same for every user in the world, which would have made the per-IP bound a global one that a single attacker could use to lock everybody out.
+- **A dead branch in `Evaluate` that read like the allowance check and decided nothing**, found by a mutation that changed its comparison and broke no test. Deleted.
+- `BL-05` — `AUTH_CLIENT_IP_HEADER` is not set on staging.
+
+**Deliberately not done**
+- **No `X-RateLimit-*` headers.** Step 7 says "not in a way that helps an attacker calibrate their pacing on the login endpoint", and the login endpoint is the only thing this task limits — telling an attacker how many attempts remain and when the window resets is calibration, not courtesy. They belong with `P1-15`'s `/v1` limiter, where the caller is an authenticated machine that needs them.
+- **`429` is not used.** A browser renders it as an error page, losing the form, the CSRF token and the pending request. The message is what a person needs; the status is what a machine would need, and no machine posts this form.
+- **An in-process fallback for a Redis outage.** ADR-017: a second code path that executes only during the incident it exists for is the shape of code that turns out not to work when it finally runs.
 
 **Abuse cases to test**
 - Distributed credential stuffing across many IPs against many accounts (`docs/SECURITY/02` §13).
@@ -602,7 +612,7 @@ Also found: `session_id` was in the logger's redaction list — correct when the
 
 | | |
 |---|---|
-| **Status** | TODO |
+| **Status** | DONE — [record](../MEMORY/records/2026-09-10-P1-14-authentication-audit.md) |
 | **Depends on** | P0-12, P1-12 |
 | **Plan refs** | `docs/PLAN/09-SECURITY.md` § Audit, `docs/PLAN/17-ACCEPTANCE-CRITERIA.md` § Phase 1, `docs/PLAN/13-OBSERVABILITY.md` |
 | **Spec required** | No |
@@ -618,10 +628,21 @@ Also found: `session_id` was in the logger's redaction list — correct when the
 5. Verify ordering and timestamp accuracy — an audit log with unreliable ordering cannot support an incident investigation (`docs/SECURITY/04-INCIDENT-RESPONSE-PLAYBOOKS.md`).
 
 **Definition of Done**
-- [ ] Successful and failed logins both appear with correct actor and timestamp.
-- [ ] No credential material appears in any event payload, verified by test.
-- [ ] Events are queryable by org, actor, type, and time range with acceptable performance.
-- [ ] `docs/PLAN/17`'s Phase 1 audit criterion is demonstrably met.
+- [x] Successful and failed logins both appear with correct actor and timestamp. A wrong password on a real account names the actor; an attempt against an address with no account names nobody — and the address itself appears in neither.
+- [x] No credential material appears in any event payload, verified by a test that reads **every** payload one full login flow produces rather than checking one event type at a time. A per-event test is one somebody forgets to add for the next event.
+- [x] Events are queryable by org, actor, type and time range with acceptable performance. `EXPLAIN` asserts each of the three access patterns uses an index — an index nothing plans against is an index that is not there, and a sequential scan on a partitioned append-only table is a query that works in a test and times out in year two.
+- [x] `docs/PLAN/17`'s Phase 1 audit criterion is demonstrably met, including ordering: timestamps do not go backwards and ids increase with time, so two events in the same millisecond still have a defined order.
+
+**What this task found**
+- **`P1-13`'s lockout event was never written.** It called `WithTenant` with an empty organization, which returns `ErrEmptyOrgID` and does nothing, and the error was discarded. `P1-13`'s own DoD item had been ticked on a unit test whose fake tenant ignores the organization entirely — a check at the wrong layer for the claim it was supporting. Lockouts are now recorded against the client's organization, and a real-database test asserts the row exists.
+- Reading the audit log in a test is its own trap: the service's role is tenant-scoped, so reading through it outside a transaction returns nothing and every assertion passes by seeing no rows. The tests read as the owner and each has a control that fails when the table is empty.
+
+**What was added**
+- The **user agent** on `user.login.success`, `user.login.failed` and `user.lockout` — what distinguishes "signed in from a new laptop" from "somebody signed in as them". Bounded at 512 bytes: the table is append-only with a 24-month retention, so an unbounded attacker-controlled field is a place to park data nothing can delete.
+- Still **not** the submitted address, on any of them.
+
+**Deliberately not done**
+- **`token.issued` stays a row per token.** Step 3 suggests an aggregate metric instead "to keep volume sane"; at Phase 1 volumes a row is fine and more useful. It becomes a question when `P1-27`'s load test says what the volume is, and `PG-10`/`DF-12` already track the events table growing.
 
 ---
 

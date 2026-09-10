@@ -67,6 +67,26 @@ Format follows Keep a Changelog conventions, grouped by release once releases ex
 
 ### 2026-09-10
 
+**Added** — authentication audit events ([record](./records/2026-09-10-P1-14-authentication-audit.md))
+- The user agent on `user.login.success`, `user.login.failed` and `user.lockout`, bounded at 512 bytes. It is what distinguishes "signed in from a new laptop" from "somebody signed in as them"; the submitted address is still on none of them. (`P1-14`)
+- Verification the emitting did not have: no credential material in **any** payload one full login flow produces, ordering and timestamps that an incident timeline can rely on, and `EXPLAIN` asserting each of the three documented access patterns uses an index. (`P1-14`)
+
+**Found**
+- **`P1-13`'s lockout event was never written.** It called `WithTenant` with an empty organization, which returns `ErrEmptyOrgID` and does nothing, and the error was discarded. Its Definition-of-Done item had been ticked on a unit test whose fake tenant ignores the organization entirely — the vacuous-verification pattern in a new shape: not a check that cannot fail, but a check at the wrong LAYER for the claim it was used to support. Lockouts are now recorded against the client's organization and asserted against a real database. (`P1-14`)
+- **Reading the audit log in a test is its own trap.** The service's role is tenant-scoped, so reading `events` through it outside a transaction returns nothing and every assertion passes by seeing no rows — the same trap `P1-08` recorded. The tests read as the owner, and each carries a control that fails when the table is empty. (`P1-14`)
+- A test of mine failed against a service doing nothing wrong, because the password it submitted (`"wrong"`) is a substring of the legitimate reason class `"wrong_password"`. (`P1-14`)
+
+**Added** — login rate limiting ([record](./records/2026-09-10-P1-13-rate-limiting.md), [spec](./specs/P1-13-rate-limiting.md), [ADR-017](./DECISIONS.md))
+- A per-address and a per-IP bound, both cooldowns rather than lockouts, both self-clearing on a TTL with no unlock endpoint and no cleanup job. `docs/PLAN/17`'s Phase 1 acceptance criterion — a simulated brute force is demonstrably blocked — now has a test that says so. (`P1-13`)
+- **Counters are keyed on the normalised SUBMITTED ADDRESS, not on a resolved user id.** A counter keyed on a user would only exist for addresses that have accounts, so "too many attempts" would confirm the account exists and undo `P1-12`'s enumeration defence with its own rate limiter. Keyed on the submission, it exists for an address with nobody behind it too — which is what lets the login page say something true and specific here when every other refusal on it is deliberately vague.
+- **`httpserver.ClientIP`**: a configured client address, read from a header only when the immediate peer is inside a trusted CIDR. Needed because `cloudflared` reaches the published port from the Docker gateway, so `RemoteAddr` is the same for every user in the world and a per-IP bound computed from it is a global one a single attacker could use to lock everybody out. Both settings or neither; a list in the header is refused rather than parsed; a bad CIDR is reported at startup rather than dropped.
+- **ADR-017**: the limiter fails open when Redis is unavailable, and says so every time. Failing closed converts a cache outage into a total authentication outage and hands anybody who can reach Redis a bigger win than the brute force. What makes it tolerable is Argon2's 50-100ms per attempt, a floor that does not depend on Redis.
+- `BL-05`: `AUTH_CLIENT_IP_HEADER` is not set on staging.
+
+**Found**
+- **Dead code that read like a security control.** `Evaluate` had a free-allowance check whose two branches returned the same thing — a mutation flipping its comparison broke no test. It had a comment explaining its off-by-one reasoning and decided nothing; the real allowance is enforced in `Next`. A reader auditing the file would have found a plausible bound in the function named `Evaluate` and stopped there. Deleted. (`P1-13`)
+- **Two mutations of mine that proved nothing**, both the same shape: removing one of two cap checks left the cap in place, and changing `Evaluate`'s comparison left `Next` in charge. A mutation that does not actually remove the control says nothing about the test. (`P1-13`)
+
 **Added** — RP-initiated logout ([record](./records/2026-09-10-P1-10-logout.md), [spec](./specs/P1-10-logout.md))
 - `GET` and `POST /oidc/logout`, advertised by discovery as `end_session_endpoint`. The session lifecycle closes: `P1-12` starts one, `P1-11` maintains it, this ends it. (`P1-10`)
 - **A GET logs somebody out only when the request proves it came from a party that already holds a token for that very session** — an `id_token_hint` that verifies and whose `sid` and `sub` match the cookie's session. Everything else gets a confirmation click, because a GET is triggerable by any page on the internet and acting on a bare one is a forced-logout CSRF. A hint for somebody ELSE's session logs nobody out: not its own subject, and not the visitor.

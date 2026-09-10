@@ -98,6 +98,27 @@ type HTTPConfig struct {
 	// Default false. Turn it on only when something in front provably
 	// overwrites the header — the Caddyfile in deploy/vm does.
 	TrustProxyHeaders bool
+
+	// ClientIPHeader and TrustedProxyCIDRs decide where the client's address
+	// comes from (P1-13).
+	//
+	// They exist because the obvious answer is wrong on this service's own
+	// deployment. `cloudflared` runs as a host service and reaches the
+	// published port, so RemoteAddr is the Docker gateway — the same address
+	// for every user in the world. A per-IP rate limit computed from it is not
+	// a per-IP limit; it is a global one, and a single attacker could use it
+	// to lock every user out of the service.
+	//
+	// The header is read ONLY when the immediate peer is inside a trusted
+	// range, which is what makes it unforgeable: a client that sets
+	// `CF-Connecting-IP` itself is not connecting from a trusted proxy, so its
+	// header is ignored (docs/SECURITY/02 §10 Rate-Limit Bypass).
+	//
+	// Both or neither. Either alone falls back to RemoteAddr, because a header
+	// believed from anywhere is a header anybody can write, and trusted peers
+	// with no header have nothing to read.
+	ClientIPHeader    string
+	TrustedProxyCIDRs []string
 }
 
 // AdminConfig is the internal listener carrying metrics.
@@ -226,6 +247,8 @@ func LoadFrom(getenv Getenv) (*Config, error) {
 			IdleTimeout:       l.duration("AUTH_HTTP_IDLE_TIMEOUT", 60*time.Second),
 			ShutdownTimeout:   l.duration("AUTH_HTTP_SHUTDOWN_TIMEOUT", 20*time.Second),
 			TrustProxyHeaders: l.boolean("AUTH_TRUST_PROXY_HEADERS", false),
+			ClientIPHeader:    l.optional("AUTH_CLIENT_IP_HEADER", ""),
+			TrustedProxyCIDRs: l.list("AUTH_TRUSTED_PROXY_CIDRS"),
 		},
 		Admin: AdminConfig{
 			Addr:     l.optional("AUTH_ADMIN_ADDR", "127.0.0.1:9090"),
@@ -308,6 +331,27 @@ func (l *loader) duration(key string, fallback time.Duration) time.Duration {
 		return fallback
 	}
 	return d
+}
+
+// list reads a comma-separated setting.
+//
+// Empty entries are dropped rather than kept as "", because a trailing comma
+// in an environment file is a typo and an empty CIDR is not a value anybody
+// meant. Whether the remaining entries parse is the caller's question — it is
+// the one that can report a useful error.
+func (l *loader) list(key string) []string {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return nil
+	}
+
+	var out []string
+	for _, part := range strings.Split(raw, ",") {
+		if trimmed := strings.TrimSpace(part); trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	return out
 }
 
 func (l *loader) boolean(key string, fallback bool) bool {

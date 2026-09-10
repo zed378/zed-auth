@@ -46,6 +46,7 @@ Decisions `TASKS/` has identified as needing an ADR, listed here so they are not
 | ~~P0-01~~ | ~~Backend stack~~ — **decided 2026-09-08**, ADR-006. The **OIDC provider library** is deliberately still open: confirming JWKS rotation with overlap and refresh-token reuse detection requires building against it, so it moves to `P1-03` | `docs/PLAN/07` labels these "initial recommendations, not final decisions" |
 | P0-12 | Audit write semantics: inside the business transaction, or after it | Determines whether a failed audit write blocks the action it records |
 | ~~P1-02~~ | ~~Breached-password check: fail open or fail closed~~ — **decided 2026-09-09**, ADR-015: fail open, with an audit event, a counter and an alert on every skip | Failing closed blocks legitimate password changes during a third-party outage |
+| ~~P1-13~~ | ~~Rate limiter behaviour when Redis is down~~ — **decided 2026-09-10**, ADR-017: fail open, loudly. Failing closed converts a cache outage into a total authentication outage, and Argon2's 50-100ms per attempt is a floor that does not depend on Redis | Failing closed hands an attacker who can reach Redis a bigger win than the brute force the limiter exists to stop |
 | ~~P1-05~~ | ~~Client secret hashing~~ — **decided 2026-09-09**, ADR-016: SHA-256, because 256 bits of entropy already settles brute force and a slow KDF would be self-inflicted amplification on the token endpoint | A slow KDF on a hot verification path is a denial-of-service surface |
 | P1-13 | Rate limiting behavior when Redis is unavailable | Fail open means no rate limiting; fail closed means no logins at all |
 | P1-21 | Console token storage: in-memory with silent renewal, or `localStorage` | In-memory resists XSS token theft but depends on silent renewal being solid |
@@ -721,3 +722,53 @@ Secrets already issued cannot be re-hashed under a different scheme without reis
 **Plan impact**
 
 None. `docs/PLAN/09` requires that credentials be hashed and does not specify the algorithm per credential type. `docs/PLAN/04` already models `client_secret_hash` as opaque text.
+
+---
+
+### ADR-017 — The rate limiter fails open when Redis is unavailable, and says so every time
+
+**Status**: accepted, 2026-09-10 (`P1-13`)
+
+**Context**
+
+`P1-13` step 5 asks for this decision explicitly and says it needs its own reasoning: "Failing open means no rate limiting; failing closed means no logins at all. `docs/PLAN/13`'s fail-safe principle applies to authorization decisions specifically — this is a different trade-off."
+
+The login rate limiter keeps its counters in Redis. Redis is not part of the authoritative state (ADR-003) — it is a cache in front of PostgreSQL for sessions, and a short-lived store for authorization codes and these counters. It can be unavailable while PostgreSQL is fine.
+
+**Decision**
+
+**Fail open, loudly.** When the counter store cannot be reached, the attempt proceeds to the password check as though no limit applied. Every occurrence emits a `WARN` naming the failure and increments `auth_rate_limit_unavailable_total`.
+
+**Why not fail closed**
+
+Failing closed means a Redis outage stops **every login in the estate** — every application, every user, until Redis comes back. Redis already backs the session cache, so an outage is already degrading service; turning it into "nobody can authenticate at all" converts a cache failure into a total authentication outage. The blast radius is the entire product.
+
+It also creates an attack: anybody who can make Redis unreachable — a resource exhaustion, a network partition, a bad deploy — takes down authentication for everyone. Failing closed hands that person a bigger win than the brute-force attempt the limiter exists to stop.
+
+**What makes failing open tolerable**
+
+A floor that does not depend on Redis. `P1-01` hashes passwords with Argon2id at 64 MiB, t=3, p=4 — **50-100ms of CPU per attempt**, measured. An attacker with no rate limit is bounded by the service's own CPU to a few hundred attempts per second per core, against a password policy (`P1-02`) with a twelve-character minimum and a breach check. That is far below what an offline attack achieves and is not a credible path to guessing a password.
+
+The limiter raises that floor and makes a targeted attempt visible; it is not the only thing holding it. Fail-open removes an improvement, not the defence.
+
+**And loudly**
+
+`auth_rate_limit_unavailable_total` is the metric that makes this decision safe to have made. Without it, an outage would silently remove a security control and look exactly like nothing happening — which is `P0-11`'s lesson about alerting on the absence of a signal rather than on a failure count, arriving in a third place. A non-zero value means logins are proceeding unlimited, and it should alert.
+
+**Considered and rejected: an in-process fallback limiter**
+
+Per-instance counters in memory would degrade gracefully rather than open, and with one instance today they would be equivalent to the real thing.
+
+Rejected because it is a **second code path that executes only during a Redis outage** — so it would be exercised by nothing except the incident it exists for, which is precisely the shape of code that turns out not to work when it finally runs. This repository has a name for that (`MEMORY/records/…vacuous verification…`) and has already been bitten by it more than once.
+
+It becomes worth revisiting when there is more than one instance, because at that point the in-memory version is genuinely weaker than the Redis one and the difference starts to mean something.
+
+**Consequences**
+
+- A Redis outage removes login rate limiting until it recovers. This is accepted.
+- `auth_rate_limit_unavailable_total` must be alerted on. Recorded as an operational follow-up.
+- Argon2's cost is now load-bearing for more than password storage. Lowering those parameters is no longer only a hashing decision — it lowers this floor too, and `P1-01`'s `weakerThanCurrent` guard is what keeps a change visible.
+
+**Plan impact**
+
+None. `docs/PLAN/13`'s fail-safe principle is about authorization decisions — whether to permit an action — and is unchanged: an authorization check that cannot reach its data still denies. This is a rate limit, which is a bound on how often something may be attempted, and the trade-off is different because the failure mode is.
