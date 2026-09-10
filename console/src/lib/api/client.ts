@@ -30,10 +30,31 @@ import type { paths } from "./schema.gen";
  * Same-origin by default, which is what the local dev proxy and a
  * reverse-proxied deployment both give.
  */
-const baseUrl = import.meta.env.VITE_API_BASE_URL ?? "";
+/**
+ * Same-origin by default, spelled absolutely.
+ *
+ * An empty base URL produces relative request paths, which a browser resolves
+ * against the document and `fetch` outside one cannot parse at all — the
+ * failure is `Invalid URL`, from a layer that names neither the console nor
+ * the endpoint. `window.location.origin` is the same destination and works in
+ * both places.
+ */
+const baseUrl =
+  import.meta.env.VITE_API_BASE_URL ??
+  (typeof window === "undefined" ? "" : window.location.origin);
 
 export const api = createClient<paths>({
   baseUrl,
+
+  // Resolved per request rather than captured at module load.
+  //
+  // openapi-fetch takes `globalThis.fetch` once, when the client is created —
+  // so anything that replaces it afterwards is ignored. That is a problem
+  // beyond tests: instrumentation, a service worker registering late, and any
+  // polyfill loaded after this module all get skipped silently. Reading it per
+  // call costs nothing and means the transport in use is the one currently
+  // installed.
+  fetch: (request) => globalThis.fetch(request),
 
   // The console authenticates as an ordinary OIDC client (docs/PLAN/06 § Why the
   // Console Must Log In Through the Same OIDC Flow), so it carries an SSO
