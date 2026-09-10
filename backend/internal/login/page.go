@@ -74,7 +74,7 @@ const (
 	// MsgCredentials answers a wrong password, an unknown address, a locked
 	// account, a deactivated account, and an account with no password set.
 	// All five, deliberately: any distinction here is an answer to "does this
-	// address have an account", which is SECURITY/02 §12's enumeration
+	// address have an account", which is docs/SECURITY/02 §12's enumeration
 	// disclosure and the reason credential-stuffing lists are worth money.
 	MsgCredentials = "Your email or password is incorrect."
 
@@ -96,7 +96,7 @@ const (
 
 // styleTemplate is the page's CSS.
 //
-// The token VALUES from UI-UX/05 rather than an import of the console's
+// The token VALUES from docs/UI-UX/05 rather than an import of the console's
 // stylesheet, for the reason DefaultAccent gives. `--color-accent` is the one
 // value an organization may change, so it is the one substitution.
 const styleTemplate = `

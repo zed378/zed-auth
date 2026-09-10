@@ -6,7 +6,7 @@
 # hook exists because of the gap between the two: once a secret reaches a remote
 # branch, deleting the commit does not un-leak it — the value has to be rotated.
 # Catching it here is the difference between deleting a line and rotating a
-# production key (SECURITY/02-ATTACK-SURFACE-AND-SCENARIOS.md §16).
+# production key (docs/SECURITY/02-ATTACK-SURFACE-AND-SCENARIOS.md §16).
 #
 # Install: scripts/install-hooks.sh
 # Bypass:  git commit --no-verify   (then rotate whatever you just committed)

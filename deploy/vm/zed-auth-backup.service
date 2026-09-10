@@ -1,6 +1,6 @@
 # Takes a verified backup of the Auth Service database.
 #
-# PLAN/15 § Restore Testing: "a backup that's never been tested isn't a backup
+# docs/PLAN/15 § Restore Testing: "a backup that's never been tested isn't a backup
 # you can rely on." backup.sh therefore does not finish when pg_dump exits — it
 # restores into a throwaway database, compares the table set and every row
 # count against the source, and fails if they differ.
@@ -11,7 +11,7 @@
 
 [Unit]
 Description=Zed Auth database backup (dump, restore-verify, prune)
-Documentation=file:///opt/zed-auth/PLAN/15-DISASTER-RECOVERY.md
+Documentation=file:///opt/zed-auth/docs/PLAN/15-DISASTER-RECOVERY.md
 After=docker.service
 Requires=docker.service
 

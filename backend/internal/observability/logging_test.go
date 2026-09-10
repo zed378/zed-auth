@@ -26,7 +26,7 @@ func decode(t *testing.T, b *bytes.Buffer) map[string]any {
 	return m
 }
 
-// PLAN/13-OBSERVABILITY.md § Logging: structured JSON, every line correlatable.
+// docs/PLAN/13-OBSERVABILITY.md § Logging: structured JSON, every line correlatable.
 func TestNewLogger_EmitsValidJSON(t *testing.T) {
 	var buf bytes.Buffer
 	log := NewLogger(&buf, Options{Level: "info", Format: "json", Service: "authservice"})
@@ -122,7 +122,7 @@ func TestNewLogger_RedactsInsideGroups(t *testing.T) {
 	}
 }
 
-// Correlation: PLAN/13 requires a request_id on every line so a request can be
+// Correlation: docs/PLAN/13 requires a request_id on every line so a request can be
 // followed across services.
 func TestNewLogger_AttachesCorrelationIDsFromContext(t *testing.T) {
 	var buf bytes.Buffer
@@ -154,7 +154,7 @@ func TestNewLogger_NoCorrelationIDsWhenAbsent(t *testing.T) {
 	}
 }
 
-// PLAN/13: a failed login is WARN, not ERROR. It is expected behavior, and
+// docs/PLAN/13: a failed login is WARN, not ERROR. It is expected behavior, and
 // treating it as an error trains everyone to ignore errors.
 func TestNewLogger_LevelFiltering(t *testing.T) {
 	tests := []struct {

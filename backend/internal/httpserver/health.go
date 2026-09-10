@@ -42,7 +42,7 @@ type Health struct {
 
 // GetLiveness answers "is this process alive and not wedged?".
 //
-// It deliberately checks nothing. PLAN/14-DEPLOYMENT.md separates liveness from
+// It deliberately checks nothing. docs/PLAN/14-DEPLOYMENT.md separates liveness from
 // readiness precisely so a transient database problem restarts nothing — if
 // /healthz consulted Postgres, a brief database blip would make Kubernetes kill
 // every pod at once, turning a recoverable dependency failure into an outage.
@@ -54,13 +54,13 @@ func (h *Health) GetLiveness(context.Context, api.GetLivenessRequestObject) (api
 //
 // It verifies every dependency the service needs to serve a request. A rolling
 // update must not route traffic to an instance whose connection pool is not up
-// (PLAN/14-DEPLOYMENT.md § Deployment Model).
+// (docs/PLAN/14-DEPLOYMENT.md § Deployment Model).
 //
 // The response body names no dependency, no host, no version, and no error
 // detail. A readiness endpoint is reachable from the load balancer and is a
 // standard reconnaissance target; telling an anonymous caller "postgres:
 // connection refused at 10.0.4.2:5432" hands over infrastructure topology
-// (SECURITY/02-ATTACK-SURFACE-AND-SCENARIOS.md §12 Enumeration). The detail
+// (docs/SECURITY/02-ATTACK-SURFACE-AND-SCENARIOS.md §12 Enumeration). The detail
 // goes to the logs, which is where an operator can see it.
 //
 // The returned error is always nil. A dependency failure is a 503, which is a

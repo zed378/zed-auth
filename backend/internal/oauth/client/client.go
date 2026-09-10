@@ -9,7 +9,7 @@
 // compare the strings. Every open-redirect vulnerability in this class comes
 // from an implementation that did something more clever than that — matched a
 // prefix, normalised before comparing, resolved dot segments, allowed a
-// wildcard. `PLAN/09` § Protection Against Common Attacks says exact match,
+// wildcard. `docs/PLAN/09` § Protection Against Common Attacks says exact match,
 // and the surrounding tests exist to keep it that way when somebody
 // reasonably suggests being more forgiving.
 //
@@ -24,7 +24,7 @@ import (
 	"strings"
 )
 
-// Type is the client type from PLAN/04 § applications.
+// Type is the client type from docs/PLAN/04 § applications.
 type Type string
 
 const (
@@ -84,12 +84,12 @@ const (
 
 // forbiddenGrants are refused for every client type, permanently.
 //
-// The same two PLAN/05 rules out that P1-04's discovery document refuses to
+// The same two docs/PLAN/05 rules out that P1-04's discovery document refuses to
 // advertise. Both refusals exist because a grant that is advertised or
 // registerable is a grant somebody builds against.
 var forbiddenGrants = map[string]string{
-	"implicit": "deprecated in OAuth 2.1 (PLAN/05 § Supported Grant Types)",
-	"password": "resource owner password credentials are not supported (PLAN/05)",
+	"implicit": "deprecated in OAuth 2.1 (docs/PLAN/05 § Supported Grant Types)",
+	"password": "resource owner password credentials are not supported (docs/PLAN/05)",
 }
 
 // allowedGrants is what each type may ask for.
@@ -282,7 +282,7 @@ func isLoopback(host string) bool {
 // path could serialise a secret out of, because the way secrets leak is that
 // somebody adds a JSON tag to a field that was only ever meant to be internal.
 type Application struct {
-	ID        string // doubles as the client_id (PLAN/04)
+	ID        string // doubles as the client_id (docs/PLAN/04)
 	OrgID     string
 	ProjectID string
 	Name      string

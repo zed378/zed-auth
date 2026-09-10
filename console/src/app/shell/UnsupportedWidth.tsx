@@ -3,13 +3,13 @@ import type { ReactNode } from "react";
 /**
  * Below the supported width, the console is replaced by an explanation.
  *
- * `UI-UX/12` § Testing asks for this in as many words: below roughly 600px,
+ * `docs/UI-UX/12` § Testing asks for this in as many words: below roughly 600px,
  * admin-facing screens should show "not supported, shows a message suggesting
  * a larger screen", because an explicit message beats a silently broken
- * layout. The console is a desktop tool by design (`UI-UX/00`) — admin work is
+ * layout. The console is a desktop tool by design (`docs/UI-UX/00`) — admin work is
  * structured data entry and table scanning.
  *
- * The one exception in the plan is personal account settings (`UI-UX/16`),
+ * The one exception in the plan is personal account settings (`docs/UI-UX/16`),
  * which is genuinely mobile-optimised. It is not built yet; when it is, it
  * renders outside this wrapper rather than adding a condition here.
  *

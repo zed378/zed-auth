@@ -1,6 +1,6 @@
 // Command migrate applies and rolls back database migrations.
 //
-// It is a separate binary from the service on purpose. PLAN/14-DEPLOYMENT.md
+// It is a separate binary from the service on purpose. docs/PLAN/14-DEPLOYMENT.md
 // requires migrations to run as a reviewable step before application rollout,
 // never implicitly on service startup in production — a service that migrates
 // as it boots will, during a rolling update, have several instances racing to
@@ -185,7 +185,7 @@ func reportVersion(m *migrate.Migrate, action string) error {
 //
 // The template carries the expand/contract reminder because that discipline is
 // invisible at the moment someone is writing a migration and expensive to
-// discover during a rollback (PLAN/14-DEPLOYMENT.md § Rollback Strategy).
+// discover during a rollback (docs/PLAN/14-DEPLOYMENT.md § Rollback Strategy).
 func newMigration(name string) error {
 	safe := strings.Map(func(r rune) rune {
 		switch {
@@ -210,7 +210,7 @@ func newMigration(name string) error {
 		fmt.Sprintf("%s_%s.up.sql", version, safe): fmt.Sprintf(
 			`-- %s (up)
 --
--- Expand/contract reminder (PLAN/14-DEPLOYMENT.md § Rollback Strategy):
+-- Expand/contract reminder (docs/PLAN/14-DEPLOYMENT.md § Rollback Strategy):
 -- this migration must leave the PREVIOUS application version able to run
 -- against the new schema, so an application rollback never requires a
 -- database rollback. In practice that means: add columns as nullable or with

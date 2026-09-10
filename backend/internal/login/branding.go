@@ -16,8 +16,8 @@ import (
 
 // Per-organization branding, read from organizations.settings.
 //
-// PG-16 is the gap this closes: PLAN/01 puts branding in scope, UI-UX/05
-// bounds it to exactly two things, UI-UX/08 gives it a settings screen, and
+// PG-16 is the gap this closes: docs/PLAN/01 puts branding in scope, docs/UI-UX/05
+// bounds it to exactly two things, docs/UI-UX/08 gives it a settings screen, and
 // console/src/branding/branding.ts already implements applying it — with no
 // column, key or documented shape anywhere for it to be read from. The
 // resolution was to specify `settings.branding` rather than add a table:
@@ -50,7 +50,7 @@ const minAccentContrast = 4.5
 
 // Branding is what an organization may change about this page.
 //
-// Two fields, and that is the whole of it. UI-UX/05 is explicit that
+// Two fields, and that is the whole of it. docs/UI-UX/05 is explicit that
 // `color-danger` and `color-warning` are never overridable, so that red keeps
 // meaning "irreversible" in every tenant — a rule this struct enforces by not
 // having anywhere to put a third colour.

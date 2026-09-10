@@ -26,7 +26,7 @@ For a project whose entire premise is that audit trails matter, the development 
 
 Also recorded:
 
-- **Any deviation from `PLAN/`, `UI-UX/`, or `SECURITY/`** — as an ADR, per the deviation protocol. A documented deviation is a decision; an undocumented one is a bug nobody has found yet.
+- **Any deviation from `docs/PLAN/`, `docs/UI-UX/`, or `docs/SECURITY/`** — as an ADR, per the deviation protocol. A documented deviation is a decision; an undocumented one is a bug nobody has found yet.
 - **Any decision the plan deliberately left open** — the OIDC library, the migration tool, token storage in the console, cache TTLs, fail-open versus fail-closed choices.
 - **Phase completions** — a summary of what shipped, what deviated, what was deferred, and what to watch.
 - **Operational events with lasting consequence** — a key rotation, a DR drill, a pentest, a load test result, a production incident.
@@ -64,7 +64,7 @@ These matter more here than anywhere else in the repository, because a record is
 
 - **Record what happened, not what was supposed to happen.** If a test was skipped, say so. If a Definition of Done item was waived, say which one and who agreed.
 - **Record failures.** A load test that missed its target, an approach abandoned after two days, a migration rolled back — these are the highest-value records in the folder, because they stop the same ground being covered twice.
-- **Do not retroactively edit a record to look better.** Add a follow-up record instead. The point of an append-oriented log is that it can be trusted, which is the same reason `events` is append-only at the database level (`PLAN/04`, `SECURITY/02` §19).
+- **Do not retroactively edit a record to look better.** Add a follow-up record instead. The point of an append-oriented log is that it can be trusted, which is the same reason `events` is append-only at the database level (`docs/PLAN/04`, `docs/SECURITY/02` §19).
 - **Record open questions found during the work**, and add them to `TASKS/BACKLOG.md` so they have a consequence rather than only a mention.
 
 ---
@@ -73,7 +73,7 @@ These matter more here than anywhere else in the repository, because a record is
 
 | Folder | Direction | Nature |
 |---|---|---|
-| `PLAN/`, `UI-UX/`, `SECURITY/` | Reference | What was decided before building. Reference-only (`AGENTS.md` rule 9). |
+| `docs/PLAN/`, `docs/UI-UX/`, `docs/SECURITY/` | Reference | What was decided before building. Reference-only (`AGENTS.md` rule 9). |
 | `TASKS/` | Forward | What will be built, in what order, and how it will be judged done. |
 | `MEMORY/` | Backward | What was built, what it cost, and what to watch. |
 

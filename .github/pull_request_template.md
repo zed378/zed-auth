@@ -6,14 +6,14 @@ Task ID:
 
 ## Plan Documents Implemented
 
-<!-- Required. Which PLAN/, UI-UX/, or SECURITY/ sections this implements, so a reviewer can check
+<!-- Required. Which docs/PLAN/, docs/UI-UX/, or docs/SECURITY/ sections this implements, so a reviewer can check
      against the spec rather than only against the diff (AGENTS.md § PR / Change Instructions). -->
 
 -
 
 ## Tests Added and Run
 
-<!-- Required. Which layers of PLAN/11-TESTING.md's pyramid. Name the tests, not just the layer. -->
+<!-- Required. Which layers of docs/PLAN/11-TESTING.md's pyramid. Name the tests, not just the layer. -->
 
 | Layer | What it covers |
 |---|---|
@@ -25,7 +25,7 @@ Task ID:
 ## Abuse Cases Covered
 
 <!-- Required for anything touching auth, authz, sessions, tokens, or grants.
-     Cross-reference SECURITY/02-ATTACK-SURFACE-AND-SCENARIOS.md and PLAN/10-THREAT-MODEL.md.
+     Cross-reference docs/SECURITY/02-ATTACK-SURFACE-AND-SCENARIOS.md and docs/PLAN/10-THREAT-MODEL.md.
      "None applicable" is an acceptable answer; a blank section is not. -->
 
 | Abuse case | Source | Test |

@@ -76,7 +76,7 @@ func TestAdminRequiresTheTokenWhenConfigured(t *testing.T) {
 
 // A rejected request must not advertise that the endpoint exists, what scheme
 // it wants, or that a token was merely wrong rather than missing. Anything
-// more helps someone probing for it (SECURITY/02 §12).
+// more helps someone probing for it (docs/SECURITY/02 §12).
 func TestAdminRejectionRevealsNothing(t *testing.T) {
 	s := NewAdmin(config.AdminConfig{Addr: "127.0.0.1:0", Enabled: true}, AdminDeps{
 		Logger:  discardLogger(),

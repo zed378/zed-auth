@@ -14,7 +14,7 @@ import { expect } from "vitest";
  * selector, and the URL of the page explaining how to fix it — which is what
  * someone reading a red CI log actually needs.
  *
- * `UI-UX/13` § Testing & Sign-off asks for automated accessibility linting
+ * `docs/UI-UX/13` § Testing & Sign-off asks for automated accessibility linting
  * catching regressions on every change. It also asks for a manual screen
  * reader pass before Phase 5, and this is not that: axe catches the mechanical
  * failures, not the ones that need judgement about whether an announcement
@@ -22,7 +22,7 @@ import { expect } from "vitest";
  */
 export async function expectNoAxeViolations(container: ElementContext): Promise<void> {
   const results = await axe.run(container, {
-    // The console targets WCAG 2.1 AA (UI-UX/13). Restricting the rule set to
+    // The console targets WCAG 2.1 AA (docs/UI-UX/13). Restricting the rule set to
     // that target keeps the suite honest: a best-practice warning failing the
     // build teaches people to disable the check.
     runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] },

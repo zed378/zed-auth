@@ -18,7 +18,7 @@ A factual summary of the change in two or three sentences. What exists now that 
 
 ## Why
 
-The reason this was done now, and the plan documents it implements. Link them — `PLAN/05-API-CONTRACT.md` § Core Endpoints, not "the API doc."
+The reason this was done now, and the plan documents it implements. Link them — `docs/PLAN/05-API-CONTRACT.md` § Core Endpoints, not "the API doc."
 
 If the task exists because of something discovered during other work rather than because the roadmap said so, say that — it is the more useful information.
 
@@ -59,7 +59,7 @@ If there were none, write "None" — an empty section reads as an oversight.
 
 ## Abuse Cases Covered
 
-Cross-referenced from `SECURITY/02-ATTACK-SURFACE-AND-SCENARIOS.md` and `PLAN/10-THREAT-MODEL.md`. Every abuse case listed on the task must appear here with the test that covers it.
+Cross-referenced from `docs/SECURITY/02-ATTACK-SURFACE-AND-SCENARIOS.md` and `docs/PLAN/10-THREAT-MODEL.md`. Every abuse case listed on the task must appear here with the test that covers it.
 
 | Abuse case | Source | Test |
 |---|---|---|

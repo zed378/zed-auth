@@ -8,7 +8,7 @@ import { UnsupportedWidth } from "./UnsupportedWidth";
  * The application shell: skip link, navigation, main content region.
  *
  * The landmark structure here is the accessibility foundation for every screen
- * that will ever be added, which is why it exists before any of them. UI-UX/13
+ * that will ever be added, which is why it exists before any of them. docs/UI-UX/13
  * puts it plainly — accessibility is "built in from the first screen rather
  * than retrofitted", and a shell without landmarks means every page inherits
  * a document a screen reader user has to explore linearly.
@@ -33,7 +33,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
       {/*
         Below tablet width the layout is REPLACED by an explanation, not
-        covered by one. UI-UX/12 § Testing asks for the message; swapping the
+        covered by one. docs/UI-UX/12 § Testing asks for the message; swapping the
         subtrees rather than overlaying keeps exactly one <h1> in the document
         and stops a screen reader user at narrow width from walking past the
         message into the application it says is unusable.

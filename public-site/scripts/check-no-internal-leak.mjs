@@ -3,14 +3,14 @@
  * Fails if the built site contains material from documents that must never be
  * published.
  *
- * `PLAN/20` § What Never Gets Published names three:
+ * `docs/PLAN/20` § What Never Gets Published names three:
  *
- *   SECURITY/02-ATTACK-SURFACE-AND-SCENARIOS.md — attack scenarios and
+ *   docs/SECURITY/02-ATTACK-SURFACE-AND-SCENARIOS.md — attack scenarios and
  *     mitigation mechanics. Defensive documentation, not marketing content:
  *     publishing it hands an attacker the list of things that were considered
  *     and, by omission, the ones that were not.
- *   PLAN/14-DEPLOYMENT.md — infrastructure topology.
- *   PLAN/18-RISK-REGISTER.md — anything at all.
+ *   docs/PLAN/14-DEPLOYMENT.md — infrastructure topology.
+ *   docs/PLAN/18-RISK-REGISTER.md — anything at all.
  *
  * `P0-19`'s Definition of Done restates it as a gate.
  *
@@ -37,9 +37,9 @@ const BUILD = resolve(here, "../build");
 const REPO = resolve(here, "../..");
 
 const FORBIDDEN_SOURCES = [
-  "SECURITY/02-ATTACK-SURFACE-AND-SCENARIOS.md",
-  "PLAN/14-DEPLOYMENT.md",
-  "PLAN/18-RISK-REGISTER.md",
+  "docs/SECURITY/02-ATTACK-SURFACE-AND-SCENARIOS.md",
+  "docs/PLAN/14-DEPLOYMENT.md",
+  "docs/PLAN/18-RISK-REGISTER.md",
 ];
 
 /** Words in a run before it counts as a paste rather than a coincidence. */
@@ -54,7 +54,7 @@ const PHRASE_WORDS = 8;
 const DENY = [
   { pattern: /\b10\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/, what: "a private IP address" },
   { pattern: /\b192\.168\.\d{1,3}\.\d{1,3}\b/, what: "a private IP address" },
-  { pattern: /\bR-\d{2}\b/, what: "a PLAN/18 risk register identifier" },
+  { pattern: /\bR-\d{2}\b/, what: "a docs/PLAN/18 risk register identifier" },
   { pattern: /\bDV-\d{2}\b/, what: "a deviation identifier from TASKS/BACKLOG" },
 ];
 

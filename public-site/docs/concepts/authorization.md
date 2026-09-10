@@ -13,7 +13,7 @@ this action on this resource?**
 There are three layers to the answer. They stack rather than compete — each handles a
 case the previous one cannot, and most systems never need the third.
 
-This describes the design. See the [roadmap](https://github.com/zed378/zed-auth/blob/main/PLAN/16-IMPLEMENTATION-ROADMAP.md)
+This describes the design. See the [roadmap](https://github.com/zed378/zed-auth/blob/main/docs/PLAN/16-IMPLEMENTATION-ROADMAP.md)
 for which phase delivers each layer.
 
 ## Layer 1 — Roles

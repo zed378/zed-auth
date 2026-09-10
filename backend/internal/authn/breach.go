@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-// Breached-password rejection, per PLAN/09 § Passwords & Credentials.
+// Breached-password rejection, per docs/PLAN/09 § Passwords & Credentials.
 //
 // The composition rules in policy.go bound the search space an attacker must
 // cover. This bounds a different thing: the password that satisfies every rule

@@ -2,7 +2,7 @@
 
 // Row-level security tests (P0-08).
 //
-// These are the tests that matter most in this package. PLAN/08 Part B wants
+// These are the tests that matter most in this package. docs/PLAN/08 Part B wants
 // cross-tenant isolation to hold "even when the application layer forgets to
 // filter", so every test here deliberately issues an UNFILTERED query — no
 // WHERE org_id — and asserts the database returns only the current tenant's
@@ -202,7 +202,7 @@ func TestCannotWriteIntoAnotherTenant(t *testing.T) {
 }
 
 // Updating another tenant's row must be impossible even when its id is known —
-// this is the IDOR case from SECURITY/02 §2, where an attacker guesses or
+// this is the IDOR case from docs/SECURITY/02 §2, where an attacker guesses or
 // leaks an identifier.
 func TestCannotUpdateAnotherTenantsRowEvenWithItsID(t *testing.T) {
 	db := testDB(t)
@@ -243,7 +243,7 @@ func TestCannotUpdateAnotherTenantsRowEvenWithItsID(t *testing.T) {
 
 // A Project Grant is the one row two tenants legitimately share — the granting
 // organization manages it, the receiving one needs to see which roles it may
-// assign (PLAN/08 Part C).
+// assign (docs/PLAN/08 Part C).
 func TestProjectGrantIsVisibleToBothSidesButWritableOnlyByTheGranter(t *testing.T) {
 	db := testDB(t)
 	owner := ownerDB(t)
@@ -281,7 +281,7 @@ func TestProjectGrantIsVisibleToBothSidesButWritableOnlyByTheGranter(t *testing.
 
 	// The receiving side must not be able to create a grant naming itself as
 	// the granter — that is how an organization would widen its own delegation
-	// (PLAN/09 § Delegation abuse).
+	// (docs/PLAN/09 § Delegation abuse).
 	err := db.WithTenant(context.Background(), orgB, func(tx *Tx) error {
 		_, err := tx.Exec(context.Background(), `
 			INSERT INTO project_grants (project_id, granting_org_id, granted_org_id, granted_role_keys)

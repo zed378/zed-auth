@@ -184,7 +184,7 @@ func TestSecretResolver_MalformedReferences(t *testing.T) {
 
 // A reference is not itself a secret, but a file path discloses host layout and
 // an env var name discloses what the deployment holds. Neither belongs in a log
-// shipped off the host (SECURITY/02 §12).
+// shipped off the host (docs/SECURITY/02 §12).
 func TestSecretRef_StringDoesNotDiscloseTheReference(t *testing.T) {
 	ref := SecretRef("file:/etc/zed-auth/secrets/jwt-signing-key.pem")
 

@@ -2,7 +2,7 @@
 
 Chronological summary of changes at a coarser grain than the individual records in [`records/`](./records/). If you want to know what happened and roughly when, read this. If you want to know why it was done that way, follow the link to the record.
 
-This is the **internal** changelog. The public-facing `/changelog` on the marketing site (`PLAN/20-PUBLIC-SITE-ARCHITECTURE.md`) is a separate, user-facing artifact that never describes an unshipped capability.
+This is the **internal** changelog. The public-facing `/changelog` on the marketing site (`docs/PLAN/20-PUBLIC-SITE-ARCHITECTURE.md`) is a separate, user-facing artifact that never describes an unshipped capability.
 
 Format follows Keep a Changelog conventions, grouped by release once releases exist. Before the first release, entries are grouped by date.
 
@@ -18,18 +18,18 @@ Format follows Keep a Changelog conventions, grouped by release once releases ex
 
 **Found**
 - Two contradictions between existing plan documents, recorded as `PG-08` and `PG-09` in `TASKS/BACKLOG.md`. Neither plan document has been edited — both are flagged for the deliberate plan-change process (`AGENTS.md` rule 9).
-- Eleven plan gaps: capabilities the plan requires functionally but does not model, most of them missing tables in `PLAN/04-DATA-MODEL.md` (signing keys, MFA factors, invite and reset tokens, federated identity links, webhook endpoints, role permission keys). Each is recorded in `TASKS/BACKLOG.md` against the task it blocks.
+- Eleven plan gaps: capabilities the plan requires functionally but does not model, most of them missing tables in `docs/PLAN/04-DATA-MODEL.md` (signing keys, MFA factors, invite and reset tokens, federated identity links, webhook endpoints, role permission keys). Each is recorded in `TASKS/BACKLOG.md` against the task it blocks.
 - Eight open questions requiring a decision from the project owner — deployment target, email provider, RPO/RTO values, capacity assumptions, and others. Recorded in `TASKS/BACKLOG.md`.
 
 **Changed** — plan amendments, made deliberately at the user's instruction under `AGENTS.md` rule 9
-- `PLAN/04-DATA-MODEL.md` (158 → 295 lines): added `signing_keys`, `user_mfa_factors`, `user_recovery_codes`, `user_tokens`, `user_identities`, `webhook_endpoints`, `webhook_deliveries`; extended `roles` (permission keys), `sessions` (org scoping, revocation, and the Redis-versus-PostgreSQL authority note), `refresh_tokens` (rotation families); added retention/partitioning policy and a "what is deliberately not stored" table. ([record](./records/2026-09-08-plan-gap-remediation.md), [ADR-002](./DECISIONS.md), [ADR-003](./DECISIONS.md), [ADR-004](./DECISIONS.md))
-- `PLAN/05-API-CONTRACT.md`: SAML 2.0 corrected from Phase 2 to Phase 4, matching `PLAN/03`, `PLAN/16`, and `PLAN/17`.
-- `PLAN/18-RISK-REGISTER.md`: R-04's mitigation corrected to state that Project Grant subset validation happens **on every request**, not only at grant creation — matching `CLAUDE.md`, `AGENTS.md` rule 3, `PLAN/08` Part C, and `PLAN/19`. The weaker wording described a system where a narrowed or revoked grant would keep working.
-- `PLAN/07-BACKEND-ARCHITECTURE.md`: Redis clarified as a cache in front of PostgreSQL for sessions, not a second source of truth.
-- `UI-UX/08-PAGE-SPECIFICATIONS.md`: four screens added that the IA included but the "full inventory" omitted — Organization Overview, Organization Settings, Instance-wide policies, Instance audit log.
+- `docs/PLAN/04-DATA-MODEL.md` (158 → 295 lines): added `signing_keys`, `user_mfa_factors`, `user_recovery_codes`, `user_tokens`, `user_identities`, `webhook_endpoints`, `webhook_deliveries`; extended `roles` (permission keys), `sessions` (org scoping, revocation, and the Redis-versus-PostgreSQL authority note), `refresh_tokens` (rotation families); added retention/partitioning policy and a "what is deliberately not stored" table. ([record](./records/2026-09-08-plan-gap-remediation.md), [ADR-002](./DECISIONS.md), [ADR-003](./DECISIONS.md), [ADR-004](./DECISIONS.md))
+- `docs/PLAN/05-API-CONTRACT.md`: SAML 2.0 corrected from Phase 2 to Phase 4, matching `docs/PLAN/03`, `docs/PLAN/16`, and `docs/PLAN/17`.
+- `docs/PLAN/18-RISK-REGISTER.md`: R-04's mitigation corrected to state that Project Grant subset validation happens **on every request**, not only at grant creation — matching `CLAUDE.md`, `AGENTS.md` rule 3, `docs/PLAN/08` Part C, and `docs/PLAN/19`. The weaker wording described a system where a narrowed or revoked grant would keep working.
+- `docs/PLAN/07-BACKEND-ARCHITECTURE.md`: Redis clarified as a cache in front of PostgreSQL for sessions, not a second source of truth.
+- `docs/UI-UX/08-PAGE-SPECIFICATIONS.md`: four screens added that the IA included but the "full inventory" omitted — Organization Overview, Organization Settings, Instance-wide policies, Instance audit log.
 
 **Added** — frontend track
-- `TASKS/PHASE-F-FRONTEND-IMPLEMENTATION.md`: 53 tasks across seven tracks covering every component in `UI-UX/07`, all 21 console screens, the hosted authentication screens, the public site, and the frontend quality suite. Foundation tasks are phase-independent; every page task carries a binding gate naming the backend task that unblocks it, which enforces `PLAN/16`'s lockstep rule per screen rather than per phase. ([record](./records/2026-09-08-phase-f-frontend-track.md), [ADR-005](./DECISIONS.md))
+- `TASKS/PHASE-F-FRONTEND-IMPLEMENTATION.md`: 53 tasks across seven tracks covering every component in `docs/UI-UX/07`, all 21 console screens, the hosted authentication screens, the public site, and the frontend quality suite. Foundation tasks are phase-independent; every page task carries a binding gate naming the backend task that unblocks it, which enforces `docs/PLAN/16`'s lockstep rule per screen rather than per phase. ([record](./records/2026-09-08-phase-f-frontend-track.md), [ADR-005](./DECISIONS.md))
 - Project total: 124 → 177 tasks.
 
 **Added** — implementation begins ([record](./records/2026-09-08-P0-phase-0-foundation-first-eleven.md))
@@ -65,6 +65,32 @@ Format follows Keep a Changelog conventions, grouped by release once releases ex
 
 ---
 
+### 2026-09-10
+
+**Added** — the userinfo endpoint ([record](./records/2026-09-10-P1-08-userinfo.md), [spec](./specs/P1-08-userinfo.md))
+- `GET` and `POST /oauth/userinfo`, returning the claims the presented access token's scopes authorise and nothing else. Discovery now advertises all four endpoints a conforming client configures itself from. (`P1-08`)
+- **The scope mapping is tested for absence**, with the exact key set asserted rather than a subset. A handler that returned every claim regardless of scope passes every "is `email` there when `email` was granted" test anybody will write; only an exact comparison catches it. `userinfo.Subject` deliberately cannot hold `Status` or `MFAEnabled`, so what no scope authorises is not in the struct to leak.
+- **Revoking the session invalidates the token immediately.** `docs/PLAN/04` argues against looking access tokens up on the hottest path; this is neither storing one nor the hottest path, and the liveness test is a predicate in the user read that was happening anyway. Without it a user who logs out keeps being described for the token's remaining ten minutes.
+- Every unusable token — expired, forged, wrong audience, revoked session, deactivated user, `client_credentials` — gets the identical `401`, compared byte for byte across eight failure classes. `insufficient_scope` is the deliberate exception and is checked last, so a forged token is never told its scopes were the only problem.
+- **`signing.Verifier.Verify` now takes a mandatory `wantType`**, rather than a strict method beside a permissive one — a pair where the shorter name is the unsafe one is a pair where the unsafe one gets called. The verifier had no caller at all before this: the service could sign tokens and had never verified one of its own.
+- `PG-17` (no CORS policy exists anywhere in the plan, and two Phase 1 consumers need one) and `PG-18` (`email_verified` has no column, so the claim is omitted rather than asserted false).
+
+**Found**
+- **The `sid` claim had never been exercised by anything.** The token endpoint's test fixture pinned `SessionID: ""`, so no issued token ever carried one — and `/oauth/userinfo` looks the session up by it. The production path was right; nothing tested it, and a regression dropping `SessionID` from either grant would have broken no test while making every real token fail at userinfo. The fixture now creates a real session, which also exercises the refresh grant's liveness check for the first time. A fixture that pins a field to its zero value quietly removes that field from every test built on it. (`P1-08`)
+- **A test that looked sharper than it was.** The end-to-end "an id_token is refused as a bearer credential" test kept passing with the `typ` check removed, because an id_token's `aud` is the client and the audience check caught it. Two independent controls, which is the design working — but the test now says so, names the test that proves the `typ` half sharply, and asserts the two distinguishing properties are still true of the token. Correcting the claim rather than weakening the design so one test could carry it. (`P1-08`)
+
+**Changed** — the AI-execution folder structure ([record](./records/2026-09-10-reference-docs-under-docs.md))
+- `PLAN/`, `UI-UX/` and `SECURITY/` moved to `docs/PLAN/`, `docs/UI-UX/` and `docs/SECURITY/`, matching the structure the owner uses in `zed378/wedding-saas`. New `docs/README.md`. `TASKS/` and `MEMORY/` did not move — they were already identical in shape, which is the half of the structure that actually governs how an agent executes.
+- 226 files rewritten. The three folders had no outbound relative links at all, so nothing inside them changed; every reference outside was prose in a comment or a markdown link, with the single exception of `.github/CODEOWNERS`.
+- The ten-folder topical taxonomy (`ARCHITECTURE/`, `API/`, `DATABASE/`, …) was deliberately **not** copied: this plan keeps one document per topic where that one keeps a folder per topic, and matching it would mean authoring new content rather than moving folders. `docs/README.md` says so.
+
+**Found**
+- **`go vet ./...` does not compile files behind a build tag**, so it passed while `-tags=integration` did not — a stale `signing.Verifier.Verify` call site in the token package's integration test. Any exported-signature change in this repository needs `go vet -tags=integration ./...`. (restructure, `P1-08`)
+- A public changelog entry linked to the roadmap on GitHub by absolute URL; the move made it a 404 and the mechanical rewrite fixed it. Nothing in CI checks external links.
+- **`BL-04`**: the generated public API reference cites internal plan documents by bare path, from `description` fields in `openapi.yaml`. Not a leak — the repository is public — but a bare path with no link tells an integrator nothing.
+
+---
+
 ## Phase 1 — MVP: Core Authentication and SSO
 
 **Added** — the hosted login page, and a human can log in ([record](./records/2026-09-09-P1-12-login-page.md), [spec](./specs/P1-12-login-page.md))
@@ -75,7 +101,7 @@ Format follows Keep a Changelog conventions, grouped by release once releases ex
 - CSRF by double-submit with the `__Host-` prefix and `SameSite=Lax`. The prefix is the control that matters: without it an attacker holding any subdomain can set the cookie and then knows its value, which is the standard break of the naive pattern.
 - **No query parameter is rendered on the page at all**, so the reflected-XSS abuse case is answered by there being no code path rather than by careful escaping.
 - `P1-06` gained an exported `Peek`/`Resume` seam, and its store a `PeekPending` alongside `LoadPending`, so only a *successful* login spends the pending request.
-- `PG-16`: organization branding is in `PLAN/01`, bounded by `UI-UX/05`, given a screen by `UI-UX/08` and already implemented in the console — with no column, key or documented shape to read it from. Closed with no schema change by specifying `settings.branding`. Nothing writes it until `P2-14`, so every organization renders unbranded today.
+- `PG-16`: organization branding is in `docs/PLAN/01`, bounded by `docs/UI-UX/05`, given a screen by `docs/UI-UX/08` and already implemented in the console — with no column, key or documented shape to read it from. Closed with no schema change by specifying `settings.branding`. Nothing writes it until `P2-14`, so every organization renders unbranded today.
 
 **Found**
 - **Consuming the pending request on every submission would have given every account exactly one attempt at its password** — mistype it once and the flow is destroyed, with no way back to the application, because the whole point of the opaque reference is that the destination is not in the URL. Split into a free read and a consuming success. (`P1-12`)
@@ -106,7 +132,7 @@ Format follows Keep a Changelog conventions, grouped by release once releases ex
 **Added** — the authorization endpoint ([record](./records/2026-09-09-P1-06-authorize.md), [spec](./specs/P1-06-authorize.md))
 - `GET /oauth/authorize`: two-phase parameter validation, PKCE required for every client type, silent SSO from the session cookie, `prompt` handling, and single-use codes in Redis with a 30-second TTL. The first task that connects the previous three — `P1-02`, `P1-05` and `P1-11` were each a package with no caller. (`P1-06`)
 - **The ordering of validation is the security property.** `client_id` and `redirect_uri` are settled first, and a failure there renders a page with no redirect at all; everything else is reported by redirecting to the now-validated URI. Reporting a phase-1 error by redirect *is* the open-redirect vulnerability, delivered by the code written to prevent it — so `renderError` and `redirectError` are separate methods rather than one function with a boolean, because the boolean is what gets passed wrongly.
-- PKCE for confidential clients too, which `PLAN/05` demands and OAuth 2.1's baseline does not: a client secret protects the token request, not the code in transit.
+- PKCE for confidential clients too, which `docs/PLAN/05` demands and OAuth 2.1's baseline does not: a client secret protects the token request, not the code in transit.
 - `state` is required and echoed, never checked — it is opaque to us, and mismatch is detected by the consumer. Requiring presence is real hardening; claiming to verify it would misattribute the protection.
 - Discovery now advertises `authorization_endpoint` and `code_challenge_methods_supported`, because both became true. `token_endpoint` is still absent, which is also true.
 
@@ -114,7 +140,7 @@ Format follows Keep a Changelog conventions, grouped by release once releases ex
 - **One deliberate exception to ADR-013.** The generated router binds every parameter before the handler runs, which would reject a missing `state` before `redirect_uri` was validated — the wrong channel — and would silently collapse duplicated parameters, which is the parameter-pollution bypass the handler refuses. The operation is excluded from code generation and registered by hand; it stays in `openapi.yaml`, so it is still documented, still in the public API reference, and still checked by `openapi-shipped-paths.py`. A deviation from the mechanism, not the goal. (`P1-06`)
 
 **Found**
-- **A sequential test cannot see a lost race, demonstrated.** `PLAN/04` requires that "two concurrent redemptions of one code yield exactly one success". Replacing the atomic `GETDEL` with `GET`-then-`DEL` makes 32 concurrent racers *all* succeed — while the single-use test stays green. The concurrency test is the only thing standing between that and duplicate code redemption in production. (`P1-06`)
+- **A sequential test cannot see a lost race, demonstrated.** `docs/PLAN/04` requires that "two concurrent redemptions of one code yield exactly one success". Replacing the atomic `GETDEL` with `GET`-then-`DEL` makes 32 concurrent racers *all* succeed — while the single-use test stays green. The concurrency test is the only thing standing between that and duplicate code redemption in production. (`P1-06`)
 - **The capability audit declared single sign-on shipped, and it was wrong.** `P0-19`'s check mapped each landing-page capability to one roadmap task, so `P1-06` going DONE made it demand the card stop saying "Phase 1" — while a consumer still could not complete a login, having nowhere to exchange a code and no page to log in on. Marking it available would have been the exact false claim the check exists to prevent, produced by the check itself. A capability now lists every task it needs, and the audit reports which are outstanding. (`P1-06`)
 - `internal/oauth/client` fell below its coverage floor when `ByClientID` arrived untested. Caught rather than noticed, on the one method that resolves a client before any tenant scope exists. (`P1-06`)
 
@@ -122,7 +148,7 @@ Format follows Keep a Changelog conventions, grouped by release once releases ex
 - `internal/session`: the browser session single sign-on runs on. A 256-bit cookie token, a PostgreSQL record, a Redis lookup cache, an hourly sweep, and revocation that takes effect on the next request. Unblocks `P1-06`, `P1-10` and `P1-12`. (`P1-11`)
 - The cookie is `__Host-zedauth_session`. The prefix makes the **browser** enforce `Secure`, `Path=/` and the absence of `Domain`, rather than us asserting them — including against a future change of ours. `SameSite=Lax` rather than `Strict` is a requirement, not a compromise: `Strict` withholds the cookie on the top-level navigation silent SSO depends on.
 - **Revocation is immediate, and that took work.** A cache in front of an authoritative store normally defers it to a TTL. Commit first then invalidate — the other order lets a concurrent reader repopulate the pre-commit state — and a tombstone plus a Lua-guarded populate closes the read-then-write-back race the ordering still leaves. The TTL remains only as a backstop for a failed delete, with a counter and an alert, because the guarantee is only as good as noticing when it fails.
-- **`PG-14`: the session cookie must not carry the row's primary key.** `PLAN/04` describes it doing so, and `PLAN/05` routes `/v1/organizations/{org_id}/users/{user_id}/sessions` — an administrator listing another user's sessions would receive, per row, the exact string that authenticates as that user. `refresh_tokens.session_id` would carry one too, and so would any revocation audit event. Closed by an additive `sessions.token_hash`; the cookie carries a token, the database stores its hash, and `id` becomes a safe identifier.
+- **`PG-14`: the session cookie must not carry the row's primary key.** `docs/PLAN/04` describes it doing so, and `docs/PLAN/05` routes `/v1/organizations/{org_id}/users/{user_id}/sessions` — an administrator listing another user's sessions would receive, per row, the exact string that authenticates as that user. `refresh_tokens.session_id` would carry one too, and so would any revocation audit event. Closed by an additive `sessions.token_hash`; the cookie carries a token, the database stores its hash, and `id` becomes a safe identifier.
 - Idle timeout and absolute lifetime both apply, shorter wins, both clamped against organization configuration. `last_seen_at` is written at most once a minute — a write per authenticated request would put the database on the silent-SSO hot path.
 
 **Found**
@@ -152,7 +178,7 @@ Format follows Keep a Changelog conventions, grouped by release once releases ex
 - A breached-password check over a k-anonymity API: five hex characters leave the process and nothing else. The outbound-request test asserts the password, its hash suffix and the full hash are absent from the URL, the headers and the body — and a second test proves that assertion can actually fail, against a synthetic leaky request.
 - **An 8-character floor no configuration can cross.** Without one, `"min_length": 1` is a valid policy and the control an administrator was given is the control they can silently remove. Every clamp is reported and logged, because a silent correction leaves the gap between the configured and the enforced policy discoverable only by experiment.
 - Length counted in **runes over NFC**, not bytes: twelve characters otherwise means twelve in English and four in Japanese. Normalization touches only the count, never the string that reaches the hasher.
-- `users.password_changed_at`, closing **`PG-13`** — `max_age_days` has been in the specified policy since `PLAN/08` with nothing in the schema to evaluate it against. NULL means *not* expired; the alternative turns deploying the migration into a mass lockout.
+- `users.password_changed_at`, closing **`PG-13`** — `max_age_days` has been in the specified policy since `docs/PLAN/08` with nothing in the schema to evaluate it against. NULL means *not* expired; the alternative turns deploying the migration into a mass lockout.
 - Two audit event types, two metrics, and two alert rules (17 total, promtool-validated).
 
 **Decided**
@@ -165,7 +191,7 @@ Format follows Keep a Changelog conventions, grouped by release once releases ex
 **Added** — discovery document and JWKS endpoint ([record](./records/2026-09-09-P1-04-discovery-jwks.md))
 - `GET /.well-known/openid-configuration` and `GET /.well-known/jwks.json`, both declared in the OpenAPI spec and served through the generated strict router rather than registered beside it — so ADR-013's guarantee that served paths equal documented paths covers the two endpoints whose entire purpose is discoverability. (`P1-04`)
 - **The document is derived, never written out.** `internal/oidc.Capabilities` is a struct of facts about running code; an endpoint that does not exist leaves its field empty and is absent from the JSON. Advertising `/oauth/token` before `P1-07` builds it is not a discipline anyone has to remember — it is not expressible.
-- `Validate()` runs at startup, so a bad issuer is a refusal to boot rather than a document that lies to every client that reads it. It rejects a trailing-slash issuer (clients compare `iss` byte for byte) and refuses `implicit` or `password` in the grant list, which `PLAN/05` rules out permanently.
+- `Validate()` runs at startup, so a bad issuer is a refusal to boot rather than a document that lies to every client that reads it. It rejects a trailing-slash issuer (clients compare `iss` byte for byte) and refuses `implicit` or `password` in the grant list, which `docs/PLAN/05` rules out permanently.
 - `plain` is absent from `code_challenge_methods_supported`, and PKCE is not advertised at all until there is an authorization endpoint to apply it to. Cache lifetimes: an hour for discovery, five minutes for the JWKS — matched to the service's own key-cache TTL so the stale window is bounded by the same number on both sides.
 - **Two DoD items are deliberately unticked.** A client library cannot finish configuring without an authorization and a token endpoint, and nothing emits an `iss` claim yet; both become true with `P1-06`/`P1-07`. Ticking them now would be precisely the false claim this task exists to prevent. The verifiable half is tested: a client follows `jwks_uri` out of the document and reaches the current key.
 - `AUTH_JWT_SIGNING_KEY_REF` is now **refused** at startup rather than ignored. Since `P1-03`, keys come from the `signing_keys` table; a deployment still setting it holds a false belief about where its key comes from, and that belief surfaces during an incident.
@@ -191,14 +217,14 @@ Format follows Keep a Changelog conventions, grouped by release once releases ex
 - **Parameters measured, not copied**: 64 MiB / t=3 / p=4, giving 90ms per hash on the staging VM and 63ms on a development laptop. The binding constraint is concurrency rather than latency — memory cost multiplies by simultaneous logins, and the VM runs five other things. On four cores that is roughly 44 logins/second before latency climbs, which is a number `P1-13`'s rate limiting should sit below.
 - **Enumeration defence**: the not-found path performs a real Argon2 computation rather than returning early, because response time would otherwise say which addresses have accounts. Measured ratio 0.88; verified by short-circuiting it and watching the test fail at 0.00. A real hash rather than a sleep — a sleep guesses a duration, gets it wrong when parameters change, and does not consume the CPU that makes timings match under load.
 - Rehash-on-login, and a hash **stronger** than current is deliberately never flagged — otherwise a deploy that lowers parameters silently weakens every password that logs in afterwards, one user at a time, invisible in any diff.
-- No bcrypt. `PLAN/07` names it a fallback "if compatibility is needed"; there is no legacy system, and adding it now means maintaining a path that accepts a weaker algorithm for a migration that may never happen.
+- No bcrypt. `docs/PLAN/07` names it a fallback "if compatibility is needed"; there is no legacy system, and adding it now means maintaining a path that accepts a weaker algorithm for a migration that may never happen.
 - **gosec found a real gap, not a false positive.** `G115` flagged an unbounded `int -> uint32` conversion of salt and key lengths read from a stored hash — and the actual problem was that nothing bounded those lengths at all. Salt is now 8–64 bytes and key 16–64, which closes the overflow concern and an unbounded-allocation path together, with its own test across both boundaries. The first instinct on a lint finding is to silence it; reading it as "what would have to be true for this to be safe?" produced a bound the code was missing.
 - 95.9% coverage. **`internal/authn` is the first package `P0-15`'s coverage floors apply to** — they had reported "not built yet" since they were written and activated on their own when the package appeared, which is the behaviour they were designed for, observed rather than assumed.
 
 ---
 
 **Operational** — a verified restore ([record](./records/2026-09-08-P0-20-backup-verification.md))
-- **A staging backup was restored and verified against the source**: 19 tables, every row count matching, into a throwaway database that was dropped afterwards. `PLAN/15` § Restore Testing — "a backup that's never been tested isn't a backup you can rely on". (`P0-20`)
+- **A staging backup was restored and verified against the source**: 19 tables, every row count matching, into a throwaway database that was dropped afterwards. `docs/PLAN/15` § Restore Testing — "a backup that's never been tested isn't a backup you can rely on". (`P0-20`)
 - Backups are now automated: `zed-auth-backup.timer`, daily at 03:15 UTC, `Persistent=true` so a VM that was off overnight backs up at boot rather than skipping the day. A backup taken by hand is taken until the week somebody is busy.
 
 **Fixed**
@@ -210,7 +236,7 @@ Format follows Keep a Changelog conventions, grouped by release once releases ex
 
 **Added** — the test harness ([record](./records/2026-09-08-P0-15-test-harness.md))
 - `internal/testsupport`: PostgreSQL and Redis started by the tests themselves through testcontainers, the embedded migrations applied, both database roles created. The integration suite now runs on a machine with nothing but Docker — no `make up`, no migrations by hand, no environment variables. (`P0-15`)
-- `backend/tests/security/`: the abuse-case tests from `PLAN/11` § Security Testing, kept apart from feature tests because they are a checklist as much as a suite. The package comment carries a coverage map naming the four scenarios covered and the six that cannot be tested until the feature exists — an unwritten test nobody knows is unwritten is worse than a failing one. (`P0-15`)
+- `backend/tests/security/`: the abuse-case tests from `docs/PLAN/11` § Security Testing, kept apart from feature tests because they are a checklist as much as a suite. The package comment carries a coverage map naming the four scenarios covered and the six that cannot be tested until the feature exists — an unwritten test nobody knows is unwritten is worse than a failing one. (`P0-15`)
 - A Playwright E2E layer against the console's **production build**, not the dev server. It is the only layer that applies a real stylesheet, which is where the console's dead design tokens would have been caught — every jsdom test passed while `text-body` generated no CSS at all. (`P0-15`)
 - `scripts/check-coverage.sh`: floors on `internal/authn`, `internal/authz` and `internal/oidc` rather than a repo-wide average, which is satisfied by testing whatever is easiest — and the easiest code to test is rarely the code where a bug matters. All three are pending; each floor starts applying the moment its package appears. (`P0-15`)
 - A test-data factory, and `-shuffle=on` everywhere so an accidental ordering dependency fails rather than lurking as an unreproducible flake.
@@ -227,23 +253,23 @@ Format follows Keep a Changelog conventions, grouped by release once releases ex
 **Added** — site content and the capability audit ([record](./records/2026-09-08-P0-19-site-content.md))
 - `public-site/CLAIMS.md`: every claim on every page, what it maps to, and whether it is shipped, planned-and-labelled, positioning, or a principle. The document `P0-19`'s Definition of Done asks for. (`P0-19`)
 - `check-claims.mjs` — every capability on the landing page carries a phase label, and no label contradicts the roadmap board. The second half matters more than it looks: a card labelled "Phase 4" whose task is now DONE is exactly as inaccurate as an unlabelled one, and it is the version nobody notices, because the label is there. (`P0-19`)
-- `check-no-internal-leak.mjs` — scans the built pages for **verbatim eight-word phrases** from the three documents `PLAN/20` forbids publishing. Phrases rather than keywords, because a keyword check on a site that legitimately discusses authorization and tokens cries wolf, and this project watched a PEM scanner get flagged for `node_modules` days ago. An eight-word run in both places is a paste, not a coincidence. (`P0-19`)
-- Both audits verified by breaking them: a sentence from `SECURITY/02` pasted into `/about`, a private IP on `/contact`, and a capability card stripped of its label. Each caught and located.
+- `check-no-internal-leak.mjs` — scans the built pages for **verbatim eight-word phrases** from the three documents `docs/PLAN/20` forbids publishing. Phrases rather than keywords, because a keyword check on a site that legitimately discusses authorization and tokens cries wolf, and this project watched a PEM scanner get flagged for `node_modules` days ago. An eight-word run in both places is a paste, not a coincidence. (`P0-19`)
+- Both audits verified by breaking them: a sentence from `docs/SECURITY/02` pasted into `/about`, a private IP on `/contact`, and a capability card stripped of its label. Each caught and located.
 
 **Fixed**
-- The landing page had three different labels for its one primary action. `UI-UX/20` § Interaction asks for exactly one primary CTA used consistently, and its landing spec says the closing section restates the primary action rather than introducing a new one. Three reasonable-looking labels is the five-competing-CTAs failure in slower motion. (`P0-19`)
-- Added the primary CTA to the navigation, which `UI-UX/20` § Above-the-fold lists alongside the logo and the Docs and About links. (`P0-19`)
+- The landing page had three different labels for its one primary action. `docs/UI-UX/20` § Interaction asks for exactly one primary CTA used consistently, and its landing spec says the closing section restates the primary action rather than introducing a new one. Three reasonable-looking labels is the five-competing-CTAs failure in slower motion. (`P0-19`)
+- Added the primary CTA to the navigation, which `docs/UI-UX/20` § Above-the-fold lists alongside the logo and the Docs and About links. (`P0-19`)
 
 **Added** — the public site ([record](./records/2026-09-08-P0-18-public-site-skeleton.md))
-- The full route structure from `PLAN/20`: landing, about, contact, docs (quickstart, concepts, guides, console, API reference) and a changelog. 34 pages. `/pricing` and `/security` are deliberately absent — the first because no commercial tier exists, the second because `PLAN/20` places the trust page alongside Phase 5. (`P0-18`)
+- The full route structure from `docs/PLAN/20`: landing, about, contact, docs (quickstart, concepts, guides, console, API reference) and a changelog. 34 pages. `/pricing` and `/security` are deliberately absent — the first because no commercial tier exists, the second because `docs/PLAN/20` places the trust page alongside Phase 5. (`P0-18`)
 - **The API reference is generated** from `openapi/openapi.yaml`, the same file that generates the backend's server interface and the console's client — three consumers, one source, none able to disagree. This closes `P0-16`, whose last open step was exactly this. (`P0-18`)
 - Docs versioning live from the first commit, with a `1.0` snapshot labelled *placeholder*: it proves the pipeline before there is a release to version. Retrofitting versioning once v1 docs exist means reorganising every file at the moment there is most content to break. (`P0-18`)
-- Local search over 123 documents. `UI-UX/20` wants fuzzy matching because "a developer often doesn't know the exact terminology this project uses yet".
-- Three scripts turn `PLAN/20`'s separation rules into checks: the nine shared colour values still match the console's, nothing here imports from `console/`, and every token meets AA in both themes. All three erode by convenience rather than by decision, so none is left to memory.
-- `deploy/public-site/` and a CI job with its own install and cache — `PLAN/20`: "a docs typo fix shouldn't require a backend deploy pipeline".
+- Local search over 123 documents. `docs/UI-UX/20` wants fuzzy matching because "a developer often doesn't know the exact terminology this project uses yet".
+- Three scripts turn `docs/PLAN/20`'s separation rules into checks: the nine shared colour values still match the console's, nothing here imports from `console/`, and every token meets AA in both themes. All three erode by convenience rather than by decision, so none is left to memory.
+- `deploy/public-site/` and a CI job with its own install and cache — `docs/PLAN/20`: "a docs typo fix shouldn't require a backend deploy pipeline".
 
 **Decided**
-- [ADR-014](./DECISIONS.md): one Docusaurus project rather than a marketing SSG plus a separate docs framework. `PLAN/20` implies two; `UI-UX/20` § Cross-Page Requirements requires a shared header and footer so Landing → Docs "never feels like a different product", and two projects make that a duplicated component. The deciding argument was that `PLAN/20` requires docs versioning and the obvious marketing-side alternative has none.
+- [ADR-014](./DECISIONS.md): one Docusaurus project rather than a marketing SSG plus a separate docs framework. `docs/PLAN/20` implies two; `docs/UI-UX/20` § Cross-Page Requirements requires a shared header and footer so Landing → Docs "never feels like a different product", and two projects make that a duplicated component. The deciding argument was that `docs/PLAN/20` requires docs versioning and the obvious marketing-side alternative has none.
 
 **Fixed**
 - **A dark mode that would have shipped unreadable.** Carrying the console's palette to a dark surface measures accent 2.4:1, danger 2.7:1, warning 3.3:1, success 2.8:1 — all below AA — and the border 1.8:1, below the 3:1 for a component boundary. It would have looked deliberate. Each token was re-tuned: same meaning, different value for a different surface. None of it was visible by looking; it came from computing the ratios. (`P0-18`)
@@ -251,9 +277,9 @@ Format follows Keep a Changelog conventions, grouped by release once releases ex
 - **A security check that cried wolf.** `scripts/check.sh` reported "a PEM private key block is committed" for three files inside `public-site/node_modules` — gitignored, committed by no definition. It walked the working tree while its message said "committed"; it now scans `git ls-files` like the credential check beside it always did. A check that fires the first time someone installs dependencies is a check that gets commented out.
 
 **Added** — the console shell ([record](./records/2026-09-08-P0-17-console-skeleton.md))
-- React 19 + TypeScript on Vite 8 and Tailwind 4: every design token `UI-UX/05` names, routing, the navigation tree from `PLAN/06`, an error boundary, TanStack Query, and the typed API client generated from `openapi/openapi.yaml` — which closes `P0-16` step 3. (`P0-17`)
+- React 19 + TypeScript on Vite 8 and Tailwind 4: every design token `docs/UI-UX/05` names, routing, the navigation tree from `docs/PLAN/06`, an error boundary, TanStack Query, and the typed API client generated from `openapi/openapi.yaml` — which closes `P0-16` step 3. (`P0-17`)
 - Three local ESLint rules make the token discipline a build failure rather than a convention: a raw hex, a Tailwind arbitrary value, or an inline style all fail lint. The first run caught a real bug — `w-[--spacing-nav]` referenced a token that did not exist, so the navigation would have had no width. (`P0-17`)
-- `color-danger` is un-overridable structurally: the brandable set is a union of literal token names, backed by a runtime filter because branding arrives as JSON where the type system has ended. A custom accent is contrast-checked against its surface before it is applied, which `UI-UX/13` requires at the moment an org admin sets it. (`P0-17`)
+- `color-danger` is un-overridable structurally: the brandable set is a union of literal token names, backed by a runtime filter because branding arrives as JSON where the type system has ended. A custom accent is contrast-checked against its surface before it is applied, which `docs/UI-UX/13` requires at the moment an org admin sets it. (`P0-17`)
 - Accessibility in the shell rather than on a list: landmarks, a skip link whose target is genuinely focusable, 44px targets at compact density, a focus ring using `color-accent`, and a `prefers-reduced-motion` fallback. Verified with real `Tab` presses in a browser, plus an axe pass on the WCAG 2.1 A/AA rule set. (`P0-17`)
 - `deploy/console/` — nginx config and compose file for the staging preview at `console.zedth.my.id`, bound to `127.0.0.1:10920` so only `cloudflared` reaches it.
 - Console lint, typecheck, tests and generated-client freshness are gates in `scripts/check.sh` and CI. 25 gates became 29.
@@ -265,9 +291,9 @@ Format follows Keep a Changelog conventions, grouped by release once releases ex
 - Those headers then silently vanished: in nginx `add_header` does not accumulate across contexts, so a `location` block with any header of its own discards every server-level one. Found with `curl -I` against the deployed site; nothing in the config looked wrong. (`P0-17`)
 
 **Added** — the API contract ([record](./records/2026-09-08-P0-16-api-contract.md))
-- `openapi/openapi.yaml` is the single contract artifact, and it **generates the code rather than describing it** ([ADR-013](./DECISIONS.md)). Handlers implement a generated interface, so a signature that stops matching the contract fails to compile. `PLAN/05` accepts a spec that CI merely validates; that is now the backstop, not the mechanism. (`P0-16`)
+- `openapi/openapi.yaml` is the single contract artifact, and it **generates the code rather than describing it** ([ADR-013](./DECISIONS.md)). Handlers implement a generated interface, so a signature that stops matching the contract fails to compile. `docs/PLAN/05` accepts a spec that CI merely validates; that is now the backstop, not the mechanism. (`P0-16`)
 - The shared component schemas — error envelope, pagination token, common parameters — are deliberately ahead of the endpoints. They are contract infrastructure, and an error format that changes after twenty endpoints exist is a breaking change to all twenty. (`P0-16`)
-- `scripts/openapi-shipped-paths.py`: the spec documents only endpoints that exist. `/docs/api-reference` renders from it, so a documented endpoint is a public claim it exists (`UI-UX/21` governance, `CLAUDE.md`). Adding one means adding it to `SHIPPED` in the same commit. (`P0-16`)
+- `scripts/openapi-shipped-paths.py`: the spec documents only endpoints that exist. `/docs/api-reference` renders from it, so a documented endpoint is a public claim it exists (`docs/UI-UX/21` governance, `CLAUDE.md`). Adding one means adding it to `SHIPPED` in the same commit. (`P0-16`)
 - Three new gates in CI and `scripts/check.sh` — spec validity, generated-code freshness, and the shipped-endpoint rule. 22 gates became 25. Each was verified by deliberately breaking it.
 - **ADR-012**, the audit write-semantics decision, written at last. Four code comments and a change record referenced it and it had never been written into `DECISIONS.md`, which `P0-12`'s Definition of Done required. A reference to a decision that does not exist reads as though the reasoning was recorded somewhere.
 
@@ -290,7 +316,7 @@ Format follows Keep a Changelog conventions, grouped by release once releases ex
 - The audit writer. Events commit inside the transaction of the action that caused them, so a permission change and its record succeed or fail together. Redaction happens in the writer rather than at call sites, because the table is append-only and a credential written there cannot be deleted by anyone. (`P0-12`)
 - Partition maintenance at startup and daily, keeping three months of runway. Without it every `INSERT` into `events` — and therefore every security-sensitive action — would have failed at a month boundary, with no deploy to correlate against. This was flagged as a time bomb two records ago. (`P0-12`)
 - Partition creation via `SECURITY DEFINER` with a pinned `search_path`, rather than granting the runtime role `CREATE` on the schema. (`P0-12`)
-- Instance-level events: `events.org_id` is now nullable, so the cross-tenant database path can be audited as `PLAN/08` Part B requires. (`P0-12`)
+- Instance-level events: `events.org_id` is now nullable, so the cross-tenant database path can be audited as `docs/PLAN/08` Part B requires. (`P0-12`)
 - `scripts/check.sh` — 22 gates, the same ones CI runs, before a push rather than after.
 
 **Fixed**
@@ -298,16 +324,16 @@ Format follows Keep a Changelog conventions, grouped by release once releases ex
 
 **Added** — observability ([record](./records/2026-09-08-P0-11-metrics-and-tracing.md))
 - Sixteen Prometheus instruments on a listener separate from the public one, so "not reachable from the public ingress" is a property of the socket rather than an ingress rule someone has to remember. The endpoint is unauthenticated and discloses request rates, error rates and login outcomes, so an all-interfaces bind is refused in production and compose publishes it to loopback. (`P0-11`)
-- Histogram buckets sit exactly on `PLAN/12`'s latency targets, so a quantile query can answer "did we meet it" without interpolating across a wide bucket. Tested. (`P0-11`)
+- Histogram buckets sit exactly on `docs/PLAN/12`'s latency targets, so a quantile query can answer "did we meet it" without interpolating across a wide bucket. Tested. (`P0-11`)
 - Fifteen alert rules, promtool-validated, each carrying the reason it exists. Rules that must catch "stopped happening" use `absent()` rather than `== 0`, because a counter with no observations produces no time series and a zero comparison never fires when the thing is down. (`P0-11`)
 - OpenTelemetry tracing with W3C propagation, off unless an OTLP endpoint is configured. Handler and query spans arrive with the endpoints in Phase 1. (`P0-11`)
-- Both `P0-12` follow-ups closed: the unsupervised partition-maintenance goroutine is now visible as a gauge with two alerts, and cross-tenant database access is counted as `PLAN/08` Part B asks.
+- Both `P0-12` follow-ups closed: the unsupervised partition-maintenance goroutine is now visible as a gauge with two alerts, and cross-tenant database access is counted as `docs/PLAN/08` Part B asks.
 
 **Status**
 - Phase 0: 21 of 21 tasks done. `P0-20` (staging) is the remaining exit-checklist item, largely satisfied by the VM deployment. `P0-16` is complete — its last open step, the public site's generated API reference, landed with `P0-18` — step 3 (the console's typed client) landed with `P0-17`; step 4, the public site's API reference, waits on `P0-18`.
 - Open deviations: DV-01 (single-VM production vs. Multi-AZ), DV-02 (`manager_roles` has no tenant policy until `P2-05` provides a user context).
 - `P0-20` is partially done: the restore is verified and automated, and TLS-only staging is live. Continuous deployment (`OQ-11`) and offsite backups (`OQ-12`) are the owner's decisions. Two further DoD items — staging keys distinct from production, and a production promotion gate — are vacuously true because no production environment exists, and are deliberately left unticked so that they are checked when one does.
-- `OQ-10` is open: `P0-18`'s Definition of Done asks for Lighthouse scores against a bar `UI-UX/20` never sets. Set the number or drop the item — inventing a threshold to satisfy a checkbox is the same failure as inventing a capability to fill a section.
+- `OQ-10` is open: `P0-18`'s Definition of Done asks for Lighthouse scores against a bar `docs/UI-UX/20` never sets. Set the number or drop the item — inventing a threshold to satisfy a checkbox is the same failure as inventing a capability to fill a section.
 - New plan gap `PG-12`: `color-border` serves both input borders (WCAG 1.4.11 wants 3:1) and table dividers (which want a hairline). One token cannot do both well.
 - The OIDC provider library remains undecided by design: confirming JWKS rotation with overlap and refresh-token reuse detection requires building against it, so it moves to `P1-03`.
 - Open questions now number nine; `OQ-09` (audit log retention period and the erasure approach) is new and should be confirmed before `P0-07` writes the partitioning migration.

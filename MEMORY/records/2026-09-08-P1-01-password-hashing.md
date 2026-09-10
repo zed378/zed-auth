@@ -74,7 +74,7 @@ Measured ratio 0.88 — nonexistent user against real user, well inside the 0.5�
 
 **Only cost-bearing parameters count as "weaker".** Salt and key length are not cost; treating a shorter salt as weaker would rehash the whole table for no gain.
 
-**No bcrypt.** `PLAN/07` names it a fallback "if compatibility is needed" and `P1-01` step 5 says not to add it speculatively. There is no legacy system to migrate from, and adding it now means maintaining a verification path that accepts a weaker algorithm for a migration that may never happen.
+**No bcrypt.** `docs/PLAN/07` names it a fallback "if compatibility is needed" and `P1-01` step 5 says not to add it speculatively. There is no legacy system to migrate from, and adding it now means maintaining a verification path that accepts a weaker algorithm for a migration that may never happen.
 
 **Zero parameters are rejected.** `argon2.IDKey` panics on `m=0`. A stored row is not trusted input just because it is ours — it can be corrupt, truncated by a bad migration, or written by something else, and a parser that panics on it is a denial of service reachable from whatever writes that column.
 

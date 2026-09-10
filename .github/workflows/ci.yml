@@ -1,6 +1,6 @@
 name: CI
 
-# CI is itself an attack surface (SECURITY/02-ATTACK-SURFACE-AND-SCENARIOS.md
+# CI is itself an attack surface (docs/SECURITY/02-ATTACK-SURFACE-AND-SCENARIOS.md
 # §18). Three rules follow from that and are applied throughout this file:
 #
 #   1. Every third-party action is pinned by commit SHA, not by tag. A tag is
@@ -76,7 +76,7 @@ jobs:
       - name: Verify dependency checksums
         working-directory: backend
         # Detects a dependency whose content changed without go.sum changing —
-        # the shape a compromised module takes (SECURITY/02 §15).
+        # the shape a compromised module takes (docs/SECURITY/02 §15).
         run: go mod verify
 
       - name: Coverage floors
@@ -224,7 +224,7 @@ jobs:
         # unisolated: queries against it work, tests pass, and it returns every
         # organization's rows. That failure is invisible until it is a breach,
         # so it is checked mechanically rather than remembered at review time
-        # (PLAN/08 Part B, P0-08).
+        # (docs/PLAN/08 Part B, P0-08).
         env:
           PGPASSWORD: ci_only_password
         run: |
@@ -303,7 +303,7 @@ jobs:
 
       - name: The spec claims no unshipped endpoint
         # /docs/api-reference renders from this file, so documenting an
-        # endpoint publishes a claim that it exists (UI-UX/21 governance rule,
+        # endpoint publishes a claim that it exists (docs/UI-UX/21 governance rule,
         # CLAUDE.md).
         run: python3 scripts/openapi-shipped-paths.py
 
@@ -330,8 +330,8 @@ jobs:
         run: npm ci
 
       - name: Lint
-        # Includes the token-discipline rules (UI-UX/05 § Governance) and
-        # jsx-a11y, which UI-UX/13 § Testing requires in CI.
+        # Includes the token-discipline rules (docs/UI-UX/05 § Governance) and
+        # jsx-a11y, which docs/UI-UX/13 § Testing requires in CI.
         run: npm run lint
 
       - name: Typecheck
@@ -345,7 +345,7 @@ jobs:
       - name: Generated API client matches the spec
         # The client is generated from openapi/openapi.yaml and committed, the
         # same discipline as the backend's generated server interface
-        # (ADR-013). PLAN/06 names the property: a backend change not reflected
+        # (ADR-013). docs/PLAN/06 names the property: a backend change not reflected
         # in the spec breaks CI before it breaks the console at runtime.
         run: |
           npm run api:generate
@@ -359,7 +359,7 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       - name: End-to-end tests
-        # PLAN/11's top pyramid layer, against the production build rather than
+        # docs/PLAN/11's top pyramid layer, against the production build rather than
         # the dev server: an E2E suite that has never seen the built bundle is
         # testing something nobody deploys. It is also the only layer that
         # applies a real stylesheet — the console's design tokens were once all
@@ -370,7 +370,7 @@ jobs:
   # --- Public site ----------------------------------------------------------
   #
   # A separate job with its own install, its own cache and its own path filter.
-  # PLAN/20 § Why a Separate Surface requires the public site to be built and
+  # docs/PLAN/20 § Why a Separate Surface requires the public site to be built and
   # deployed independently of the console: "a docs typo fix shouldn't require a
   # backend deploy pipeline". Two jobs is what that means in practice.
   public-site:
@@ -393,19 +393,19 @@ jobs:
 
       - name: Brand tokens match the console
         # The one thing the two surfaces share is the visual language, as
-        # duplicated values (PLAN/20, UI-UX/20 § Cross-Page Requirements).
+        # duplicated values (docs/PLAN/20, docs/UI-UX/20 § Cross-Page Requirements).
         # Duplication on purpose and duplication by accident look identical six
         # months later.
         run: npm run check:tokens
 
       - name: Contrast meets WCAG 2.1 AA in both themes
-        # UI-UX/13 applies here as much as to the console. The dark theme is
+        # docs/UI-UX/13 applies here as much as to the console. The dark theme is
         # why this is a check rather than a comment: the console's palette,
         # carried over unchanged, measured 2.4:1 to 3.3:1 on a dark surface.
         run: npm run check:contrast
 
       - name: No code is shared with the console
-        # PLAN/20 § Why a Separate Surface. A rule that erodes by convenience
+        # docs/PLAN/20 § Why a Separate Surface. A rule that erodes by convenience
         # rather than by decision, so it is checked rather than trusted.
         run: npm run check:boundary
 
@@ -435,8 +435,8 @@ jobs:
         run: npm run check:claims
 
       - name: No internal material is published
-        # PLAN/20 § What Never Gets Published: no attack scenarios from
-        # SECURITY/02, no topology from PLAN/14, nothing from PLAN/18.
+        # docs/PLAN/20 § What Never Gets Published: no attack scenarios from
+        # docs/SECURITY/02, no topology from docs/PLAN/14, nothing from docs/PLAN/18.
         # Verbatim phrase matching rather than keywords — a keyword check on a
         # security page cries wolf, and a check that cries wolf gets disabled.
         run: npm run check:leak
@@ -459,7 +459,7 @@ jobs:
           fetch-depth: 0
 
       - name: Destructive migrations require justification
-        # PLAN/14 § Rollback Strategy: a migration must leave the PREVIOUS
+        # docs/PLAN/14 § Rollback Strategy: a migration must leave the PREVIOUS
         # application version able to run against the new schema, so an app
         # rollback never requires a DB rollback. A DROP or RENAME in the same
         # release that stops using something breaks that.
@@ -476,7 +476,7 @@ jobs:
           for f in $new_ups; do
             if grep -Eiq '(DROP[[:space:]]+(COLUMN|TABLE)|RENAME[[:space:]]+(COLUMN|TO)|ALTER[[:space:]]+COLUMN[[:space:]]+\w+[[:space:]]+TYPE)' "$f"; then
               if ! grep -q 'EXPAND/CONTRACT:' "$f"; then
-                echo "::error file=$f::Destructive change without justification. Add a line starting with 'EXPAND/CONTRACT:' explaining why the previous application version still runs against this schema (PLAN/14)."
+                echo "::error file=$f::Destructive change without justification. Add a line starting with 'EXPAND/CONTRACT:' explaining why the previous application version still runs against this schema (docs/PLAN/14)."
                 fail=1
               fi
             fi
@@ -515,7 +515,7 @@ jobs:
 
       - name: gosec (SAST)
         working-directory: backend
-        # PLAN/11 § Production-Ready: no unaddressed critical or high findings.
+        # docs/PLAN/11 § Production-Ready: no unaddressed critical or high findings.
         # -severity medium is deliberately stricter than the gate, so a medium
         # finding is seen and triaged rather than accumulating silently.
         run: |
@@ -529,14 +529,14 @@ jobs:
           govulncheck ./...
 
       - name: Secret scanning
-        # SECURITY/02 §16. Catching a committed credential at PR time is the
+        # docs/SECURITY/02 §16. Catching a committed credential at PR time is the
         # difference between deleting a line and rotating a production key.
         uses: gitleaks/gitleaks-action@83373cf2f8c4db6e24b41c1a9b086bb9619e9cd3 # v2.3.7
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: No sensitive values reachable by a log call
-        # PLAN/13 and CLAUDE.md: never log tokens, passwords, or raw
+        # docs/PLAN/13 and CLAUDE.md: never log tokens, passwords, or raw
         # /v1/authz/check resource attributes. The logger redacts by key name
         # (P0-09), but a raw request body or header passed positionally would
         # slip past that, so it is refused at review time.
@@ -645,7 +645,7 @@ jobs:
           tags: authservice:ci
 
       - name: Runtime image runs as non-root
-        # SECURITY/02 §17. A root container turns a container escape into a
+        # docs/SECURITY/02 §17. A root container turns a container escape into a
         # host compromise rather than an inconvenience.
         run: |
           user=$(docker inspect --format '{{.Config.User}}' authservice:ci)

@@ -1,6 +1,6 @@
 # TASKS/ — Execution Plan
 
-`PLAN/`, `UI-UX/`, and `SECURITY/` describe **what** to build and **why**. This folder describes **what to do next, in what order, and how to know it's finished**.
+`docs/PLAN/`, `docs/UI-UX/`, and `docs/SECURITY/` describe **what** to build and **why**. This folder describes **what to do next, in what order, and how to know it's finished**.
 
 Nothing in this folder invents new architecture. Every task points back to the plan document that already decided the design. If a task needs a decision the plan doesn't contain, it is not a task — it is an entry in [`BACKLOG.md`](./BACKLOG.md) under "Open Questions", to be raised with the user.
 
@@ -24,22 +24,22 @@ Nothing in this folder invents new architecture. Every task points back to the p
 
 1. **Before starting work**, open [`PROGRESS.md`](./PROGRESS.md) and find the lowest-numbered task in the current phase that is `TODO` and whose dependencies are all `DONE`.
 2. **Read every document listed in that task's `Plan refs` row.** These are not decoration — they contain the decisions the task implements.
-3. **If the task is marked `Spec required`**, write the feature spec from [`PLAN/19-FEATURE-SPECIFICATION-TEMPLATE.md`](../PLAN/19-FEATURE-SPECIFICATION-TEMPLATE.md) before writing code. Save it to `TASKS/specs/<task-id>-<slug>.md`.
+3. **If the task is marked `Spec required`**, write the feature spec from [`docs/PLAN/19-FEATURE-SPECIFICATION-TEMPLATE.md`](../docs/PLAN/19-FEATURE-SPECIFICATION-TEMPLATE.md) before writing code. Save it to `TASKS/specs/<task-id>-<slug>.md`.
 4. **Implement**, satisfying every line of the task's Definition of Done plus the inherited global DoD in [`00-TASK-CONVENTIONS.md`](./00-TASK-CONVENTIONS.md).
 5. **Record the change** in [`../MEMORY/`](../MEMORY/README.md) — a change record per task, an index line, a changelog entry, and an ADR if an architectural decision was made or deviated from.
 6. **Update `PROGRESS.md`** and tick the checkbox in the phase file.
 
 ## The Phase Rule
 
-From `CLAUDE.md` and `PLAN/16-IMPLEMENTATION-ROADMAP.md`:
+From `CLAUDE.md` and `docs/PLAN/16-IMPLEMENTATION-ROADMAP.md`:
 
 > **Never build a Phase N+1 feature while Phase N is incomplete.**
 
-Phases are sequential because each one's security posture depends on the previous one being sound. There is exactly one deliberate exception, already stated in `PLAN/20-PUBLIC-SITE-ARCHITECTURE.md`: the public site ships ahead of the backend phases, because it is how stakeholders evaluate the project before there is anything to log into. That exception is encoded as tasks `P0-17` through `P0-19`, and nowhere else.
+Phases are sequential because each one's security posture depends on the previous one being sound. There is exactly one deliberate exception, already stated in `docs/PLAN/20-PUBLIC-SITE-ARCHITECTURE.md`: the public site ships ahead of the backend phases, because it is how stakeholders evaluate the project before there is anything to log into. That exception is encoded as tasks `P0-17` through `P0-19`, and nowhere else.
 
-**Phase F is not an exception to this.** `PLAN/16` requires the console to be built in lockstep with the backend phases rather than as a separate track, and Phase F preserves that: its foundation tasks (design system, app shell, cross-cutting behavior, test infrastructure) are genuinely phase-independent and should run early, while every page task carries a binding **Gate** naming the backend task that must be `DONE` first. Phase F exists so the whole frontend surface is visible in one document, not so screens can be built ahead of the APIs they call.
+**Phase F is not an exception to this.** `docs/PLAN/16` requires the console to be built in lockstep with the backend phases rather than as a separate track, and Phase F preserves that: its foundation tasks (design system, app shell, cross-cutting behavior, test infrastructure) are genuinely phase-independent and should run early, while every page task carries a binding **Gate** naming the backend task that must be `DONE` first. Phase F exists so the whole frontend surface is visible in one document, not so screens can be built ahead of the APIs they call.
 
-Phase 3 and Phase 4 may be swapped as a whole if business need demands it (roadmap note in `PLAN/16`), but never interleaved task-by-task.
+Phase 3 and Phase 4 may be swapped as a whole if business need demands it (roadmap note in `docs/PLAN/16`), but never interleaved task-by-task.
 
 ## Relationship to MEMORY/
 

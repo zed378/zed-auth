@@ -49,7 +49,7 @@ func (h *Handler) GetJWKS(
 	if err != nil {
 		// No detail. This endpoint is public and unauthenticated, and "which
 		// dependency is down" is not something to tell an anonymous caller
-		// (SECURITY/02 §12). The reason is in the logs.
+		// (docs/SECURITY/02 §12). The reason is in the logs.
 		return api.GetJWKS503JSONResponse(unavailable()), nil
 	}
 

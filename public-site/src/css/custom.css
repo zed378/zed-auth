@@ -1,7 +1,7 @@
 /*
  * Brand tokens for the public site.
  *
- * `PLAN/20` and `UI-UX/20` both say the public site shares the console's
+ * `docs/PLAN/20` and `docs/UI-UX/20` both say the public site shares the console's
  * **visual language** and nothing else — brand-level tokens, never components,
  * never a codebase, never a deploy pipeline. So these values are duplicated
  * from `console/src/styles/tokens.css` on purpose, and the duplication is the
@@ -10,10 +10,10 @@
  * `public-site/scripts/check-brand-tokens.mjs` verifies the shared subset
  * still matches the console's, so "deliberately duplicated" cannot quietly
  * become "drifted apart". A visitor moving from here into the console should
- * feel visual continuity (`UI-UX/20` § Design Direction Differences), and two
+ * feel visual continuity (`docs/UI-UX/20` § Design Direction Differences), and two
  * different blues would be the most obvious way to break that.
  *
- * What is NOT shared: density, type scale, spacing rhythm. `UI-UX/20` inverts
+ * What is NOT shared: density, type scale, spacing rhythm. `docs/UI-UX/20` inverts
  * the console's "density over whitespace" for this audience — a first-time,
  * often impatient visitor reading one idea per screen section, not an admin
  * scanning a hundred table rows.
@@ -56,7 +56,7 @@
 
   /* 16px, not the console's 14px.
    *
-   * `UI-UX/20` inverts the density priority for this audience: the console is
+   * `docs/UI-UX/20` inverts the density priority for this audience: the console is
    * a tool someone scans all day, this is prose a stranger reads once. */
   --ifm-font-size-base: 16px;
   --ifm-line-height-base: 1.65;
@@ -64,7 +64,7 @@
   --ifm-code-font-size: 90%;
   --docusaurus-highlighted-code-line-bg: rgb(0 0 0 / 0.08);
 
-  /* Generous, per `UI-UX/20`'s "one idea per screen section". */
+  /* Generous, per `docs/UI-UX/20`'s "one idea per screen section". */
   --site-section-spacing: 5rem;
   --site-content-max-width: 60rem;
 }
@@ -80,13 +80,13 @@
    *
    * The light values are the console's, and on #14171c they measure:
    * accent 2.4:1, danger 2.7:1, warning 3.3:1, success 2.8:1 — all below the
-   * 4.5:1 that `UI-UX/13` requires, and border at 1.8:1 below the 3:1 that
+   * 4.5:1 that `docs/UI-UX/13` requires, and border at 1.8:1 below the 3:1 that
    * WCAG 1.4.11 requires of a component boundary. Carrying them over unchanged
    * would have produced a dark mode that looks deliberate and is unreadable,
    * which is worse than not offering one.
    *
    * Each token keeps its MEANING and changes only its value. Danger is still
-   * the colour reserved for destructive and irreversible things (`UI-UX/05`);
+   * the colour reserved for destructive and irreversible things (`docs/UI-UX/05`);
    * it is a different red because the surface behind it is different.
    *
    * Measured against both dark backgrounds, and checked by
@@ -120,11 +120,11 @@
 /*
  * The focus ring.
  *
- * Same rule as the console, for the same reason: `UI-UX/13` applies to this
+ * Same rule as the console, for the same reason: `docs/UI-UX/13` applies to this
  * site too, and says visible focus indicators are "never suppressed for
  * aesthetic reasons". A public marketing site failing basic accessibility is
  * both an exclusion problem and, in several jurisdictions, a compliance risk
- * (`UI-UX/20` § Detailed Spec: Landing Page).
+ * (`docs/UI-UX/20` § Detailed Spec: Landing Page).
  */
 :where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
   outline: 2px solid var(--color-accent);
@@ -132,7 +132,7 @@
   border-radius: 2px;
 }
 
-/* `UI-UX/13` § Motion: a hard requirement, not a nice-to-have. */
+/* `docs/UI-UX/13` § Motion: a hard requirement, not a nice-to-have. */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -188,7 +188,7 @@
 /*
  * Cards.
  *
- * A grid that reflows without a media query per breakpoint. `UI-UX/20`
+ * A grid that reflows without a media query per breakpoint. `docs/UI-UX/20`
  * requires full mobile optimisation here, unlike most console screens, because
  * public-site traffic is meaningfully mobile.
  */
@@ -224,13 +224,13 @@
 /*
  * The phase notice.
  *
- * `UI-UX/21` § Content Governance forbids present-tense marketing copy for
+ * `docs/UI-UX/21` § Content Governance forbids present-tense marketing copy for
  * anything unshipped, and `CLAUDE.md` repeats it. This is the component that
  * makes the distinction visible instead of relying on careful phrasing, which
  * is the thing that erodes first.
  *
  * `color-warning`, never `color-danger`: nothing here is destructive or
- * alarming, and `UI-UX/05` reserves danger so that its appearance stays a
+ * alarming, and `docs/UI-UX/05` reserves danger so that its appearance stays a
  * reliable signal.
  */
 .site-notice {

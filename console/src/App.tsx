@@ -8,7 +8,7 @@ import { AppShell } from "./app/shell/AppShell";
 /**
  * TanStack Query holds all cached server data.
  *
- * PLAN/06 § Tech Stack is explicit that most console data is cached server
+ * docs/PLAN/06 § Tech Stack is explicit that most console data is cached server
  * data rather than client state, so there is no global store for it. That is
  * not a preference: a Redux-style store holding API responses means every
  * screen owns a copy of the truth and someone has to remember to invalidate

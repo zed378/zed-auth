@@ -87,7 +87,7 @@ func (m *Manager) Create(
 
 // Lookup resolves a cookie value to a live session.
 //
-// The hot path: PLAN/12 gives /oauth/authorize 150ms at p95 for everything,
+// The hot path: docs/PLAN/12 gives /oauth/authorize 150ms at p95 for everything,
 // so the common case is one Redis round trip.
 func (m *Manager) Lookup(ctx context.Context, presented string, policy Policy, now time.Time) (Session, error) {
 	// Before any lookup. A malformed cookie is free for an attacker to send

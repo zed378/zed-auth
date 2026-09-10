@@ -22,13 +22,13 @@ This is what unblocks `P1-06`, `P1-10` and `P1-12`.
 
 ## Why
 
-`PLAN/03`'s data flow, step 6 — the second application skips login. That is the whole reason to run a central identity provider rather than a login form per application, and it comes down to one cookie and one lookup.
+`docs/PLAN/03`'s data flow, step 6 — the second application skips login. That is the whole reason to run a central identity provider rather than a login form per application, and it comes down to one cookie and one lookup.
 
 Everything else in the task exists because that cookie is a bearer credential with the same power as the password that created it. It lives in a browser for hours, travels on every navigation to this origin, and cannot be un-issued once stolen — only revoked, and only if revocation is genuinely immediate.
 
 ## How
 
-**The cookie is `__Host-zedauth_session`.** The prefix is not decoration: a browser refuses to store a `__Host-` cookie unless it is `Secure`, has `Path=/`, and has no `Domain` — exactly the attributes `PLAN/05` asks for. Writing them correctly protects against our own mistakes; the prefix makes the browser reject the mistake instead, including one introduced later by us. It costs nothing, because those are the attributes we want, and it works in development since browsers treat `localhost` as a secure context.
+**The cookie is `__Host-zedauth_session`.** The prefix is not decoration: a browser refuses to store a `__Host-` cookie unless it is `Secure`, has `Path=/`, and has no `Domain` — exactly the attributes `docs/PLAN/05` asks for. Writing them correctly protects against our own mistakes; the prefix makes the browser reject the mistake instead, including one introduced later by us. It costs nothing, because those are the attributes we want, and it works in development since browsers treat `localhost` as a secure context.
 
 `SameSite=Lax` rather than `Strict` is a requirement, not a compromise: `/oauth/authorize` is reached by a top-level GET navigation from the consumer application, and `Strict` withholds the cookie on exactly that navigation. Silent SSO would never work.
 
@@ -76,15 +76,15 @@ Idle timeout and absolute lifetime both apply, shorter wins. `last_seen_at` is w
 
 ### PG-14 — the cookie must not carry the primary key
 
-`PLAN/04` and `P0-07`'s migration comment both describe the cookie as carrying the row's `id`. Opaque it is; safe to expose it is not, and the data model already contains the places it gets exposed.
+`docs/PLAN/04` and `P0-07`'s migration comment both describe the cookie as carrying the row's `id`. Opaque it is; safe to expose it is not, and the data model already contains the places it gets exposed.
 
-`PLAN/05` routes `/v1/organizations/{org_id}/users/{user_id}/sessions`. An administrator listing another user's sessions would receive, per row, the exact string that authenticates as that user — a screen whose purpose is to be looked at would be a credential-disclosure endpoint. `refresh_tokens.session_id` is a foreign key, so a token row would carry a live session credential. A revocation audit event naming its `session_id` would write one into an append-only table with 24-month retention.
+`docs/PLAN/05` routes `/v1/organizations/{org_id}/users/{user_id}/sessions`. An administrator listing another user's sessions would receive, per row, the exact string that authenticates as that user — a screen whose purpose is to be looked at would be a credential-disclosure endpoint. `refresh_tokens.session_id` is a foreign key, so a token row would carry a live session credential. A revocation audit event naming its `session_id` would write one into an append-only table with 24-month retention.
 
 Reusing `id` and simply never displaying it was considered and rejected: that is a rule every future endpoint, screen and log line has to remember, and one of them will not.
 
 ## Deviations from the Plan
 
-`PLAN/04` § `sessions` should be amended to describe `token_hash` and to stop describing the cookie as carrying the id. Raised as `PG-14` rather than made, per `AGENTS.md` rule 9.
+`docs/PLAN/04` § `sessions` should be amended to describe `token_hash` and to stop describing the cookie as carrying the id. Raised as `PG-14` rather than made, per `AGENTS.md` rule 9.
 
 ## Tests Added
 
@@ -109,12 +109,12 @@ Reusing `id` and simply never displaying it was considered and rejected: that is
 
 | Abuse case | Source | Test |
 |---|---|---|
-| Session fixation | `SECURITY/02` §4 | `TestLoginIssuesAFreshTokenAndTheOldOneDies` |
-| Stolen cookie replayed | `SECURITY/02` §4 | Revocable and immediate — `TestRevocationTakesEffectOnTheNextRequest` |
-| Cookie over plain HTTP | `PLAN/09` | `Secure` unconditional, plus the `__Host-` prefix; asserted on the header |
-| Cookie read by injected script | `SECURITY/02` §6 | `HttpOnly`, asserted on the header |
-| Cross-site request rides the session | `SECURITY/02` §5 | `SameSite=Lax`, asserted on the header |
-| Token harvested from the sessions API or an audit log | `SECURITY/02` §16 | PG-14; `TestOnlyTheTokenHashIsStored` |
+| Session fixation | `docs/SECURITY/02` §4 | `TestLoginIssuesAFreshTokenAndTheOldOneDies` |
+| Stolen cookie replayed | `docs/SECURITY/02` §4 | Revocable and immediate — `TestRevocationTakesEffectOnTheNextRequest` |
+| Cookie over plain HTTP | `docs/PLAN/09` | `Secure` unconditional, plus the `__Host-` prefix; asserted on the header |
+| Cookie read by injected script | `docs/SECURITY/02` §6 | `HttpOnly`, asserted on the header |
+| Cross-site request rides the session | `docs/SECURITY/02` §5 | `SameSite=Lax`, asserted on the header |
+| Token harvested from the sessions API or an audit log | `docs/SECURITY/02` §16 | PG-14; `TestOnlyTheTokenHashIsStored` |
 | Revoked session used during a cache window | Task DoD | `TestARevocationDuringAnInFlightReadIsNotOverwritten` |
 | Token brute-forced | — | 256 bits, ADR-016's argument |
 | Expired sessions accumulate | DoD item 4 | `TestExpiredSessionsAreUnusableAndSwept` |
@@ -133,7 +133,7 @@ Task-specific DoD:
 
 - [x] **The session identifier changes after login.** A fresh token per login, the previous session revoked, and the old token asserted dead.
 - [x] **Cookie attributes exactly as specified, asserted on the `Set-Cookie` header.** Plus the absence of `Domain` and `Max-Age`, which the struct alone would not show.
-- [x] **Session lookup within `PLAN/12`'s budget.** One Redis round trip on the warm path; the histogram is labelled by source so the hit rate and the latency read from the same metric. Measured under load in `P1-27`, not here.
+- [x] **Session lookup within `docs/PLAN/12`'s budget.** One Redis round trip on the warm path; the histogram is labelled by source so the hit rate and the latency read from the same metric. Measured under load in `P1-27`, not here.
 - [x] **Expired sessions are unusable and cleaned up.** Filtered in SQL inside the lookup function so an expired row cannot reach the cache; swept hourly with a 7-day retention.
 - [x] **Revoking takes effect immediately, not after a cache TTL.** The central mechanism, proven non-vacuous both ways.
 - [x] **`auth_methods` reflects reality.** Required at creation — a session without it cannot be created, because `P1-07` would build `amr` from a value that was never true.
@@ -146,7 +146,7 @@ That is `P0-08` working correctly, and the fix is not to weaken the policy — a
 
 The sweep had the identical problem for the identical reason, and got the identical fix.
 
-**`session_id` was in the logger's redaction list, and the audit test caught it.** Correctly, when it was written: `PLAN/04` had the cookie carrying the id, so the id was a credential. PG-14 inverts that — the id is now the safe identifier and `token_hash` is the credential — and continuing to redact it would have made the audit log unable to say *which* session was revoked, defeating the point of the separation. Removed, with the reasoning written where the list is.
+**`session_id` was in the logger's redaction list, and the audit test caught it.** Correctly, when it was written: `docs/PLAN/04` had the cookie carrying the id, so the id was a credential. PG-14 inverts that — the id is now the safe identifier and `token_hash` is the credential — and continuing to redact it would have made the audit log unable to say *which* session was revoked, defeating the point of the separation. Removed, with the reasoning written where the list is.
 
 **gosec flagged the cookie, and it was right for a better reason than it gave.** `Secure` was a `bool` parameter so gosec could not prove it was set. The real problem is that a parameter is the only way the control could ever be off, and no case needs it: the `__Host-` prefix requires `Secure`, and browsers treat `localhost` as a secure context. Removed the parameter rather than suppressing the warning.
 
@@ -159,7 +159,7 @@ The sweep had the identical problem for the identical reason, and got the identi
 - `P1-06` reads the session for silent SSO; `P1-12` creates one after login; `P1-10` revokes one. Until then this package has no caller — the third in a row, and `P1-06` is what starts connecting them.
 - `P1-07` must build `amr` from `AuthMethods`.
 - Session lifetime is read from `Policy`, but nothing yet reads `session_lifetime_hours` out of `organizations.settings` — `PolicyFromHours` exists and is untested against a real row. `P1-12` should wire it, the way `P1-02`'s `PolicyStore` does for passwords.
-- `PLAN/04` § `sessions` needs amending for PG-14.
+- `docs/PLAN/04` § `sessions` needs amending for PG-14.
 - Concurrent session limits are named in the task's abuse cases and are not implemented; there is no limit today. Worth a decision in Phase 3 alongside the sessions screen.
 
 ## What to Watch

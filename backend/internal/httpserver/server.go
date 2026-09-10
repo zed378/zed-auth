@@ -58,9 +58,15 @@ type Deps struct {
 	// generated strict interface passes a parsed body and no request.
 	Token http.Handler
 
+	// UserInfo serves GET and POST /oauth/userinfo, hand-registered for the
+	// same reason as Token: the bearer credential is in the Authorization
+	// header, which the generated strict interface does not hand over — and
+	// its RFC 6750 challenge header depends on why the request failed.
+	UserInfo http.Handler
+
 	// Login serves GET and POST /login, and Forgot serves /login/forgot
 	// (P1-12). Hand-registered because they answer with HTML rather than with
-	// PLAN/05's JSON envelope, which is what the generated interface produces.
+	// docs/PLAN/05's JSON envelope, which is what the generated interface produces.
 	//
 	// They are also the two routes in this service that are not part of the
 	// API contract at all: a browser is the only client, and no consumer ever
@@ -162,6 +168,11 @@ func New(cfg config.HTTPConfig, deps Deps) *Server {
 	if deps.Token != nil {
 		mux.Method(http.MethodPost, "/oauth/token", deps.Token)
 	}
+	if deps.UserInfo != nil {
+		// OIDC Core 5.3.1 requires both methods.
+		mux.Method(http.MethodGet, "/oauth/userinfo", deps.UserInfo)
+		mux.Method(http.MethodPost, "/oauth/userinfo", deps.UserInfo)
+	}
 	if deps.Login != nil {
 		// One handler for both methods: the page and its submission share the
 		// pending request, the branding and the CSRF token, and splitting them
@@ -226,7 +237,7 @@ func (s *Server) Handler() http.Handler { return s.http.Handler }
 // Graceful shutdown is not optional here: this service is on the critical path
 // of every consumer application, so dropping in-flight requests on every deploy
 // would surface as intermittent login failures across the whole platform
-// (PLAN/14-DEPLOYMENT.md § Deployment Model).
+// (docs/PLAN/14-DEPLOYMENT.md § Deployment Model).
 func (s *Server) Run(ctx context.Context) error {
 	errCh := make(chan error, 1)
 

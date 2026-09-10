@@ -7,7 +7,7 @@
 // executes. A repository method cannot forget, because it never holds a
 // queryable handle that has not already been scoped.
 //
-// That is a deliberate constraint rather than a convenience. PLAN/08-AUTHORIZATION.md
+// That is a deliberate constraint rather than a convenience. docs/PLAN/08-AUTHORIZATION.md
 // Part B wants "a misscoped query can't leak data across organizations" to be
 // a property of the system, and a policy in the database only delivers that if
 // the application reliably sets the context the policy reads.
@@ -163,7 +163,7 @@ func (d *DB) WithTenant(ctx context.Context, orgID string, fn func(*Tx) error) e
 // WithInstanceScope runs fn without tenant filtering, for the operations that
 // genuinely span organizations.
 //
-// PLAN/08 Part B requires this path to be "explicit, documented, and auditable
+// docs/PLAN/08 Part B requires this path to be "explicit, documented, and auditable
 // — not the normal path with the filter omitted". Three things follow:
 //
 //   - It is a differently-named function, so using it is a visible choice in a
@@ -216,7 +216,7 @@ func (d *DB) withScope(ctx context.Context, orgID string, fn func(*Tx) error) (e
 	// comes from trusted code: set_config is the parameterizable form, and
 	// SET LOCAL is not, so building the SQL by hand would be the one place in
 	// this package where a value reaches a statement as text
-	// (SECURITY/02 §8, and AGENTS.md's parameterized-queries-only rule).
+	// (docs/SECURITY/02 §8, and AGENTS.md's parameterized-queries-only rule).
 	//
 	// The empty string for instance scope makes current_org_id() return NULL,
 	// which every policy evaluates as false. Instance-scoped work therefore

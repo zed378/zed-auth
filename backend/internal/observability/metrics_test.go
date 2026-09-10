@@ -95,7 +95,7 @@ func TestStatusIsReducedToItsClass(t *testing.T) {
 	}
 }
 
-// PLAN/12's targets run from p50 < 20ms to p99 < 600ms. A histogram whose
+// docs/PLAN/12's targets run from p50 < 20ms to p99 < 600ms. A histogram whose
 // buckets straddle a target badly cannot answer whether the target was met,
 // which is the only question these metrics exist to answer.
 func TestBucketsCoverThePerformanceTargets(t *testing.T) {
@@ -162,7 +162,7 @@ func TestInFlightIsReleasedOnPanic(t *testing.T) {
 	}
 }
 
-// Every instrument PLAN/13 § Metrics names must exist from the start. Naming
+// Every instrument docs/PLAN/13 § Metrics names must exist from the start. Naming
 // them once means the dashboard, the alerts, and the code agree — a metric
 // renamed after a dashboard is built produces an empty panel, not an error.
 func TestEveryMetricNamedInThePlanIsRegistered(t *testing.T) {
@@ -197,7 +197,7 @@ func TestEveryMetricNamedInThePlanIsRegistered(t *testing.T) {
 	body := gather(t, m)
 
 	required := []string{
-		// PLAN/13 § Metrics, item by item.
+		// docs/PLAN/13 § Metrics, item by item.
 		"http_request_duration_seconds",      // latency per endpoint
 		"http_requests_total",                // error rate per endpoint
 		"auth_login_attempts_total",          // failed vs successful login rate
@@ -216,7 +216,7 @@ func TestEveryMetricNamedInThePlanIsRegistered(t *testing.T) {
 
 	for _, name := range required {
 		if !strings.Contains(body, name) {
-			t.Errorf("metric %q is not exposed — PLAN/13 names it, or a past failure requires it", name)
+			t.Errorf("metric %q is not exposed — docs/PLAN/13 names it, or a past failure requires it", name)
 		}
 	}
 }

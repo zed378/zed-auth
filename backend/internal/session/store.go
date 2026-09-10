@@ -180,7 +180,7 @@ func (s *Store) Revoke(
 
 // RevokeAllForUser ends every live session a user has.
 //
-// The "log out everywhere" PLAN/05 § Session & logout asks for, and the
+// The "log out everywhere" docs/PLAN/05 § Session & logout asks for, and the
 // response to a stolen cookie. Returns the token hashes so the caller can
 // invalidate each cache entry — the hashes never leave this package's callers
 // and are not the tokens themselves.

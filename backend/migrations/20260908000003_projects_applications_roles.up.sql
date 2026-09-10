@@ -1,7 +1,7 @@
 -- Projects, applications (OIDC/SAML clients), and roles.
 --
--- PLAN/04-DATA-MODEL.md § projects, § applications, § roles.
--- PLAN/08-AUTHORIZATION.md Part A for the role model.
+-- docs/PLAN/04-DATA-MODEL.md § projects, § applications, § roles.
+-- docs/PLAN/08-AUTHORIZATION.md Part A for the role model.
 
 CREATE TABLE projects (
     id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -22,7 +22,7 @@ CREATE TRIGGER projects_set_updated_at
 
 
 CREATE TABLE applications (
-    -- The id doubles as the OIDC client_id (PLAN/04 § applications).
+    -- The id doubles as the OIDC client_id (docs/PLAN/04 § applications).
     id                         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     project_id                 uuid NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,
 
@@ -34,9 +34,9 @@ CREATE TABLE applications (
     type                       text NOT NULL,
 
     -- NULL for public clients (spa, native), which have no secret to protect
-    -- and must use PKCE instead (PLAN/04, PLAN/05 Part A).
+    -- and must use PKCE instead (docs/PLAN/04, docs/PLAN/05 Part A).
     -- Only ever a hash: the plaintext is returned once at creation and never
-    -- again (UI-UX/08 § Applications tab).
+    -- again (docs/UI-UX/08 § Applications tab).
     client_secret_hash         text,
 
     -- Rotation overlap: a newly issued secret coexists with the previous one
@@ -47,7 +47,7 @@ CREATE TABLE applications (
 
     -- Matched by EXACT STRING COMPARISON at authorization time, never by
     -- prefix or pattern. Prefix matching is the open-redirect vulnerability
-    -- (PLAN/09 § Protection Against Common Attacks).
+    -- (docs/PLAN/09 § Protection Against Common Attacks).
     redirect_uris              text[] NOT NULL DEFAULT '{}',
     post_logout_redirect_uris  text[] NOT NULL DEFAULT '{}',
     grant_types                text[] NOT NULL DEFAULT '{authorization_code,refresh_token}',
@@ -61,7 +61,7 @@ CREATE TABLE applications (
     -- A public client with a secret is a configuration error worth refusing at
     -- the database level: the secret cannot be kept confidential in a browser
     -- or a shipped mobile binary, so its presence implies a false sense of
-    -- security (PLAN/05 Part A, P1-05).
+    -- security (docs/PLAN/05 Part A, P1-05).
     CONSTRAINT applications_public_clients_have_no_secret
         CHECK (type NOT IN ('spa', 'native') OR client_secret_hash IS NULL),
 
@@ -78,7 +78,7 @@ CREATE TRIGGER applications_set_updated_at
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
 COMMENT ON COLUMN applications.redirect_uris IS
-  'Matched by exact string comparison only. Prefix matching is the open-redirect bug (PLAN/09).';
+  'Matched by exact string comparison only. Prefix matching is the open-redirect bug (docs/PLAN/09).';
 
 
 CREATE TABLE roles (
@@ -90,20 +90,20 @@ CREATE TABLE roles (
     display_name     text NOT NULL,
 
     -- The permission keys this role carries, e.g. {"user:read","billing:write"}
-    -- (PLAN/04 § roles, PLAN/08 Part A). An array rather than a join table:
+    -- (docs/PLAN/04 § roles, docs/PLAN/08 Part A). An array rather than a join table:
     -- permission keys are the consumer application's own vocabulary, not rows
     -- this service needs referential integrity over.
     permission_keys  text[] NOT NULL DEFAULT '{}',
 
     -- Built-in roles (org_owner, org_admin) cannot be renamed or deleted
-    -- (PLAN/08 Part A).
+    -- (docs/PLAN/08 Part A).
     is_builtin       boolean NOT NULL DEFAULT false,
 
     created_at       timestamptz NOT NULL DEFAULT now(),
     updated_at       timestamptz NOT NULL DEFAULT now(),
 
     CONSTRAINT roles_key_not_blank CHECK (length(btrim(key)) > 0),
-    -- Role keys appear inside JWT claim keys (PLAN/08 Part A § How Role Claims
+    -- Role keys appear inside JWT claim keys (docs/PLAN/08 Part A § How Role Claims
     -- Get Into the Token), so restricting the character set here prevents a
     -- role name from being able to alter the shape of a token claim.
     CONSTRAINT roles_key_shape CHECK (key ~ '^[a-z0-9][a-z0-9_-]{0,62}$'),
@@ -111,7 +111,7 @@ CREATE TABLE roles (
 );
 
 -- Roles are scoped per project: "admin" in Project A must never imply "admin"
--- in Project B (PLAN/08 Part A).
+-- in Project B (docs/PLAN/08 Part A).
 CREATE UNIQUE INDEX roles_project_key_key ON roles (project_id, key);
 CREATE INDEX roles_org_idx ON roles (org_id);
 

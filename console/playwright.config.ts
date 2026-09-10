@@ -1,12 +1,12 @@
 import { defineConfig, devices } from "@playwright/test";
 
 /**
- * End-to-end tests for the console — the top layer of `PLAN/11`'s pyramid,
+ * End-to-end tests for the console — the top layer of `docs/PLAN/11`'s pyramid,
  * below the security tests.
  *
- * `PLAN/11` § End-to-End names what these will cover once there is a login
+ * `docs/PLAN/11` § End-to-End names what these will cover once there is a login
  * flow to cover: successful login and redirect, SSO across two applications,
- * MFA rejection, and logout genuinely ending a session. `PLAN/06` § Testing
+ * MFA rejection, and logout genuinely ending a session. `docs/PLAN/06` § Testing
  * adds the console flows — invite plus first role assignment, Project Grant
  * creation and revocation, session revocation.
  *
@@ -47,9 +47,9 @@ export default defineConfig({
   projects: [
     { name: "chromium", use: { ...devices["Desktop Chrome"] } },
 
-    // The console is a desktop tool (`UI-UX/00`, `UI-UX/12`), so there is no
+    // The console is a desktop tool (`docs/UI-UX/00`, `docs/UI-UX/12`), so there is no
     // mobile project here. The one screen group that must work on a phone —
-    // personal account settings, `UI-UX/16` — gets its own project when it is
+    // personal account settings, `docs/UI-UX/16` — gets its own project when it is
     // built, rather than a mobile run of screens the plan says are desktop.
   ],
 

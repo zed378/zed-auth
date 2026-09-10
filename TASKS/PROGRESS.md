@@ -3,7 +3,7 @@
 Single source of truth for where the project stands. Updated in the same commit as the work it describes (`00-TASK-CONVENTIONS.md` global DoD item 8).
 
 **Last updated**: 2026-09-09
-**Current phase**: Phase 1 — MVP Core Auth (9 / 28 done). Phase 0 is 20 / 21; `P0-20` stays WIP pending the pull-based deployment re-read
+**Current phase**: Phase 1 — MVP Core Auth (10 / 28 done). Phase 0 is 20 / 21; `P0-20` stays WIP pending the pull-based deployment re-read
 **Overall**: 28 / 177 tasks done
 
 Status values: `TODO` · `BLOCKED` · `SPEC` · `WIP` · `REVIEW` · `DONE` · `DROPPED`
@@ -16,7 +16,7 @@ Sizes: `S` under half a day · `M` one to two days · `L` several days · `XL` m
 | Phase | Tasks | Done | Status | Gate to enter |
 |---|---|---|---|---|
 | [Phase 0 — Foundation](./PHASE-0-FOUNDATION.md) | 21 | 20 | **ACTIVE** — `P0-20` only | — |
-| [Phase 1 — MVP: Core Auth + SSO](./PHASE-1-MVP-CORE-AUTH-SSO.md) | 28 | 9 | **ACTIVE** | Phase 0 exit checklist |
+| [Phase 1 — MVP: Core Auth + SSO](./PHASE-1-MVP-CORE-AUTH-SSO.md) | 28 | 10 | **ACTIVE** | Phase 0 exit checklist |
 | [Phase 2 — RBAC & Multi-Tenancy](./PHASE-2-RBAC-MULTITENANCY.md) | 17 | 0 | Not started | Phase 1 exit + `P1-28` |
 | [Phase 3 — Advanced Security](./PHASE-3-ADVANCED-SECURITY.md) | 15 | 0 | Not started | Phase 2 exit + threat model review |
 | [Phase 4 — Enterprise Interop](./PHASE-4-ENTERPRISE-INTEROP.md) | 16 | 0 | Not started | Phase 3 exit + threat model review |
@@ -24,9 +24,9 @@ Sizes: `S` under half a day · `M` one to two days · `L` several days · `XL` m
 | [Phase 5 — Hardening](./PHASE-5-HARDENING.md) | 16 | 0 | Not started | Phase 4 exit; 4b done or declined |
 | [Phase F — Frontend Implementation](./PHASE-F-FRONTEND-IMPLEMENTATION.md) | 53 | 0 | **TRACK** — runs alongside | Foundation: `P0-17`. Pages: each carries its own gate |
 
-> Phase 3 and Phase 4 may be swapped **as whole phases** if business need demands it (`PLAN/16`'s note). They are never interleaved task by task.
+> Phase 3 and Phase 4 may be swapped **as whole phases** if business need demands it (`docs/PLAN/16`'s note). They are never interleaved task by task.
 >
-> Phase F is a **track, not a sequence position**. Its foundation tasks (`PF-01`–`PF-20`, `PF-48`–`PF-52`) are phase-independent and should start as soon as `P0-17` lands. Its page tasks (`PF-21`–`PF-47`) each carry a binding gate, which is how `PLAN/16`'s lockstep rule is enforced per screen rather than per phase.
+> Phase F is a **track, not a sequence position**. Its foundation tasks (`PF-01`–`PF-20`, `PF-48`–`PF-52`) are phase-independent and should start as soon as `P0-17` lands. Its page tasks (`PF-21`–`PF-47`) each carry a binding gate, which is how `docs/PLAN/16`'s lockstep rule is enforced per screen rather than per phase.
 
 ---
 
@@ -71,7 +71,7 @@ Sizes: `S` under half a day · `M` one to two days · `L` several days · `XL` m
 | P1-05 | Application registration and credentials | M | **DONE** — ADR-016 (SHA-256 for client secrets); redirect matching is exact, with a 15-row rejection table naming each attack | P0-07 |
 | P1-06 | `GET /oauth/authorize` — code + PKCE | L | **DONE** — one item deferred to `P1-27`'s load test. Two-phase validation so a phase-1 error can never redirect; atomic code redemption proven with 32 concurrent racers | P1-05, P1-11 |
 | P1-07 | `POST /oauth/token` | L | **DONE** — one item deferred to `P1-27`'s load test. The flow closes: a consumer can complete a login, and `P1-04`'s last two DoD items are now true | P1-06, P1-03 |
-| P1-08 | `GET /oauth/userinfo` | S | TODO | P1-07 |
+| P1-08 | `GET /oauth/userinfo` | S | **DONE** — the claims the scopes authorise and nothing else, with the exact key set asserted rather than a subset. Revoking the session invalidates the token immediately, which costs nothing because the liveness check rides in the user read. `signing.Verifier` finally has a caller | P1-07 |
 | P1-09 | `/oauth/introspect` and `/oauth/revoke` | M | TODO | P1-07 |
 | P1-10 | `GET /oidc/logout` | M | TODO | P1-11 |
 | P1-11 | Session management and SSO cookie | L | **DONE** — `PG-14` closed (the cookie is no longer the primary key); revocation is immediate, with the cache repopulate race closed by a tombstone | P0-07 |
@@ -186,7 +186,7 @@ Sizes: `S` under half a day · `M` one to two days · `L` several days · `XL` m
 | P4B-09 | Phase 4b test suite | L | TODO | all above |
 | P4B-10 | Phase 4b acceptance validation | M | TODO | P4B-09 |
 
-> This phase not running is a valid, plan-endorsed outcome. `PLAN/08` Part D: build it only once a concrete need appears that RBAC genuinely cannot express.
+> This phase not running is a valid, plan-endorsed outcome. `docs/PLAN/08` Part D: build it only once a concrete need appears that RBAC genuinely cannot express.
 
 ---
 
@@ -197,7 +197,7 @@ Sizes: `S` under half a day · `M` one to two days · `L` several days · `XL` m
 | P5-01 | Internal security verification sweep | L | TODO | Phase 4 exit |
 | P5-02 | External penetration test | L | TODO | P5-01 |
 | P5-03 | Pentest remediation and re-test | L | TODO | P5-02 |
-| P5-04 | Load testing against `PLAN/12` | L | TODO | Phase 4 exit |
+| P5-04 | Load testing against `docs/PLAN/12` | L | TODO | Phase 4 exit |
 | P5-05 | Degraded-dependency testing | L | TODO | P5-04 |
 | P5-06 | Horizontal scale-out verification | M | TODO | P5-04 |
 | P5-07 | Disaster recovery drill | L | TODO | P0-20 |
@@ -217,7 +217,7 @@ Sizes: `S` under half a day · `M` one to two days · `L` several days · `XL` m
 
 ## Phase F — Frontend Implementation (Track)
 
-Runs alongside Phases 0–5, not after them. **Foundation** tasks are phase-independent — start them as soon as `P0-17` lands, because every page task depends on them. **Page** tasks each carry a binding gate; the gate is `PLAN/16`'s lockstep rule made explicit per screen.
+Runs alongside Phases 0–5, not after them. **Foundation** tasks are phase-independent — start them as soon as `P0-17` lands, because every page task depends on them. **Page** tasks each carry a binding gate; the gate is `docs/PLAN/16`'s lockstep rule made explicit per screen.
 
 ### Foundation — start early, no phase gate
 
@@ -353,7 +353,7 @@ Things that are easy to get wrong once and expensive to fix later. Re-check each
 | A redaction list encodes an assumption about what is a credential | `session_id` was redacted because the id used to be the cookie. After `PG-14` it is the safe identifier, and redacting it made the audit log unable to say which session was revoked | `P1-11` |
 | A security flag that takes a parameter is a flag someone passes false to | gosec flagged `Secure: secure` on the session cookie. The real fix was deleting the parameter: no case needs it off, and `__Host-` requires it on | `P1-11` |
 | Validate the redirect target before anything else can report an error | Every other parameter error is delivered by redirecting, so an error reported before `redirect_uri` is validated is an open redirect delivered by the code meant to prevent one | `P1-06` |
-| A sequential test cannot see a lost race | `GET`-then-`DEL` code redemption passes single-use tests and lets 32 concurrent racers all succeed. `PLAN/04` asked for atomicity; only a concurrent test checks it | `P1-06` |
+| A sequential test cannot see a lost race | `GET`-then-`DEL` code redemption passes single-use tests and lets 32 concurrent racers all succeed. `docs/PLAN/04` asked for atomicity; only a concurrent test checks it | `P1-06` |
 | Assert the absence of the header, not the presence of the status | "Returns 400" would still pass if the handler also set `Location`. "Has no `Location`" is the property, and it is unusual enough to be conspicuous when broken | `P1-06` |
 | A generated router can be the wrong tool for one endpoint | Parameter binding runs before the handler, which defeats ordered validation and collapses duplicate parameters. Excluding one operation and saying why beats bending the endpoint around the generator | `P1-06` |
 | A capability is not one task | The capability audit called single sign-on shipped when `P1-06` landed, while a consumer still had nowhere to exchange a code and no page to log in on. A check that maps a user-visible capability to a single task will eventually make the false claim it exists to prevent | `P1-06`, `P0-19` |
@@ -366,11 +366,11 @@ Things that are easy to get wrong once and expensive to fix later. Re-check each
 | A test harness mirrors production's privilege model | Approximating it produced a harness where the audit log was not append-only, so the suite tested a database nothing would run. Same grants, same order as `deploy/postgres/init` | `P0-15` |
 | Coverage floors name packages, never an average | A repo-wide percentage is satisfied by testing whatever is easiest, and that is rarely where a bug matters | `P0-15` |
 | Name the address family on both sides | `localhost` resolves to `::1` first while `listen 80` is IPv4-only. Hit three times in one day; the symptom is a healthy server nothing can reach, which never looks like name resolution | `P0-15`, `P0-17` |
-| Public copy claims nothing unshipped | `CLAIMS.md` plus two checks: every capability carries a phase label and no label contradicts the board; the built pages contain no verbatim phrase from `SECURITY/02`, `PLAN/14` or `PLAN/18`. Neither can read prose — that part stays human | `P0-19` |
-| Separation between site and console is checked | `PLAN/20` says they share the visual language and nothing else. Three scripts enforce it: token values match, no code is imported across, contrast holds in both themes. All erode by convenience rather than decision | `P0-18` |
+| Public copy claims nothing unshipped | `CLAIMS.md` plus two checks: every capability carries a phase label and no label contradicts the board; the built pages contain no verbatim phrase from `docs/SECURITY/02`, `docs/PLAN/14` or `docs/PLAN/18`. Neither can read prose — that part stays human | `P0-19` |
+| Separation between site and console is checked | `docs/PLAN/20` says they share the visual language and nothing else. Three scripts enforce it: token values match, no code is imported across, contrast holds in both themes. All erode by convenience rather than decision | `P0-18` |
 | A dark palette is not a light palette | Carrying the console's colours to a dark surface put every semantic token below AA. Same meaning, different value per surface — and computed, not eyeballed | `P0-18` |
 | Missing pages return 404, not 200 | `try_files` with a file fallback serves a styled 404 page with a 200 status. Crawlers are then told missing URLs exist, on the surface whose job is discovery | `P0-18` |
-| Token discipline is enforced, not asked for | Three local ESLint rules reject raw hex, Tailwind arbitrary values, and inline styles in console code (`UI-UX/05` § Governance). Its first run found a real bug: a class referencing a token that did not exist | `P0-17` |
+| Token discipline is enforced, not asked for | Three local ESLint rules reject raw hex, Tailwind arbitrary values, and inline styles in console code (`docs/UI-UX/05` § Governance). Its first run found a real bug: a class referencing a token that did not exist | `P0-17` |
 | Design tokens must be verified against the compiler | Every type token was defined and correctly named and generated no CSS, because Tailwind v4's namespace is `--text-*` not `--font-size-*`. Source-reading tests passed throughout. `utilities.test.ts` compiles Tailwind and asserts the classes actually produce rules | `P0-17` |
 | `color-danger` cannot be rebranded | A union of literal token names plus a runtime filter, because branding arrives as untyped JSON. Tested | `P0-17` |
 | Static hosting needs a history fallback | `try_files $uri $uri/ /index.html`, and the healthcheck probes a route with no file behind it so the fallback cannot be dropped unnoticed | `P0-17` |
@@ -385,9 +385,9 @@ Things that are easy to get wrong once and expensive to fix later. Re-check each
 | Role-source badge built with both values | Retrofitting it means auditing every role-displaying screen twice | `PF-07` |
 | Org-scoped query keys | Without them, a context switch renders the previous org's cached data — a leak in the UI even with a correct API | `PF-20` |
 | `color-danger` reserved for destructive actions only | Its meaning must stay reliable; one misuse on a late screen degrades every earlier one | `PF-03` |
-| Accessibility built in, not retrofitted | `PLAN/18` R-10 names late retrofitting as a real risk; `UI-UX/13` says it is far more expensive | `PF-19` |
+| Accessibility built in, not retrofitted | `docs/PLAN/18` R-10 names late retrofitting as a real risk; `docs/UI-UX/13` says it is far more expensive | `PF-19` |
 | Audit log retention confirmed | 24 months is a working default, not a confirmed obligation (`BACKLOG.md` OQ-09) | `P0-07` |
-| Single-VM production (DV-01) | A VM reboot takes authentication down platform-wide; `PLAN/14` requires Multi-AZ. Must close or be formally risk-accepted before a consumer app depends on it | `P0-20` |
+| Single-VM production (DV-01) | A VM reboot takes authentication down platform-wide; `docs/PLAN/14` requires Multi-AZ. Must close or be formally risk-accepted before a consumer app depends on it | `P0-20` |
 | ~~`AUTH_ISSUER` placeholder~~ | Resolved 2026-09-08: `https://auth.zedth.my.id`, verified in the running process | `P0-20` |
 | ~~Service bound to `0.0.0.0`~~ | Resolved 2026-09-08: narrowed to `127.0.0.1`; LAN access confirmed closed | `P0-20` |
 | Issuer must match on every environment | The `iss` claim, the discovery document, and each client's configured issuer must agree exactly; a mismatch fails verification with an error naming none of them | `P1-04` |

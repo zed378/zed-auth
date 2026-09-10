@@ -1,6 +1,6 @@
 -- Records what a refresh token was granted, and gives it a bootstrap lookup.
 --
--- PG-15 (TASKS/BACKLOG.md): PLAN/04 § refresh_tokens lists eleven columns and
+-- PG-15 (TASKS/BACKLOG.md): docs/PLAN/04 § refresh_tokens lists eleven columns and
 -- none of them is the scope the token was issued for. Without it a refresh can
 -- only guess: it would either carry no scope at all, or re-derive one from the
 -- client's registration — which is not the same thing, because scope is what

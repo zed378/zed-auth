@@ -1,8 +1,8 @@
 -- Records when a password was last set, so max_age_days can be enforced.
 --
--- PG-13 (TASKS/BACKLOG.md): PLAN/08 Part B specifies max_age_days as part of
+-- PG-13 (TASKS/BACKLOG.md): docs/PLAN/08 Part B specifies max_age_days as part of
 -- the password policy and P0-07 writes it as the default for every
--- organization, but PLAN/04 § users has no column recording when a password
+-- organization, but docs/PLAN/04 § users has no column recording when a password
 -- was set. As specified, the policy field is unenforceable — a value an
 -- administrator can set and the system can never act on, which reads as a
 -- control and is not.
@@ -11,7 +11,7 @@
 -- the column accumulates data. Every password set before it exists is a row
 -- where "never recorded" and "set long ago" are the same NULL.
 --
--- Additive and backward-compatible per PLAN/14's expand/contract rule: a
+-- Additive and backward-compatible per docs/PLAN/14's expand/contract rule: a
 -- previous-version instance neither reads nor writes it.
 ALTER TABLE users ADD COLUMN password_changed_at timestamptz;
 

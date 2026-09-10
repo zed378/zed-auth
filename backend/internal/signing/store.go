@@ -130,7 +130,7 @@ func (s *Store) Load(ctx context.Context) (*KeySet, error) {
 // The private key reference is stored, never the material — the schema has a
 // CHECK constraint refusing anything containing a PEM private key header,
 // which is the "simplification" that would otherwise silently violate
-// PLAN/02's constraint while every test still passed (P0-07).
+// docs/PLAN/02's constraint while every test still passed (P0-07).
 func (s *Store) Insert(ctx context.Context, pair *KeyPair, privateRef string) error {
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO signing_keys (kid, purpose, algorithm, public_key, private_key_ref, status)

@@ -1,11 +1,11 @@
 //go:build integration
 
-// Package security holds the abuse-case tests from PLAN/11 § Security Testing,
+// Package security holds the abuse-case tests from docs/PLAN/11 § Security Testing,
 // kept apart from the feature tests that live beside the code they exercise.
 //
 // The separation is `P0-15` step 4, and its reason is that these tests are a
-// checklist as much as a suite. `PLAN/11` lists seven scenarios drawn from
-// `PLAN/10-THREAT-MODEL.md`; scattered across packages they become seven tests
+// checklist as much as a suite. `docs/PLAN/11` lists seven scenarios drawn from
+// `docs/PLAN/10-THREAT-MODEL.md`; scattered across packages they become seven tests
 // nobody can enumerate, and "have we covered the threat model" stops being a
 // question anyone can answer by looking. Here, `go test ./tests/security/...`
 // is the answer.
@@ -14,7 +14,7 @@
 // it is listed in the coverage map below rather than left implicit — an
 // unwritten test that nobody knows is unwritten is worse than a failing one.
 //
-// # Coverage against PLAN/11 § Security Testing
+// # Coverage against docs/PLAN/11 § Security Testing
 //
 //	Row-level security prevents cross-org leaks, independent of
 //	  application-layer filtering .......................... TestCrossTenantReadsAreEmpty
@@ -72,7 +72,7 @@ func appConn(t *testing.T, stack *testsupport.Stack) *sql.DB {
 }
 
 // withTenant runs fn inside a transaction scoped to one organization, the way
-// the service does it (`PLAN/08` Part B): `set_config` on a transaction-local
+// the service does it (`docs/PLAN/08` Part B): `set_config` on a transaction-local
 // setting that the RLS policies read.
 func withTenant(t *testing.T, db *sql.DB, orgID string, fn func(tx *sql.Tx)) {
 	t.Helper()
@@ -90,7 +90,7 @@ func withTenant(t *testing.T, db *sql.DB, orgID string, fn func(tx *sql.Tx)) {
 	fn(tx)
 }
 
-// PLAN/08 Part B: isolation must hold "even when the application layer forgets
+// docs/PLAN/08 Part B: isolation must hold "even when the application layer forgets
 // to filter". So this issues a query with NO WHERE clause on org_id — the
 // query a careless caller writes — and asserts the database returns only the
 // current tenant's rows.
@@ -193,7 +193,7 @@ func TestIsolationTestsAreNotVacuous(t *testing.T) {
 //
 // Distinct from the test above: that one covers a forgotten filter, this one
 // covers an attacker who already knows the identifier — the IDOR case in
-// SECURITY/02 §2. An implementation that filtered lists but honoured a direct
+// docs/SECURITY/02 §2. An implementation that filtered lists but honoured a direct
 // lookup would pass the first test and fail this one.
 func TestCrossTenantReadsAreEmpty(t *testing.T) {
 	stack := testsupport.Start(t)
@@ -253,7 +253,7 @@ func TestRuntimeRoleCannotBypassRLS(t *testing.T) {
 	}
 }
 
-// PLAN/09 § Audit and P0-12: the audit log is append-only, enforced by
+// docs/PLAN/09 § Audit and P0-12: the audit log is append-only, enforced by
 // privilege rather than by a trigger or by convention in the writing code.
 //
 // A privilege cannot be forgotten by a future code path, which is the whole

@@ -19,7 +19,7 @@ import (
 // else does.
 //
 // It also keeps secret *values* out of places references are safe to appear:
-// signing_keys.private_key_ref stores one of these (PLAN/04), and the column
+// signing_keys.private_key_ref stores one of these (docs/PLAN/04), and the column
 // has a CHECK constraint refusing anything that looks like key material.
 //
 // Supported today:
@@ -159,7 +159,7 @@ func trimTrailingNewline(b []byte) []byte {
 // A reference is not itself a secret — that is the point of the indirection —
 // but a file path still discloses host layout, and an env var name discloses
 // what the deployment holds. Neither belongs in a log shipped off the host
-// (SECURITY/02-ATTACK-SURFACE-AND-SCENARIOS.md §12).
+// (docs/SECURITY/02-ATTACK-SURFACE-AND-SCENARIOS.md §12).
 func (s SecretRef) String() string {
 	raw := string(s)
 	scheme, _, found := strings.Cut(raw, ":")

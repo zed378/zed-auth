@@ -260,7 +260,7 @@ func TestStrongerHashesAreNotDowngraded(t *testing.T) {
 	}
 }
 
-// PLAN/09: never log passwords, even failed attempts. Errors are the easiest
+// docs/PLAN/09: never log passwords, even failed attempts. Errors are the easiest
 // place for one to escape, because an error message is written to be helpful.
 func TestNoErrorContainsThePassword(t *testing.T) {
 	const password = "SuperSecret!Passphrase#12345"
@@ -314,7 +314,7 @@ func TestHashRejectsEmptyAndOversizedPasswords(t *testing.T) {
 	}
 }
 
-// SECURITY/02 §12, Enumeration. If a login for an unregistered address returns
+// docs/SECURITY/02 §12, Enumeration. If a login for an unregistered address returns
 // faster than one for a registered address, the response time is an oracle for
 // which addresses have accounts — a password-reset list, a phishing list, and
 // confirmation that a person works somewhere.
@@ -360,7 +360,7 @@ func TestNonexistentUserCostsTheSameAsARealOne(t *testing.T) {
 			"(ratio %.2f, want between %.1f and %.1f).\n"+
 			"A large difference means the not-found path is skipping the hash, "+
 			"which makes response time an oracle for which addresses are "+
-			"registered (SECURITY/02 §12).",
+			"registered (docs/SECURITY/02 §12).",
 			dummy, real, ratio, lower, upper)
 	}
 }

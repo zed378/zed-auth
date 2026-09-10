@@ -5,24 +5,24 @@ import type { ReactNode } from "react";
 /**
  * The landing page.
  *
- * Structure from `UI-UX/20` § Detailed Spec: Landing Page. Copy adapted from
- * `UI-UX/21`'s blueprint, with `[Product name]` resolved to Zed Auth.
+ * Structure from `docs/UI-UX/20` § Detailed Spec: Landing Page. Copy adapted from
+ * `docs/UI-UX/21`'s blueprint, with `[Product name]` resolved to Zed Auth.
  *
  * Two rules shape what is here and what is not.
  *
- * **Nothing claims a capability that has not shipped** (`UI-UX/21` § Content
- * Governance, `CLAUDE.md`). `UI-UX/21`'s capabilities blueprint has four
+ * **Nothing claims a capability that has not shipped** (`docs/UI-UX/21` § Content
+ * Governance, `CLAUDE.md`). `docs/UI-UX/21`'s capabilities blueprint has four
  * cards — SSO, REST API, RBAC, policy-based access — written in the present
  * tense. The project is in Phase 0: the service runs, it is deployed, and it
  * serves two operational probes. None of those four exist yet. So they are
  * described as the design, in a section that says the roadmap phase each
  * arrives in, rather than as things a visitor can use today.
  *
- * **No social proof section.** `UI-UX/20` is explicit: include it "only once
+ * **No social proof section.** `docs/UI-UX/20` is explicit: include it "only once
  * genuinely available", because "an empty or fabricated social-proof section
  * is worse than omitting it entirely". There are no users to quote.
  *
- * One primary CTA style, used consistently (`UI-UX/20` § Interaction), with
+ * One primary CTA style, used consistently (`docs/UI-UX/20` § Interaction), with
  * secondary actions visually subordinate — avoiding the homepage with five
  * equally-weighted competing calls to action.
  */
@@ -30,7 +30,7 @@ import type { ReactNode } from "react";
 interface Capability {
   title: string;
   body: string;
-  /** The `PLAN/16` phase that delivers it. */
+  /** The `docs/PLAN/16` phase that delivers it. */
   phase: string;
 }
 
@@ -75,7 +75,7 @@ export default function Home(): ReactNode {
       <header className="site-hero">
         <div className="site-container">
           {/*
-            `UI-UX/21`'s hero headline, verbatim. It is concrete rather than
+            `docs/UI-UX/21`'s hero headline, verbatim. It is concrete rather than
             generic — "Secure your business" is the failure mode that document
             names — and it survives the shipped-capability rule because it
             describes what the product is for, not what you can do with it
@@ -103,7 +103,7 @@ export default function Home(): ReactNode {
           {/*
             The honest status, above the fold rather than buried.
 
-            `UI-UX/21`'s blueprint puts "Get Started" here, pointing at a
+            `docs/UI-UX/21`'s blueprint puts "Get Started" here, pointing at a
             quickstart. There is no working integration to start, so the CTA
             points at the docs instead — a "Get Started" button leading to a
             page that says "not available yet" costs more trust than it wins.
@@ -165,7 +165,7 @@ export default function Home(): ReactNode {
           </p>
           {/*
             The closing section restates the primary action rather than
-            introducing a new one (`UI-UX/20` § Detailed Spec: Landing Page,
+            introducing a new one (`docs/UI-UX/20` § Detailed Spec: Landing Page,
             "Final CTA section, restating the primary action"). Same label,
             same destination, same visual weight as the hero.
           */}

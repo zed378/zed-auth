@@ -134,6 +134,7 @@ func TestEndpointsAppearWhenImplemented(t *testing.T) {
 	caps := baseCapabilities()
 	caps.AuthorizationEndpoint = "https://auth.example/oauth/authorize"
 	caps.TokenEndpoint = "https://auth.example/oauth/token"
+	caps.UserInfoEndpoint = "https://auth.example/oauth/userinfo"
 	caps.GrantTypes = []string{"authorization_code", "refresh_token", "client_credentials"}
 	caps.ResponseTypes = []string{"code"}
 
@@ -149,6 +150,12 @@ func TestEndpointsAppearWhenImplemented(t *testing.T) {
 	}
 	if body["token_endpoint"] != caps.TokenEndpoint {
 		t.Errorf("token_endpoint = %v", body["token_endpoint"])
+	}
+	// P1-08. With this the document names all four endpoints a conforming
+	// client configures itself from, which is the point at which discovery
+	// stops being a partial description of the service.
+	if body["userinfo_endpoint"] != caps.UserInfoEndpoint {
+		t.Errorf("userinfo_endpoint = %v", body["userinfo_endpoint"])
 	}
 }
 
@@ -207,7 +214,7 @@ func TestPKCEIsNotAdvertisedWithoutAnAuthorizationEndpoint(t *testing.T) {
 
 // --- forbidden grants ------------------------------------------------------
 
-// PLAN/05 rules both out permanently. Advertising a grant this service refuses
+// docs/PLAN/05 rules both out permanently. Advertising a grant this service refuses
 // invites a client to build against it and discover the refusal in production.
 func TestForbiddenGrantsAreRejectedAtConstruction(t *testing.T) {
 	for _, grant := range []string{"implicit", "password"} {
@@ -217,7 +224,7 @@ func TestForbiddenGrantsAreRejectedAtConstruction(t *testing.T) {
 
 			_, err := NewHandler(caps, testKeys(t, currentKey(t)))
 			if err == nil {
-				t.Fatalf("SECURITY: grant type %q was accepted; PLAN/05 rules it out permanently", grant)
+				t.Fatalf("SECURITY: grant type %q was accepted; docs/PLAN/05 rules it out permanently", grant)
 			}
 			if !strings.Contains(err.Error(), grant) {
 				t.Errorf("the error should name the grant, got: %v", err)

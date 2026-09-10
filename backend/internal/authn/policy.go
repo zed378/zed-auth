@@ -11,7 +11,7 @@ import (
 
 // Password policy, read from organizations.settings rather than compiled in.
 //
-// PLAN/08 Part B § Policies per Organization specifies the shape; P0-07's
+// docs/PLAN/08 Part B § Policies per Organization specifies the shape; P0-07's
 // migration already writes it as the default for every organization. The
 // reason it is read rather than constant is P2-14: administrators will edit
 // these values, and enforcement that reads a Go constant is enforcement that
@@ -27,7 +27,7 @@ type Policy struct {
 	// RequireUppercase demands at least one uppercase letter.
 	//
 	// Meaningless in a script that has no case — a Japanese passphrase cannot
-	// satisfy it at any length. That is a consequence of PLAN/08's rule rather
+	// satisfy it at any length. That is a consequence of docs/PLAN/08's rule rather
 	// than of this code, and the available remedy is that the rule is per
 	// organization: a tenant whose users write in a caseless script can turn
 	// it off. Recorded in the spec § 13 so it is a known trade rather than a
@@ -197,7 +197,7 @@ type Adjustment struct {
 	Reason     string
 }
 
-// settingsShape mirrors the JSON in PLAN/08 Part B.
+// settingsShape mirrors the JSON in docs/PLAN/08 Part B.
 //
 // Pointers throughout, because "absent" and "set to the zero value" are
 // different: a missing require_uppercase must fall back to the default, while

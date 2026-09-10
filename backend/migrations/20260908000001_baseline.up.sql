@@ -1,6 +1,6 @@
 -- Baseline: extensions and the instance root.
 --
--- PLAN/04-DATA-MODEL.md § Entity Hierarchy:
+-- docs/PLAN/04-DATA-MODEL.md § Entity Hierarchy:
 --   Instance (deployment) -> Organization (tenant) -> Project -> Application
 --
 -- Conventions used throughout every migration in this directory:
@@ -11,7 +11,7 @@
 --   * Status columns are text + CHECK, not native enum types. Adding a value
 --     to a native enum cannot run inside a transaction on older PostgreSQL and
 --     removing one is effectively impossible, which fights the expand/contract
---     discipline PLAN/14 requires.
+--     discipline docs/PLAN/14 requires.
 --   * Every tenant-scoped table carries org_id directly, even where it is
 --     reachable through a join, because row-level security (P0-08) filters on
 --     the column rather than on a join path.
@@ -41,4 +41,4 @@ CREATE TRIGGER instances_set_updated_at
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
 COMMENT ON TABLE instances IS
-  'Deployment root. One row per deployment; organizations hang off it (PLAN/04).';
+  'Deployment root. One row per deployment; organizations hang off it (docs/PLAN/04).';
