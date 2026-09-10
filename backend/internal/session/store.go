@@ -214,6 +214,46 @@ func (s *Store) RevokeAllForUser(
 	return ids, hashes, nil
 }
 
+// RevokeAllInOrganization revokes every live session in the scoped tenant.
+//
+// No org_id predicate: the transaction is already scoped to one organization
+// and RLS supplies it. Adding one would be a second, independent way to name
+// the tenant, and two ways to name a target is how one of them ends up not
+// being checked.
+//
+// Used when an organization is deleted (P1-16). Without it a deleted tenant's
+// users keep working until their tokens expire, which is a tenant deleted only
+// in the console.
+func (s *Store) RevokeAllInOrganization(
+	ctx context.Context, tx *postgres.Tx, now time.Time,
+) ([]string, []string, error) {
+	rows, err := tx.Query(ctx, `
+		UPDATE sessions SET revoked_at = $1
+		 WHERE revoked_at IS NULL AND expires_at > $1
+		RETURNING id, COALESCE(token_hash, '')`, now)
+	if err != nil {
+		return nil, nil, fmt.Errorf("session: revoking an organization: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var ids, hashes []string
+	for rows.Next() {
+		var id, hash string
+		if err := rows.Scan(&id, &hash); err != nil {
+			return nil, nil, fmt.Errorf("session: revoking an organization: %w", err)
+		}
+		ids = append(ids, id)
+		if hash != "" {
+			hashes = append(hashes, hash)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, fmt.Errorf("session: revoking an organization: %w", err)
+	}
+
+	return ids, hashes, nil
+}
+
 // Sweep deletes sessions that can no longer be used.
 //
 // DoD item 4: expired sessions are cleaned up rather than accumulating. Runs on

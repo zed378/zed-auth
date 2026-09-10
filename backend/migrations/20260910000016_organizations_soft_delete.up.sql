@@ -54,3 +54,138 @@ CREATE INDEX organizations_live_idx
 ALTER TABLE organizations
     ADD CONSTRAINT organizations_deleted_has_no_domain
     CHECK (deleted_at IS NULL OR domain IS NULL);
+
+
+-- --- Listing and creating ----------------------------------------------------
+--
+-- `organizations` is the one table whose RLS policy is keyed on `id` rather
+-- than `org_id`, because an organization row IS the tenant. That makes two
+-- operations impossible under either scope:
+--
+--   * LIST spans organizations by definition, so tenant scope is wrong.
+--   * CREATE happens before the organization exists, so there is no tenant to
+--     scope to.
+--
+-- And instance scope does not help: it sets current_org_id() to NULL, under
+-- which `id = current_org_id()` is false for every row. A list would return
+-- nothing and a create would fail its WITH CHECK — silently, in the list's
+-- case, which is the P0-20 shape again.
+--
+-- Same answer as P0-12's partition maintenance, P1-11's session sweep and
+-- P1-15's idempotency sweep: SECURITY DEFINER, pinned search_path, granted only
+-- to auth_app, narrow to exactly its question.
+--
+-- Note what NEITHER of these can do: neither takes an organization id, so
+-- neither is a way to reach a specific tenant's row by guessing one. Reading,
+-- updating and deleting a named organization all run under WithTenant(target),
+-- where RLS confines them to that single row.
+
+CREATE OR REPLACE FUNCTION organizations_page(
+    after_created timestamptz,
+    after_id      uuid,
+    max_rows      int
+)
+RETURNS TABLE (
+    id         uuid,
+    name       text,
+    domain     text,
+    status     text,
+    settings   jsonb,
+    created_at timestamptz,
+    updated_at timestamptz
+)
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+    SELECT o.id, o.name, o.domain, o.status, o.settings, o.created_at, o.updated_at
+      FROM organizations o
+     WHERE o.deleted_at IS NULL
+       AND (after_created IS NULL OR (o.created_at, o.id) > (after_created, after_id))
+     ORDER BY o.created_at, o.id
+     LIMIT max_rows;
+$$;
+
+REVOKE ALL ON FUNCTION organizations_page(timestamptz, uuid, int) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION organizations_page(timestamptz, uuid, int) TO auth_app;
+
+COMMENT ON FUNCTION organizations_page(timestamptz, uuid, int) IS
+  'Keyset page of live organizations. Instance-wide by definition; the caller must already hold INSTANCE_OWNER (P1-16).';
+
+
+-- The instance is not a parameter.
+--
+-- Phase 1 runs one instance, and taking an instance_id would be a value a
+-- caller could supply — which is a tenant selector on a function that runs with
+-- the owner's privileges. The function reads the single instance instead, and
+-- refuses if there is more than one, so the day Phase 2 makes instances plural
+-- this fails loudly rather than silently picking one.
+CREATE OR REPLACE FUNCTION organization_create(
+    new_name     text,
+    new_domain   text,
+    new_settings jsonb
+)
+RETURNS TABLE (
+    id         uuid,
+    name       text,
+    domain     text,
+    status     text,
+    settings   jsonb,
+    created_at timestamptz,
+    updated_at timestamptz
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+    target_instance uuid;
+    instance_count  int;
+    created_id      uuid;
+BEGIN
+    -- The instance is NOT a parameter.
+    --
+    -- Phase 1 runs one instance, and taking an instance_id would be a tenant
+    -- selector supplied by the caller on a function that runs with the owner's
+    -- privileges. The function finds the single instance instead, and refuses
+    -- if there is more than one — so the day Phase 2 makes instances plural,
+    -- this fails loudly rather than silently picking one.
+    SELECT count(*) INTO instance_count FROM instances;
+    IF instance_count <> 1 THEN
+        RAISE EXCEPTION 'organization_create: expected exactly one instance, found %', instance_count;
+    END IF;
+    SELECT i.id INTO target_instance FROM instances i;
+
+    -- Inserted WITHOUT settings, so the column default applies.
+    --
+    -- "Use the DEFAULT" is not a value that can be COALESCEd to; omitting the
+    -- column is the only way to get it. And the default is what a new tenant
+    -- must get: an organization created with the caller's document substituted
+    -- for it would have no password policy at all unless the caller happened
+    -- to send one.
+    INSERT INTO organizations (instance_id, name, domain)
+    VALUES (target_instance, new_name, new_domain)
+    RETURNING organizations.id INTO created_id;
+
+    IF new_settings IS NULL THEN
+        RETURN QUERY
+        SELECT o.id, o.name, o.domain, o.status, o.settings, o.created_at, o.updated_at
+          FROM organizations o WHERE o.id = created_id;
+    ELSE
+        -- Merged ONTO the default, not substituted for it. A caller who sets
+        -- only mfa_required must not thereby delete the password policy — the
+        -- same rule the PATCH merge follows, applied at birth.
+        RETURN QUERY
+        UPDATE organizations o
+           SET settings = o.settings || new_settings
+         WHERE o.id = created_id
+        RETURNING o.id, o.name, o.domain, o.status, o.settings, o.created_at, o.updated_at;
+    END IF;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION organization_create(text, text, jsonb) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION organization_create(text, text, jsonb) TO auth_app;
+
+COMMENT ON FUNCTION organization_create(text, text, jsonb) IS
+  'Creates an organization. Runs before its tenant exists, so no scope can apply; the caller must already hold INSTANCE_OWNER (P1-16).';

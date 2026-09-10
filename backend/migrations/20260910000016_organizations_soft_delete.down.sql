@@ -8,3 +8,5 @@
 ALTER TABLE organizations DROP CONSTRAINT IF EXISTS organizations_deleted_has_no_domain;
 DROP INDEX IF EXISTS organizations_live_idx;
 ALTER TABLE organizations DROP COLUMN IF EXISTS deleted_at;
+DROP FUNCTION IF EXISTS organizations_page(timestamptz, uuid, int);
+DROP FUNCTION IF EXISTS organization_create(text, text, jsonb);

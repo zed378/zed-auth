@@ -232,6 +232,57 @@ func (m *Manager) RevokeAllForUser(
 	}, nil
 }
 
+// RevokeOrganization ends every session in the scoped tenant and returns how
+// many.
+//
+// The count is returned rather than discarded because it goes into the audit
+// event for the deletion: "the tenant was deleted and 0 sessions were revoked"
+// and "...and 340 were" are different facts, and only the first is suspicious
+// when the tenant was supposed to be in use.
+//
+// Cache invalidation runs INSIDE this call rather than being returned as a
+// deferred function, unlike RevokeAllForUser. The difference is what happens on
+// failure: there, the caller is mid-logout and can still answer the user; here,
+// the organization is being deleted and there is no later moment. Invalidation
+// failures are reported, not swallowed.
+func (m *Manager) RevokeOrganization(
+	ctx context.Context, tx *postgres.Tx, orgID string,
+) (int64, error) {
+	now := time.Now()
+
+	ids, hashes, err := m.store.RevokeAllInOrganization(ctx, tx, now)
+	if err != nil {
+		return 0, err
+	}
+	if len(ids) == 0 {
+		return 0, nil
+	}
+
+	if err := m.audit.Write(ctx, tx, audit.Event{
+		OrgID: orgID,
+		Type:  audit.EventSessionRevoked,
+		Payload: map[string]any{
+			"reason": "organization_deleted",
+			"count":  len(ids),
+		},
+	}); err != nil {
+		return 0, fmt.Errorf("session: auditing an organization revocation: %w", err)
+	}
+
+	until := now.Add(MaxAbsoluteLifetime)
+	for _, hash := range hashes {
+		if err := m.cache.Invalidate(ctx, hash, until); err != nil {
+			// Reported, and the revocation still stands: the database rows are
+			// revoked, so a cache miss falls through to a revoked session. A
+			// stale cache HIT is the exposure, which is why this is an error
+			// rather than a debug line.
+			return int64(len(ids)), fmt.Errorf("session: invalidating a revoked session: %w", err)
+		}
+	}
+
+	return int64(len(ids)), nil
+}
+
 // hashFor reads a session's token hash, for cache invalidation.
 //
 // Kept off the Session struct on purpose (PG-14): no read path returns a
