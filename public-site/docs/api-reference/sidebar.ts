@@ -98,6 +98,42 @@ const sidebar: SidebarsConfig = {
         },
       ],
     },
+    {
+      type: "category",
+      label: "Organizations",
+      items: [
+        {
+          type: "doc",
+          id: "api-reference/list-organizations",
+          label: "List organizations",
+          className: "api-method get",
+        },
+        {
+          type: "doc",
+          id: "api-reference/create-organization",
+          label: "Create an organization",
+          className: "api-method post",
+        },
+        {
+          type: "doc",
+          id: "api-reference/get-organization",
+          label: "Read an organization",
+          className: "api-method get",
+        },
+        {
+          type: "doc",
+          id: "api-reference/update-organization",
+          label: "Update an organization",
+          className: "api-method patch",
+        },
+        {
+          type: "doc",
+          id: "api-reference/delete-organization",
+          label: "Delete an organization",
+          className: "api-method delete",
+        },
+      ],
+    },
   ],
 };
 
