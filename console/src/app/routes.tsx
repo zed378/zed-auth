@@ -4,7 +4,9 @@ import { RequireAuth } from "./RequireAuth";
 import { CallbackPage } from "../pages/CallbackPage";
 import { NotFoundPage } from "../pages/NotFoundPage";
 import { OverviewPage } from "../pages/OverviewPage";
+import { ApplicationsPage } from "../pages/ApplicationsPage";
 import { PlaceholderPage } from "../pages/PlaceholderPage";
+import { ProjectsPage } from "../pages/ProjectsPage";
 import { SilentCallbackPage } from "../pages/SilentCallbackPage";
 
 /**
@@ -37,10 +39,18 @@ export function AppRoutes() {
         }
       />
       <Route
-        path="/projects/*"
+        path="/projects"
         element={
           <RequireAuth roles={["ORG_ADMIN", "ORG_OWNER", "INSTANCE_OWNER"]}>
-            <PlaceholderPage title="Projects" phase="1" />
+            <ProjectsPage />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/projects/:projectId"
+        element={
+          <RequireAuth roles={["ORG_ADMIN", "ORG_OWNER", "INSTANCE_OWNER"]}>
+            <ApplicationsPage />
           </RequireAuth>
         }
       />
