@@ -938,7 +938,7 @@ Also found: `session_id` was in the logger's redaction list — correct when the
 
 | | |
 |---|---|
-| **Status** | TODO |
+| **Status** | DONE — [record](../MEMORY/records/2026-09-10-P1-22-console-screens.md), [chain](../console/docs/implementation-chain-P1-22.md) |
 | **Depends on** | P1-21, P1-16, P1-17, P1-18 |
 | **Plan refs** | `docs/UI-UX/18-DETAILED-PAGE-SPECIFICATIONS.md` § Organization Overview, `docs/UI-UX/08-PAGE-SPECIFICATIONS.md`, `docs/UI-UX/19-FRONTEND-IMPLEMENTATION-CHAIN.md`, `docs/UI-UX/14-EMPTY-LOADING-ERROR-STATES.md` |
 | **Spec required** | No — but the implementation chain is mandatory |
@@ -956,13 +956,17 @@ Also found: `session_id` was in the logger's redaction list — correct when the
 7. Ensure every screen is usable down to tablet width (`docs/UI-UX/12`, `docs/UI-UX/08` § Responsive Scope).
 
 **Definition of Done**
-- [ ] A completed implementation-chain table exists for every screen, committed alongside the code.
-- [ ] Loading, error, empty, filtered-empty, and permission-denied states all render correctly and are covered by tests.
-- [ ] The client secret modal shows the secret once and cannot retrieve it again.
-- [ ] All three screens work at 1440px, 1024px, and 768px.
-- [ ] Keyboard navigation and screen-reader labelling meet `docs/UI-UX/13`.
-- [ ] Every list uses the shared table pattern.
+- [x] A completed implementation-chain table exists for every screen, committed alongside the code. [`console/docs/implementation-chain-P1-22.md`](../console/docs/implementation-chain-P1-22.md) — three screens and four components, with "not applicable" written out where it applies rather than left blank. Writing it found three decisions that would otherwise have been made by accident, including the per-card error state the obvious implementation would have got wrong.
+- [x] Loading, error, empty, filtered-empty, and permission-denied states all render correctly and are covered by tests. The four live in one file because `docs/UI-UX/14`’s point is that they are a SET; `EmptyState` takes `filtered` and `ErrorState` takes a kind, so both distinctions are structural rather than remembered. A `permission` refusal deliberately gets **no** retry button.
+- [x] The client secret modal shows the secret once and cannot retrieve it again. Not dismissible by Escape or by clicking away, `Done` gated behind an acknowledgement, the value readable rather than masked, and the copy confirmation `aria-live`. It is not opened at all for a public client, because a warning about a secret that does not exist trains people to dismiss warnings.
+- [x] All three screens work at 1440px, 1024px, and 768px. Secondary columns drop below 1024px rather than the table scrolling; KPI cards go 3-up, 3-up, 2-up; below 768px the shell already replaces the layout, so there is no single-column case to design.
+- [x] Keyboard navigation and screen-reader labelling meet `docs/UI-UX/13`. Table captions as accessible names, a named actions column, modal focus taken and restored and trapped, a loading button that keeps its accessible name, badges that always carry text, and the activity trend as a real table rather than a bar a screen reader cannot read. axe checks on the table and the dialog.
+- [x] Every list uses the shared table pattern. `Table` is the only table — which is why `P1-23` and `P1-24` add screens rather than tables.
 
+
+**Found while building it**
+- **The inline-style lint rule was right twice.** It caught the activity bar’s width — a proportion computed per render, which no token can express — and then caught the first fix, where the reasoning inside the disable comment pushed the directive four lines from the offending line.
+- **`color-danger` was tempting in two places that are not destructive**: a `deactivated` status badge and a "no secret" state. Neither is an action; both are muted. `Badge` has no danger tone at all, which makes the rule structural.
 ---
 
 ## P1-23 — Console: Users List and Detail
