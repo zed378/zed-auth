@@ -650,7 +650,7 @@ Also found: `session_id` was in the logger's redaction list — correct when the
 
 | | |
 |---|---|
-| **Status** | TODO |
+| **Status** | DONE — [record](../MEMORY/records/2026-09-10-P1-15-management-api-foundation.md), [spec](../MEMORY/specs/P1-15-management-api-foundation.md) |
 | **Depends on** | P0-16, P1-07 |
 | **Plan refs** | `docs/PLAN/05-API-CONTRACT.md` Part B, `docs/PLAN/02-REQUIREMENTS.md` FR-13/FR-14, `docs/PLAN/08-AUTHORIZATION.md` Part C § manager_roles |
 | **Spec required** | Yes — authorization surface |
@@ -671,12 +671,24 @@ Also found: `session_id` was in the logger's redaction list — correct when the
 10. Register every endpoint in the OpenAPI spec as it is built — `P0-16`'s CI check makes drift a build failure rather than a discovery.
 
 **Definition of Done**
-- [ ] A request with no token, an expired token, or a wrong-audience token is rejected with the correct status.
-- [ ] A caller lacking the required manager role is rejected regardless of what the console would have shown them.
-- [ ] Pagination is consistent across every list endpoint and stable under concurrent inserts.
-- [ ] Replaying a `POST` with the same `Idempotency-Key` returns the original result without creating a duplicate.
-- [ ] Every error response matches `docs/PLAN/05`'s schema.
-- [ ] Every mutating call writes an audit event.
+- [x] A request with no token, an expired token, or a wrong-audience token is rejected with the correct status. Seven cases, all `401` — plus the check that every refusal of a *presented* token is word for word identical, so a caller holding a captured token cannot ask which property was wrong. A request with no credential at all is allowed to differ, and the two no-credential cases must match each other.
+- [x] A caller lacking the required manager role is rejected regardless of what the console would have shown them. Roles are read from `manager_roles` on every request, never from the token: the test revokes the role between two calls **with the same token** and the second is refused. Reading the token would pass every other test.
+- [x] Pagination is consistent across every list endpoint and stable under concurrent inserts. Keyset, not offset — a cursor names `(created_at, id)` and carries nothing else, so a forged one can choose a starting position and nothing more. The stability half is an integration test that inserts rows **before and after the cursor on every page boundary** and asserts every row present at the start is returned exactly once; it is paired with a control that runs the same disruption against an `OFFSET` walk and **requires** it to duplicate rows, so a test passing against both designs would fail.
+- [x] Replaying a `POST` with the same `Idempotency-Key` returns the original result without creating a duplicate. Byte for byte, including under eight racing goroutines, where the handler runs exactly once.
+- [x] Every error response matches `docs/PLAN/05`'s schema. Every refusal the chain can produce — 401, 403, 404, 409, 429, 400 — checked against the envelope, the content type and `Cache-Control: no-store`.
+- [x] Every mutating call writes an audit event. Asserted at both ends: the row is really in `events` with the right actor and tenant, **and** a handler that writes nothing is reported by `AuditGuard` on the first request. Only the first would pass against a guard that never fires; only the second against a writer that never writes.
+
+**What this task did not build**
+- **Endpoints.** `P1-16` onward. `/v1` is mounted and empty, so the next task adds a route rather than a route *and* the chain protecting it.
+- **The OAuth endpoints behind the new limiter.** `PG-19` asked for the mechanism, which now exists; wiring the three protocol endpoints to it needs a bound of its own and a `docs/PLAN/05` Part A amendment. `BL-06`.
+- **Project-scoped roles.** Named in `roles.go` so a row carrying one reads as "not yet" rather than as no role. Phase 2.
+
+**Two plan gaps closed**
+- `PG-21` — idempotency records had nowhere to live. Additive `idempotency_records` table; `docs/PLAN/04` needs amending to describe it.
+- `PG-19` — per-client rate limiting had a requirement and no owner. Built here for `/v1`; `BL-06` carries the remainder.
+
+**One control that existed only as a comment**
+`errors.go` documented `404`-not-`403` for another organization's resource from the start, and `Require` wrote `Forbidden` for every authorization failure. A caller could ask "is org `8f3e…` real?" one request at a time — abuse case A-3. `Decision.Invisible` now distinguishes "you may not" from "you cannot see this", and the unit test that asserted `403` was asserting the wrong answer.
 
 **Abuse cases to test**
 - Privilege escalation via the API by a caller whose token lacks the role (`docs/SECURITY/02` §3).
