@@ -3,8 +3,8 @@
 Single source of truth for where the project stands. Updated in the same commit as the work it describes (`00-TASK-CONVENTIONS.md` global DoD item 8).
 
 **Last updated**: 2026-09-10
-**Current phase**: Phase 1 — MVP Core Auth (16 / 28 done). Phase 0 is 20 / 21; `P0-20` stays WIP pending the pull-based deployment re-read
-**Overall**: 30 / 177 tasks done
+**Current phase**: Phase 1 — MVP Core Auth (17 / 28 done). Phase 0 is 20 / 21; `P0-20` stays WIP pending the pull-based deployment re-read
+**Overall**: 31 / 177 tasks done
 
 Status values: `TODO` · `BLOCKED` · `SPEC` · `WIP` · `REVIEW` · `DONE` · `DROPPED`
 Sizes: `S` under half a day · `M` one to two days · `L` several days · `XL` must be split
@@ -16,7 +16,7 @@ Sizes: `S` under half a day · `M` one to two days · `L` several days · `XL` m
 | Phase | Tasks | Done | Status | Gate to enter |
 |---|---|---|---|---|
 | [Phase 0 — Foundation](./PHASE-0-FOUNDATION.md) | 21 | 20 | **ACTIVE** — `P0-20` only | — |
-| [Phase 1 — MVP: Core Auth + SSO](./PHASE-1-MVP-CORE-AUTH-SSO.md) | 28 | 16 | **ACTIVE** | Phase 0 exit checklist |
+| [Phase 1 — MVP: Core Auth + SSO](./PHASE-1-MVP-CORE-AUTH-SSO.md) | 28 | 17 | **ACTIVE** | Phase 0 exit checklist |
 | [Phase 2 — RBAC & Multi-Tenancy](./PHASE-2-RBAC-MULTITENANCY.md) | 17 | 0 | Not started | Phase 1 exit + `P1-28` |
 | [Phase 3 — Advanced Security](./PHASE-3-ADVANCED-SECURITY.md) | 15 | 0 | Not started | Phase 2 exit + threat model review |
 | [Phase 4 — Enterprise Interop](./PHASE-4-ENTERPRISE-INTEROP.md) | 16 | 0 | Not started | Phase 3 exit + threat model review |
@@ -80,7 +80,7 @@ Sizes: `S` under half a day · `M` one to two days · `L` several days · `XL` m
 | P1-14 | Authentication audit events | S | **DONE** — mostly verification, and it earned its keep: `P1-13`'s lockout event was never actually written, because a DoD item about the audit log had been ticked on a fake auditor. Now asserted against a real database, with `EXPLAIN` on the three documented access patterns | P0-12, P1-12 |
 | P1-15 | Management API foundation | L | DONE | P0-16, P1-07 |
 | P1-16 | Management API — organizations | M | DONE | P1-15 |
-| P1-17 | Management API — projects | M | TODO | P1-15 |
+| P1-17 | Management API — projects | M | DONE | P1-15 |
 | P1-18 | Management API — applications | M | TODO | P1-15, P1-05 |
 | P1-19 | Management API — users | L | TODO | P1-15, P1-01 |
 | P1-20 | Management API — audit log read | M | TODO | P1-15, P0-12 |
@@ -311,6 +311,7 @@ Things that are easy to get wrong once and expensive to fix later. Re-check each
 | `org_id` nested inside role claims | Required from day one to disambiguate delegated roles in Phase 4 | `P2-04` |
 | Subset validation on every request | Four documents state this rule; it is where delegation becomes a breach | `P4-02` |
 | Server-side authorization on every request | UI hiding is never a control | `P1-15` |
+| A tenant-scoped store takes no `org_id` parameter | The predicate that reads as defence in depth is the one that makes the RLS test pass whether or not the policy exists. Confine the transaction, then query without a tenant predicate, so the test has only one thing it can be measuring | `P1-17` |
 | Refresh token storage shape | Must not need changing when rotation arrives in Phase 3 | `P1-07` |
 | `auth_methods` accuracy | Step-up in Phase 3 depends on it being trustworthy from Phase 1 | `P1-11` |
 | Audit log append-only guarantee | Enforced at the database level, not by convention | `P0-07` |

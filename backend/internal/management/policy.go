@@ -44,6 +44,17 @@ var Policy = map[string]Requirement{
 	"GET /v1/organizations/{org_id}":    {Role: OrgAdmin, Scope: ScopeOrganization},
 	"PATCH /v1/organizations/{org_id}":  {Role: OrgOwner, Scope: ScopeOrganization},
 	"DELETE /v1/organizations/{org_id}": {Role: InstanceOwner, Scope: ScopeInstance},
+
+	// --- Projects (P1-17) ---
+	//
+	// All organization-scoped: a project belongs to exactly one tenant, and the
+	// organization is in the path. DELETE needs ORG_OWNER because it is the
+	// only destructive one — and it still refuses while anything is attached.
+	"GET /v1/organizations/{org_id}/projects":                 {Role: OrgAdmin, Scope: ScopeOrganization},
+	"POST /v1/organizations/{org_id}/projects":                {Role: OrgAdmin, Scope: ScopeOrganization},
+	"GET /v1/organizations/{org_id}/projects/{project_id}":    {Role: OrgAdmin, Scope: ScopeOrganization},
+	"PATCH /v1/organizations/{org_id}/projects/{project_id}":  {Role: OrgAdmin, Scope: ScopeOrganization},
+	"DELETE /v1/organizations/{org_id}/projects/{project_id}": {Role: OrgOwner, Scope: ScopeOrganization},
 }
 
 // PolicyKey names a route the way Policy does.
