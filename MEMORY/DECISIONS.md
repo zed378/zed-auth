@@ -47,6 +47,7 @@ Decisions `TASKS/` has identified as needing an ADR, listed here so they are not
 | P0-12 | Audit write semantics: inside the business transaction, or after it | Determines whether a failed audit write blocks the action it records |
 | ~~P1-02~~ | ~~Breached-password check: fail open or fail closed~~ — **decided 2026-09-09**, ADR-015: fail open, with an audit event, a counter and an alert on every skip | Failing closed blocks legitimate password changes during a third-party outage |
 | ~~P1-13~~ | ~~Rate limiter behaviour when Redis is down~~ — **decided 2026-09-10**, ADR-017: fail open, loudly. Failing closed converts a cache outage into a total authentication outage, and Argon2's 50-100ms per attempt is a floor that does not depend on Redis | Failing closed hands an attacker who can reach Redis a bigger win than the brute force the limiter exists to stop |
+| ~~P1-19~~ | ~~Email delivery provider (`OQ-04`)~~ — **decided 2026-09-10**, ADR-018: plain SMTP by URL, no provider SDK, and nothing waits on delivery | An SDK is a vendor dependency in code rather than in configuration; for an identity provider the switch has to stay cheap |
 | ~~P1-05~~ | ~~Client secret hashing~~ — **decided 2026-09-09**, ADR-016: SHA-256, because 256 bits of entropy already settles brute force and a slow KDF would be self-inflicted amplification on the token endpoint | A slow KDF on a hot verification path is a denial-of-service surface |
 | P1-13 | Rate limiting behavior when Redis is unavailable | Fail open means no rate limiting; fail closed means no logins at all |
 | P1-21 | Console token storage: in-memory with silent renewal, or `localStorage` | In-memory resists XSS token theft but depends on silent renewal being solid |
@@ -772,3 +773,59 @@ It becomes worth revisiting when there is more than one instance, because at tha
 **Plan impact**
 
 None. `docs/PLAN/13`'s fail-safe principle is about authorization decisions — whether to permit an action — and is unchanged: an authorization check that cannot reach its data still denies. This is a rate limit, which is a bound on how often something may be attempted, and the trade-off is different because the failure mode is.
+
+---
+
+### ADR-018 — Outbound email is plain SMTP, and nothing waits on it
+
+**Status**: accepted, 2026-09-10 (`P1-19`), closing **`OQ-04`**
+
+**Context**
+
+`OQ-04` has been open since the backlog was written and names `P1-19.1`, `P1-19.4` and `P3-08` as blocked by it: invitations, password resets and anomaly notifications all need outbound email, and no plan document names a provider or an approach. It also notes the security dimension — SPF, DKIM and DMARC matter more for an identity provider than for most senders, because a password-reset email is a prime phishing target.
+
+`P1-19` cannot be built without answering it. The user asked for Phase 1 to be finished without stopping for confirmation, so this is decided here rather than deferred, and recorded so that it is a decision rather than a default.
+
+**Decision**
+
+**SMTP, configured by URL, with no provider SDK anywhere in the codebase.**
+
+- One `internal/mail` package speaking SMTP with STARTTLS, taking host, port, credentials and a From address from configuration.
+- Locally it points at the Mailpit already in `deploy/docker-compose.yml`, which has been there since `P0-05` and had nothing sending to it.
+- In production it points at whatever the operator chooses. Amazon SES, Postmark, Resend, Mailgun and a self-hosted Postfix all speak SMTP; picking one is a deployment decision, and it does not need a line of Go to change.
+
+**Why not a provider SDK**
+
+An SDK buys deliverability dashboards, webhook events for bounces, and template management. Every one of those is a reason to adopt one *later*, and none of them is needed by the two messages Phase 1 sends.
+
+What it costs immediately is a hard dependency on a vendor in the code, which becomes a migration project rather than a configuration change. For an identity provider — where the alternative to "our email provider is down" is "nobody can reset a password" — keeping the switch cheap is worth more than a dashboard.
+
+**Nothing waits on delivery**
+
+Sending is best-effort and **never decides the outcome of a request**:
+
+- **Invite.** The user row and its token are created and committed; the email is attempted afterwards. If it fails, the API still returns `201` and the response says `invite_email_sent: false`, so the administrator knows to resend or convey the link another way. A user created and then rolled back because a mail server was busy is a worse outcome than a user who exists and has not been mailed.
+- **Reset.** The response is `202` and identical whether or not the address exists (`docs/SECURITY/02` §12) — which means it is also identical whether or not the send succeeded. Anything else would make delivery failure into an enumeration oracle.
+
+Both log a failure at `WARN` and increment `auth_mail_send_failures_total`. As with ADR-015 and ADR-017, the metric is what makes the fail-soft safe to have chosen: silence would look exactly like success.
+
+**Deliverability is a deployment concern, and stays open**
+
+SPF, DKIM and DMARC are records in DNS and settings at whatever relay is configured. No code in this repository can establish them and none pretends to. They are recorded as an operational follow-up against the first environment that sends mail to a real address; staging sends to Mailpit and to `example.test`, so nothing is deliverable from it by design.
+
+**Considered and rejected: no email at all in Phase 1**
+
+Return the invite link to the administrator in the API response and let them convey it. Genuinely defensible for invitations — several identity products do exactly this — and it would have closed `P1-19.1` with no mail infrastructure.
+
+Rejected because it does not close `P1-19.4`. A password reset **cannot** hand its link to a caller: the whole design is that only the mailbox holder sees it, and the response must be identical for an address that does not exist. So the mail path has to be built for reset regardless, and having built it, having invitations take a different route would leave two mechanisms where one would do.
+
+**Consequences**
+
+- `AUTH_SMTP_URL` and `AUTH_MAIL_FROM` join the configuration surface. Unset means no mail is sent, logged once at startup rather than per request, so a deployment that has not configured it says so plainly instead of failing silently at the first invitation.
+- `auth_mail_send_failures_total` must be alerted on.
+- SPF/DKIM/DMARC for the first real sending domain is an operational follow-up, tracked against `P0-20`.
+- Bounce handling, suppression lists and delivery receipts do not exist. When they are needed, that is the moment to revisit the SDK question — with a working SMTP path still in place as the fallback.
+
+**Plan impact**
+
+None contradicted. `docs/PLAN/03` mentions email OTP as a phased MFA factor and no plan document specifies a delivery mechanism, so this fills a gap rather than deviating from a decision. `OQ-04` is closed in `TASKS/BACKLOG.md` with a pointer here.

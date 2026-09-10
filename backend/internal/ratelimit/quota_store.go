@@ -110,3 +110,31 @@ func (q *Quotas) unavailable(err error) {
 			"error", err.Error())
 	}
 }
+
+// ConsumeMail counts one message against a recipient's allowance.
+//
+// Shares Consume's Lua script, TTL arithmetic and fail-open behaviour, because
+// a second implementation of any of those is a second thing to get wrong — and
+// ADR-017's fail-open reasoning applies here unchanged: refusing every
+// invitation because Redis is down converts a cache outage into an inability
+// to onboard anybody.
+func (q *Quotas) ConsumeMail(ctx context.Context, address string, now time.Time) Verdict {
+	key := MailKey(address, q.quota.WindowStart(now))
+	if key == "" || q.client == nil {
+		return q.quota.Unlimited(now)
+	}
+
+	ttl := q.quota.WindowStart(now).Add(q.quota.Window + time.Second).Sub(now)
+
+	count, err := consume.Run(ctx, q.client, []string{key}, ttl.Milliseconds()).Int()
+	if err != nil {
+		q.unavailable(err)
+		return q.quota.Unlimited(now)
+	}
+
+	verdict := q.quota.Decide(count, now)
+	if !verdict.Allowed && q.observer != nil {
+		q.observer.Refused(BoundMail)
+	}
+	return verdict
+}

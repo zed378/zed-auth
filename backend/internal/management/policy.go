@@ -71,6 +71,30 @@ var Policy = map[string]Requirement{
 	"PATCH /v1/organizations/{org_id}/projects/{project_id}/applications/{application_id}":              {Role: OrgAdmin, Scope: ScopeOrganization},
 	"POST /v1/organizations/{org_id}/projects/{project_id}/applications/{application_id}/rotate-secret": {Role: OrgAdmin, Scope: ScopeOrganization},
 	"DELETE /v1/organizations/{org_id}/projects/{project_id}/applications/{application_id}":             {Role: OrgOwner, Scope: ScopeOrganization},
+
+	// --- Users (P1-19) ---
+	//
+	// Every one is ORG_ADMIN, and nothing is raised to ORG_OWNER. That is a
+	// deliberate departure from projects and applications: those raised DELETE
+	// because it is irreversible, and there is no irreversible operation here.
+	// Deactivation is the REVERSIBLE thing the card asks for instead of
+	// deletion, so raising it would make the safe action harder than the unsafe
+	// one it replaced — and administrators route around that.
+	"GET /v1/organizations/{org_id}/users":                           {Role: OrgAdmin, Scope: ScopeOrganization},
+	"POST /v1/organizations/{org_id}/users":                          {Role: OrgAdmin, Scope: ScopeOrganization},
+	"GET /v1/organizations/{org_id}/users/{user_id}":                 {Role: OrgAdmin, Scope: ScopeOrganization},
+	"PATCH /v1/organizations/{org_id}/users/{user_id}":               {Role: OrgAdmin, Scope: ScopeOrganization},
+	"POST /v1/organizations/{org_id}/users/{user_id}/deactivate":     {Role: OrgAdmin, Scope: ScopeOrganization},
+	"POST /v1/organizations/{org_id}/users/{user_id}/reactivate":     {Role: OrgAdmin, Scope: ScopeOrganization},
+	"POST /v1/organizations/{org_id}/users/{user_id}/password-reset": {Role: OrgAdmin, Scope: ScopeOrganization},
+
+	// --- Audit log (P1-20) ---
+	//
+	// One entry, and there will never be more. The table is append-only at the
+	// database level, so a write route here would be an API offering a way
+	// around a privilege guarantee. ORG_ADMIN because the log records who did
+	// what, which is not general-readable.
+	"GET /v1/organizations/{org_id}/events": {Role: OrgAdmin, Scope: ScopeOrganization},
 }
 
 // PolicyKey names a route the way Policy does.

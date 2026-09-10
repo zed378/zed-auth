@@ -52,10 +52,29 @@ const (
 
 // User lifecycle (P1-19).
 const (
-	EventUserCreated       EventType = "user.created"
-	EventUserUpdated       EventType = "user.updated"
-	EventUserDeactivated   EventType = "user.deactivated"
-	EventUserInvited       EventType = "user.invited"
+	EventUserCreated     EventType = "user.created"
+	EventUserUpdated     EventType = "user.updated"
+	EventUserDeactivated EventType = "user.deactivated"
+	EventUserInvited     EventType = "user.invited"
+	// P1-19 completes the lifecycle. Reactivation is its own event rather than
+	// an update, for the reason suspension is one on an organization: "who let
+	// this account back in, and when" is asked during an incident, and
+	// answering it should not require diffing two updates.
+	EventUserReactivated EventType = "user.reactivated"
+
+	// EventUserInviteAccepted marks the transition from invited to active,
+	// which is also the moment the address is proven reachable (PG-18).
+	EventUserInviteAccepted EventType = "user.invite_accepted"
+
+	// EventPasswordChanged and EventPasswordResetSent already existed for
+	// P1-02's policy work, and P1-19 uses them rather than adding a second
+	// spelling of the same fact. Two constants for one event is how a console
+	// filter and an alert rule end up matching different halves of the log.
+	//
+	// EventPasswordResetSent is written ONLY when a user was found. Writing one
+	// for an unknown address would put every probed address into the audit
+	// log — the enumeration list the endpoint exists to withhold, stored
+	// durably and searchably.
 	EventPasswordChanged   EventType = "user.password.changed"
 	EventPasswordResetSent EventType = "user.password.reset_requested"
 

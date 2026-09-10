@@ -90,6 +90,14 @@ const (
 	TokenResponseTokenTypeBearer TokenResponseTokenType = "Bearer"
 )
 
+// Defines values for UserStatus.
+const (
+	Active      UserStatus = "active"
+	Deactivated UserStatus = "deactivated"
+	Invited     UserStatus = "invited"
+	Locked      UserStatus = "locked"
+)
+
 // Application A registered OIDC client.
 //
 // `id` **is** the `client_id`. There is no separate field, because two
@@ -360,6 +368,56 @@ type ErrorDetail struct {
 
 	// Issue What is wrong with it, in plain language.
 	Issue string `json:"issue"`
+}
+
+// Event One entry in the append-only audit log.
+//
+// Read-only in the strongest sense available: there is no operation on
+// this API that writes one, and the application database role cannot
+// `UPDATE` or `DELETE` the table it lives in.
+type Event struct {
+	// ActorUserId Who did it. **Null is legitimate and common**: a failed login
+	// against an address that does not exist has no authenticated actor,
+	// and neither does a scheduled job. A consumer that assumes an actor
+	// will crash on the entries that matter most during an incident.
+	ActorUserId nullable.Nullable[openapi_types.UUID] `json:"actor_user_id,omitempty"`
+
+	// EventType `noun.verb.outcome`, for example `user.login.failed`.
+	EventType string `json:"event_type"`
+
+	// Id A stable identifier for the entry. A string rather than an integer
+	// because the underlying key is `(id, created_at)` on a partitioned
+	// table — a bare number would not be unique across partitions, and a
+	// consumer treating it as one would eventually deduplicate two real
+	// events into one.
+	Id string `json:"id"`
+
+	// Ip The address the request came from, when one was resolved.
+	Ip         nullable.Nullable[string] `json:"ip,omitempty"`
+	OccurredAt time.Time                 `json:"occurred_at"`
+
+	// Payload The event's detail, redacted before storage (`P0-12`). Its shape
+	// varies by `event_type` and is deliberately not constrained here:
+	// constraining it would mean a schema change for every new event, and
+	// the console renders it as data rather than parsing it.
+	Payload *map[string]interface{} `json:"payload,omitempty"`
+
+	// RequestId Ties the entry to the request that caused it, which is what makes a
+	// timeline reconstructable across the log and the audit trail.
+	RequestId nullable.Nullable[string] `json:"request_id,omitempty"`
+}
+
+// EventList defines model for EventList.
+type EventList struct {
+	Events []Event `json:"events"`
+
+	// PageInfo The pagination envelope every collection response embeds.
+	//
+	// Token-based rather than offset-based: an offset re-reads rows that
+	// shifted under concurrent writes, silently skipping or duplicating
+	// entries. For an audit log or a user list that is a correctness bug that
+	// nobody notices.
+	PageInfo *PageInfo `json:"page_info,omitempty"`
 }
 
 // Introspection RFC 7662's response. When `active` is false it is the ONLY property
@@ -711,6 +769,14 @@ type ReadinessStatus struct {
 // ReadinessStatusStatus defines model for ReadinessStatus.Status.
 type ReadinessStatusStatus string
 
+// ResetRequested defines model for ResetRequested.
+type ResetRequested struct {
+	// EmailSent Whether the message left the service. The link itself is never in
+	// this response — it is a bearer credential for the account, and the
+	// only party who should hold it is the one who can read that mailbox.
+	EmailSent bool `json:"email_sent"`
+}
+
 // ResourceId A resource's stable identifier. Not sequential and not guessable.
 //
 // **This was specified as a prefixed, sortable identifier** — `usr_`,
@@ -772,6 +838,147 @@ type TokenResponse struct {
 // TokenResponseTokenType defines model for TokenResponse.TokenType.
 type TokenResponseTokenType string
 
+// User A person who can sign in to one organization.
+//
+// **No password appears here in either direction.** Not on create, not on
+// update, not in a response. A password is set only by the person who
+// holds the account, through a link sent to their own address — which is
+// also the only thing that proves the address is theirs.
+type User struct {
+	CreatedAt   time.Time                 `json:"created_at"`
+	DisplayName nullable.Nullable[string] `json:"display_name,omitempty"`
+
+	// Email Unique within the organization, case-insensitively, and stored
+	// lowercased. Two accounts differing only in case is a support ticket
+	// waiting to be filed.
+	Email openapi_types.Email `json:"email"`
+
+	// EmailVerified Whether this address has been proven reachable, by an invitation
+	// being accepted through a link sent to it.
+	//
+	// Derived from a timestamp column rather than stored as a boolean:
+	// "when" answers questions "whether" cannot, and an audit needs it.
+	// The API exposes the question a caller actually asks.
+	EmailVerified bool `json:"email_verified"`
+
+	// Id A resource's stable identifier. Not sequential and not guessable.
+	//
+	// **This was specified as a prefixed, sortable identifier** — `usr_`,
+	// `org_`, `prj_` — and is a UUID instead. The change is deliberate and is
+	// recorded as `PG-23`.
+	//
+	// The prefix has a real benefit: an id pasted into a support ticket is
+	// self-describing, and passing a project id where a user id belongs is
+	// visible on sight rather than at the database. What it cannot survive is
+	// being applied to only part of the surface. `docs/PLAN/04` makes every
+	// primary key a UUID, the access token's `org_id` claim is a UUID, and
+	// OpenID Connect's `sub` — already shipped by `P1-08` — is a UUID that
+	// callers store as a user's permanent key.
+	//
+	// Prefixing only the Management API would give the same user two
+	// identifiers and make every consumer convert between them, which is a
+	// larger and more permanent papercut than the one the prefix removes.
+	// Prefixing everything means changing `sub`, which is a protocol field
+	// with its own conventions and a value integrators have already stored.
+	//
+	// So: UUIDs everywhere, and if prefixed identifiers are wanted later they
+	// arrive everywhere at once or not at all.
+	Id ResourceId `json:"id"`
+
+	// MfaEnabled Phase 3 owns the factors; this is the flag the login path reads.
+	MfaEnabled bool `json:"mfa_enabled"`
+
+	// Status `invited` — created, no password set, holding an unused invitation.
+	// `active` — can sign in.
+	// `locked` — temporarily barred by the login rate limiter (`P1-13`).
+	// `deactivated` — barred by an administrator, and reversible.
+	//
+	// Not settable through an update. Deactivation and reactivation are their
+	// own operations, because "who deactivated this account and when" is
+	// asked during an incident and answering it should not require diffing
+	// two updates.
+	Status    UserStatus                `json:"status"`
+	UpdatedAt time.Time                 `json:"updated_at"`
+	Username  nullable.Nullable[string] `json:"username,omitempty"`
+}
+
+// UserCreate There is no `org_id` and no `password`. The organization comes from the
+// path; the password comes from the person the account belongs to.
+type UserCreate struct {
+	DisplayName *string             `json:"display_name,omitempty"`
+	Email       openapi_types.Email `json:"email"`
+
+	// SendInviteEmail Whether to mail the invitation. `false` creates the account and its
+	// invitation token without sending anything — for a bulk import, or
+	// for an organization that distributes links through its own channel.
+	SendInviteEmail *bool   `json:"send_invite_email,omitempty"`
+	Username        *string `json:"username,omitempty"`
+}
+
+// UserCreated defines model for UserCreated.
+type UserCreated struct {
+	CreatedAt   time.Time                 `json:"created_at"`
+	DisplayName nullable.Nullable[string] `json:"display_name,omitempty"`
+
+	// Email Unique within the organization, case-insensitively, and stored
+	// lowercased. Two accounts differing only in case is a support ticket
+	// waiting to be filed.
+	Email openapi_types.Email `json:"email"`
+
+	// EmailVerified Whether this address has been proven reachable, by an invitation
+	// being accepted through a link sent to it.
+	//
+	// Derived from a timestamp column rather than stored as a boolean:
+	// "when" answers questions "whether" cannot, and an audit needs it.
+	// The API exposes the question a caller actually asks.
+	EmailVerified bool `json:"email_verified"`
+
+	// Id A resource's stable identifier. Not sequential and not guessable.
+	//
+	// **This was specified as a prefixed, sortable identifier** — `usr_`,
+	// `org_`, `prj_` — and is a UUID instead. The change is deliberate and is
+	// recorded as `PG-23`.
+	//
+	// The prefix has a real benefit: an id pasted into a support ticket is
+	// self-describing, and passing a project id where a user id belongs is
+	// visible on sight rather than at the database. What it cannot survive is
+	// being applied to only part of the surface. `docs/PLAN/04` makes every
+	// primary key a UUID, the access token's `org_id` claim is a UUID, and
+	// OpenID Connect's `sub` — already shipped by `P1-08` — is a UUID that
+	// callers store as a user's permanent key.
+	//
+	// Prefixing only the Management API would give the same user two
+	// identifiers and make every consumer convert between them, which is a
+	// larger and more permanent papercut than the one the prefix removes.
+	// Prefixing everything means changing `sub`, which is a protocol field
+	// with its own conventions and a value integrators have already stored.
+	//
+	// So: UUIDs everywhere, and if prefixed identifiers are wanted later they
+	// arrive everywhere at once or not at all.
+	Id ResourceId `json:"id"`
+
+	// InviteEmailSent What actually happened, not what was asked for. `false` with a
+	// `201` means the account exists and the invitation was not
+	// delivered — resend it, or convey the link another way.
+	InviteEmailSent bool `json:"invite_email_sent"`
+
+	// MfaEnabled Phase 3 owns the factors; this is the flag the login path reads.
+	MfaEnabled bool `json:"mfa_enabled"`
+
+	// Status `invited` — created, no password set, holding an unused invitation.
+	// `active` — can sign in.
+	// `locked` — temporarily barred by the login rate limiter (`P1-13`).
+	// `deactivated` — barred by an administrator, and reversible.
+	//
+	// Not settable through an update. Deactivation and reactivation are their
+	// own operations, because "who deactivated this account and when" is
+	// asked during an incident and answering it should not require diffing
+	// two updates.
+	Status    UserStatus                `json:"status"`
+	UpdatedAt time.Time                 `json:"updated_at"`
+	Username  nullable.Nullable[string] `json:"username,omitempty"`
+}
+
 // UserInfo The claims the presented access token's scopes authorise.
 //
 // Only `sub` is guaranteed. Every other property appears when its scope
@@ -798,6 +1005,42 @@ type UserInfo struct {
 	// UpdatedAt Seconds since the epoch, when the user record last changed
 	// (OIDC Core 5.1). Requires the `profile` scope.
 	UpdatedAt *int64 `json:"updated_at,omitempty"`
+}
+
+// UserList defines model for UserList.
+type UserList struct {
+	// PageInfo The pagination envelope every collection response embeds.
+	//
+	// Token-based rather than offset-based: an offset re-reads rows that
+	// shifted under concurrent writes, silently skipping or duplicating
+	// entries. For an audit log or a user list that is a correctness bug that
+	// nobody notices.
+	PageInfo *PageInfo `json:"page_info,omitempty"`
+	Users    []User    `json:"users"`
+}
+
+// UserStatus `invited` — created, no password set, holding an unused invitation.
+// `active` — can sign in.
+// `locked` — temporarily barred by the login rate limiter (`P1-13`).
+// `deactivated` — barred by an administrator, and reversible.
+//
+// Not settable through an update. Deactivation and reactivation are their
+// own operations, because "who deactivated this account and when" is
+// asked during an incident and answering it should not require diffing
+// two updates.
+type UserStatus string
+
+// UserUpdate Profile fields only. `status`, `email_verified`, `id` and `org_id` are
+// absent on purpose, and a body carrying any of them is **refused**
+// rather than ignored — silently dropping a field tells the caller a
+// change happened when it did not.
+type UserUpdate struct {
+	DisplayName nullable.Nullable[string] `json:"display_name,omitempty"`
+
+	// Email Changing it clears `email_verified`: a verification is a statement
+	// about one address, not about the user who holds it.
+	Email    *openapi_types.Email      `json:"email,omitempty"`
+	Username nullable.Nullable[string] `json:"username,omitempty"`
 }
 
 // ApplicationId A resource's stable identifier. Not sequential and not guessable.
@@ -881,6 +1124,30 @@ type PageToken = string
 // arrive everywhere at once or not at all.
 type ProjectId = ResourceId
 
+// UserId A resource's stable identifier. Not sequential and not guessable.
+//
+// **This was specified as a prefixed, sortable identifier** — `usr_`,
+// `org_`, `prj_` — and is a UUID instead. The change is deliberate and is
+// recorded as `PG-23`.
+//
+// The prefix has a real benefit: an id pasted into a support ticket is
+// self-describing, and passing a project id where a user id belongs is
+// visible on sight rather than at the database. What it cannot survive is
+// being applied to only part of the surface. `docs/PLAN/04` makes every
+// primary key a UUID, the access token's `org_id` claim is a UUID, and
+// OpenID Connect's `sub` — already shipped by `P1-08` — is a UUID that
+// callers store as a user's permanent key.
+//
+// Prefixing only the Management API would give the same user two
+// identifiers and make every consumer convert between them, which is a
+// larger and more permanent papercut than the one the prefix removes.
+// Prefixing everything means changing `sub`, which is a protocol field
+// with its own conventions and a value integrators have already stored.
+//
+// So: UUIDs everywhere, and if prefixed identifiers are wanted later they
+// arrive everywhere at once or not at all.
+type UserId = ResourceId
+
 // BadRequest The error envelope for every non-2xx response, without exception
 // (`docs/PLAN/05` Part B § Standard Error Format). One shape means a client
 // writes one error path rather than one per endpoint.
@@ -950,6 +1217,34 @@ type DeleteOrganizationParams struct {
 	// provisioning, where a network timeout is indistinguishable from a
 	// failure (`docs/PLAN/05` Part B).
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+}
+
+// ListEventsParams defines parameters for ListEvents.
+type ListEventsParams struct {
+	// PageSize Maximum items to return. The server may return fewer, and returning
+	// fewer never means the collection is exhausted — only an absent
+	// `next_page_token` means that.
+	PageSize *PageSize `form:"page_size,omitempty" json:"page_size,omitempty"`
+
+	// PageToken The `next_page_token` from the previous response. Opaque: its contents
+	// are not part of the contract and must not be constructed, parsed, or
+	// persisted by a client.
+	PageToken *PageToken `form:"page_token,omitempty" json:"page_token,omitempty"`
+
+	// EventType Exact match on the event type, for example `user.login.failed`.
+	// May be repeated; repeating it matches any of them.
+	EventType *[]string `form:"event_type,omitempty" json:"event_type,omitempty"`
+
+	// ActorId The user who performed the action. Events with no actor — a failed
+	// login against an address that does not exist, a scheduled job —
+	// match no value of this filter, which is correct: they have none.
+	ActorId *ResourceId `form:"actor_id,omitempty" json:"actor_id,omitempty"`
+
+	// From Inclusive lower bound on when the event happened.
+	From *time.Time `form:"from,omitempty" json:"from,omitempty"`
+
+	// To Exclusive upper bound on when the event happened.
+	To *time.Time `form:"to,omitempty" json:"to,omitempty"`
 }
 
 // ListProjectsParams defines parameters for ListProjects.
@@ -1041,6 +1336,62 @@ type RotateApplicationSecretParams struct {
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
+// ListUsersParams defines parameters for ListUsers.
+type ListUsersParams struct {
+	// PageSize Maximum items to return. The server may return fewer, and returning
+	// fewer never means the collection is exhausted — only an absent
+	// `next_page_token` means that.
+	PageSize *PageSize `form:"page_size,omitempty" json:"page_size,omitempty"`
+
+	// PageToken The `next_page_token` from the previous response. Opaque: its contents
+	// are not part of the contract and must not be constructed, parsed, or
+	// persisted by a client.
+	PageToken *PageToken `form:"page_token,omitempty" json:"page_token,omitempty"`
+
+	// Search Filter by email, username or display name.
+	Search *string `form:"search,omitempty" json:"search,omitempty"`
+}
+
+// CreateUserParams defines parameters for CreateUser.
+type CreateUserParams struct {
+	// IdempotencyKey A client-generated key making a retried `POST` safe. Replaying a
+	// request with the same key returns the original result rather than
+	// creating a second resource — which matters most for automated
+	// provisioning, where a network timeout is indistinguishable from a
+	// failure (`docs/PLAN/05` Part B).
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+}
+
+// DeactivateUserParams defines parameters for DeactivateUser.
+type DeactivateUserParams struct {
+	// IdempotencyKey A client-generated key making a retried `POST` safe. Replaying a
+	// request with the same key returns the original result rather than
+	// creating a second resource — which matters most for automated
+	// provisioning, where a network timeout is indistinguishable from a
+	// failure (`docs/PLAN/05` Part B).
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+}
+
+// ResetUserPasswordParams defines parameters for ResetUserPassword.
+type ResetUserPasswordParams struct {
+	// IdempotencyKey A client-generated key making a retried `POST` safe. Replaying a
+	// request with the same key returns the original result rather than
+	// creating a second resource — which matters most for automated
+	// provisioning, where a network timeout is indistinguishable from a
+	// failure (`docs/PLAN/05` Part B).
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+}
+
+// ReactivateUserParams defines parameters for ReactivateUser.
+type ReactivateUserParams struct {
+	// IdempotencyKey A client-generated key making a retried `POST` safe. Replaying a
+	// request with the same key returns the original result rather than
+	// creating a second resource — which matters most for automated
+	// provisioning, where a network timeout is indistinguishable from a
+	// failure (`docs/PLAN/05` Part B).
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+}
+
 // CreateOrganizationJSONRequestBody defines body for CreateOrganization for application/json ContentType.
 type CreateOrganizationJSONRequestBody = OrganizationCreate
 
@@ -1058,6 +1409,12 @@ type CreateApplicationJSONRequestBody = ApplicationCreate
 
 // UpdateApplicationJSONRequestBody defines body for UpdateApplication for application/json ContentType.
 type UpdateApplicationJSONRequestBody = ApplicationUpdate
+
+// CreateUserJSONRequestBody defines body for CreateUser for application/json ContentType.
+type CreateUserJSONRequestBody = UserCreate
+
+// UpdateUserJSONRequestBody defines body for UpdateUser for application/json ContentType.
+type UpdateUserJSONRequestBody = UserUpdate
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
@@ -1088,6 +1445,9 @@ type ServerInterface interface {
 	// Update an organization
 	// (PATCH /v1/organizations/{org_id})
 	UpdateOrganization(w http.ResponseWriter, r *http.Request, orgId OrganizationId)
+	// Read the audit log
+	// (GET /v1/organizations/{org_id}/events)
+	ListEvents(w http.ResponseWriter, r *http.Request, orgId OrganizationId, params ListEventsParams)
 	// List an organization's projects
 	// (GET /v1/organizations/{org_id}/projects)
 	ListProjects(w http.ResponseWriter, r *http.Request, orgId OrganizationId, params ListProjectsParams)
@@ -1121,6 +1481,27 @@ type ServerInterface interface {
 	// Issue a new client secret
 	// (POST /v1/organizations/{org_id}/projects/{project_id}/applications/{application_id}/rotate-secret)
 	RotateApplicationSecret(w http.ResponseWriter, r *http.Request, orgId OrganizationId, projectId ProjectId, applicationId ApplicationId, params RotateApplicationSecretParams)
+	// List an organization's users
+	// (GET /v1/organizations/{org_id}/users)
+	ListUsers(w http.ResponseWriter, r *http.Request, orgId OrganizationId, params ListUsersParams)
+	// Invite a user
+	// (POST /v1/organizations/{org_id}/users)
+	CreateUser(w http.ResponseWriter, r *http.Request, orgId OrganizationId, params CreateUserParams)
+	// Read a user
+	// (GET /v1/organizations/{org_id}/users/{user_id})
+	GetUser(w http.ResponseWriter, r *http.Request, orgId OrganizationId, userId UserId)
+	// Update a user's profile
+	// (PATCH /v1/organizations/{org_id}/users/{user_id})
+	UpdateUser(w http.ResponseWriter, r *http.Request, orgId OrganizationId, userId UserId)
+	// Deactivate a user
+	// (POST /v1/organizations/{org_id}/users/{user_id}/deactivate)
+	DeactivateUser(w http.ResponseWriter, r *http.Request, orgId OrganizationId, userId UserId, params DeactivateUserParams)
+	// Send a password-reset link
+	// (POST /v1/organizations/{org_id}/users/{user_id}/password-reset)
+	ResetUserPassword(w http.ResponseWriter, r *http.Request, orgId OrganizationId, userId UserId, params ResetUserPasswordParams)
+	// Reactivate a user
+	// (POST /v1/organizations/{org_id}/users/{user_id}/reactivate)
+	ReactivateUser(w http.ResponseWriter, r *http.Request, orgId OrganizationId, userId UserId, params ReactivateUserParams)
 }
 
 // Unimplemented server implementation that returns http.StatusNotImplemented for each endpoint.
@@ -1178,6 +1559,12 @@ func (_ Unimplemented) GetOrganization(w http.ResponseWriter, r *http.Request, o
 // Update an organization
 // (PATCH /v1/organizations/{org_id})
 func (_ Unimplemented) UpdateOrganization(w http.ResponseWriter, r *http.Request, orgId OrganizationId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Read the audit log
+// (GET /v1/organizations/{org_id}/events)
+func (_ Unimplemented) ListEvents(w http.ResponseWriter, r *http.Request, orgId OrganizationId, params ListEventsParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -1244,6 +1631,48 @@ func (_ Unimplemented) UpdateApplication(w http.ResponseWriter, r *http.Request,
 // Issue a new client secret
 // (POST /v1/organizations/{org_id}/projects/{project_id}/applications/{application_id}/rotate-secret)
 func (_ Unimplemented) RotateApplicationSecret(w http.ResponseWriter, r *http.Request, orgId OrganizationId, projectId ProjectId, applicationId ApplicationId, params RotateApplicationSecretParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// List an organization's users
+// (GET /v1/organizations/{org_id}/users)
+func (_ Unimplemented) ListUsers(w http.ResponseWriter, r *http.Request, orgId OrganizationId, params ListUsersParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Invite a user
+// (POST /v1/organizations/{org_id}/users)
+func (_ Unimplemented) CreateUser(w http.ResponseWriter, r *http.Request, orgId OrganizationId, params CreateUserParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Read a user
+// (GET /v1/organizations/{org_id}/users/{user_id})
+func (_ Unimplemented) GetUser(w http.ResponseWriter, r *http.Request, orgId OrganizationId, userId UserId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Update a user's profile
+// (PATCH /v1/organizations/{org_id}/users/{user_id})
+func (_ Unimplemented) UpdateUser(w http.ResponseWriter, r *http.Request, orgId OrganizationId, userId UserId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Deactivate a user
+// (POST /v1/organizations/{org_id}/users/{user_id}/deactivate)
+func (_ Unimplemented) DeactivateUser(w http.ResponseWriter, r *http.Request, orgId OrganizationId, userId UserId, params DeactivateUserParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Send a password-reset link
+// (POST /v1/organizations/{org_id}/users/{user_id}/password-reset)
+func (_ Unimplemented) ResetUserPassword(w http.ResponseWriter, r *http.Request, orgId OrganizationId, userId UserId, params ResetUserPasswordParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Reactivate a user
+// (POST /v1/organizations/{org_id}/users/{user_id}/reactivate)
+func (_ Unimplemented) ReactivateUser(w http.ResponseWriter, r *http.Request, orgId OrganizationId, userId UserId, params ReactivateUserParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -1522,6 +1951,88 @@ func (siw *ServerInterfaceWrapper) UpdateOrganization(w http.ResponseWriter, r *
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.UpdateOrganization(w, r, orgId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListEvents operation middleware
+func (siw *ServerInterfaceWrapper) ListEvents(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "org_id" -------------
+	var orgId OrganizationId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "org_id", chi.URLParam(r, "org_id"), &orgId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "org_id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, Oauth2Scopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListEventsParams
+
+	// ------------- Optional query parameter "page_size" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "page_size", r.URL.Query(), &params.PageSize)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "page_size", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "page_token" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "page_token", r.URL.Query(), &params.PageToken)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "page_token", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "event_type" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "event_type", r.URL.Query(), &params.EventType)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "event_type", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "actor_id" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "actor_id", r.URL.Query(), &params.ActorId)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "actor_id", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "from" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "from", r.URL.Query(), &params.From)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "from", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "to" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "to", r.URL.Query(), &params.To)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "to", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListEvents(w, r, orgId, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -2155,6 +2666,391 @@ func (siw *ServerInterfaceWrapper) RotateApplicationSecret(w http.ResponseWriter
 	handler.ServeHTTP(w, r)
 }
 
+// ListUsers operation middleware
+func (siw *ServerInterfaceWrapper) ListUsers(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "org_id" -------------
+	var orgId OrganizationId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "org_id", chi.URLParam(r, "org_id"), &orgId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "org_id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, Oauth2Scopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListUsersParams
+
+	// ------------- Optional query parameter "page_size" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "page_size", r.URL.Query(), &params.PageSize)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "page_size", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "page_token" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "page_token", r.URL.Query(), &params.PageToken)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "page_token", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "search" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "search", r.URL.Query(), &params.Search)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "search", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListUsers(w, r, orgId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateUser operation middleware
+func (siw *ServerInterfaceWrapper) CreateUser(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "org_id" -------------
+	var orgId OrganizationId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "org_id", chi.URLParam(r, "org_id"), &orgId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "org_id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, Oauth2Scopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateUserParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateUser(w, r, orgId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetUser operation middleware
+func (siw *ServerInterfaceWrapper) GetUser(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "org_id" -------------
+	var orgId OrganizationId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "org_id", chi.URLParam(r, "org_id"), &orgId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "org_id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "user_id" -------------
+	var userId UserId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "user_id", chi.URLParam(r, "user_id"), &userId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "user_id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, Oauth2Scopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetUser(w, r, orgId, userId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateUser operation middleware
+func (siw *ServerInterfaceWrapper) UpdateUser(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "org_id" -------------
+	var orgId OrganizationId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "org_id", chi.URLParam(r, "org_id"), &orgId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "org_id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "user_id" -------------
+	var userId UserId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "user_id", chi.URLParam(r, "user_id"), &userId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "user_id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, Oauth2Scopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateUser(w, r, orgId, userId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeactivateUser operation middleware
+func (siw *ServerInterfaceWrapper) DeactivateUser(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "org_id" -------------
+	var orgId OrganizationId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "org_id", chi.URLParam(r, "org_id"), &orgId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "org_id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "user_id" -------------
+	var userId UserId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "user_id", chi.URLParam(r, "user_id"), &userId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "user_id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, Oauth2Scopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params DeactivateUserParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeactivateUser(w, r, orgId, userId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ResetUserPassword operation middleware
+func (siw *ServerInterfaceWrapper) ResetUserPassword(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "org_id" -------------
+	var orgId OrganizationId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "org_id", chi.URLParam(r, "org_id"), &orgId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "org_id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "user_id" -------------
+	var userId UserId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "user_id", chi.URLParam(r, "user_id"), &userId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "user_id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, Oauth2Scopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ResetUserPasswordParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ResetUserPassword(w, r, orgId, userId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ReactivateUser operation middleware
+func (siw *ServerInterfaceWrapper) ReactivateUser(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "org_id" -------------
+	var orgId OrganizationId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "org_id", chi.URLParam(r, "org_id"), &orgId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "org_id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "user_id" -------------
+	var userId UserId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "user_id", chi.URLParam(r, "user_id"), &userId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "user_id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, Oauth2Scopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ReactivateUserParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ReactivateUser(w, r, orgId, userId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 type UnescapedCookieParamError struct {
 	ParamName string
 	Err       error
@@ -2296,6 +3192,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Patch(options.BaseURL+"/v1/organizations/{org_id}", wrapper.UpdateOrganization)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/v1/organizations/{org_id}/events", wrapper.ListEvents)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/v1/organizations/{org_id}/projects", wrapper.ListProjects)
 	})
 	r.Group(func(r chi.Router) {
@@ -2327,6 +3226,27 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/v1/organizations/{org_id}/projects/{project_id}/applications/{application_id}/rotate-secret", wrapper.RotateApplicationSecret)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/v1/organizations/{org_id}/users", wrapper.ListUsers)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/organizations/{org_id}/users", wrapper.CreateUser)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/v1/organizations/{org_id}/users/{user_id}", wrapper.GetUser)
+	})
+	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/v1/organizations/{org_id}/users/{user_id}", wrapper.UpdateUser)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/organizations/{org_id}/users/{user_id}/deactivate", wrapper.DeactivateUser)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/organizations/{org_id}/users/{user_id}/password-reset", wrapper.ResetUserPassword)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/organizations/{org_id}/users/{user_id}/reactivate", wrapper.ReactivateUser)
 	})
 
 	return r
@@ -2816,6 +3736,82 @@ func (response UpdateOrganization429JSONResponse) VisitUpdateOrganizationRespons
 type UpdateOrganization500JSONResponse struct{ InternalErrorJSONResponse }
 
 func (response UpdateOrganization500JSONResponse) VisitUpdateOrganizationResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListEventsRequestObject struct {
+	OrgId  OrganizationId `json:"org_id"`
+	Params ListEventsParams
+}
+
+type ListEventsResponseObject interface {
+	VisitListEventsResponse(w http.ResponseWriter) error
+}
+
+type ListEvents200JSONResponse EventList
+
+func (response ListEvents200JSONResponse) VisitListEventsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListEvents400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response ListEvents400JSONResponse) VisitListEventsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListEvents401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ListEvents401JSONResponse) VisitListEventsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListEvents403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response ListEvents403JSONResponse) VisitListEventsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListEvents404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response ListEvents404JSONResponse) VisitListEventsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListEvents429JSONResponse struct{ RateLimitedJSONResponse }
+
+func (response ListEvents429JSONResponse) VisitListEventsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Retry-After", fmt.Sprint(response.Headers.RetryAfter))
+	w.Header().Set("X-RateLimit-Limit", fmt.Sprint(response.Headers.XRateLimitLimit))
+	w.Header().Set("X-RateLimit-Remaining", fmt.Sprint(response.Headers.XRateLimitRemaining))
+	w.Header().Set("X-RateLimit-Reset", fmt.Sprint(response.Headers.XRateLimitReset))
+	w.WriteHeader(429)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type ListEvents500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response ListEvents500JSONResponse) VisitListEventsResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(500)
 
@@ -3678,6 +4674,532 @@ func (response RotateApplicationSecret500JSONResponse) VisitRotateApplicationSec
 	return json.NewEncoder(w).Encode(response)
 }
 
+type ListUsersRequestObject struct {
+	OrgId  OrganizationId `json:"org_id"`
+	Params ListUsersParams
+}
+
+type ListUsersResponseObject interface {
+	VisitListUsersResponse(w http.ResponseWriter) error
+}
+
+type ListUsers200JSONResponse UserList
+
+func (response ListUsers200JSONResponse) VisitListUsersResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListUsers400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response ListUsers400JSONResponse) VisitListUsersResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListUsers401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ListUsers401JSONResponse) VisitListUsersResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListUsers403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response ListUsers403JSONResponse) VisitListUsersResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListUsers404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response ListUsers404JSONResponse) VisitListUsersResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListUsers429JSONResponse struct{ RateLimitedJSONResponse }
+
+func (response ListUsers429JSONResponse) VisitListUsersResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Retry-After", fmt.Sprint(response.Headers.RetryAfter))
+	w.Header().Set("X-RateLimit-Limit", fmt.Sprint(response.Headers.XRateLimitLimit))
+	w.Header().Set("X-RateLimit-Remaining", fmt.Sprint(response.Headers.XRateLimitRemaining))
+	w.Header().Set("X-RateLimit-Reset", fmt.Sprint(response.Headers.XRateLimitReset))
+	w.WriteHeader(429)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type ListUsers500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response ListUsers500JSONResponse) VisitListUsersResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type CreateUserRequestObject struct {
+	OrgId  OrganizationId `json:"org_id"`
+	Params CreateUserParams
+	Body   *CreateUserJSONRequestBody
+}
+
+type CreateUserResponseObject interface {
+	VisitCreateUserResponse(w http.ResponseWriter) error
+}
+
+type CreateUser201JSONResponse UserCreated
+
+func (response CreateUser201JSONResponse) VisitCreateUserResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type CreateUser400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response CreateUser400JSONResponse) VisitCreateUserResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type CreateUser401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response CreateUser401JSONResponse) VisitCreateUserResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type CreateUser403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response CreateUser403JSONResponse) VisitCreateUserResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type CreateUser404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response CreateUser404JSONResponse) VisitCreateUserResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type CreateUser409JSONResponse struct{ ConflictJSONResponse }
+
+func (response CreateUser409JSONResponse) VisitCreateUserResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type CreateUser429JSONResponse struct{ RateLimitedJSONResponse }
+
+func (response CreateUser429JSONResponse) VisitCreateUserResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Retry-After", fmt.Sprint(response.Headers.RetryAfter))
+	w.Header().Set("X-RateLimit-Limit", fmt.Sprint(response.Headers.XRateLimitLimit))
+	w.Header().Set("X-RateLimit-Remaining", fmt.Sprint(response.Headers.XRateLimitRemaining))
+	w.Header().Set("X-RateLimit-Reset", fmt.Sprint(response.Headers.XRateLimitReset))
+	w.WriteHeader(429)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type CreateUser500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response CreateUser500JSONResponse) VisitCreateUserResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetUserRequestObject struct {
+	OrgId  OrganizationId `json:"org_id"`
+	UserId UserId         `json:"user_id"`
+}
+
+type GetUserResponseObject interface {
+	VisitGetUserResponse(w http.ResponseWriter) error
+}
+
+type GetUser200JSONResponse User
+
+func (response GetUser200JSONResponse) VisitGetUserResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetUser401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response GetUser401JSONResponse) VisitGetUserResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetUser403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response GetUser403JSONResponse) VisitGetUserResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetUser404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response GetUser404JSONResponse) VisitGetUserResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetUser429JSONResponse struct{ RateLimitedJSONResponse }
+
+func (response GetUser429JSONResponse) VisitGetUserResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Retry-After", fmt.Sprint(response.Headers.RetryAfter))
+	w.Header().Set("X-RateLimit-Limit", fmt.Sprint(response.Headers.XRateLimitLimit))
+	w.Header().Set("X-RateLimit-Remaining", fmt.Sprint(response.Headers.XRateLimitRemaining))
+	w.Header().Set("X-RateLimit-Reset", fmt.Sprint(response.Headers.XRateLimitReset))
+	w.WriteHeader(429)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type GetUser500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response GetUser500JSONResponse) VisitGetUserResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type UpdateUserRequestObject struct {
+	OrgId  OrganizationId `json:"org_id"`
+	UserId UserId         `json:"user_id"`
+	Body   *UpdateUserJSONRequestBody
+}
+
+type UpdateUserResponseObject interface {
+	VisitUpdateUserResponse(w http.ResponseWriter) error
+}
+
+type UpdateUser200JSONResponse User
+
+func (response UpdateUser200JSONResponse) VisitUpdateUserResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type UpdateUser400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response UpdateUser400JSONResponse) VisitUpdateUserResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type UpdateUser401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response UpdateUser401JSONResponse) VisitUpdateUserResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type UpdateUser403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response UpdateUser403JSONResponse) VisitUpdateUserResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type UpdateUser404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response UpdateUser404JSONResponse) VisitUpdateUserResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type UpdateUser409JSONResponse struct{ ConflictJSONResponse }
+
+func (response UpdateUser409JSONResponse) VisitUpdateUserResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type UpdateUser429JSONResponse struct{ RateLimitedJSONResponse }
+
+func (response UpdateUser429JSONResponse) VisitUpdateUserResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Retry-After", fmt.Sprint(response.Headers.RetryAfter))
+	w.Header().Set("X-RateLimit-Limit", fmt.Sprint(response.Headers.XRateLimitLimit))
+	w.Header().Set("X-RateLimit-Remaining", fmt.Sprint(response.Headers.XRateLimitRemaining))
+	w.Header().Set("X-RateLimit-Reset", fmt.Sprint(response.Headers.XRateLimitReset))
+	w.WriteHeader(429)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type UpdateUser500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response UpdateUser500JSONResponse) VisitUpdateUserResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type DeactivateUserRequestObject struct {
+	OrgId  OrganizationId `json:"org_id"`
+	UserId UserId         `json:"user_id"`
+	Params DeactivateUserParams
+}
+
+type DeactivateUserResponseObject interface {
+	VisitDeactivateUserResponse(w http.ResponseWriter) error
+}
+
+type DeactivateUser204Response struct {
+}
+
+func (response DeactivateUser204Response) VisitDeactivateUserResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeactivateUser401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response DeactivateUser401JSONResponse) VisitDeactivateUserResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type DeactivateUser403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response DeactivateUser403JSONResponse) VisitDeactivateUserResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type DeactivateUser404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response DeactivateUser404JSONResponse) VisitDeactivateUserResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type DeactivateUser429JSONResponse struct{ RateLimitedJSONResponse }
+
+func (response DeactivateUser429JSONResponse) VisitDeactivateUserResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Retry-After", fmt.Sprint(response.Headers.RetryAfter))
+	w.Header().Set("X-RateLimit-Limit", fmt.Sprint(response.Headers.XRateLimitLimit))
+	w.Header().Set("X-RateLimit-Remaining", fmt.Sprint(response.Headers.XRateLimitRemaining))
+	w.Header().Set("X-RateLimit-Reset", fmt.Sprint(response.Headers.XRateLimitReset))
+	w.WriteHeader(429)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type DeactivateUser500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response DeactivateUser500JSONResponse) VisitDeactivateUserResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ResetUserPasswordRequestObject struct {
+	OrgId  OrganizationId `json:"org_id"`
+	UserId UserId         `json:"user_id"`
+	Params ResetUserPasswordParams
+}
+
+type ResetUserPasswordResponseObject interface {
+	VisitResetUserPasswordResponse(w http.ResponseWriter) error
+}
+
+type ResetUserPassword202JSONResponse ResetRequested
+
+func (response ResetUserPassword202JSONResponse) VisitResetUserPasswordResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(202)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ResetUserPassword401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ResetUserPassword401JSONResponse) VisitResetUserPasswordResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ResetUserPassword403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response ResetUserPassword403JSONResponse) VisitResetUserPasswordResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ResetUserPassword404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response ResetUserPassword404JSONResponse) VisitResetUserPasswordResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ResetUserPassword429JSONResponse struct{ RateLimitedJSONResponse }
+
+func (response ResetUserPassword429JSONResponse) VisitResetUserPasswordResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Retry-After", fmt.Sprint(response.Headers.RetryAfter))
+	w.Header().Set("X-RateLimit-Limit", fmt.Sprint(response.Headers.XRateLimitLimit))
+	w.Header().Set("X-RateLimit-Remaining", fmt.Sprint(response.Headers.XRateLimitRemaining))
+	w.Header().Set("X-RateLimit-Reset", fmt.Sprint(response.Headers.XRateLimitReset))
+	w.WriteHeader(429)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type ResetUserPassword500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response ResetUserPassword500JSONResponse) VisitResetUserPasswordResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ReactivateUserRequestObject struct {
+	OrgId  OrganizationId `json:"org_id"`
+	UserId UserId         `json:"user_id"`
+	Params ReactivateUserParams
+}
+
+type ReactivateUserResponseObject interface {
+	VisitReactivateUserResponse(w http.ResponseWriter) error
+}
+
+type ReactivateUser204Response struct {
+}
+
+func (response ReactivateUser204Response) VisitReactivateUserResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type ReactivateUser401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ReactivateUser401JSONResponse) VisitReactivateUserResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ReactivateUser403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response ReactivateUser403JSONResponse) VisitReactivateUserResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ReactivateUser404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response ReactivateUser404JSONResponse) VisitReactivateUserResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ReactivateUser409JSONResponse struct{ ConflictJSONResponse }
+
+func (response ReactivateUser409JSONResponse) VisitReactivateUserResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ReactivateUser429JSONResponse struct{ RateLimitedJSONResponse }
+
+func (response ReactivateUser429JSONResponse) VisitReactivateUserResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Retry-After", fmt.Sprint(response.Headers.RetryAfter))
+	w.Header().Set("X-RateLimit-Limit", fmt.Sprint(response.Headers.XRateLimitLimit))
+	w.Header().Set("X-RateLimit-Remaining", fmt.Sprint(response.Headers.XRateLimitRemaining))
+	w.Header().Set("X-RateLimit-Reset", fmt.Sprint(response.Headers.XRateLimitReset))
+	w.WriteHeader(429)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type ReactivateUser500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response ReactivateUser500JSONResponse) VisitReactivateUserResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
 	// JSON Web Key Set
@@ -3707,6 +5229,9 @@ type StrictServerInterface interface {
 	// Update an organization
 	// (PATCH /v1/organizations/{org_id})
 	UpdateOrganization(ctx context.Context, request UpdateOrganizationRequestObject) (UpdateOrganizationResponseObject, error)
+	// Read the audit log
+	// (GET /v1/organizations/{org_id}/events)
+	ListEvents(ctx context.Context, request ListEventsRequestObject) (ListEventsResponseObject, error)
 	// List an organization's projects
 	// (GET /v1/organizations/{org_id}/projects)
 	ListProjects(ctx context.Context, request ListProjectsRequestObject) (ListProjectsResponseObject, error)
@@ -3740,6 +5265,27 @@ type StrictServerInterface interface {
 	// Issue a new client secret
 	// (POST /v1/organizations/{org_id}/projects/{project_id}/applications/{application_id}/rotate-secret)
 	RotateApplicationSecret(ctx context.Context, request RotateApplicationSecretRequestObject) (RotateApplicationSecretResponseObject, error)
+	// List an organization's users
+	// (GET /v1/organizations/{org_id}/users)
+	ListUsers(ctx context.Context, request ListUsersRequestObject) (ListUsersResponseObject, error)
+	// Invite a user
+	// (POST /v1/organizations/{org_id}/users)
+	CreateUser(ctx context.Context, request CreateUserRequestObject) (CreateUserResponseObject, error)
+	// Read a user
+	// (GET /v1/organizations/{org_id}/users/{user_id})
+	GetUser(ctx context.Context, request GetUserRequestObject) (GetUserResponseObject, error)
+	// Update a user's profile
+	// (PATCH /v1/organizations/{org_id}/users/{user_id})
+	UpdateUser(ctx context.Context, request UpdateUserRequestObject) (UpdateUserResponseObject, error)
+	// Deactivate a user
+	// (POST /v1/organizations/{org_id}/users/{user_id}/deactivate)
+	DeactivateUser(ctx context.Context, request DeactivateUserRequestObject) (DeactivateUserResponseObject, error)
+	// Send a password-reset link
+	// (POST /v1/organizations/{org_id}/users/{user_id}/password-reset)
+	ResetUserPassword(ctx context.Context, request ResetUserPasswordRequestObject) (ResetUserPasswordResponseObject, error)
+	// Reactivate a user
+	// (POST /v1/organizations/{org_id}/users/{user_id}/reactivate)
+	ReactivateUser(ctx context.Context, request ReactivateUserRequestObject) (ReactivateUserResponseObject, error)
 }
 
 type StrictHandlerFunc = strictnethttp.StrictHTTPHandlerFunc
@@ -4005,6 +5551,33 @@ func (sh *strictHandler) UpdateOrganization(w http.ResponseWriter, r *http.Reque
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(UpdateOrganizationResponseObject); ok {
 		if err := validResponse.VisitUpdateOrganizationResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListEvents operation middleware
+func (sh *strictHandler) ListEvents(w http.ResponseWriter, r *http.Request, orgId OrganizationId, params ListEventsParams) {
+	var request ListEventsRequestObject
+
+	request.OrgId = orgId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListEvents(ctx, request.(ListEventsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListEvents")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListEventsResponseObject); ok {
+		if err := validResponse.VisitListEventsResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -4339,6 +5912,212 @@ func (sh *strictHandler) RotateApplicationSecret(w http.ResponseWriter, r *http.
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(RotateApplicationSecretResponseObject); ok {
 		if err := validResponse.VisitRotateApplicationSecretResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListUsers operation middleware
+func (sh *strictHandler) ListUsers(w http.ResponseWriter, r *http.Request, orgId OrganizationId, params ListUsersParams) {
+	var request ListUsersRequestObject
+
+	request.OrgId = orgId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListUsers(ctx, request.(ListUsersRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListUsers")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListUsersResponseObject); ok {
+		if err := validResponse.VisitListUsersResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateUser operation middleware
+func (sh *strictHandler) CreateUser(w http.ResponseWriter, r *http.Request, orgId OrganizationId, params CreateUserParams) {
+	var request CreateUserRequestObject
+
+	request.OrgId = orgId
+	request.Params = params
+
+	var body CreateUserJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateUser(ctx, request.(CreateUserRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateUser")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateUserResponseObject); ok {
+		if err := validResponse.VisitCreateUserResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetUser operation middleware
+func (sh *strictHandler) GetUser(w http.ResponseWriter, r *http.Request, orgId OrganizationId, userId UserId) {
+	var request GetUserRequestObject
+
+	request.OrgId = orgId
+	request.UserId = userId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetUser(ctx, request.(GetUserRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetUser")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetUserResponseObject); ok {
+		if err := validResponse.VisitGetUserResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UpdateUser operation middleware
+func (sh *strictHandler) UpdateUser(w http.ResponseWriter, r *http.Request, orgId OrganizationId, userId UserId) {
+	var request UpdateUserRequestObject
+
+	request.OrgId = orgId
+	request.UserId = userId
+
+	var body UpdateUserJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdateUser(ctx, request.(UpdateUserRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdateUser")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UpdateUserResponseObject); ok {
+		if err := validResponse.VisitUpdateUserResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeactivateUser operation middleware
+func (sh *strictHandler) DeactivateUser(w http.ResponseWriter, r *http.Request, orgId OrganizationId, userId UserId, params DeactivateUserParams) {
+	var request DeactivateUserRequestObject
+
+	request.OrgId = orgId
+	request.UserId = userId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeactivateUser(ctx, request.(DeactivateUserRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeactivateUser")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeactivateUserResponseObject); ok {
+		if err := validResponse.VisitDeactivateUserResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ResetUserPassword operation middleware
+func (sh *strictHandler) ResetUserPassword(w http.ResponseWriter, r *http.Request, orgId OrganizationId, userId UserId, params ResetUserPasswordParams) {
+	var request ResetUserPasswordRequestObject
+
+	request.OrgId = orgId
+	request.UserId = userId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ResetUserPassword(ctx, request.(ResetUserPasswordRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ResetUserPassword")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ResetUserPasswordResponseObject); ok {
+		if err := validResponse.VisitResetUserPasswordResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ReactivateUser operation middleware
+func (sh *strictHandler) ReactivateUser(w http.ResponseWriter, r *http.Request, orgId OrganizationId, userId UserId, params ReactivateUserParams) {
+	var request ReactivateUserRequestObject
+
+	request.OrgId = orgId
+	request.UserId = userId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ReactivateUser(ctx, request.(ReactivateUserRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ReactivateUser")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ReactivateUserResponseObject); ok {
+		if err := validResponse.VisitReactivateUserResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
