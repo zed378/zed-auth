@@ -136,6 +136,33 @@ else
   else
     fail "tables without row-level security: $unprotected"
   fi
+
+  # The audit log is append-only FOR THE APPLICATION ROLE, and that is a set of
+  # privileges rather than a property of the table. Privileges drift.
+  #
+  # They had drifted on staging: `events` and its four live partitions carried
+  # auth_app=arwd, so the log was fully writable by the service, while both
+  # migrations that revoke it read correctly. A migration whose effect is
+  # corrected later leaves already-migrated databases in the weaker state,
+  # because golang-migrate never runs an applied version again — and nothing
+  # was checking. Found by a smoke test rather than by this suite, which is the
+  # gap this gate closes (docs/SECURITY/02 §19, P1-20).
+  writable=$(docker compose -f deploy/docker-compose.yml exec -T postgres \
+    psql -U auth_owner -d auth -tA -c "
+      SELECT string_agg(c.relname, ' ')
+        FROM pg_class c
+       WHERE (c.relname = 'events'
+              OR c.oid IN (SELECT i.inhrelid FROM pg_inherits i
+                            JOIN pg_class p ON p.oid = i.inhparent
+                           WHERE p.relname = 'events'))
+         AND (has_table_privilege('auth_app', c.oid, 'UPDATE')
+           OR has_table_privilege('auth_app', c.oid, 'DELETE'));" 2>/dev/null | tr -d '[:space:]')
+
+  if [ -z "$writable" ]; then
+    pass "the audit log is append-only for the application role"
+  else
+    fail "auth_app can UPDATE or DELETE these audit relations: $writable"
+  fi
 fi
 
 # --- Migrations -------------------------------------------------------------
