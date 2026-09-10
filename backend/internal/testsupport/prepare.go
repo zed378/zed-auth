@@ -18,7 +18,7 @@ import (
 // prepare turns a bare PostgreSQL container into the database the service
 // expects: two roles, then every migration.
 //
-// The role split is not a detail to skip in tests. `PLAN/08` Part B and
+// The role split is not a detail to skip in tests. `docs/PLAN/08` Part B and
 // `P0-08` put cross-tenant isolation in the database rather than in the code
 // that queries it, and that only holds because the runtime role cannot bypass
 // row-level security. A test suite connecting as the owner would find every

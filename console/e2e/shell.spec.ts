@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 /**
- * The E2E layer's example test — `PLAN/11`'s pyramid, top tier.
+ * The E2E layer's example test — `docs/PLAN/11`'s pyramid, top tier.
  *
  * It exercises the console shell, which is what Phase 0 actually ships. Not a
  * placeholder that asserts `true`: `P0-15`'s Definition of Done asks for "one
@@ -21,14 +21,14 @@ test.describe("the console shell", () => {
 
     await expect(page).toHaveTitle(/Zed Auth Console/i);
 
-    // UI-UX/13 § Keyboard Navigation: the skip link is the first stop, and
+    // docs/UI-UX/13 § Keyboard Navigation: the skip link is the first stop, and
     // without it a keyboard user tabs the whole navigation on every page load.
     await page.keyboard.press("Tab");
 
     const skipLink = page.getByRole("link", { name: /skip to main content/i });
     await expect(skipLink).toBeFocused();
 
-    // The ring is a token, not a hard-coded colour (UI-UX/05 § Governance).
+    // The ring is a token, not a hard-coded colour (docs/UI-UX/05 § Governance).
     const outline = await skipLink.evaluate((el) => {
       const style = getComputedStyle(el);
       return `${style.outlineWidth} ${style.outlineStyle}`;

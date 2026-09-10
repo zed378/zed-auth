@@ -2,7 +2,7 @@
 
 `openapi.yaml` is the **single contract artifact** for the Management REST API.
 
-**Governing documents**: `PLAN/05-API-CONTRACT.md` (the contract itself), `PLAN/20-PUBLIC-SITE-ARCHITECTURE.md` § API Reference Generation. Where this file and `PLAN/05` disagree, `PLAN/05` is right and this file is a bug.
+**Governing documents**: `docs/PLAN/05-API-CONTRACT.md` (the contract itself), `docs/PLAN/20-PUBLIC-SITE-ARCHITECTURE.md` § API Reference Generation. Where this file and `docs/PLAN/05` disagree, `docs/PLAN/05` is right and this file is a bug.
 
 ---
 
@@ -10,7 +10,7 @@
 
 The spec is hand-written and **generates the code**, not the other way round ([ADR-013](../MEMORY/DECISIONS.md)).
 
-`PLAN/05` § Documentation accepts either direction — "generated from code or validated in CI" — so the decision turned on which one makes drift *impossible* rather than merely *detectable*. Code-first from Go annotations feels safer because the annotation sits next to the handler, but an annotation is a comment: it can say `200` while the handler returns `201` and nothing objects.
+`docs/PLAN/05` § Documentation accepts either direction — "generated from code or validated in CI" — so the decision turned on which one makes drift *impossible* rather than merely *detectable*. Code-first from Go annotations feels safer because the annotation sits next to the handler, but an annotation is a comment: it can say `200` while the handler returns `201` and nothing objects.
 
 Spec-first with generated server interfaces makes it a compile error instead:
 
@@ -21,7 +21,7 @@ backend/internal/httpserver/health.go
 
 Change a response shape in the spec, regenerate, and every handler that no longer matches fails to build. That is enforcement in the editor rather than a CI message after the push.
 
-**Adding an endpoint means editing the spec first.** That ordering is the discipline cost, and it is also the point — the contract is designed before the handler, which is what API-first (`PLAN/02` FR-14) means in practice rather than as an aspiration.
+**Adding an endpoint means editing the spec first.** That ordering is the discipline cost, and it is also the point — the contract is designed before the handler, which is what API-first (`docs/PLAN/02` FR-14) means in practice rather than as an aspiration.
 
 ---
 
@@ -47,7 +47,7 @@ make openapi-check      # lint + fail if the generated code is stale
 
 ### The spec documents only what has shipped
 
-`/docs/api-reference` renders from this file, so **an endpoint documented here is a public claim that it exists**. `PLAN/05` Part B lists the whole `/v1` surface and writing it all out now as a design exercise would publish that claim for every unbuilt endpoint at once — exactly what `UI-UX/21`'s governance rule and `CLAUDE.md` forbid.
+`/docs/api-reference` renders from this file, so **an endpoint documented here is a public claim that it exists**. `docs/PLAN/05` Part B lists the whole `/v1` surface and writing it all out now as a design exercise would publish that claim for every unbuilt endpoint at once — exactly what `docs/UI-UX/21`'s governance rule and `CLAUDE.md` forbid.
 
 `scripts/openapi-shipped-paths.py` enforces this in CI and in `scripts/check.sh`. Adding an endpoint means adding it to `SHIPPED` in the same commit. The duplication is deliberate: it makes publishing an endpoint a two-line act rather than a side effect of editing YAML.
 

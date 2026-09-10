@@ -46,13 +46,13 @@ The rule this leaves behind: **a test harness mirrors production's privilege mod
 
 ## All Four Pyramid Layers, With Real Tests
 
-`PLAN/11`'s pyramid, and `P0-15`'s requirement of "one passing example test at each layer". Not a placeholder at any of them — a test that would pass against a blank page is not an example of anything.
+`docs/PLAN/11`'s pyramid, and `P0-15`'s requirement of "one passing example test at each layer". Not a placeholder at any of them — a test that would pass against a blank page is not an example of anything.
 
 **Unit** — table-driven, no database. Already existed.
 
 **Integration** — real PostgreSQL and Redis, migrations applied, per-test truncation.
 
-**Security** — `backend/tests/security/`, kept apart from feature tests. `P0-15` step 4 asks for the separation, and the reason is that these are a checklist as much as a suite: `PLAN/11` lists seven scenarios from the threat model, and scattered across packages they become seven tests nobody can enumerate. Here, `go test ./tests/security/...` is the answer to "have we covered the threat model". The package comment carries a coverage map naming the four that exist and the six that cannot exist until the feature does — an unwritten test nobody knows is unwritten is worse than a failing one.
+**Security** — `backend/tests/security/`, kept apart from feature tests. `P0-15` step 4 asks for the separation, and the reason is that these are a checklist as much as a suite: `docs/PLAN/11` lists seven scenarios from the threat model, and scattered across packages they become seven tests nobody can enumerate. Here, `go test ./tests/security/...` is the answer to "have we covered the threat model". The package comment carries a coverage map naming the four that exist and the six that cannot exist until the feature does — an unwritten test nobody knows is unwritten is worse than a failing one.
 
 **End-to-end** — Playwright against the console's **production build**, not the dev server. An E2E suite that has never seen the built bundle is testing something nobody deploys. It is also the only layer that applies a real stylesheet, which is exactly where the console's dead design tokens would have been caught: every jsdom test passed while `text-body` generated no CSS at all.
 
@@ -116,6 +116,6 @@ The console's lint also failed on the Playwright fixtures, and correctly from it
 
 ## Outstanding
 
-- **`PLAN/11` § Load & Performance is untouched.** `PLAN/12` sets p95 targets and nothing measures them. There is no endpoint to measure yet, so this belongs with Phase 1 rather than here.
-- **Fuzz testing** is named in `PLAN/11` for parsers accepting external input — JWTs, SAML assertions. No such parser exists yet.
+- **`docs/PLAN/11` § Load & Performance is untouched.** `docs/PLAN/12` sets p95 targets and nothing measures them. There is no endpoint to measure yet, so this belongs with Phase 1 rather than here.
+- **Fuzz testing** is named in `docs/PLAN/11` for parsers accepting external input — JWTs, SAML assertions. No such parser exists yet.
 - **The E2E fixtures are deliberately unimplemented.** Seeding an organization, project, application and user needs the Management API from `P1-15`. Each throws with the task that unblocks it rather than returning fake data: a fixture that silently returned a plausible object would let a Phase 1 test pass against nothing.

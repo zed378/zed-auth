@@ -6,7 +6,7 @@ import type { paths } from "./schema.gen";
  * The Management API client.
  *
  * Typed from `openapi/openapi.yaml` via `schema.gen.ts`, which is generated
- * and committed. `PLAN/06-FRONTEND-ARCHITECTURE.md` names the property this
+ * and committed. `docs/PLAN/06-FRONTEND-ARCHITECTURE.md` names the property this
  * buys: a backend API change not reflected in the spec breaks CI before it
  * breaks the console at runtime. The backend gets the same guarantee from the
  * other direction — its handlers implement an interface generated from the
@@ -21,7 +21,7 @@ import type { paths } from "./schema.gen";
  * Where the API lives.
  *
  * Injected at build time rather than discovered at runtime. The console is a
- * static bundle on a CDN (`PLAN/06`), and a runtime-configurable API base URL
+ * static bundle on a CDN (`docs/PLAN/06`), and a runtime-configurable API base URL
  * in a static SPA means an attacker who can influence that value redirects
  * every bearer token the console holds.
  *
@@ -33,7 +33,7 @@ const baseUrl = import.meta.env.VITE_API_BASE_URL ?? "";
 export const api = createClient<paths>({
   baseUrl,
 
-  // The console authenticates as an ordinary OIDC client (PLAN/06 § Why the
+  // The console authenticates as an ordinary OIDC client (docs/PLAN/06 § Why the
   // Console Must Log In Through the Same OIDC Flow), so it carries an SSO
   // session cookie for the silent-authentication redirect. Bearer tokens for
   // Management API calls are attached by the middleware added in P1-03, when

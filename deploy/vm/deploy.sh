@@ -2,9 +2,9 @@
 #
 # Deploys a new image to this VM.
 #
-# The ordering is the point. PLAN/14 § Release Process requires migrations to
+# The ordering is the point. docs/PLAN/14 § Release Process requires migrations to
 # run as a separate, reviewable step BEFORE the application rolls out, and
-# PLAN/14 § Rollback Strategy requires migrations to be backward-compatible for
+# docs/PLAN/14 § Rollback Strategy requires migrations to be backward-compatible for
 # at least one release so that rolling the application back never requires
 # rolling the database back.
 #
@@ -45,7 +45,7 @@ new_image="${1:-}"
 
 # A tag is mutable: whoever can push can change what "v1.2.3" points at, so a
 # rollback to "the same tag" can silently deploy different code
-# (SECURITY/02 §15 Supply-Chain).
+# (docs/SECURITY/02 §15 Supply-Chain).
 [[ "$new_image" == *"@sha256:"* ]] \
   || die "image must be pinned by digest, not by tag: $new_image"
 
@@ -66,7 +66,7 @@ set +a
 log "Deploying to ${AUTH_ENV} (${AUTH_DOMAIN})"
 echo "    image: ${new_image}"
 
-# PLAN/13 and PLAN/14: production keys and data are never shared with staging.
+# docs/PLAN/13 and docs/PLAN/14: production keys and data are never shared with staging.
 # The check is cheap and the failure mode — a staging token being valid in
 # production — is catastrophic and silent.
 if [[ -d /etc/zed-auth/secrets ]]; then
@@ -76,7 +76,7 @@ if [[ -d /etc/zed-auth/secrets ]]; then
   if [[ -f "$fingerprint_file" ]]; then
     while IFS='=' read -r env fp; do
       if [[ "$env" != "$AUTH_ENV" && "$fp" == "$current_fp" ]]; then
-        die "signing keys are identical to the ${env} environment. Every environment must have its own keys (PLAN/13, PLAN/14) — a shared key means a ${env} token is valid here."
+        die "signing keys are identical to the ${env} environment. Every environment must have its own keys (docs/PLAN/13, docs/PLAN/14) — a shared key means a ${env} token is valid here."
       fi
     done < "$fingerprint_file"
   fi
@@ -104,7 +104,7 @@ fi
 # Run as the OWNER role in a one-off container, while the previous application
 # version is still serving. This is safe only because migrations are
 # expand/contract: the running version must tolerate the new schema
-# (PLAN/14 § Rollback Strategy, enforced by the migration-safety CI job).
+# (docs/PLAN/14 § Rollback Strategy, enforced by the migration-safety CI job).
 
 log "Applying migrations"
 "${COMPOSE[@]}" run --rm --no-deps \

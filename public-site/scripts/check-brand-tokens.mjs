@@ -2,14 +2,14 @@
 /**
  * Verifies the public site's light-mode brand tokens still match the console's.
  *
- * `PLAN/20` and `UI-UX/20` allow these two surfaces to share the visual
+ * `docs/PLAN/20` and `docs/UI-UX/20` allow these two surfaces to share the visual
  * language and nothing else — no codebase, no component library, no pipeline.
  * So the values are duplicated on purpose. Duplication on purpose and
  * duplication by accident look identical six months later, and the failure is
  * quiet: two slightly different blues that nobody notices until a visitor
  * moves from the site into the console and something feels off.
  *
- * `UI-UX/20` § Cross-Page Requirements asks for visual continuity in exactly
+ * `docs/UI-UX/20` § Cross-Page Requirements asks for visual continuity in exactly
  * that transition. This is what keeps it true.
  *
  * Only the LIGHT theme is compared. The console has no dark mode, and the
@@ -85,7 +85,7 @@ if (problems.length > 0) {
   for (const problem of problems) console.error(`  ${problem}`);
   console.error(
     "\nThese two surfaces share the visual language deliberately " +
-      "(PLAN/20, UI-UX/20 § Cross-Page Requirements). If the change is " +
+      "(docs/PLAN/20, docs/UI-UX/20 § Cross-Page Requirements). If the change is " +
       "intended, make it in both places in the same commit.",
   );
   process.exit(1);

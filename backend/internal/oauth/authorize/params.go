@@ -26,7 +26,7 @@ import (
 
 // OAuth 2.1 error codes.
 //
-// A different vocabulary from PLAN/05's JSON error envelope, and deliberately
+// A different vocabulary from docs/PLAN/05's JSON error envelope, and deliberately
 // so: this endpoint answers by redirecting with query parameters, which is
 // what a consumer library parses. The two coexist — every other endpoint
 // speaks the envelope, this one speaks OAuth.
@@ -244,7 +244,7 @@ func ParsePhase2(q url.Values, p1 Phase1, allowsRefresh bool) (Request, error) {
 
 // validatePKCE enforces PKCE for every client type.
 //
-// PLAN/05 states it plainly — "Mandatory for all clients (not just public
+// docs/PLAN/05 states it plainly — "Mandatory for all clients (not just public
 // clients)" — and that is stricter than OAuth 2.1's baseline. The reason it is
 // worth being stricter: a confidential client's secret protects the TOKEN
 // request, not the authorization code in transit. A code intercepted from a

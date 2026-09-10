@@ -1,8 +1,8 @@
 # The plan folders are reference documentation, not implementation output (AGENTS.md rule 9).
 # Changing them must be a deliberate, reviewed act — never a side effect of feature work.
-/PLAN/       @zed378
-/UI-UX/      @zed378
-/SECURITY/   @zed378
+/docs/PLAN/       @zed378
+/docs/UI-UX/      @zed378
+/docs/SECURITY/   @zed378
 
 # These govern how every AI agent behaves in this repository.
 /CLAUDE.md   @zed378

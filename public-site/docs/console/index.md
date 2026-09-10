@@ -36,4 +36,4 @@ That is a deliberate constraint rather than an implementation detail. It means:
 ## Screens
 
 Documented as they are built. The full inventory is specified in
-[`UI-UX/08-PAGE-SPECIFICATIONS.md`](https://github.com/zed378/zed-auth/blob/main/UI-UX/08-PAGE-SPECIFICATIONS.md).
+[`docs/UI-UX/08-PAGE-SPECIFICATIONS.md`](https://github.com/zed378/zed-auth/blob/main/docs/UI-UX/08-PAGE-SPECIFICATIONS.md).

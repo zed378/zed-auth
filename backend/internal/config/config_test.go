@@ -110,7 +110,7 @@ func TestEnvironment_Validation(t *testing.T) {
 	}
 }
 
-// PLAN/09-SECURITY.md: TLS is mandatory everywhere with no HTTP fallback. The
+// docs/PLAN/09-SECURITY.md: TLS is mandatory everywhere with no HTTP fallback. The
 // issuer is what consumer applications actually call, so a plaintext issuer
 // outside local development publishes an insecure endpoint to every client.
 func TestLoadFrom_IssuerMustUseHTTPSOutsideLocal(t *testing.T) {
@@ -146,7 +146,7 @@ func TestLoadFrom_IssuerMustUseHTTPSOutsideLocal(t *testing.T) {
 }
 
 // Debug logging across an identity provider is exactly where sensitive values
-// leak into logs despite redaction (PLAN/13-OBSERVABILITY.md).
+// leak into logs despite redaction (docs/PLAN/13-OBSERVABILITY.md).
 func TestLoadFrom_ProductionRefusesUnsafeLogging(t *testing.T) {
 	t.Run("debug level", func(t *testing.T) {
 		m := valid()
@@ -246,7 +246,7 @@ func asLoadError(err error, target **LoadError) bool {
 // TrustProxyHeaders is deliberately independent of Environment: "deployed" and
 // "has a header-stripping proxy in front" are different facts. A tunnel such as
 // Cloudflare Tunnel forwards client headers untouched, so inferring trust from
-// the environment would get it wrong there (SECURITY/02 §10).
+// the environment would get it wrong there (docs/SECURITY/02 §10).
 func TestLoadFrom_TrustProxyHeadersIsExplicitAndDefaultsToFalse(t *testing.T) {
 	t.Run("defaults to false even in production", func(t *testing.T) {
 		m := valid()
@@ -293,7 +293,7 @@ func TestLoadFrom_TrustProxyHeadersIsExplicitAndDefaultsToFalse(t *testing.T) {
 // rates and login outcomes to whoever can reach it. Allowing that bind is
 // reasonable — a scraper on another host is a real need — but allowing it
 // WITHOUT a token is the combination where one network-configuration mistake
-// exposes everything (SECURITY/02 §12).
+// exposes everything (docs/SECURITY/02 §12).
 func TestLoadFrom_MetricsBeyondLoopbackRequiresAToken(t *testing.T) {
 	tests := []struct {
 		name    string

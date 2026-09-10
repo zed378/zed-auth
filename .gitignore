@@ -1,4 +1,4 @@
-# --- Secrets: never commit these (SECURITY/02 §16 Secret Exposure) ---
+# --- Secrets: never commit these (docs/SECURITY/02 §16 Secret Exposure) ---
 .env
 .env.*
 !.env.example

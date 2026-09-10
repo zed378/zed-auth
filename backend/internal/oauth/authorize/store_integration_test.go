@@ -68,7 +68,7 @@ func TestACodeRedeemsExactlyOnce(t *testing.T) {
 	}
 }
 
-// The requirement PLAN/04 states explicitly: "two concurrent redemptions of one
+// The requirement docs/PLAN/04 states explicitly: "two concurrent redemptions of one
 // code must yield exactly one success".
 //
 // This is the test that distinguishes GETDEL from GET-then-DEL. The two-call
@@ -163,13 +163,13 @@ func TestUnknownCodesAreIndistinguishable(t *testing.T) {
 	}
 }
 
-// P1-06 DoD item 6, and PLAN/04's bound: under 60 seconds.
+// P1-06 DoD item 6, and docs/PLAN/04's bound: under 60 seconds.
 func TestCodesExpire(t *testing.T) {
 	s := store(t)
 	ctx := context.Background()
 
 	if CodeTTL >= time.Minute {
-		t.Fatalf("CodeTTL is %s; PLAN/04 requires under a minute", CodeTTL)
+		t.Fatalf("CodeTTL is %s; docs/PLAN/04 requires under a minute", CodeTTL)
 	}
 
 	// A short TTL rather than waiting out the real one.

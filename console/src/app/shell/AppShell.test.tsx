@@ -15,7 +15,7 @@ function renderShell(children = <h1>Page</h1>) {
 }
 
 describe("landmarks", () => {
-  // UI-UX/13: accessibility is built in from the first screen rather than
+  // docs/UI-UX/13: accessibility is built in from the first screen rather than
   // retrofitted. The shell's landmarks are what every future page inherits, so
   // a missing one here is a defect on every screen at once rather than on this
   // one.
@@ -47,7 +47,7 @@ describe("landmarks", () => {
 });
 
 describe("skip link", () => {
-  // UI-UX/13 § Keyboard Navigation. Without it a keyboard user tabs the whole
+  // docs/UI-UX/13 § Keyboard Navigation. Without it a keyboard user tabs the whole
   // navigation on every page load before reaching what they came for.
   it("is the first thing a keyboard user reaches", async () => {
     const user = userEvent.setup();
@@ -97,9 +97,9 @@ describe("skip link", () => {
 });
 
 describe("navigation", () => {
-  // PLAN/06 § Information Architecture. The tree mirrors PLAN/04's data model
+  // docs/PLAN/06 § Information Architecture. The tree mirrors docs/PLAN/04's data model
   // on purpose, so this list changing is a signal that one of them moved.
-  it("renders the organization destinations from PLAN/06", () => {
+  it("renders the organization destinations from docs/PLAN/06", () => {
     renderShell();
     const nav = screen.getByRole("navigation");
 
@@ -141,7 +141,7 @@ describe("navigation", () => {
   });
 
   it("does not show the instance-owner section yet", () => {
-    // PLAN/06 puts Instance administration behind INSTANCE_OWNER. The console
+    // docs/PLAN/06 puts Instance administration behind INSTANCE_OWNER. The console
     // cannot read a role claim until P1-03, and showing it to everyone
     // meanwhile would teach the wrong thing about what the console is.
     const nav = renderShell().container.querySelector("nav")!;
@@ -150,7 +150,7 @@ describe("navigation", () => {
   });
 
   it("reaches every navigation link by keyboard", async () => {
-    // UI-UX/13: every interactive element is reachable and operable by
+    // docs/UI-UX/13: every interactive element is reachable and operable by
     // keyboard alone. Tabbing from the skip link should walk the whole nav.
     const user = userEvent.setup();
     renderShell();
@@ -202,7 +202,7 @@ describe("the narrow-width message replaces the app rather than covering it", ()
 });
 
 describe("automated accessibility check", () => {
-  // UI-UX/13 § Testing & Sign-off asks for automated accessibility linting in
+  // docs/UI-UX/13 § Testing & Sign-off asks for automated accessibility linting in
   // CI, catching regressions on every change. axe is not a substitute for the
   // manual screen-reader pass that document also requires before Phase 5 — it
   // catches the mechanical failures, not the ones that need judgement.

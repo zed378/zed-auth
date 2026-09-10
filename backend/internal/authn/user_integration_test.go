@@ -128,7 +128,7 @@ func TestAnUnknownAddressIsNotAnError(t *testing.T) {
 	}
 }
 
-// A federated user, or one invited and not yet set up. PLAN/04 makes
+// A federated user, or one invited and not yet set up. docs/PLAN/04 makes
 // password_hash nullable precisely so this row is honest rather than carrying
 // a fake hash — and it must be refused the same way a wrong password is, at
 // the same cost.

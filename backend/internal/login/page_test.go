@@ -190,7 +190,7 @@ func TestThePasswordIsNeverRendered(t *testing.T) {
 	}
 }
 
-// UI-UX/13: every input has a visible, associated label, and an error is tied
+// docs/UI-UX/13: every input has a visible, associated label, and an error is tied
 // to its field. Without JavaScript, focus is moved by the autofocus attribute
 // on the error summary — which is why the summary carries tabindex.
 func TestFormAccessibility(t *testing.T) {

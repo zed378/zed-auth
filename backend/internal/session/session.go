@@ -1,6 +1,6 @@
 // Package session holds the browser session that makes single sign-on work.
 //
-// PLAN/03's data flow, step 6: a user who authenticated once at this service
+// docs/PLAN/03's data flow, step 6: a user who authenticated once at this service
 // reaches the second application without seeing a login screen. That is the
 // whole reason to run a central identity provider rather than a login form per
 // application, and it comes down to one cookie and one lookup.
@@ -29,7 +29,7 @@ import (
 //
 // The `__Host-` prefix is not decoration. A browser refuses to store a cookie
 // with this prefix unless it is Secure, has Path=/, and has no Domain — which
-// are exactly the attributes PLAN/05 § Session & logout asks for. Writing them
+// are exactly the attributes docs/PLAN/05 § Session & logout asks for. Writing them
 // correctly protects against our own mistakes; the prefix makes the browser
 // reject the mistake instead, including one introduced by a future change to
 // this file.
@@ -94,7 +94,7 @@ func NewToken() (Token, string, error) {
 //
 // Unsalted SHA-256, per ADR-016's reasoning: there is no precomputation to
 // defend against over 2^256, and it is looked up on the silent-SSO path where
-// PLAN/12 allows 150ms for the entire endpoint.
+// docs/PLAN/12 allows 150ms for the entire endpoint.
 func HashToken(plaintext string) string {
 	sum := sha256.Sum256([]byte(plaintext))
 	return hex.EncodeToString(sum[:])
@@ -198,7 +198,7 @@ type Policy struct {
 
 // DefaultPolicy matches P0-07's column default of session_lifetime_hours: 12.
 //
-// The idle timeout has no plan value — PLAN/08 Part B specifies only the
+// The idle timeout has no plan value — docs/PLAN/08 Part B specifies only the
 // lifetime — so 2 hours is chosen here and stated rather than hidden: long
 // enough that a user reading a long document is not logged out, short enough
 // that an unattended machine stops being useful before the end of a working

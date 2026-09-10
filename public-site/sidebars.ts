@@ -4,7 +4,7 @@ import type { SidebarsConfig } from "@docusaurus/plugin-content-docs";
  * Documentation sidebar.
  *
  * Authored by hand rather than generated from the folder structure, so reading
- * order is a decision rather than an accident of filenames. `UI-UX/20` § Docs
+ * order is a decision rather than an accident of filenames. `docs/UI-UX/20` § Docs
  * Home says this section's success metric is "time to correct page" — the
  * ordering below is what a first-time reader needs, not alphabetical.
  *

@@ -51,7 +51,7 @@ export interface paths {
          *     Every key that can still verify a token is published, including one
          *     that has stopped signing. That overlap is what lets a key rotate
          *     without invalidating tokens issued moments before it
-         *     (`PLAN/09` § Tokens & Keys).
+         *     (`docs/PLAN/09` § Tokens & Keys).
          *
          *     Verification is local: fetch this once, cache it, and validating a
          *     token does not depend on this service being reachable.
@@ -85,7 +85,7 @@ export interface paths {
          *     `?error=invalid_request&error_description=...&state=...`.
          *
          *     **PKCE is mandatory for every client type**, public and confidential
-         *     alike. `PLAN/05` states this explicitly and it is stricter than OAuth
+         *     alike. `docs/PLAN/05` states this explicitly and it is stricter than OAuth
          *     2.1's baseline: a confidential client's secret protects the token
          *     request, not the code in transit, and a code intercepted from a browser
          *     redirect is useless without the verifier regardless of what the client
@@ -120,7 +120,7 @@ export interface paths {
         /**
          * Token endpoint
          * @description Exchanges an authorization code, a refresh token, or client
-         *     credentials for tokens. `PLAN/12` calls this the highest-volume,
+         *     credentials for tokens. `docs/PLAN/12` calls this the highest-volume,
          *     most latency-sensitive endpoint in the system.
          *
          *     **This endpoint does not use the standard error envelope.** OAuth 2.1
@@ -159,6 +159,61 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/oauth/userinfo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * UserInfo endpoint
+         * @description Returns the claims the presented access token's scopes authorise, and
+         *     nothing beyond them.
+         *
+         *     **Send the token in the `Authorization` header.** RFC 6750 also defines
+         *     an `access_token` query parameter and calls it NOT RECOMMENDED; this
+         *     service does not accept one. A query parameter is written to the access
+         *     log of every proxy in the path, to the browser's history, and to the
+         *     `Referer` of whatever the page loads next.
+         *
+         *     **Scopes decide the claims.** `openid` yields `sub`; `profile` yields
+         *     `name`, `preferred_username` and `updated_at`; `email` yields `email`.
+         *     A claim outside the granted scopes is never returned, and a claim whose
+         *     underlying value is not set is omitted rather than returned empty.
+         *
+         *     `email_verified` is **not** returned. Nothing in this service verifies
+         *     an address yet, and asserting `false` would say we checked and it is
+         *     not verified — which we did not.
+         *
+         *     **`sub` is the user's identifier and is stable.** It is not sequential,
+         *     not guessable, and never the email address. Store it as the user's
+         *     permanent key; an address may change.
+         *
+         *     **The token stops working the moment the session behind it ends.** An
+         *     access token is not looked up, but the session it was issued from is —
+         *     so a logout, a revocation, or a deactivated account invalidates it
+         *     immediately rather than at its expiry.
+         *
+         *     **Every unusable token gets the same answer**: `401` with
+         *     `WWW-Authenticate: Bearer error="invalid_token"`. Expired, forged,
+         *     wrong audience, and revoked are not distinguished, because a caller
+         *     that could tell them apart could ask this endpoint whether a user has
+         *     logged out.
+         *
+         *     A token that is otherwise valid but lacks the `openid` scope gets `403`
+         *     with `error="insufficient_scope"`, which is a different thing and is
+         *     worth telling you: your token is fine, and it does not cover this.
+         */
+        get: operations["userinfo"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/healthz": {
         parameters: {
             query?: never;
@@ -174,7 +229,7 @@ export interface paths {
          *     The distinction from `/readyz` is load-bearing. A liveness probe that
          *     checks the database restarts the service during a database outage,
          *     which converts a recoverable dependency failure into a crash loop that
-         *     prevents recovery (`PLAN/14`).
+         *     prevents recovery (`docs/PLAN/14`).
          */
         get: operations["getLiveness"];
         put?: never;
@@ -238,7 +293,7 @@ export interface components {
             response_types_supported?: string[];
             /**
              * @description Never contains `implicit` or `password`: both are ruled out
-             *     permanently by `PLAN/05` § Supported Grant Types, and advertising
+             *     permanently by `docs/PLAN/05` § Supported Grant Types, and advertising
              *     a grant this service refuses invites a client to build against it.
              */
             grant_types_supported?: string[];
@@ -318,7 +373,7 @@ export interface components {
          *     Deliberately coarse. A code per failure mode leaks internal structure
          *     and becomes an enumeration oracle — `USER_NOT_FOUND` versus
          *     `PERMISSION_DENIED` tells an attacker which addresses are registered
-         *     (`SECURITY/02` §12).
+         *     (`docs/SECURITY/02` §12).
          * @enum {string}
          */
         ErrorCode: "VALIDATION_ERROR" | "UNAUTHENTICATED" | "PERMISSION_DENIED" | "NOT_FOUND" | "CONFLICT" | "RATE_LIMITED" | "INTERNAL";
@@ -366,6 +421,42 @@ export interface components {
             scope?: string;
         };
         /**
+         * @description The claims the presented access token's scopes authorise.
+         *
+         *     Only `sub` is guaranteed. Every other property appears when its scope
+         *     was granted AND the underlying value is set — an absent claim means the
+         *     value is not known or not authorised, and the two are deliberately not
+         *     distinguished.
+         */
+        UserInfo: {
+            /**
+             * Format: uuid
+             * @description The user's stable identifier. Not sequential, not guessable, and
+             *     never the email address — store this as the user's permanent key.
+             */
+            sub: string;
+            /** @description Display name. Requires the `profile` scope. */
+            name?: string;
+            /**
+             * @description Requires the `profile` scope. A user may change it, so it is not
+             *     an identifier — use `sub`.
+             */
+            preferred_username?: string;
+            /**
+             * Format: int64
+             * @description Seconds since the epoch, when the user record last changed
+             *     (OIDC Core 5.1). Requires the `profile` scope.
+             */
+            updated_at?: number;
+            /**
+             * Format: email
+             * @description Requires the `email` scope. `email_verified` is deliberately not
+             *     returned: nothing in this service verifies an address yet, and
+             *     asserting `false` would claim a check that never happened.
+             */
+            email?: string;
+        };
+        /**
          * @description OAuth 2.1's error shape (RFC 6749 § 5.2), used by the protocol
          *     endpoints. Distinct from the `Error` envelope every other endpoint
          *     returns, because this is what a consumer's OAuth library parses.
@@ -381,7 +472,7 @@ export interface components {
         };
         /**
          * @description The error envelope for every non-2xx response, without exception
-         *     (`PLAN/05` Part B § Standard Error Format). One shape means a client
+         *     (`docs/PLAN/05` Part B § Standard Error Format). One shape means a client
          *     writes one error path rather than one per endpoint.
          */
         Error: {
@@ -390,7 +481,7 @@ export interface components {
                 /**
                  * @description Human-readable, safe to surface in a UI, and never containing a
                  *     token, a password, a raw `/v1/authz/check` resource attribute,
-                 *     a stack trace, or a SQL fragment (`PLAN/13`, `CLAUDE.md`).
+                 *     a stack trace, or a SQL fragment (`docs/PLAN/13`, `CLAUDE.md`).
                  */
                 message: string;
                 /** @description Field-level problems. Omitted when there are none. */
@@ -438,7 +529,7 @@ export interface components {
          * @description Authenticated, but not permitted. Returned for a resource in another
          *     organization even when it exists — distinguishing "forbidden" from "not
          *     found" across a tenant boundary confirms the resource's existence to
-         *     someone with no right to know it (`PLAN/08`, `SECURITY/02` §3).
+         *     someone with no right to know it (`docs/PLAN/08`, `docs/SECURITY/02` §3).
          */
         Forbidden: {
             headers: {
@@ -469,7 +560,7 @@ export interface components {
         /**
          * @description Too many requests. Limits are applied per `client_id` or API key rather
          *     than per IP, so one noisy tenant behind a shared NAT cannot exhaust
-         *     another's budget (`PLAN/05` Part B).
+         *     another's budget (`docs/PLAN/05` Part B).
          */
         RateLimited: {
             headers: {
@@ -520,7 +611,7 @@ export interface components {
          *     request with the same key returns the original result rather than
          *     creating a second resource — which matters most for automated
          *     provisioning, where a network timeout is indistinguishable from a
-         *     failure (`PLAN/05` Part B).
+         *     failure (`docs/PLAN/05` Part B).
          */
         IdempotencyKey: string;
     };
@@ -583,7 +674,7 @@ export interface operations {
             };
             /**
              * @description The key set could not be read. The body names no dependency: this
-             *     endpoint is public and unauthenticated (`SECURITY/02` §12).
+             *     endpoint is public and unauthenticated (`docs/SECURITY/02` §12).
              */
             503: {
                 headers: {
@@ -665,7 +756,7 @@ export interface operations {
              *     redirect to, and inventing one is the vulnerability.
              *
              *     The two causes are reported identically, so this cannot be used to
-             *     discover which client ids exist (`SECURITY/02` §12).
+             *     discover which client ids exist (`docs/SECURITY/02` §12).
              */
             400: {
                 headers: {
@@ -754,6 +845,57 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["OAuthError"];
+                };
+            };
+        };
+    };
+    userinfo: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The claims the granted scopes authorise. */
+            200: {
+                headers: {
+                    /** @description Always `no-store`. The response is personal data addressed to one caller. */
+                    "Cache-Control"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserInfo"];
+                };
+            };
+            /**
+             * @description The access token is missing, expired, forged, for another
+             *     audience, or its session has ended. All of these are the same
+             *     answer, deliberately.
+             */
+            401: {
+                headers: {
+                    /**
+                     * @description `Bearer realm="<issuer>"`, with
+                     *     `error="invalid_token"` when a credential was presented.
+                     */
+                    "WWW-Authenticate"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The token is valid and does not carry the `openid` scope. */
+            403: {
+                headers: {
+                    /** @description `Bearer error="insufficient_scope", scope="openid"`. */
+                    "WWW-Authenticate"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
                 };
             };
         };

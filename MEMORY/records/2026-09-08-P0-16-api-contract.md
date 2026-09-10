@@ -8,7 +8,7 @@
 
 ## The Choice That Mattered
 
-`P0-16` step 2 asked for a decision between spec-first and code-first, and `PLAN/05` § Documentation accepts either — "generated from code or validated in CI". So the question was not which one the plan wanted. It was which one makes drift *impossible* rather than *detectable*.
+`P0-16` step 2 asked for a decision between spec-first and code-first, and `docs/PLAN/05` § Documentation accepts either — "generated from code or validated in CI". So the question was not which one the plan wanted. It was which one makes drift *impossible* rather than *detectable*.
 
 Code-first from Go annotations looks safer than it is. The annotation sits next to the handler, which feels like proximity enforces agreement, but an annotation is a comment: it can say `200` while the handler returns `201` and nothing objects. It converts a compile-time property into a review-time one.
 
@@ -38,7 +38,7 @@ The contract was never wrong. It had just never been written anywhere that could
 
 ## Three Rules Encoded Rather Than Written Down
 
-**The spec documents only what has shipped.** `/docs/api-reference` renders from this file, so a documented endpoint is a public claim that it exists — which `UI-UX/21`'s governance rule and `CLAUDE.md` both forbid for unshipped capability. `PLAN/05` Part B lists the whole `/v1` surface and writing it out now as a design exercise was tempting; it would have published that claim for every unbuilt endpoint at once.
+**The spec documents only what has shipped.** `/docs/api-reference` renders from this file, so a documented endpoint is a public claim that it exists — which `docs/UI-UX/21`'s governance rule and `CLAUDE.md` both forbid for unshipped capability. `docs/PLAN/05` Part B lists the whole `/v1` surface and writing it out now as a design exercise was tempting; it would have published that claim for every unbuilt endpoint at once.
 
 `scripts/openapi-shipped-paths.py` gates it, in CI and in `check.sh`. Adding an endpoint means adding it to `SHIPPED` in the same commit. The duplication is the point: publishing an endpoint becomes a deliberate two-line act rather than a side effect of editing YAML. The script also fails in the reverse direction — a `SHIPPED` entry the spec no longer documents — because a stale allowlist quietly widens.
 

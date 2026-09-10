@@ -112,7 +112,7 @@ func (s Secret) IsZero() bool { return s.plaintext == "" }
 //
 // The plaintext is returned exactly once, here. Nothing persists it, and no
 // read path can reconstruct it — which is what makes "shown once at creation
-// only, never retrievable again" (UI-UX/08) a property of the system rather
+// only, never retrievable again" (docs/UI-UX/08) a property of the system rather
 // than a promise made by a screen.
 func Generate() (Secret, string, error) {
 	buf := make([]byte, secretBytes)

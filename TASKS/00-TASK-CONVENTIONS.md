@@ -24,7 +24,7 @@ Task IDs are the join key across the repo: they appear in branch names (`feat/P1
 |---|---|
 | `TODO` | Not started. Dependencies may or may not be met. |
 | `BLOCKED` | Cannot start — either a dependency is incomplete or an open question in `BACKLOG.md` must be answered first. The blocker is always named. |
-| `SPEC` | A feature spec (`PLAN/19-FEATURE-SPECIFICATION-TEMPLATE.md`) is being written; no implementation code yet. |
+| `SPEC` | A feature spec (`docs/PLAN/19-FEATURE-SPECIFICATION-TEMPLATE.md`) is being written; no implementation code yet. |
 | `WIP` | Implementation in progress. |
 | `REVIEW` | Implementation complete, under review / awaiting test results. |
 | `DONE` | Every line of the task DoD and the global DoD below is satisfied, **and** a MEMORY record exists. |
@@ -41,7 +41,7 @@ Every task in a phase file uses this structure:
 |---|---|
 | **Status** | TODO |
 | **Depends on** | P1-05, P1-06 |
-| **Plan refs** | PLAN/05-API-CONTRACT.md Part A, PLAN/09-SECURITY.md |
+| **Plan refs** | docs/PLAN/05-API-CONTRACT.md Part A, docs/PLAN/09-SECURITY.md |
 | **Spec required** | Yes — touches authentication |
 | **Surface** | backend |
 
@@ -51,7 +51,7 @@ Every task in a phase file uses this structure:
 
 **Definition of Done** — checkable, objective conditions.
 
-**Abuse cases to test** — cross-referenced from SECURITY/02 and PLAN/10.
+**Abuse cases to test** — cross-referenced from docs/SECURITY/02 and docs/PLAN/10.
 ```
 
 Field meanings:
@@ -65,11 +65,11 @@ Field meanings:
 
 Inherited by **every** task. A task's own DoD is *in addition* to this, never instead of it.
 
-1. **Tests exist at the right layer** of `PLAN/11-TESTING.md`'s pyramid — unit for pure logic, integration against real Postgres/Redis, E2E for user-visible flows.
+1. **Tests exist at the right layer** of `docs/PLAN/11-TESTING.md`'s pyramid — unit for pure logic, integration against real Postgres/Redis, E2E for user-visible flows.
 2. **Every abuse case listed on the task has an automated test**, per `CLAUDE.md`'s hard rule 7. A security-sensitive feature with no abuse-case test is not done, regardless of how well the happy path works.
-3. **The OpenAPI spec is updated** if the task touches an API surface (`PLAN/05-API-CONTRACT.md`), and the generated console client + generated public API reference both still build.
-4. **Sensitive actions write an audit event** to `events` (`PLAN/04-DATA-MODEL.md`, `PLAN/09-SECURITY.md`).
-5. **Nothing sensitive is logged** — no tokens, no passwords, no raw `/v1/authz/check` resource attributes (`PLAN/13-OBSERVABILITY.md`).
+3. **The OpenAPI spec is updated** if the task touches an API surface (`docs/PLAN/05-API-CONTRACT.md`), and the generated console client + generated public API reference both still build.
+4. **Sensitive actions write an audit event** to `events` (`docs/PLAN/04-DATA-MODEL.md`, `docs/PLAN/09-SECURITY.md`).
+5. **Nothing sensitive is logged** — no tokens, no passwords, no raw `/v1/authz/check` resource attributes (`docs/PLAN/13-OBSERVABILITY.md`).
 6. **CI is green**: build, unit + integration tests, `gosec` SAST, dependency CVE scan, lint, OpenAPI validation.
 7. **A MEMORY change record exists** (`MEMORY/records/`), the index and changelog are updated, and any architectural decision or plan deviation has an ADR.
 8. **`PROGRESS.md` and the phase file checkbox are updated** in the same commit as the work.
@@ -85,7 +85,7 @@ A task should not move to `WIP` unless:
 
 ## Deviation Protocol
 
-`AGENTS.md` rule 9 makes `PLAN/`, `UI-UX/`, and `SECURITY/` reference documentation, not implementation output. So when reality and the plan conflict — a library can't do what `PLAN/07` assumed, a UX spec is impossible at a given breakpoint, an endpoint shape doesn't survive contact with OIDC conformance:
+`AGENTS.md` rule 9 makes `docs/PLAN/`, `docs/UI-UX/`, and `docs/SECURITY/` reference documentation, not implementation output. So when reality and the plan conflict — a library can't do what `docs/PLAN/07` assumed, a UX spec is impossible at a given breakpoint, an endpoint shape doesn't survive contact with OIDC conformance:
 
 1. **Stop.** Do not silently pick a different approach.
 2. Write an ADR in `MEMORY/DECISIONS.md` describing the conflict, the options, and the recommendation.

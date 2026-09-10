@@ -19,7 +19,7 @@ import (
 
 // TracingConfig configures distributed tracing.
 //
-// PLAN/13-OBSERVABILITY.md § Tracing wants end-to-end visibility from request
+// docs/PLAN/13-OBSERVABILITY.md § Tracing wants end-to-end visibility from request
 // through validation, database query, and policy evaluation — because the
 // question that actually gets asked during an incident is "which part of this
 // request was slow", and per-endpoint latency cannot answer it.
@@ -38,7 +38,7 @@ type TracingConfig struct {
 	//
 	// Sampling matters here more than usual: /oauth/token and
 	// /v1/authz/check are the highest-volume endpoints in the system
-	// (PLAN/12), and tracing every request would cost more than the requests
+	// (docs/PLAN/12), and tracing every request would cost more than the requests
 	// themselves. Errors are always sampled regardless — see the sampler below.
 	SampleRatio float64
 
@@ -123,7 +123,7 @@ func Tracer(name string) trace.Tracer { return otel.Tracer(name) }
 // /v1/authz/check resource attribute. A span is shipped to a collector that
 // is usually a different trust boundary from the logs, and the redaction the
 // logger applies (P0-09) does not reach here — so this is a rule the caller
-// has to keep (PLAN/13, CLAUDE.md).
+// has to keep (docs/PLAN/13, CLAUDE.md).
 func StartSpan(ctx context.Context, tracerName, spanName string, attrs ...attribute.KeyValue) (context.Context, trace.Span) {
 	ctx, span := otel.Tracer(tracerName).Start(ctx, spanName)
 	if len(attrs) > 0 {

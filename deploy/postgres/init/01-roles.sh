@@ -13,7 +13,7 @@
 # Loosening the mode would have put the password back at risk; removing the
 # password removes the dilemma.)
 #
-# The role split exists because of PLAN/08-AUTHORIZATION.md Part B: row-level
+# The role split exists because of docs/PLAN/08-AUTHORIZATION.md Part B: row-level
 # security must hold "even when the application layer forgets to filter". RLS
 # is silently bypassed by the table owner and by any role with BYPASSRLS, so
 # the application must be neither. Running the application as the owner would
@@ -61,7 +61,7 @@ GRANT USAGE ON SCHEMA public TO auth_app;
 --
 -- The one standing default: the application may read and write rows in tables
 -- created by the owner, EXCEPT that `events` has UPDATE and DELETE revoked
--- explicitly in its own migration (SECURITY/02 §19, append-only audit log).
+-- explicitly in its own migration (docs/SECURITY/02 §19, append-only audit log).
 ALTER DEFAULT PRIVILEGES FOR ROLE auth_owner IN SCHEMA public
   GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO auth_app;
 

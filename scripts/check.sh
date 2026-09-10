@@ -68,7 +68,7 @@ else
 fi
 
 # go.sum verification detects a dependency whose content changed without go.sum
-# changing — the shape a compromised module takes (SECURITY/02 §15).
+# changing — the shape a compromised module takes (docs/SECURITY/02 §15).
 if (cd backend && go mod verify >/dev/null 2>&1); then pass "go mod verify"; else fail "go mod verify"; fi
 
 # Tidiness means "running go mod tidy changes nothing", which is a comparison
@@ -119,7 +119,7 @@ else
 
   # A table added with an org_id but no policy is silently unisolated: queries
   # work, tests pass, and it returns every organization's rows. Invisible until
-  # it is a breach (PLAN/08 Part B, P0-08).
+  # it is a breach (docs/PLAN/08 Part B, P0-08).
   unprotected=$(docker compose -f deploy/docker-compose.yml exec -T postgres \
     psql -U auth_owner -d auth -tA -c "
       SELECT c.relname FROM pg_class c
@@ -154,7 +154,7 @@ else
   fail "missing down migrations:$missing_down"
 fi
 
-# PLAN/14 § Rollback Strategy: a migration must leave the PREVIOUS application
+# docs/PLAN/14 § Rollback Strategy: a migration must leave the PREVIOUS application
 # version able to run against the new schema, so an app rollback never needs a
 # database rollback.
 undocumented=""
@@ -468,7 +468,7 @@ fi
 
 # --- Public site ------------------------------------------------------------
 #
-# Separate from the console's section on purpose: PLAN/20 § Why a Separate
+# Separate from the console's section on purpose: docs/PLAN/20 § Why a Separate
 # Surface requires these to be independent projects, and running them as one
 # gate would quietly couple what the plan says to keep apart.
 #
@@ -542,7 +542,7 @@ else
         (cd public-site && npm run --silent check:claims 2>&1 | tail -12)
       fi
 
-      # PLAN/20 § What Never Gets Published.
+      # docs/PLAN/20 § What Never Gets Published.
       if (cd public-site && npm run --silent check:leak >/dev/null 2>&1); then
         pass "no internal material on the public site"
       else

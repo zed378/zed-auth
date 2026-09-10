@@ -16,6 +16,10 @@ var (
 	// configuration error — see Verify.
 	ErrAlgorithmNotAllowed = errors.New("token algorithm is not allowed")
 
+	// ErrWrongType means the token is not the kind the caller asked for — an
+	// ID token presented where an access token belongs, most usefully.
+	ErrWrongType = errors.New("token is not the expected type")
+
 	// ErrMissingKID means the token header carries no key id.
 	ErrMissingKID = errors.New("token has no key id")
 )
@@ -128,16 +132,29 @@ func NewVerifier(cache *Cache) *Verifier { return &Verifier{cache: cache} }
 //	  key is fetched.
 //
 // The general rule: the algorithm is decided by the SERVER's policy, never by
-// the attacker-supplied header (SECURITY/02 §1).
+// the attacker-supplied header (docs/SECURITY/02 §1).
 var allowedAlgorithms = []jose.SignatureAlgorithm{jose.RS256, jose.ES256}
 
-// Verify checks a compact JWS and returns its payload.
+// Verify checks a compact JWS of the expected type and returns its payload.
 //
 // The payload is returned unparsed. Claim validation — issuer, audience,
-// expiry — belongs to the caller that knows what those should be (P1-07); this
-// function answers exactly one question: did this service sign this, with a
-// key that is still valid?
-func (v *Verifier) Verify(compact string) ([]byte, error) {
+// expiry — belongs to the caller that knows what those should be; this
+// function answers two questions: did this service sign this with a key that
+// is still valid, and is it the KIND of token the caller asked for?
+//
+// `wantType` is a required parameter rather than an optional check on a
+// separate method, and that is deliberate. The `typ` header is what stops an
+// ID token being presented as an access token (abuse case A-5, and half of the
+// reason P1-07 marks access tokens `at+jwt` at all). A permissive Verify
+// sitting next to a strict VerifyTyped would be a pair where the shorter,
+// more obvious name is the unsafe one — and the unsafe one is what gets
+// called. Made a parameter, the check cannot be forgotten, only got wrong,
+// and got wrong is visible in review.
+func (v *Verifier) Verify(compact, wantType string) ([]byte, error) {
+	if wantType == "" {
+		return nil, fmt.Errorf("signing: a token type is required to verify")
+	}
+
 	// Parsing with an explicit algorithm list is what makes the two abuse
 	// cases above structural rather than a check somebody has to remember.
 	parsed, err := jose.ParseSigned(compact, allowedAlgorithms)
@@ -161,6 +178,19 @@ func (v *Verifier) Verify(compact string) ([]byte, error) {
 	}
 
 	header := parsed.Signatures[0].Header
+
+	// The type, before the key lookup — for the same reason the algorithm list
+	// is applied before it: a token of the wrong kind is refused without this
+	// service doing any work on its behalf.
+	//
+	// go-jose parses `typ` into ExtraHeaders rather than a named field, and it
+	// arrives as a string. A token with no `typ` at all yields nil, which
+	// compares unequal to any wanted type — which is the answer we want, since
+	// an untyped token is not an access token.
+	if got, _ := header.ExtraHeaders[jose.HeaderType].(string); got != wantType {
+		return nil, fmt.Errorf("%w: token is typ %q, wanted %q", ErrWrongType, got, wantType)
+	}
+
 	if header.KeyID == "" {
 		// No fallback to "try every key". Trying them all turns a verification
 		// failure into an oracle for how many keys exist, and it is how a

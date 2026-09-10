@@ -27,7 +27,7 @@ Two states would have been simpler and wrong in both directions.
 
 **A key is published before it signs**, because consumers cache JWKS. If the first token signed with a new key arrives before the consumer has fetched that key, the consumer rejects a valid token. Publishing first removes the race rather than narrowing it.
 
-**A key keeps verifying after it stops signing**, because a token issued one second before a rotation is valid for its full lifetime. Retiring immediately kills it. This overlap is what `PLAN/09` means by an overlap period, and it is the difference between a rotation and an outage.
+**A key keeps verifying after it stops signing**, because a token issued one second before a rotation is valid for its full lifetime. Retiring immediately kills it. This overlap is what `docs/PLAN/09` means by an overlap period, and it is the difference between a rotation and an outage.
 
 Rotation demotes *before* it promotes, because the partial unique index allows only one `current`. That constraint is doing real work: it makes "two keys signing at once" unrepresentable rather than merely unlikely, so "which key signed this token" stays a question with one answer.
 

@@ -2,13 +2,13 @@
 #
 # Backs up the Auth Service database, and verifies the backup by restoring it.
 #
-# PLAN/15-DISASTER-RECOVERY.md § Restore Testing: "a backup that's never been
+# docs/PLAN/15-DISASTER-RECOVERY.md § Restore Testing: "a backup that's never been
 # tested isn't a backup you can rely on." This script therefore does not finish
 # when pg_dump exits — it restores into a throwaway database and checks the
 # schema and row counts survived. An unverified backup is a hypothesis, and the
 # moment you discover it was wrong is the worst possible moment.
 #
-# PLAN/15 also requires backups in a separate failure domain from the primary.
+# docs/PLAN/15 also requires backups in a separate failure domain from the primary.
 # On a single VM (ADR-011, DV-01) that means shipping offsite: a backup on the
 # same disk as the database protects against `DROP TABLE`, and against nothing
 # else.
@@ -186,7 +186,7 @@ fi
 
 # --- Ship offsite -----------------------------------------------------------
 #
-# PLAN/15: backups live in a separate failure domain from the primary. A backup
+# docs/PLAN/15: backups live in a separate failure domain from the primary. A backup
 # on the same disk as the database protects against DROP TABLE and nothing
 # else — not disk failure, not the VM being lost, not ransomware.
 
@@ -202,7 +202,7 @@ if [[ "$mode" == "scheduled" ]]; then
   else
     # Loud, because a local-only backup gives the feeling of safety without it.
     warn "AUTH_BACKUP_REMOTE is not set — backups are LOCAL ONLY."
-    warn "PLAN/15 requires a separate failure domain. Losing this VM loses"
+    warn "docs/PLAN/15 requires a separate failure domain. Losing this VM loses"
     warn "the database and every backup of it together."
   fi
 

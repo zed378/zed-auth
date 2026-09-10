@@ -5,7 +5,7 @@
 #   sudo systemctl daemon-reload
 #   sudo systemctl enable --now zed-auth
 #
-# Migrations are deliberately NOT run here. PLAN/14 § Release Process requires
+# Migrations are deliberately NOT run here. docs/PLAN/14 § Release Process requires
 # them to be a separate, reviewable step before application rollout; running
 # them from the unit would make every restart a schema change.
 

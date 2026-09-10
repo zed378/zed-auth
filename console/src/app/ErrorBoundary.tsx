@@ -16,7 +16,7 @@ interface State {
  * a worse outcome than almost any error it might be catching.
  *
  * What it deliberately does NOT do is show the error to the user.
- * `PLAN/10-THREAT-MODEL.md` § Information Disclosure treats a stack trace
+ * `docs/PLAN/10-THREAT-MODEL.md` § Information Disclosure treats a stack trace
  * returned to a caller as a disclosure bug, and the same reasoning holds in a
  * browser: a React error message routinely carries prop values, and in this
  * console those props are user records, role keys and organization structure.

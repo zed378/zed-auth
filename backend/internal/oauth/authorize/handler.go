@@ -52,7 +52,7 @@ type CodeStore interface {
 
 // Observer records which path a request took.
 //
-// Separate counters for silent and interactive because PLAN/12 sets a latency
+// Separate counters for silent and interactive because docs/PLAN/12 sets a latency
 // target for the silent path specifically, and an average across both would
 // hide it behind the login page's rendering time.
 type Observer interface {
@@ -116,7 +116,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		// Deliberately the same message as a redirect mismatch. Distinguishing
 		// "no such client" from "wrong redirect" tells a prober which client
-		// ids exist (SECURITY/02 §12).
+		// ids exist (docs/SECURITY/02 §12).
 		h.renderError(w, "This application is not registered, or the address it asked us to return to is not one it registered.",
 			"client_id or redirect_uri is not valid")
 		return
@@ -221,7 +221,7 @@ func (h *Handler) session(
 // issue mints a code and redirects to the client.
 //
 // `path` is which route got here — "silent" for an existing session, "login"
-// for one just established by P1-12. Recorded separately because PLAN/12 sets
+// for one just established by P1-12. Recorded separately because docs/PLAN/12 sets
 // a latency target for the silent path specifically, and averaging it with a
 // path that includes a human typing a password would hide it entirely.
 func (h *Handler) issue(

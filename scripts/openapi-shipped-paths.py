@@ -3,11 +3,11 @@
 
 `/docs/api-reference` on the public site renders directly from
 `openapi/openapi.yaml`, so an endpoint documented there is a public claim that
-it exists. `UI-UX/21-CONTENT-AND-COPY-STRATEGY.md`'s governance rule and
+it exists. `docs/UI-UX/21-CONTENT-AND-COPY-STRATEGY.md`'s governance rule and
 `CLAUDE.md` both forbid that: marketing and documentation never describe a
 capability beyond the current roadmap phase.
 
-`PLAN/05-API-CONTRACT.md` Part B lists the whole v1 surface, and writing it all
+`docs/PLAN/05-API-CONTRACT.md` Part B lists the whole v1 surface, and writing it all
 out now as a design exercise is tempting and would put that claim on the public
 site for every unbuilt endpoint at once.
 
@@ -31,6 +31,8 @@ SHIPPED = {
     "/oauth/authorize",
     # P1-07. With this the flow closes: a consumer can complete a login.
     "/oauth/token",
+    # P1-08. Served and real; discovery advertises it from the same commit.
+    "/oauth/userinfo",
     "/healthz",
     "/readyz",
     # P1-04. Both are served and both are real; the discovery document itself

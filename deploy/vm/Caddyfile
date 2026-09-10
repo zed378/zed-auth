@@ -1,6 +1,6 @@
 # TLS termination for the Auth Service.
 #
-# TLS is mandatory everywhere with no HTTP fallback (PLAN/09-SECURITY.md
+# TLS is mandatory everywhere with no HTTP fallback (docs/PLAN/09-SECURITY.md
 # § Transport & Storage). Caddy obtains and renews Let's Encrypt certificates
 # automatically; on a self-managed host an expired certificate is the most
 # likely single cause of an outage, so the component with the fewest moving
@@ -40,7 +40,7 @@
 	reverse_proxy authservice:8080 {
 		# Overwrite rather than append. An inbound X-Forwarded-For from a client
 		# would otherwise be trusted, and the rate limiter keys on client IP
-		# (P1-13) — SECURITY/02 §10 names header manipulation as the rate-limit
+		# (P1-13) — docs/SECURITY/02 §10 names header manipulation as the rate-limit
 		# bypass to prevent.
 		header_up X-Forwarded-For {remote_host}
 		header_up X-Forwarded-Proto {scheme}

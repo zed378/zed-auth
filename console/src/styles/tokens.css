@@ -1,13 +1,13 @@
 /*
  * Design tokens — the single source of visual truth for the console.
  *
- * Every token in UI-UX/05-DESIGN-SYSTEM.md exists here, by the name that
+ * Every token in docs/UI-UX/05-DESIGN-SYSTEM.md exists here, by the name that
  * document gives it. Nothing in the application refers to a colour, size, or
- * spacing value that is not defined in this file: `UI-UX/05` § Governance
+ * spacing value that is not defined in this file: `docs/UI-UX/05` § Governance
  * requires token names rather than raw values everywhere, so that a rebrand
  * never means hunting through page specs, and `eslint-local-rules` enforces it.
  *
- * `UI-UX/05` names the tokens and describes their intent ("neutral,
+ * `docs/UI-UX/05` names the tokens and describes their intent ("neutral,
  * low-saturation", "must meet WCAG AA against both bg tokens") without fixing
  * values. The values below are this implementation's, chosen to satisfy those
  * constraints, and `tokens.test.ts` computes the contrast ratios from this file
@@ -26,14 +26,14 @@
  *
  * By default Tailwind emits only the theme variables some utility actually
  * uses, which is right for a stylesheet and wrong for a design system: a token
- * UI-UX/05 names should exist whether or not a screen happens to reference it
+ * docs/UI-UX/05 names should exist whether or not a screen happens to reference it
  * yet, because hand-written CSS and future components read it by name.
  */
 @theme static {
   /* ---------------------------------------------------------------------
    * Colour
    *
-   * Nine tokens, matching UI-UX/05 § Color exactly. Not eight, not ten: a
+   * Nine tokens, matching docs/UI-UX/05 § Color exactly. Not eight, not ten: a
    * tenth would be a design-system change, which that document's Governance
    * section requires to happen there before a screen uses it.
    * ------------------------------------------------------------------ */
@@ -53,17 +53,17 @@
 
   /* 5.8:1 on base, 6.3:1 on surface. Lower emphasis and still AA — "secondary"
    * is a hierarchy statement, never a licence to drop below the threshold
-   * (UI-UX/13 § Colour & Contrast). */
+   * (docs/UI-UX/13 § Colour & Contrast). */
   --color-text-secondary: #586170;
 
   /* Primary actions, the active nav item, and focus rings. One accent, used
-   * for meaning rather than decoration (UI-UX/00). This is the only colour
+   * for meaning rather than decoration (docs/UI-UX/00). This is the only colour
    * token an organization may override — see src/branding/. */
   --color-accent: #1d4ed8;
 
   /* RESERVED for destructive and irreversible actions, and error states.
    * Never reused for anything else, so that its appearance is always a
-   * reliable signal (UI-UX/05, UI-UX/06, CLAUDE.md — this is listed among the
+   * reliable signal (docs/UI-UX/05, docs/UI-UX/06, CLAUDE.md — this is listed among the
    * non-negotiable constraints). Not overridable by branding. */
   --color-danger: #b42318;
 
@@ -82,7 +82,7 @@
    * a UI component, and an input's border is exactly that. A divider-weight
    * value would be prettier and would make every text input's boundary fail.
    *
-   * UI-UX/05 gives one token for both jobs. Splitting it into a strong border
+   * docs/UI-UX/05 gives one token for both jobs. Splitting it into a strong border
    * for controls and a subtle one for dividers is a design-system change, so
    * it is raised as a plan gap rather than made here (BACKLOG PG-12). Until
    * then this errs toward the accessible reading. */
@@ -91,13 +91,13 @@
   /* ---------------------------------------------------------------------
    * Typography
    *
-   * Five steps. UI-UX/05 asks for a constrained scale of 5-6 rather than an
+   * Five steps. docs/UI-UX/05 asks for a constrained scale of 5-6 rather than an
    * open-ended set, because an open set is how two screens end up 1px apart
    * for no reason.
    * ------------------------------------------------------------------ */
 
   /* A workhorse UI face, not a display face: this has to stay legible at
-   * small sizes in dense tables and forms (UI-UX/00). System stacks first —
+   * small sizes in dense tables and forms (docs/UI-UX/00). System stacks first —
    * they render immediately, and a webfont's flash of unstyled text on a tool
    * people open fifty times a day is a poor trade for a little personality. */
   --font-family-base:
@@ -112,7 +112,7 @@
 
   --font-size-small: 0.8125rem; /* 13px — metadata, helper text */
   --font-size-body: 0.875rem; /* 14px — the console's default; denser than
-                                 * a content site's 16px, matching UI-UX/00's
+                                 * a content site's 16px, matching docs/UI-UX/00's
                                  * "density over whitespace" */
   --font-size-heading-3: 1rem; /* 16px — card and panel titles */
   --font-size-heading-2: 1.25rem; /* 20px — section headings */
@@ -121,12 +121,12 @@
   /* The same five sizes under the name Tailwind generates utilities from.
    *
    * Tailwind v4 reads font sizes from `--text-*`; `--font-size-*` produces no
-   * utility at all. Writing only the UI-UX/05 names gives a stylesheet that
+   * utility at all. Writing only the docs/UI-UX/05 names gives a stylesheet that
    * looks complete and a `text-body` class that does not exist, so every piece
    * of text silently renders at the browser default. This project shipped that
    * bug for exactly one build.
    *
-   * The values live in the UI-UX/05 names above and are referenced here, so
+   * The values live in the docs/UI-UX/05 names above and are referenced here, so
    * there is one place to change a size and no pair to keep in step. */
   --text-small: var(--font-size-small);
   --text-body: var(--font-size-body);
@@ -136,7 +136,7 @@
 
   /* Weight carries hierarchy more often than size does in dense tables — a
    * user's name against their email is a weight difference, not a size one
-   * (UI-UX/05 § Typography). */
+   * (docs/UI-UX/05 § Typography). */
   --font-weight-regular: 400;
   --font-weight-medium: 500;
   --font-weight-bold: 600;
@@ -150,7 +150,7 @@
   --leading-body: var(--line-height-body);
 
   /* ---------------------------------------------------------------------
-   * Spacing — a 4px/8px scale (UI-UX/05 § Spacing & Layout)
+   * Spacing — a 4px/8px scale (docs/UI-UX/05 § Spacing & Layout)
    *
    * Applied consistently so tables, forms and cards share a rhythm. The
    * lint rule rejects arbitrary values, so a one-off 13px cannot appear in a
@@ -167,7 +167,7 @@
 
   /* A content max-width for form-heavy screens, so a long form on a wide
    * monitor does not stretch to an unreadable line length. Tables are exempt
-   * and use the full width (UI-UX/05 § Spacing & Layout). */
+   * and use the full width (docs/UI-UX/05 § Spacing & Layout). */
   --container-form: 42rem; /* 672px */
 
   /* The navigation column. A fixed track rather than a proportion: a nav that
@@ -176,7 +176,7 @@
   --container-nav: 15rem; /* 240px */
 
   /* ---------------------------------------------------------------------
-   * Elevation — three levels, not a scale (UI-UX/05 § Elevation)
+   * Elevation — three levels, not a scale (docs/UI-UX/05 § Elevation)
    *
    * An admin tool, not a visually rich consumer app. Each level means one
    * thing: flat is the page, raised is a dropdown or modal, overlay is a
@@ -187,7 +187,7 @@
   --shadow-overlay: 0 8px 24px rgb(21 24 29 / 0.16), 0 2px 6px rgb(21 24 29 / 0.08);
 
   /* ---------------------------------------------------------------------
-   * Breakpoints — UI-UX/12 § Grid System, as named steps
+   * Breakpoints — docs/UI-UX/12 § Grid System, as named steps
    *
    * Named after the device class the spec names, so a component that behaves
    * differently on tablet says `md:` against a token that means tablet.
@@ -201,7 +201,7 @@
    *
    * Durations are short because this is a tool: an animation an admin sees
    * two hundred times a day should be felt rather than watched. Every use is
-   * wrapped by the prefers-reduced-motion rule below, which UI-UX/13 makes a
+   * wrapped by the prefers-reduced-motion rule below, which docs/UI-UX/13 makes a
    * hard requirement rather than a nicety.
    * ------------------------------------------------------------------ */
   --duration-instant: 80ms;
@@ -220,7 +220,7 @@
 /*
  * The focus ring.
  *
- * Defined once, here, and never suppressed for aesthetic reasons — UI-UX/13
+ * Defined once, here, and never suppressed for aesthetic reasons — docs/UI-UX/13
  * says so in those words. `:focus-visible` rather than `:focus` so a mouse
  * click on a button does not leave a ring behind, while every keyboard path
  * shows one.
@@ -235,7 +235,7 @@
 }
 
 /*
- * UI-UX/13 § Motion: every animation has an instant, no-motion fallback. A
+ * docs/UI-UX/13 § Motion: every animation has an instant, no-motion fallback. A
  * hard requirement, so it is enforced globally rather than left to each
  * component to remember.
  */

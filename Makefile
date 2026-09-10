@@ -1,7 +1,7 @@
 # Entry points for local development and CI.
 #
 # Migrations are a separate target from running the service, deliberately:
-# PLAN/14-DEPLOYMENT.md requires them to run as a reviewable step before
+# docs/PLAN/14-DEPLOYMENT.md requires them to run as a reviewable step before
 # application rollout, never implicitly on startup in production.
 
 .PHONY: help
@@ -101,11 +101,11 @@ openapi-check: openapi-lint ## Fail if the generated code is stale relative to t
 
 # --- test layers ------------------------------------------------------------
 #
-# PLAN/11's pyramid, one target per layer, so "run the security tests" is a
+# docs/PLAN/11's pyramid, one target per layer, so "run the security tests" is a
 # command rather than a flag someone has to remember.
 
 .PHONY: test-security
-test-security: ## Run the abuse-case tests from PLAN/11 § Security Testing
+test-security: ## Run the abuse-case tests from docs/PLAN/11 § Security Testing
 	cd backend && go test -tags=integration -shuffle=on ./tests/security/...
 
 .PHONY: test-e2e

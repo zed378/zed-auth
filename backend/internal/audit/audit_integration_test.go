@@ -253,7 +253,7 @@ func TestEventCannotClaimAnotherTenant(t *testing.T) {
 	}
 }
 
-// PLAN/08 Part B requires the cross-tenant path to be auditable. These events
+// docs/PLAN/08 Part B requires the cross-tenant path to be auditable. These events
 // have no org and are visible only from the instance-scoped path.
 func TestInstanceLevelEvent(t *testing.T) {
 	w, db := newWriter(t, nil)

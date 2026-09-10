@@ -178,7 +178,7 @@ def check_geometry_matches_reference(build) -> None:
 # --- 3. the deployed copies still match their source -------------------------
 
 # Each surface keeps its own copy of the assets it uses. The duplication is
-# deliberate: PLAN/20 allows the console and the public site to share the
+# deliberate: docs/PLAN/20 allows the console and the public site to share the
 # visual language and nothing else, so neither reaches into the other's tree.
 #
 # Duplication on purpose and duplication by accident look identical six months

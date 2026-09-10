@@ -8,7 +8,7 @@ import (
 	"github.com/zed378/zed-auth/backend/internal/api"
 )
 
-// P1-02 DoD item 4: validation errors match PLAN/05's error schema exactly.
+// P1-02 DoD item 4: validation errors match docs/PLAN/05's error schema exactly.
 //
 // Asserted on the serialized JSON rather than on the Go struct, because the
 // schema is a statement about the wire format. A struct assertion would pass
@@ -42,10 +42,10 @@ func TestValidationErrorMatchesTheSchema(t *testing.T) {
 		t.Errorf("code = %q, want %q", got.Error.Code, api.VALIDATIONERROR)
 	}
 	if got.Error.Message == "" {
-		t.Error("message is empty; PLAN/05 requires one")
+		t.Error("message is empty; docs/PLAN/05 requires one")
 	}
 
-	// One entry per violation, all against the password field so UI-UX/15 can
+	// One entry per violation, all against the password field so docs/UI-UX/15 can
 	// render them under the input rather than in a banner.
 	if len(got.Error.Details) != len(violations) {
 		t.Fatalf("details has %d entries, want %d — every violation is reported at once, "+

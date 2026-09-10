@@ -67,7 +67,7 @@ func (f *Factory) Instance(name ...string) string {
 
 // Organization creates an organization within an instance.
 //
-// The organization is the tenant boundary (`PLAN/04`), so almost every
+// The organization is the tenant boundary (`docs/PLAN/04`), so almost every
 // integration test needs at least one and most isolation tests need two.
 func (f *Factory) Organization(instanceID string, name ...string) string {
 	f.t.Helper()

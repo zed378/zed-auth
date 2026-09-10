@@ -1,7 +1,7 @@
 // Package signing owns the asymmetric keys this service signs tokens with.
 //
 // Two properties have to hold at once, and they pull against each other:
-// only this service can sign (PLAN/02 § Constraints is absolute — no third
+// only this service can sign (docs/PLAN/02 § Constraints is absolute — no third
 // party holds the private key), and anyone can verify without asking us
 // (consumer services validate against a published public key, so an
 // authorization check does not depend on this service being reachable).
@@ -9,7 +9,7 @@
 // Rotation is where both get tested. A rotation that invalidates outstanding
 // tokens logs every user out at once; one that leaves the old key signing
 // forever is not a rotation. The overlap window between the two is the whole
-// design (P1-03, PLAN/09 § Tokens & Keys).
+// design (P1-03, docs/PLAN/09 § Tokens & Keys).
 //
 // Spec: MEMORY/specs/P1-03-signing-keys.md
 package signing
@@ -33,7 +33,7 @@ import (
 // A closed set of two, both asymmetric. HS256 is deliberately absent and not
 // merely undocumented: a shared secret would mean every consumer service that
 // can verify a token can also mint one, which is the opposite of what
-// publishing a public key is for (PLAN/07 § Cryptography).
+// publishing a public key is for (docs/PLAN/07 § Cryptography).
 type Algorithm string
 
 const (

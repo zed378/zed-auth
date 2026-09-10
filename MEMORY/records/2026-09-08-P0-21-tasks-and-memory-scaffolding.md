@@ -14,7 +14,7 @@
 
 ## What Changed
 
-Two new top-level folders. `TASKS/` turns `PLAN/16-IMPLEMENTATION-ROADMAP.md`'s six phase checklists into 124 individually-specified tasks across seven phase files, each with dependencies, plan references, implementation steps, a definition of done, and its abuse cases. `MEMORY/` establishes the record layer — change records, an ADR log, an internal changelog, and templates — with the rule that a task is not done until its record exists.
+Two new top-level folders. `TASKS/` turns `docs/PLAN/16-IMPLEMENTATION-ROADMAP.md`'s six phase checklists into 124 individually-specified tasks across seven phase files, each with dependencies, plan references, implementation steps, a definition of done, and its abuse cases. `MEMORY/` establishes the record layer — change records, an ADR log, an internal changelog, and templates — with the rule that a task is not done until its record exists.
 
 No implementation code was written and no existing document was modified.
 
@@ -22,24 +22,24 @@ No implementation code was written and no existing document was modified.
 
 The repository held 49 planning documents and zero lines of code. The plan is unusually thorough on *what* to build and *why*; what it lacked was an execution layer.
 
-`PLAN/16`'s phase items are the right shape for a roadmap and the wrong shape for execution — "Basic OIDC provider implementation" is roughly a month of work containing a dozen security-critical decisions. Nobody can pick that up, finish it, and verify it. `PLAN/17`'s acceptance criteria are per-phase, so there is no per-task equivalent of "done," which is precisely how a phase gets declared complete with three of its eight criteria unverified.
+`docs/PLAN/16`'s phase items are the right shape for a roadmap and the wrong shape for execution — "Basic OIDC provider implementation" is roughly a month of work containing a dozen security-critical decisions. Nobody can pick that up, finish it, and verify it. `docs/PLAN/17`'s acceptance criteria are per-phase, so there is no per-task equivalent of "done," which is precisely how a phase gets declared complete with three of its eight criteria unverified.
 
-`AGENTS.md` rule 9 makes `PLAN/`, `UI-UX/`, and `SECURITY/` reference-only, so mutable execution state could not live inside them without making it impossible to distinguish a design change from a progress update in a diff.
+`AGENTS.md` rule 9 makes `docs/PLAN/`, `docs/UI-UX/`, and `docs/SECURITY/` reference-only, so mutable execution state could not live inside them without making it impossible to distinguish a design change from a progress update in a diff.
 
-The `MEMORY/` half follows from the same reasoning that makes `events` append-only at the database level (`PLAN/04`, `SECURITY/02` §19). A project whose entire premise is that audit trails matter benefits from its development process having one.
+The `MEMORY/` half follows from the same reasoning that makes `events` append-only at the database level (`docs/PLAN/04`, `docs/SECURITY/02` §19). A project whose entire premise is that audit trails matter benefits from its development process having one.
 
 ## How
 
-Read the full corpus first — `README.md`, `CLAUDE.md`, `AGENTS.md`, all 21 `PLAN/` documents, and the relevant parts of `UI-UX/` and `SECURITY/` — then decomposed each roadmap phase into tasks, working backwards from `PLAN/17`'s acceptance criteria so every criterion has at least one task that produces its evidence.
+Read the full corpus first — `README.md`, `CLAUDE.md`, `AGENTS.md`, all 21 `docs/PLAN/` documents, and the relevant parts of `docs/UI-UX/` and `docs/SECURITY/` — then decomposed each roadmap phase into tasks, working backwards from `docs/PLAN/17`'s acceptance criteria so every criterion has at least one task that produces its evidence.
 
 Four rules governed the decomposition:
 
 1. **No task invents design.** Every task cites the plan documents that already made its decisions. Where the plan does not answer a question, that became a `BACKLOG.md` entry rather than an assumption — following `CLAUDE.md`'s instruction to flag gaps rather than guess.
-2. **Security requirements attach to the task that must satisfy them.** Abuse cases from `SECURITY/02` and `PLAN/10` are listed on the specific task, so `CLAUDE.md`'s rule that security-sensitive features ship with abuse-case tests is enforceable per task rather than remembered per phase.
-3. **The phase rule is structural.** Task dependencies encode `PLAN/16`'s sequencing, and the one sanctioned exception — the public site shipping ahead of Phase 1, per `PLAN/20` — is confined to `P0-17` through `P0-19` and stated as an exception where it appears.
-4. **Conditional phases stay conditional.** Phase 4b opens with a justification gate (`P4B-00`) that is `BLOCKED` by default, because `PLAN/08` Part D and `PLAN/00` both say to build ABAC only on concrete need. The phase never running is a valid outcome, and the file says so.
+2. **Security requirements attach to the task that must satisfy them.** Abuse cases from `docs/SECURITY/02` and `docs/PLAN/10` are listed on the specific task, so `CLAUDE.md`'s rule that security-sensitive features ship with abuse-case tests is enforceable per task rather than remembered per phase.
+3. **The phase rule is structural.** Task dependencies encode `docs/PLAN/16`'s sequencing, and the one sanctioned exception — the public site shipping ahead of Phase 1, per `docs/PLAN/20` — is confined to `P0-17` through `P0-19` and stated as an exception where it appears.
+4. **Conditional phases stay conditional.** Phase 4b opens with a justification gate (`P4B-00`) that is `BLOCKED` by default, because `docs/PLAN/08` Part D and `docs/PLAN/00` both say to build ABAC only on concrete need. The phase never running is a valid outcome, and the file says so.
 
-Tasks that touch authentication, authorization, sessions, tokens, grants, or the data model are marked `Spec required: Yes`, routing them through `PLAN/19-FEATURE-SPECIFICATION-TEMPLATE.md` per `CLAUDE.md`'s mandatory workflow.
+Tasks that touch authentication, authorization, sessions, tokens, grants, or the data model are marked `Spec required: Yes`, routing them through `docs/PLAN/19-FEATURE-SPECIFICATION-TEMPLATE.md` per `CLAUDE.md`'s mandatory workflow.
 
 ## Files and Components Touched
 
@@ -64,7 +64,7 @@ Tasks that touch authentication, authorization, sessions, tokens, grants, or the
 | `MEMORY/templates/PHASE-SUMMARY-TEMPLATE.md` | New |
 | `MEMORY/records/` | New — this record |
 
-Nothing under `PLAN/`, `UI-UX/`, or `SECURITY/` was touched.
+Nothing under `docs/PLAN/`, `docs/UI-UX/`, or `docs/SECURITY/` was touched.
 
 ## Decisions Made
 
@@ -72,7 +72,7 @@ Nothing under `PLAN/`, `UI-UX/`, or `SECURITY/` was touched.
 |---|---|---|
 | Two separate folders rather than one | Forward-looking plans get edited; backward-looking records must not. Separation keeps the record trustworthy | [ADR-001](../DECISIONS.md#adr-001--establish-tasks-and-memory-as-the-execution-layer) |
 | File-based rather than an issue tracker | Lives in the repository, reviewable in a PR, readable from a checkout. Compatible with generating issues later | ADR-001 |
-| Phase structure mirrors `PLAN/16` exactly | The roadmap is the authority on sequencing; re-deriving it would create a second, competing source of truth | ADR-001 |
+| Phase structure mirrors `docs/PLAN/16` exactly | The roadmap is the authority on sequencing; re-deriving it would create a second, competing source of truth | ADR-001 |
 | Documents written in English | Matches the existing 49 documents so the corpus reads as one body of work | See `BACKLOG.md` OQ-02 |
 | SAML placed in Phase 4 | Three documents say Phase 4, one says Phase 2 — see PG-08 below | — |
 | Subset validation specified as "every request" | Four documents say every request, one says at creation — see PG-09 below | — |
@@ -83,9 +83,9 @@ None. No plan document was modified, and no plan decision was overridden.
 
 Two apparent contradictions **within** the existing plan were found and resolved by following the majority reading, with both flagged for correction rather than silently normalized:
 
-**PG-08 — SAML phase placement.** `PLAN/05-API-CONTRACT.md`'s standards table lists SAML 2.0 as Phase 2. `PLAN/16`, `PLAN/17`, and `PLAN/03` all place it in Phase 4. `TASKS/` follows the three-document majority. `PLAN/05`'s table is most likely a leftover from an earlier phase numbering.
+**PG-08 — SAML phase placement.** `docs/PLAN/05-API-CONTRACT.md`'s standards table lists SAML 2.0 as Phase 2. `docs/PLAN/16`, `docs/PLAN/17`, and `docs/PLAN/03` all place it in Phase 4. `TASKS/` follows the three-document majority. `docs/PLAN/05`'s table is most likely a leftover from an earlier phase numbering.
 
-**PG-09 — Project Grant subset validation timing.** `PLAN/18-RISK-REGISTER.md` R-04's mitigation says validation happens "on every grant creation." `CLAUDE.md`, `AGENTS.md` rule 3, `PLAN/08` Part C, and `PLAN/19`'s worked example all say **on every request**, not just at creation. `TASKS/` implements the stricter, four-document reading.
+**PG-09 — Project Grant subset validation timing.** `docs/PLAN/18-RISK-REGISTER.md` R-04's mitigation says validation happens "on every grant creation." `CLAUDE.md`, `AGENTS.md` rule 3, `docs/PLAN/08` Part C, and `docs/PLAN/19`'s worked example all say **on every request**, not just at creation. `TASKS/` implements the stricter, four-document reading.
 
 This second one matters more than a wording nit. The difference is exactly the attack: a grant narrowed or revoked after creation must stop working immediately, and R-04's phrasing describes a system where it would not. Left uncorrected, the risk register becomes the document someone cites later when arguing that creation-time validation is sufficient.
 
@@ -100,11 +100,11 @@ Both need correcting in the plan documents through the deliberate, code-owner-re
 | E2E | N/A |
 | Security | N/A |
 
-Verification was by cross-reference instead: every `PLAN/17` acceptance criterion was traced to at least one task that produces its evidence, and every abuse-case category in `SECURITY/02` was traced to at least one task that must test it.
+Verification was by cross-reference instead: every `docs/PLAN/17` acceptance criterion was traced to at least one task that produces its evidence, and every abuse-case category in `docs/SECURITY/02` was traced to at least one task that must test it.
 
 ## Abuse Cases Covered
 
-N/A for this task. Abuse cases from `SECURITY/02` and `PLAN/10` were distributed across the tasks that must satisfy them, so that `CLAUDE.md`'s rule — no security-sensitive feature is done without a corresponding abuse-case test — is checkable at the task level rather than only at the phase level.
+N/A for this task. Abuse cases from `docs/SECURITY/02` and `docs/PLAN/10` were distributed across the tasks that must satisfy them, so that `CLAUDE.md`'s rule — no security-sensitive feature is done without a corresponding abuse-case test — is checkable at the task level rather than only at the phase level.
 
 ## Definition of Done Verification
 
@@ -132,7 +132,7 @@ Two dead ends worth recording.
 All recorded in `TASKS/BACKLOG.md` with the task each one blocks:
 
 - **8 open questions** requiring the project owner's decision: agent-file updates (OQ-01), document language (OQ-02), deployment target (OQ-03), email provider (OQ-04), concrete RPO/RTO (OQ-05), capacity assumptions (OQ-06), organization count at launch (OQ-07), and which two applications serve as the MVP consumers (OQ-08).
-- **11 plan gaps** needing a plan amendment or a recorded implementation decision. Six are missing tables in `PLAN/04-DATA-MODEL.md`: signing keys (PG-02, blocks `P1-03`), MFA factors (PG-03, blocks `P3-02`/`P3-05`), invite and reset tokens (PG-04, blocks `P1-19`), federated identity links (PG-05, blocks `P4-10`), webhook endpoints (PG-06, blocks `P4-12`), and role permission keys (PG-01, blocks `P2-01`). The remaining five are the two contradictions above plus authorization code storage (PG-07), `events` retention (PG-10), and the Redis/Postgres session split (PG-11).
+- **11 plan gaps** needing a plan amendment or a recorded implementation decision. Six are missing tables in `docs/PLAN/04-DATA-MODEL.md`: signing keys (PG-02, blocks `P1-03`), MFA factors (PG-03, blocks `P3-02`/`P3-05`), invite and reset tokens (PG-04, blocks `P1-19`), federated identity links (PG-05, blocks `P4-10`), webhook endpoints (PG-06, blocks `P4-12`), and role permission keys (PG-01, blocks `P2-01`). The remaining five are the two contradictions above plus authorization code storage (PG-07), `events` retention (PG-10), and the Redis/Postgres session split (PG-11).
 - **13 decisions pending** an ADR, listed in `DECISIONS.md`.
 
 `PG-01` and `PG-02` are the ones to resolve soonest: they block `P2-01` and `P1-03` respectively, and `P1-03` is on Phase 1's critical path.

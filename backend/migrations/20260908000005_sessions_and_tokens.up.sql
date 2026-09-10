@@ -1,6 +1,6 @@
 -- Sessions, refresh tokens, signing keys, and single-use user tokens.
 --
--- PLAN/04-DATA-MODEL.md § sessions, § refresh_tokens, § signing_keys,
+-- docs/PLAN/04-DATA-MODEL.md § sessions, § refresh_tokens, § signing_keys,
 -- § user_tokens.
 
 CREATE TABLE sessions (
@@ -12,7 +12,7 @@ CREATE TABLE sessions (
 
     -- Which factors were actually used. Phase 3 step-up authentication reads
     -- this, and a value that was never trustworthy cannot be made trustworthy
-    -- later — so it is populated accurately from Phase 1 (PLAN/04, P1-11).
+    -- later — so it is populated accurately from Phase 1 (docs/PLAN/04, P1-11).
     auth_methods   text[] NOT NULL DEFAULT '{}',
 
     -- For the "active sessions" screen and Phase 3 anomaly detection.
@@ -25,7 +25,7 @@ CREATE TABLE sessions (
     expires_at     timestamptz NOT NULL,
 
     -- Revocation is a status transition, not a delete: the record is needed for
-    -- audit, and PLAN/17 Phase 3 requires a revoked session to be immediately
+    -- audit, and docs/PLAN/17 Phase 3 requires a revoked session to be immediately
     -- unusable rather than TTL-bound.
     revoked_at     timestamptz,
 
@@ -39,7 +39,7 @@ CREATE INDEX sessions_active_expiry_idx ON sessions (expires_at)
     WHERE revoked_at IS NULL;
 
 COMMENT ON TABLE sessions IS
-  'PostgreSQL is authoritative; Redis holds a short-TTL lookup copy for the silent-SSO path. A revocation writes revoked_at AND invalidates the cache entry in the same operation (PLAN/04, ADR-003).';
+  'PostgreSQL is authoritative; Redis holds a short-TTL lookup copy for the silent-SSO path. A revocation writes revoked_at AND invalidates the cache entry in the same operation (docs/PLAN/04, ADR-003).';
 
 
 CREATE TABLE refresh_tokens (
@@ -53,14 +53,14 @@ CREATE TABLE refresh_tokens (
 
     -- Rotation lineage. All tokens descended from one original issuance share
     -- a family_id; presenting a token that already has replaced_by set is the
-    -- reuse signal, and reuse revokes the entire family (PLAN/09, P3-06).
+    -- reuse signal, and reuse revokes the entire family (docs/PLAN/09, P3-06).
     --
     -- These columns exist from Phase 1 even though rotation ships in Phase 3,
     -- so that phase changes behavior rather than storage shape.
     family_id          uuid NOT NULL,
     replaced_by        uuid REFERENCES refresh_tokens(id) ON DELETE SET NULL,
 
-    -- Never the raw token (PLAN/04's explicit note).
+    -- Never the raw token (docs/PLAN/04's explicit note).
     token_hash         text NOT NULL,
 
     expires_at         timestamptz NOT NULL,
@@ -91,13 +91,13 @@ CREATE TABLE signing_keys (
     purpose           text NOT NULL DEFAULT 'oidc',
 
     -- Asymmetric only. Never HS256: consumer services must verify with a public
-    -- key and no shared secret (PLAN/07 § Cryptography).
+    -- key and no shared secret (docs/PLAN/07 § Cryptography).
     algorithm         text NOT NULL,
 
     public_key        text NOT NULL,
 
     -- A REFERENCE into the secret manager, never the key material itself.
-    -- PLAN/02 § Constraints is absolute: no third-party dependency holds the
+    -- docs/PLAN/02 § Constraints is absolute: no third-party dependency holds the
     -- private signing key outside this service's own infrastructure.
     private_key_ref   text NOT NULL,
 
@@ -107,8 +107,8 @@ CREATE TABLE signing_keys (
     -- retired  removed from JWKS
     --
     -- Several keys are active at once to give rotation the overlap window
-    -- PLAN/09 requires, and so that an application rollback never invalidates
-    -- tokens signed under a newer key (PLAN/14 § Rollback Strategy).
+    -- docs/PLAN/09 requires, and so that an application rollback never invalidates
+    -- tokens signed under a newer key (docs/PLAN/14 § Rollback Strategy).
     status            text NOT NULL DEFAULT 'next',
 
     created_at        timestamptz NOT NULL DEFAULT now(),
@@ -123,7 +123,7 @@ CREATE TABLE signing_keys (
     -- The private key column holds a reference such as a Vault path or a
     -- secret-manager ARN. This refuses anything that looks like PEM key
     -- material, which is the "simplification" that would silently violate
-    -- PLAN/02's constraint while every test still passed.
+    -- docs/PLAN/02's constraint while every test still passed.
     CONSTRAINT signing_keys_private_key_is_a_reference
         CHECK (private_key_ref NOT LIKE '%BEGIN%PRIVATE KEY%')
 );
@@ -137,7 +137,7 @@ CREATE UNIQUE INDEX signing_keys_one_current_per_purpose
 CREATE INDEX signing_keys_status_idx ON signing_keys (purpose, status);
 
 COMMENT ON COLUMN signing_keys.private_key_ref IS
-  'A secret-manager reference, NEVER key material. PLAN/02 § Constraints: no third party holds the private signing key.';
+  'A secret-manager reference, NEVER key material. docs/PLAN/02 § Constraints: no third party holds the private signing key.';
 
 
 CREATE TABLE user_tokens (
@@ -148,7 +148,7 @@ CREATE TABLE user_tokens (
     -- One table with a discriminator rather than three near-identical tables:
     -- all three flows share the same security properties (single-use,
     -- short-lived, stored hashed) and the same abuse surface
-    -- (SECURITY/02 §10, §12).
+    -- (docs/SECURITY/02 §10, §12).
     purpose     text NOT NULL,
 
     -- The raw token exists only in the email that carried it.

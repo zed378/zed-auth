@@ -7,7 +7,7 @@
 // than immediately as a clear startup error.
 //
 // Secrets are read from the environment, which in deployed environments is
-// populated by the secret manager (PLAN/07-BACKEND-ARCHITECTURE.md
+// populated by the secret manager (docs/PLAN/07-BACKEND-ARCHITECTURE.md
 // § Infrastructure). Configuration values are never read from a committed file.
 package config
 
@@ -24,7 +24,7 @@ import (
 
 // Environment names the deployment context. Every environment has its own
 // signing keys and its own database; production values are never shared with
-// staging (PLAN/13-OBSERVABILITY.md, PLAN/14-DEPLOYMENT.md).
+// staging (docs/PLAN/13-OBSERVABILITY.md, docs/PLAN/14-DEPLOYMENT.md).
 type Environment string
 
 const (
@@ -81,7 +81,7 @@ type HTTPConfig struct {
 	// ShutdownTimeout bounds how long graceful shutdown waits for in-flight
 	// requests to finish. This service sits on the critical path of every
 	// consumer application, so dropping requests on deploy is not acceptable
-	// (PLAN/14-DEPLOYMENT.md § Deployment Model).
+	// (docs/PLAN/14-DEPLOYMENT.md § Deployment Model).
 	ShutdownTimeout time.Duration
 
 	// TrustProxyHeaders controls whether an inbound X-Request-Id is adopted
@@ -93,7 +93,7 @@ type HTTPConfig struct {
 	// strip: a tunnel such as Cloudflare Tunnel forwards client headers
 	// through untouched, so trusting them there lets a caller choose their own
 	// correlation ID and collide it with someone else's deliberately, making
-	// an incident timeline unreadable (SECURITY/02 §10).
+	// an incident timeline unreadable (docs/SECURITY/02 §10).
 	//
 	// Default false. Turn it on only when something in front provably
 	// overwrites the header — the Caddyfile in deploy/vm does.
@@ -102,7 +102,7 @@ type HTTPConfig struct {
 
 // AdminConfig is the internal listener carrying metrics.
 //
-// A SEPARATE listener from the public one, not a route on it. PLAN/13 requires
+// A SEPARATE listener from the public one, not a route on it. docs/PLAN/13 requires
 // the metrics endpoint not to be reachable from the public ingress, and a
 // separate port makes that a property of the binding rather than something an
 // ingress rule has to remember. It also survives the ingress being
@@ -156,7 +156,7 @@ type LogConfig struct {
 	Level string
 	// Format is json or text. Deployed environments are always json so logs are
 	// machine-parseable and correlatable by request ID
-	// (PLAN/13-OBSERVABILITY.md § Logging).
+	// (docs/PLAN/13-OBSERVABILITY.md § Logging).
 	Format string
 }
 
@@ -186,7 +186,7 @@ func Load() (*Config, error) { return LoadFrom(os.Getenv) }
 // PasswordConfig covers what a per-organization policy cannot decide.
 //
 // Deliberately small. min_length and the rest belong to the organization
-// (PLAN/08 Part B) and are read from the database, so nothing here duplicates
+// (docs/PLAN/08 Part B) and are read from the database, so nothing here duplicates
 // a policy value — a knob that could disagree with the database would be a
 // second source of truth for the same rule.
 type PasswordConfig struct {
@@ -369,15 +369,15 @@ func (l *loader) validate(cfg *Config) {
 		l.problem("AUTH_LOG_FORMAT must be json or text; got %q", cfg.Log.Format)
 	}
 
-	// TLS is mandatory everywhere, with no HTTP fallback (PLAN/09-SECURITY.md
+	// TLS is mandatory everywhere, with no HTTP fallback (docs/PLAN/09-SECURITY.md
 	// § Transport & Storage). TLS itself terminates at the ingress
-	// (PLAN/14-DEPLOYMENT.md), but the issuer this service advertises is what
+	// (docs/PLAN/14-DEPLOYMENT.md), but the issuer this service advertises is what
 	// consumer applications will actually call — so an http:// issuer outside
 	// local development would publish a plaintext endpoint to every client.
 	// AUTH_JWT_SIGNING_KEY_REF was how a single signing key was configured
 	// before P1-03. Keys now live in the `signing_keys` table, which is what
 	// makes an application rollback safe — key state must not be part of the
-	// thing being rolled back (PLAN/14 § Rollback Strategy).
+	// thing being rolled back (docs/PLAN/14 § Rollback Strategy).
 	//
 	// Refused rather than ignored. A variable that is still set, still looks
 	// meaningful, and no longer does anything is worse than one that is gone:
@@ -424,7 +424,7 @@ func (l *loader) validate(cfg *Config) {
 	// A metrics endpoint reachable beyond loopback discloses request rates,
 	// error rates and login outcomes to whoever can reach it — a
 	// reconnaissance summary, and during an attack a reliable oracle for
-	// whether the attack is working (PLAN/13, SECURITY/02 §12).
+	// whether the attack is working (docs/PLAN/13, docs/SECURITY/02 §12).
 	//
 	// Binding beyond loopback is allowed, because a scraper on another host is
 	// a real need. Doing it WITHOUT a token is not: that combination is the
@@ -442,7 +442,7 @@ func (l *loader) validate(cfg *Config) {
 
 	// Production must never run with debug logging: debug output across an
 	// identity provider is exactly where sensitive values leak into logs
-	// despite redaction (PLAN/13-OBSERVABILITY.md).
+	// despite redaction (docs/PLAN/13-OBSERVABILITY.md).
 	if cfg.Environment.IsProduction() && cfg.Log.Level == "debug" {
 		l.problem("AUTH_LOG_LEVEL must not be debug in production")
 	}

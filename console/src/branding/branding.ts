@@ -1,16 +1,16 @@
 /**
  * Per-organization branding.
  *
- * `PLAN/01-PRODUCT-SCOPE.md` and `UI-UX/05-DESIGN-SYSTEM.md` allow an
+ * `docs/PLAN/01-PRODUCT-SCOPE.md` and `docs/UI-UX/05-DESIGN-SYSTEM.md` allow an
  * organization to override the accent colour and the logo. Nothing else.
  *
  * The interesting part is what may *not* be overridden, and why the rule is
  * expressed as a type rather than as a comment:
  *
  *   `color-danger` and `color-warning` must stay universally recognizable
- *   regardless of tenant branding (UI-UX/05 § Color). An admin who manages
+ *   regardless of tenant branding (docs/UI-UX/05 § Color). An admin who manages
  *   several organizations should never have to relearn what red means
- *   (UI-UX/06 § What "On-Brand" Means Here). If a tenant could set danger to
+ *   (docs/UI-UX/06 § What "On-Brand" Means Here). If a tenant could set danger to
  *   their brand green, the colour that means "this is irreversible" would
  *   mean nothing at all — and it would mean nothing precisely in the console
  *   where someone is about to delete an organization.
@@ -133,7 +133,7 @@ export function parseHexColour(value: string): [number, number, number] | null {
  * Validates branding without applying it.
  *
  * Separated from application so the org-admin settings screen can show the
- * rejection at the moment the colour is chosen. `UI-UX/13` § Colour & Contrast
+ * rejection at the moment the colour is chosen. `docs/UI-UX/13` § Colour & Contrast
  * requires exactly that: validate at the point an admin sets it, "rather than
  * allowing an inaccessible combination to ship silently".
  *

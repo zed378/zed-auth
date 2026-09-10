@@ -1,14 +1,14 @@
 import { NavLink } from "react-router-dom";
 
 /**
- * The navigation tree from PLAN/06-FRONTEND-ARCHITECTURE.md § Information
- * Architecture, which mirrors PLAN/04-DATA-MODEL.md almost 1:1 on purpose:
+ * The navigation tree from docs/PLAN/06-FRONTEND-ARCHITECTURE.md § Information
+ * Architecture, which mirrors docs/PLAN/04-DATA-MODEL.md almost 1:1 on purpose:
  * navigation should never require a concept the data model does not have.
  *
  * Every destination here is a Phase 1+ screen and currently renders a
  * placeholder saying so. That is deliberate rather than lazy — the IA is a
  * decision already made, and encoding it now means Phase 1 adds page bodies
- * rather than renegotiating structure. `PLAN/16` forbids building Phase N+1
+ * rather than renegotiating structure. `docs/PLAN/16` forbids building Phase N+1
  * features early; a route with a placeholder is not the feature.
  */
 
@@ -26,14 +26,14 @@ interface NavSection {
 }
 
 /**
- * The Instance group is visible only to INSTANCE_OWNER (PLAN/06 § IA).
+ * The Instance group is visible only to INSTANCE_OWNER (docs/PLAN/06 § IA).
  *
  * It is not rendered at all yet, rather than rendered and disabled: the
  * console has no token to read a role claim from until P1-03 lands, and
  * showing an instance-administration section to everyone in the meantime would
  * teach the wrong thing about what the console is. When it returns, the check
  * is a claim on the access token — and the API enforces it independently,
- * because a hidden nav item is not a security control (PLAN/08, CLAUDE.md).
+ * because a hidden nav item is not a security control (docs/PLAN/08, CLAUDE.md).
  */
 const SECTIONS: NavSection[] = [
   {
@@ -57,7 +57,7 @@ export function SideNav() {
     <nav
       // Labelled because a document may hold more than one navigation
       // landmark, and "navigation" twice in a screen reader's landmark list
-      // tells the user nothing about which is which (UI-UX/13).
+      // tells the user nothing about which is which (docs/UI-UX/13).
       aria-label="Console"
       className="
         border-b border-border bg-bg-surface
@@ -68,7 +68,7 @@ export function SideNav() {
       <div className="p-4 tablet:p-5">
         {/*
           The wordmark. Per-organization branding may replace the logo and the
-          accent colour, and nothing else (UI-UX/05, src/branding/).
+          accent colour, and nothing else (docs/UI-UX/05, src/branding/).
         */}
         <div className="flex items-center gap-3">
           {/*
@@ -79,7 +79,7 @@ export function SideNav() {
 
             Decorative here, so alt="" and the accessible name comes from the
             wordmark beside it. Announcing "Zed Auth" twice to a screen reader
-            is noise (UI-UX/13).
+            is noise (docs/UI-UX/13).
           */}
           <img src="/zed-auth-mark.svg" alt="" width={36} height={36} className="shrink-0" />
           <span>
@@ -107,7 +107,7 @@ export function SideNav() {
                     className={({ isActive }) =>
                       [
                         // Minimum target size, kept even at the compact density
-                        // UI-UX/06 asks for. UI-UX/13: density and accessibility
+                        // docs/UI-UX/06 asks for. docs/UI-UX/13: density and accessibility
                         // are not in conflict if target sizing is planned from
                         // the component level rather than added afterwards.
                         "flex min-h-11 items-center rounded px-3 py-2 text-body",
@@ -122,7 +122,7 @@ export function SideNav() {
 
                     {item.phase ? (
                       // Says what is not built yet rather than presenting a
-                      // dead link as a working one. UI-UX/21's governance rule
+                      // dead link as a working one. docs/UI-UX/21's governance rule
                       // is about marketing copy; the same honesty applies to a
                       // nav item that goes nowhere.
                       <span

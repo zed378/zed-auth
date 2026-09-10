@@ -1,6 +1,6 @@
 # Prometheus alerting rules.
 #
-# Every rule here comes from PLAN/13-OBSERVABILITY.md § Alerting or from a
+# Every rule here comes from docs/PLAN/13-OBSERVABILITY.md § Alerting or from a
 # failure this project has already hit. Each carries the reason it exists in
 # its annotation, because an alert whose purpose nobody remembers is an alert
 # that gets silenced.
@@ -23,12 +23,12 @@ groups:
         annotations:
           summary: "Auth Service is not being scraped"
           description: >-
-            PLAN/09 opens by noting that a compromise here compromises every
+            docs/PLAN/09 opens by noting that a compromise here compromises every
             dependent application; an outage has the same reach. Every consumer
             application's login path is down.
 
       - alert: TokenEndpointErrorRate
-        # PLAN/13 § Alerting names this explicitly: every consumer application
+        # docs/PLAN/13 § Alerting names this explicitly: every consumer application
         # is affected.
         expr: |
           sum(rate(http_requests_total{route="/oauth/token",status_class="5xx"}[5m]))
@@ -41,7 +41,7 @@ groups:
           summary: "More than 1% of token requests are failing"
           description: >-
             /oauth/token is the highest-volume endpoint in the system
-            (PLAN/12). Failures here surface in every consumer application at
+            (docs/PLAN/12). Failures here surface in every consumer application at
             once, usually as users being logged out.
 
       - alert: HighErrorRate
@@ -58,8 +58,8 @@ groups:
   - name: authservice-latency
     interval: 30s
     rules:
-      # Thresholds are PLAN/12's p95 targets exactly. They are alerts rather
-      # than aspirations because PLAN/12 § Definition of "Performance
+      # Thresholds are docs/PLAN/12's p95 targets exactly. They are alerts rather
+      # than aspirations because docs/PLAN/12 § Definition of "Performance
       # Acceptable" makes meeting them a go-live gate.
       - alert: TokenEndpointSlow
         expr: |
@@ -70,7 +70,7 @@ groups:
         labels:
           severity: warning
         annotations:
-          summary: "/oauth/token p95 is above PLAN/12's 200ms target"
+          summary: "/oauth/token p95 is above docs/PLAN/12's 200ms target"
 
       - alert: AuthorizeEndpointSlow
         expr: |
@@ -81,13 +81,13 @@ groups:
         labels:
           severity: warning
         annotations:
-          summary: "/oauth/authorize p95 is above PLAN/12's 150ms target"
+          summary: "/oauth/authorize p95 is above docs/PLAN/12's 150ms target"
           description: >-
             This is the silent-SSO path. It has to feel instantaneous to an end
             user who is not aware a redirect happened at all.
 
       - alert: AuthzCheckSlow
-        # PLAN/13 names sustained latency on this endpoint as a critical alert.
+        # docs/PLAN/13 names sustained latency on this endpoint as a critical alert.
         # It is called on every protected request across every consumer app, so
         # its latency is added to theirs.
         expr: |
@@ -98,13 +98,13 @@ groups:
         labels:
           severity: critical
         annotations:
-          summary: "/v1/authz/check p95 is above PLAN/12's 80ms RBAC target"
+          summary: "/v1/authz/check p95 is above docs/PLAN/12's 80ms RBAC target"
 
   - name: authservice-security
     interval: 30s
     rules:
       - alert: LoginFailureSpike
-        # PLAN/13 § Alerting: a spike in failed logins is a possible attack.
+        # docs/PLAN/13 § Alerting: a spike in failed logins is a possible attack.
         # Rate-based rather than absolute, so it does not fire simply because
         # traffic grew.
         expr: |
@@ -119,7 +119,7 @@ groups:
           description: >-
             Credential stuffing, or a broken consumer integration. Check
             whether failures concentrate on one IP or one account
-            (SECURITY/02 §13).
+            (docs/SECURITY/02 §13).
 
       - alert: SessionCacheInvalidationFailing
         # P1-11's guarantee is that revoking a session takes effect on the next
@@ -143,7 +143,7 @@ groups:
             the cache TTL has passed.
 
       - alert: SessionLookupsBypassingTheCache
-        # Not a correctness alert: PLAN/12 gives /oauth/authorize 150ms at p95
+        # Not a correctness alert: docs/PLAN/12 gives /oauth/authorize 150ms at p95
         # and the cache is how that is met. A collapsed hit rate means the
         # silent-SSO path is running on database round trips and will show up
         # as latency before anyone connects it to Redis.
@@ -159,7 +159,7 @@ groups:
           description: >-
             More than half of session lookups are reaching PostgreSQL. Expected
             briefly after a restart or a Redis flush; sustained, it means the
-            cache is not working and PLAN/12's silent-SSO budget is at risk.
+            cache is not working and docs/PLAN/12's silent-SSO budget is at risk.
 
       - alert: PasswordBreachCheckFailingOpen
         # ADR-015: an unreachable breach corpus admits the password rather
@@ -207,12 +207,12 @@ groups:
           summary: "Unusual number of account lockouts"
           description: >-
             Could be an attack, or a consumer application retrying with stale
-            credentials. PLAN/05 requires lockout to be a cooldown rather than
+            credentials. docs/PLAN/05 requires lockout to be a cooldown rather than
             a permanent lock, so this is not itself a denial of service — but
             it is worth understanding.
 
       - alert: UnusualProjectGrantActivity
-        # PLAN/13 names an unusual spike in grant creation or revocation as a
+        # docs/PLAN/13 names an unusual spike in grant creation or revocation as a
         # possible misuse indicator.
         expr: sum(increase(authz_project_grant_changes_total[1h])) > 50
         for: 15m
@@ -224,7 +224,7 @@ groups:
       - alert: UnexpectedInstanceScopedAccess
         # The cross-tenant database path should be rare and operational. A
         # sustained rate means something is using it as a normal path, which is
-        # exactly what PLAN/08 Part B warns against. Audit maintenance is
+        # exactly what docs/PLAN/08 Part B warns against. Audit maintenance is
         # excluded because it legitimately runs on a timer.
         expr: sum(increase(db_instance_scoped_access_total{reason!~"audit:.*"}[1h])) > 100
         for: 30m
@@ -283,7 +283,7 @@ groups:
     interval: 30s
     rules:
       - alert: DatabasePoolSaturated
-        # PLAN/13 names pool utilisation. Saturation presents as latency at
+        # docs/PLAN/13 names pool utilisation. Saturation presents as latency at
         # every endpoint simultaneously, which reads as a dozen unrelated
         # problems until someone checks the pool.
         expr: |
@@ -304,5 +304,5 @@ groups:
           summary: "Redis p95 latency is above 50ms"
           description: >-
             Redis is a cache in front of PostgreSQL for sessions (ADR-003), so
-            this degrades the silent-SSO path rather than breaking it. PLAN/13
+            this degrades the silent-SSO path rather than breaking it. docs/PLAN/13
             requires graceful degradation, not failure.

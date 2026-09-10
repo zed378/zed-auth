@@ -14,15 +14,15 @@
 
 ## What Changed
 
-Passwords are now checked two ways. `authn.Evaluate` is a pure function over (password, policy) applying `min_length` and `require_uppercase` read from `organizations.settings.password_policy`; `authn.CheckBreach` consults a breached-password corpus over a k-anonymity API that never receives more than five hex characters. Violations render into `PLAN/05`'s error envelope through two functions — a detailed one for authenticated forms and an opaque one for everything else — so the disclosure rule is chosen by picking a function name rather than by passing a boolean.
+Passwords are now checked two ways. `authn.Evaluate` is a pure function over (password, policy) applying `min_length` and `require_uppercase` read from `organizations.settings.password_policy`; `authn.CheckBreach` consults a breached-password corpus over a k-anonymity API that never receives more than five hex characters. Violations render into `docs/PLAN/05`'s error envelope through two functions — a detailed one for authenticated forms and an opaque one for everything else — so the disclosure rule is chosen by picking a function name rather than by passing a boolean.
 
-`users` gained `password_changed_at`, which closes `PG-13`: `max_age_days` has been part of the specified policy since `PLAN/08` and there was nothing in the schema it could be evaluated against.
+`users` gained `password_changed_at`, which closes `PG-13`: `max_age_days` has been part of the specified policy since `docs/PLAN/08` and there was nothing in the schema it could be evaluated against.
 
 The behaviour when the corpus is unreachable is `ADR-015`: **fail open, never silently**, backed by an audit event, a metric label and an alert.
 
 ## Why
 
-`PLAN/09` § Passwords & Credentials requires both halves, and they catch different failures. Composition rules bound the search space an attacker has to cover. The corpus catches the password that satisfies every rule and is still the first thing tried — `P4$$w0rd2026!` passes a twelve-character mixed-case digit-and-symbol policy and appears in the corpus hundreds of thousands of times. Neither substitutes for the other.
+`docs/PLAN/09` § Passwords & Credentials requires both halves, and they catch different failures. Composition rules bound the search space an attacker has to cover. The corpus catches the password that satisfies every rule and is still the first thing tried — `P4$$w0rd2026!` passes a twelve-character mixed-case digit-and-symbol policy and appears in the corpus hundreds of thousands of times. Neither substitutes for the other.
 
 The part that had to be decided now rather than later is where the values live. A Go constant and a row in `organizations.settings` are both "the minimum length", and only one of them can be edited by an administrator. `P2-14` makes these editable per organization; if enforcement read a constant, that task would have to find and re-route every call site first. So the values come from the database from the first day enforcement exists, even though the only writer today is `P0-07`'s column default.
 
@@ -48,7 +48,7 @@ The k-anonymity argument is what makes sending anything to a third party accepta
 | `backend/internal/authn/policy.go` | New — `Policy`, `Evaluate`, `Expired`, `ParsePolicy`, clamping |
 | `backend/internal/authn/breach.go` | New — k-anonymity client, `BreachChecker`, `CheckBreach`, `Outcome` |
 | `backend/internal/authn/store.go` | New — reads policy from an organization row inside the caller's transaction |
-| `backend/internal/authn/apierror.go` | New — the detailed and opaque renderings of `PLAN/05`'s envelope |
+| `backend/internal/authn/apierror.go` | New — the detailed and opaque renderings of `docs/PLAN/05`'s envelope |
 | `backend/internal/authn/*_test.go` | New — 26 tests including the integration and non-vacuity ones |
 | `backend/migrations/20260909000010_password_changed_at.*.sql` | New — `PG-13` |
 | `backend/internal/config/config.go` | `PasswordConfig`: the breach-check switch, endpoint override and timeout |
@@ -99,16 +99,16 @@ None. One plan **gap** was found and registered rather than absorbed: `PG-13`, b
 
 | Abuse case | Source | Test |
 |---|---|---|
-| A breached password that satisfies every composition rule | `PLAN/09` § Passwords | `TestBreachedRecognisesAMatch`, `TestCheckBreachRejectsAKnownBreachedPassword` |
-| Policy detail learned from an unauthenticated endpoint | `SECURITY/02` §12 | `TestOpaqueValidationErrorDisclosesNothing` |
-| A network observer inferring a password from our traffic | `SECURITY/02` § Information Disclosure | `TestBreachRequestCarriesOnlyAPrefix` |
-| A compromised corpus service reading our users' passwords | `SECURITY/00` trust boundary | Same — it never receives enough to identify one |
+| A breached password that satisfies every composition rule | `docs/PLAN/09` § Passwords | `TestBreachedRecognisesAMatch`, `TestCheckBreachRejectsAKnownBreachedPassword` |
+| Policy detail learned from an unauthenticated endpoint | `docs/SECURITY/02` §12 | `TestOpaqueValidationErrorDisclosesNothing` |
+| A network observer inferring a password from our traffic | `docs/SECURITY/02` § Information Disclosure | `TestBreachRequestCarriesOnlyAPrefix` |
+| A compromised corpus service reading our users' passwords | `docs/SECURITY/00` trust boundary | Same — it never receives enough to identify one |
 | Forcing the corpus to fail to deny password changes | — | `TestCheckBreachFailsOpenAndSaysSo` |
 | Forcing the corpus to fail to admit a breached password | — | Accepted and bounded by ADR-015; `TestBreachServiceFailuresAreDistinguishable` keeps the skip visible |
-| An administrator configuring the control away | `PLAN/08` Part B | `TestParsePolicy` (below-floor), `TestABrokenPolicyDocumentFallsBackToTheDefault` |
+| An administrator configuring the control away | `docs/PLAN/08` Part B | `TestParsePolicy` (below-floor), `TestABrokenPolicyDocumentFallsBackToTheDefault` |
 | An oversized password exhausting memory through Argon2 | `P1-01` | `TestEvaluateBoundsTheInput` |
-| The password reaching a log or an error message | `CLAUDE.md`, `PLAN/13` | `TestBreachErrorsCarryNoPasswordMaterial`, plus the existing log-redaction gate |
-| Reading another tenant's policy | `PLAN/08` Part B, `SECURITY/02` §2 | `TestPolicyIsNotReadableAcrossTenants` |
+| The password reaching a log or an error message | `CLAUDE.md`, `docs/PLAN/13` | `TestBreachErrorsCarryNoPasswordMaterial`, plus the existing log-redaction gate |
+| Reading another tenant's policy | `docs/PLAN/08` Part B, `docs/SECURITY/02` §2 | `TestPolicyIsNotReadableAcrossTenants` |
 
 ## Definition of Done Verification
 
@@ -125,7 +125,7 @@ Task-specific DoD:
 - [x] **Policy evaluation is a pure function with table-driven unit tests, including boundary lengths.** Both sides of every boundary, not only the failing side — a test that checks only that 11 characters is rejected passes against an implementation that rejects everything.
 - [x] **The breached-password check transmits only a hash prefix, verified by an outbound-request test.** And the test is itself verified against a synthetic leaky request, so its containment check is known to be able to fail.
 - [x] **The fail-open/fail-closed decision is recorded in `MEMORY/DECISIONS.md`.** ADR-015.
-- [x] **Validation errors match `PLAN/05`'s error schema exactly.** Asserted on the serialized JSON, not the Go struct — a struct assertion passes against wrong `json` tags.
+- [x] **Validation errors match `docs/PLAN/05`'s error schema exactly.** Asserted on the serialized JSON, not the Go struct — a struct assertion passes against wrong `json` tags.
 - [x] **Changing `organizations.settings.password_policy` changes enforcement with no code change.** The integration test performs an `UPDATE` against a live row and re-reads through the same process, for two different fields.
 
 ## What Did Not Work
@@ -154,8 +154,8 @@ Fixed, reinstalled, and a verified backup taken (90KB, 19 tables, row counts mat
 
 - `P1-12` and `P1-19` must call `Evaluate` and `CheckBreach` on every password-set path, record the returned `Outcome`, write `user.password.rejected` / `user.password.breach_check_skipped`, and set `password_changed_at`. Until then this is a library with no caller.
 - `P1-11` must enforce `Expired` at login. The predicate and the column are ready.
-- `PLAN/04-DATA-MODEL.md` § `users` should be amended to list `password_changed_at`, through the deliberate plan-change process (`AGENTS.md` rule 9). Raised in `PG-13` rather than made here.
-- `require_uppercase` cannot be satisfied in a caseless script. The remedy available today is that the rule is per organization. If the product targets such a market, `PLAN/08` Part B's policy shape is worth revisiting.
+- `docs/PLAN/04-DATA-MODEL.md` § `users` should be amended to list `password_changed_at`, through the deliberate plan-change process (`AGENTS.md` rule 9). Raised in `PG-13` rather than made here.
+- `require_uppercase` cannot be satisfied in a caseless script. The remedy available today is that the rule is per organization. If the product targets such a market, `docs/PLAN/08` Part B's policy shape is worth revisiting.
 - `BL-01`: nothing alerts on a backup that stops happening. The unit paths are fixed, but the health of the backup is currently only as good as somebody remembering to look.
 - Re-checking passwords admitted during a fail-open window is possible from the audit events but not implemented. ADR-015 § Alternatives explains why the queue-for-recheck design was deferred.
 

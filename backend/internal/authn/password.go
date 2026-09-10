@@ -4,7 +4,7 @@
 // That boundary is deliberate. Verifying a credential and authorizing a
 // request are different questions, and a package that answers both is one
 // where "the password matched" quietly becomes "the request is allowed".
-// Authorization lives in internal/authz (PLAN/08).
+// Authorization lives in internal/authz (docs/PLAN/08).
 //
 // Specification: MEMORY/specs/P1-01-password-hashing.md.
 package authn
@@ -20,7 +20,7 @@ import (
 	"golang.org/x/crypto/argon2"
 )
 
-// Argon2id, per PLAN/09 § Passwords & Credentials and PLAN/07 § Cryptography.
+// Argon2id, per docs/PLAN/09 § Passwords & Credentials and docs/PLAN/07 § Cryptography.
 //
 // The hybrid rather than Argon2i or Argon2d: Argon2d resists GPU attack but
 // leaks through memory access patterns, Argon2i is the reverse, and Argon2id
@@ -139,7 +139,7 @@ var (
 // detectable per row and old hashes keep verifying at their own cost.
 //
 // No error returned by this function contains the password or any part of it
-// (PLAN/09: never log passwords, even failed attempts). That is asserted by a
+// (docs/PLAN/09: never log passwords, even failed attempts). That is asserted by a
 // test, because it is the kind of property a helpful error message
 // accidentally removes.
 func Hash(password string) (string, error) {
@@ -212,7 +212,7 @@ func Verify(encoded, password string) (Result, error) {
 
 // VerifyDummy performs a hash of equivalent cost and always reports no match.
 //
-// This is the enumeration defence (SECURITY/02 §12). A login for an address
+// This is the enumeration defence (docs/SECURITY/02 §12). A login for an address
 // with no account must cost what a real one costs — otherwise the response
 // time tells an attacker which addresses are registered, and that is a
 // password-reset list, a phishing list, and confirmation that a person works
