@@ -1,5 +1,7 @@
 import createClient from "openapi-fetch";
 
+import { currentToken } from "../auth/tokens";
+
 import type { paths } from "./schema.gen";
 
 /**
@@ -35,10 +37,59 @@ export const api = createClient<paths>({
 
   // The console authenticates as an ordinary OIDC client (docs/PLAN/06 § Why the
   // Console Must Log In Through the Same OIDC Flow), so it carries an SSO
-  // session cookie for the silent-authentication redirect. Bearer tokens for
-  // Management API calls are attached by the middleware added in P1-03, when
-  // there is a token to attach.
+  // session cookie for the silent-authentication redirect.
   credentials: "include",
+});
+
+/**
+ * The bearer token, attached to every Management API request (P1-21).
+ *
+ * Read at request time rather than captured at startup. The token is renewed
+ * in place (ADR-019), and a client built once with the token it saw first
+ * would keep presenting an expired one — which looks like an authorization
+ * bug and is a staleness bug.
+ *
+ * A request with no token is sent WITHOUT an Authorization header rather than
+ * with an empty one. `P1-15`'s middleware answers a missing header with a
+ * clean 401 and `WWW-Authenticate`; an empty bearer is a malformed request,
+ * and the difference is what the console can tell the user.
+ */
+api.use({
+  onRequest({ request }) {
+    const token = currentToken();
+    if (token !== null) {
+      request.headers.set("Authorization", `Bearer ${token}`);
+    }
+    return request;
+  },
+});
+
+/**
+ * Recovers from an expired token once, and only once per request.
+ *
+ * A 401 mid-action is the case `P1-21` step 8 and `docs/UI-UX/14` are about:
+ * the user did nothing wrong and their work should not vanish. The renewal
+ * runs, and the caller retries.
+ *
+ * The retry is the CALLER's, not this middleware's. Replaying a request here
+ * would replay a POST as well as a GET, and silently repeating a mutation the
+ * server may already have applied is worse than the 401 — `Idempotency-Key`
+ * exists precisely because that decision belongs to whoever knows what the
+ * request was.
+ */
+export function onUnauthorized(handler: () => Promise<boolean>): void {
+  renewHandler = handler;
+}
+
+let renewHandler: (() => Promise<boolean>) | null = null;
+
+api.use({
+  async onResponse({ response }) {
+    if (response.status === 401 && renewHandler !== null) {
+      await renewHandler();
+    }
+    return response;
+  },
 });
 
 /**

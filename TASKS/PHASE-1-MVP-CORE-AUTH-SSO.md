@@ -897,7 +897,7 @@ Also found: `session_id` was in the logger's redaction list — correct when the
 
 | | |
 |---|---|
-| **Status** | TODO |
+| **Status** | DONE — [record](../MEMORY/records/2026-09-10-P1-21-console-login.md), [spec](../MEMORY/specs/P1-21-console-login.md), [ADR-019](../MEMORY/DECISIONS.md) |
 | **Depends on** | P0-17, P1-07 |
 | **Plan refs** | `docs/PLAN/06-FRONTEND-ARCHITECTURE.md` § Why the Console Must Log In Through the Same OIDC Flow, `docs/PLAN/02-REQUIREMENTS.md` § Constraints |
 | **Spec required** | Yes — authentication surface |
@@ -916,18 +916,22 @@ Also found: `session_id` was in the logger's redaction list — correct when the
 8. Handle the expired-session case gracefully: a mid-action expiry should not lose the user's work without explanation (`docs/UI-UX/14-EMPTY-LOADING-ERROR-STATES.md`).
 
 **Definition of Done**
-- [ ] Login works through the same OIDC flow as any other client, with no console-specific backdoor.
-- [ ] PKCE parameters are generated with a CSPRNG and `state` is validated on return.
-- [ ] The token-storage decision is recorded in `MEMORY/DECISIONS.md`.
-- [ ] Silent renewal works, and its failure degrades to interactive login rather than a blank screen.
-- [ ] A route the user's claims don't permit is unreachable by direct URL, not merely hidden.
-- [ ] An E2E test covers login, renewal, and logout.
+- [x] Login works through the same OIDC flow as any other client, with no console-specific backdoor. **This task changed no backend code**, which is the measure: the way that requirement fails is quietly, as one endpoint or one parameter only the console sends.
+- [x] PKCE parameters are generated with a CSPRNG and `state` is validated on return. `crypto.getRandomValues`, checked for distinctness across 200 values — which catches the constant a mocked CSPRNG produces — and the S256 derivation checked against **RFC 7636’s own worked example** rather than against itself. `state` is compared to what THIS tab generated, before the code is exchanged.
+- [x] The token-storage decision is recorded in `MEMORY/DECISIONS.md`. [ADR-019](../MEMORY/DECISIONS.md): in memory only, recovered by `prompt=none`, with the `localStorage` and BFF alternatives and their reasons.
+- [x] Silent renewal works, and its failure degrades to interactive login rather than a blank screen. Four states, and `anonymous` is deliberately distinct from `failed`: telling somebody to sign in again when the issuer is misconfigured sends them round a loop that cannot succeed.
+- [x] A route the user’s claims don’t permit is unreachable by direct URL, not merely hidden. The guard wraps the ROUTE, and the tests navigate to the URL — a test that clicked a nav link would prove nothing. Said in three places that this is a user-experience feature and the API is the only enforcement point.
+- [x] An E2E test covers login, renewal, and logout. Five tests against a real service, including the token’s absence from browser storage **in the built bundle in a real browser**, and logout asserted **across a reload** — which is what separates "the console forgot its token" from "the session ended".
 
 **Abuse cases to test**
 - Token theft via XSS given the chosen storage strategy (`docs/SECURITY/02` §6).
 - Authorization code interception against the SPA redirect (`docs/SECURITY/02` §1).
 - Direct URL navigation to an unauthorized route (`docs/SECURITY/02` §14 Client-Side Trust).
 
+
+**Found while building it**
+- **A test hook nearly went into production code.** The first E2E draft had the console read `window.__E2E_CLIENT_ID` so a test could retarget the running bundle. It works, and it would have put a test-only path into the one file whose job is deciding where authorization codes are sent. The console is built with its own `VITE_AUTH_CLIENT_ID` instead.
+- **Adding the session bar broke twelve shell tests, and that is the wiring check working.** `useAuth` throws outside a provider, deliberately. Making it tolerant would have removed the failure and the check with it.
 ---
 
 ## P1-22 — Console: Organization Overview, Projects, Applications

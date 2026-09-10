@@ -67,6 +67,18 @@ Format follows Keep a Changelog conventions, grouped by release once releases ex
 
 ### 2026-09-10
 
+**Added** — the console logs in ([record](./records/2026-09-10-P1-21-console-login.md), [spec](./specs/P1-21-console-login.md))
+- Authorization Code with PKCE in the browser, through the same hosted login page and the same endpoints any other `type: spa` client uses. **It changed no backend code**, which is the measure of the dogfooding constraint rather than a happy accident. (`P1-21`)
+- `RequireAuth` on the route rather than on the navigation item, so a screen the claims do not permit is unreachable by typing its URL. It says in three places that this is a user-experience feature and the API is the only enforcement point. (`P1-21`)
+- Silent renewal with `prompt=none` in a hidden iframe, a four-state machine that keeps "we are finding out" distinct from "you are signed out", and a 401 recovery whose retry belongs to the caller — replaying inside the middleware would replay a `POST` as readily as a `GET`. (`P1-21`)
+
+**Decided**
+- **ADR-019**: the console's access token lives in memory only, recovered by `prompt=none` against the SSO session. Not `localStorage`, where a Management API token outlives the tab, the browser restart and the incident response. The claim is stated precisely: in-memory is not immune to XSS — it removes persistence and narrows the window. (`P1-21`)
+
+**Found**
+- **A test hook nearly went into production code.** The first E2E draft had the console read `window.__E2E_CLIENT_ID` so a test could retarget the running bundle at a freshly seeded application — a test-only path in the one file whose job is deciding where authorization codes are sent. The console is built with its own client id instead. (`P1-21`)
+- **Adding the session bar broke twelve shell tests, and that is the wiring check working.** `useAuth` throws outside a provider; making it tolerant would have removed the failure and the check with it. (`P1-21`)
+
 **Added** — the audit log read ([record](./records/2026-09-10-P1-20-audit-log-read.md))
 - `GET /v1/organizations/{org_id}/events`, with filters for event type, actor and a half-open time range. No migration: `events` has been partitioned, indexed and append-only since `P0-07`. (`P1-20`)
 
