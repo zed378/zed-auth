@@ -33,6 +33,9 @@ SHIPPED = {
     "/oauth/token",
     # P1-08. Served and real; discovery advertises it from the same commit.
     "/oauth/userinfo",
+    # P1-09. Both advertised by discovery in the same commit that serves them.
+    "/oauth/introspect",
+    "/oauth/revoke",
     "/healthz",
     "/readyz",
     # P1-04. Both are served and both are real; the discovery document itself

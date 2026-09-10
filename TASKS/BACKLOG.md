@@ -322,6 +322,20 @@ The cost of the omission is smaller than it looks today, because both claims are
 
 ---
 
+### PG-19 — Per-client rate limiting has a requirement and no owner
+
+**Affects**: `P1-09` step 5, `P1-15` onward, and every OAuth endpoint.
+
+`P1-09`'s card says "rate-limit both endpoints per client (`docs/PLAN/05` § Rate Limiting)". That section of **Part A** says only "limit login attempts per account (cooldown, not permanent lockout) and per IP". The per-`client_id` sentence lives in **Part B**, about the Management API: "Rate limits applied per `client_id`/API key (not just IP), with standard `X-RateLimit-*` headers."
+
+So the card cites a policy that does not cover the endpoints it is about, and no Phase 1 task builds the mechanism. `P1-13` is login limiting — per account and per IP, against credential stuffing — and stops there.
+
+**Not implemented in `P1-09`.** The deferral is smaller than it sounds: `/oauth/introspect` and `/oauth/revoke` both require client authentication, so abuse costs an attacker a valid client secret rather than merely a network connection. What it does not bound is a **compromised** client, which is the case a limiter exists for — and `/oauth/token` has the same gap today.
+
+**Recommendation**: `P1-15` owns it. That is where `/v1` gets its middleware, and a per-client limiter built there can serve the OAuth endpoints too rather than being invented twice. It also needs `docs/PLAN/05` Part A amended to say what the policy actually is for protocol endpoints, since today it says nothing.
+
+---
+
 ---
 
 ## Operational Gaps

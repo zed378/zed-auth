@@ -63,6 +63,8 @@ output-options:
     - authorize
     - token
     - userinfo
+    - introspect
+    - revoke
 
 generate:
   # Request and response types. The whole point: a field renamed in the spec
