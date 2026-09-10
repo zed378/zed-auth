@@ -422,7 +422,7 @@ Found while cleaning up a signature: `AuthenticateClient` checked that a secret 
 
 | | |
 |---|---|
-| **Status** | TODO |
+| **Status** | DONE — [record](../MEMORY/records/2026-09-10-P1-10-logout.md), [spec](../MEMORY/specs/P1-10-logout.md) |
 | **Depends on** | P1-11 |
 | **Plan refs** | `docs/PLAN/05-API-CONTRACT.md` § Session & logout, `docs/PLAN/04-DATA-MODEL.md` § `sessions` |
 | **Spec required** | Yes — session lifecycle |
@@ -440,15 +440,27 @@ Found while cleaning up a signature: `AuthenticateClient` checked that a secret 
 7. Leave back-channel logout to a later phase, as `docs/PLAN/05` explicitly defers it — but make sure this design does not preclude it.
 
 **Definition of Done**
-- [ ] After logout, a subsequent `/oauth/authorize` requires full re-authentication.
-- [ ] A replayed session cookie captured before logout is rejected.
-- [ ] `post_logout_redirect_uri` matching is exact; an unregistered value is refused.
-- [ ] "Log out of all sessions" terminates every session and revokes refresh tokens.
-- [ ] Logout events are audited.
+- [x] After logout, a subsequent `/oauth/authorize` requires full re-authentication. Tested as the **consequence** rather than as a `revoked_at` column: the same cookie is replayed at the authorization endpoint and must land on the login page. A column test would pass against a system that revokes the row and keeps honouring the cookie from cache.
+- [x] A replayed session cookie captured before logout is rejected — the same test, which is the same property seen from the attacker's side.
+- [x] `post_logout_redirect_uri` matching is exact; an unregistered value is refused **with no redirect at all**, because reporting the error by redirecting to the unvalidated address is the vulnerability. Six near-misses tested, including a trailing slash, an appended query, a scheme change and a case change.
+- [x] "Log out of all sessions" terminates every session and revokes refresh tokens. Both halves: without the second an application holding a refresh token mints a fresh access token minutes later, so the button would end the browser sessions and quietly leave every integration signed in.
+- [x] Logout events are audited, with the scope of what was ended and never the cookie.
 
 **Abuse cases to test**
-- Forced logout of another user via a crafted logout URL (`docs/SECURITY/02` §5).
-- Session still usable after logout (`docs/SECURITY/02` §4).
+- [x] Forced logout of another user via a crafted logout URL (`docs/SECURITY/02` §5). A GET acts only on an `id_token_hint` that verifies AND names the session the cookie resolves to. Eight shapes of unprovable request tested, all of which revoke nothing.
+- [x] A hint for **another** session logs nobody out — not its own subject, and not the visitor. Tested separately, because those are two different failures.
+- [x] Session still usable after logout (`docs/SECURITY/02` §4). The row is revoked and the cache invalidated after the commit; clearing the cookie is done as well, never instead.
+- [x] CSRF on the confirmation, and clickjacking of it.
+
+**What this task also produced**
+- `RefreshStore.RevokeAllForUser` — the half of "log out everywhere" that is easy to forget.
+- `writePage`, lifted out of the login handler's method, so both browser surfaces get their headers from one place rather than from a copy.
+- `PG-20` — `docs/PLAN/05` treats RP-Initiated Logout and Back-Channel Logout as the same specification.
+
+**Deliberately not done**
+- **The `id_token_hint`'s expiry is not checked.** An ID token lives five minutes; a user signing out an hour later is the ordinary case, so rejecting a stale hint would send nearly every real logout to a confirmation click. The hint is evidence of who initiated the request, not a credential being honoured — and it still has to match the live session, which is what actually bounds it.
+- **Back-channel logout**, per step 7 and `DF-09` (now narrowed to that specification alone). Nothing here precludes it.
+- **An opaque server-side reference for the round trip**, unlike `P1-12`. Logout has one parameter that matters and one function that validates it, called unconditionally on both paths — so a hidden field the user can edit is one the same check rejects, and a test edits it to prove so.
 
 ---
 

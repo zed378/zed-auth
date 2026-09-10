@@ -133,6 +133,8 @@ outline-offset:2px}
 button{display:block;width:100%%;padding:11px 16px;font:inherit;font-weight:600;
 color:#ffffff;background:var(--color-accent);border:1px solid var(--color-accent);
 border-radius:6px;cursor:pointer}
+.check{display:flex;align-items:center;gap:8px;font-weight:400;font-size:0.9375rem}
+.check input{width:1rem;height:1rem;margin:0;accent-color:var(--color-accent)}
 .foot{margin:20px 0 0;font-size:0.875rem;text-align:center}
 a{color:var(--color-accent)}
 .note{margin:0 0 24px;color:var(--color-text-secondary)}

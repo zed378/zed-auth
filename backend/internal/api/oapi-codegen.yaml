@@ -65,6 +65,8 @@ output-options:
     - userinfo
     - introspect
     - revoke
+    - logout
+    - logoutConfirm
 
 generate:
   # Request and response types. The whole point: a field renamed in the spec

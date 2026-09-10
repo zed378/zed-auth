@@ -64,6 +64,15 @@ type Metrics struct {
 	// the request histogram.
 	TokenDuration *prometheus.HistogramVec
 
+	// --- Logout (P1-10) ---
+
+	// LogoutTotal is labelled by outcome. "asked" is as interesting as
+	// "completed": a rise in it means relying parties have stopped sending a
+	// usable id_token_hint, which turns a one-click sign-out into a
+	// confirmation page for every user — a UX regression nothing else would
+	// report.
+	LogoutTotal *prometheus.CounterVec
+
 	// --- Token lifecycle (P1-09) ---
 
 	// TokenLifecycle counts introspection and revocation by endpoint and a
@@ -215,6 +224,11 @@ func NewMetrics(service, version string) *Metrics {
 			"Token endpoint latency by grant, bucketed on docs/PLAN/12's targets.",
 			[]float64{0.01, 0.025, 0.05, 0.1, 0.2, 0.4, 0.8},
 			"grant"),
+
+		LogoutTotal: factory.counterVec(
+			"auth_logout_total",
+			"Logouts by outcome: completed, asked (the confirmation was shown), refused, error.",
+			"outcome"),
 
 		TokenLifecycle: factory.counterVec(
 			"auth_token_lifecycle_total",
