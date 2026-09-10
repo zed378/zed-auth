@@ -64,6 +64,22 @@ type Metrics struct {
 	// the request histogram.
 	TokenDuration *prometheus.HistogramVec
 
+	// --- Rate limiting (P1-13) ---
+
+	// RateLimitRefusals counts refused login attempts by which bound refused
+	// them. A rise here is the control WORKING, which is why it is not folded
+	// into the login-failure counter: those two mean opposite things
+	// operationally and averaging them hides both.
+	RateLimitRefusals *prometheus.CounterVec
+
+	// RateLimitUnavailable counts decisions made without the counter store.
+	//
+	// This is the metric that makes ADR-017's fail-open choice safe to make.
+	// The limiter proceeds when Redis is unreachable, so without this number
+	// an outage would silently remove the control and look exactly like
+	// nothing happening.
+	RateLimitUnavailable prometheus.Counter
+
 	// --- Logout (P1-10) ---
 
 	// LogoutTotal is labelled by outcome. "asked" is as interesting as
@@ -224,6 +240,14 @@ func NewMetrics(service, version string) *Metrics {
 			"Token endpoint latency by grant, bucketed on docs/PLAN/12's targets.",
 			[]float64{0.01, 0.025, 0.05, 0.1, 0.2, 0.4, 0.8},
 			"grant"),
+
+		RateLimitRefusals: factory.counterVec(
+			"auth_rate_limit_refusals_total",
+			"Login attempts refused by the rate limiter, by which bound refused them.",
+			"bound"),
+		RateLimitUnavailable: factory.counter(
+			"auth_rate_limit_unavailable_total",
+			"Rate-limit decisions made without the counter store. Non-zero means logins are proceeding unlimited (ADR-017)."),
 
 		LogoutTotal: factory.counterVec(
 			"auth_logout_total",
