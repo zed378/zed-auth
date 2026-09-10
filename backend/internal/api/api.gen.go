@@ -25,6 +25,11 @@ const (
 	VALIDATIONERROR  ErrorCode = "VALIDATION_ERROR"
 )
 
+// Defines values for IntrospectionTokenType.
+const (
+	IntrospectionTokenTypeBearer IntrospectionTokenType = "Bearer"
+)
+
 // Defines values for LivenessStatusStatus.
 const (
 	Ok LivenessStatusStatus = "ok"
@@ -49,7 +54,7 @@ const (
 
 // Defines values for TokenResponseTokenType.
 const (
-	Bearer TokenResponseTokenType = "Bearer"
+	TokenResponseTokenTypeBearer TokenResponseTokenType = "Bearer"
 )
 
 // Error The error envelope for every non-2xx response, without exception
@@ -95,6 +100,31 @@ type ErrorDetail struct {
 	// Issue What is wrong with it, in plain language.
 	Issue string `json:"issue"`
 }
+
+// Introspection RFC 7662's response. When `active` is false it is the ONLY property
+// present - every negative case answers identically, so nothing here can
+// be used to tell them apart.
+type Introspection struct {
+	// Active Whether the token is currently usable.
+	Active bool    `json:"active"`
+	Aud    *string `json:"aud,omitempty"`
+
+	// ClientId The client the token was issued to - always your own.
+	ClientId *openapi_types.UUID `json:"client_id,omitempty"`
+	Exp      *int64              `json:"exp,omitempty"`
+	Iat      *int64              `json:"iat,omitempty"`
+	Iss      *string             `json:"iss,omitempty"`
+
+	// Scope Space-delimited, as granted.
+	Scope *string `json:"scope,omitempty"`
+
+	// Sub The user. Absent for a `client_credentials` token.
+	Sub       *openapi_types.UUID     `json:"sub,omitempty"`
+	TokenType *IntrospectionTokenType `json:"token_type,omitempty"`
+}
+
+// IntrospectionTokenType defines model for Introspection.TokenType.
+type IntrospectionTokenType string
 
 // JWK One public key, per RFC 7517. Private parameters (`d`, `p`, `q`, `dp`,
 // `dq`, `qi`) never appear.

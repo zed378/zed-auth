@@ -67,6 +67,19 @@ Format follows Keep a Changelog conventions, grouped by release once releases ex
 
 ### 2026-09-10
 
+**Added** — token introspection and revocation ([record](./records/2026-09-10-P1-09-introspect-revoke.md), [spec](./specs/P1-09-introspect-revoke.md))
+- `POST /oauth/introspect` (RFC 7662) and `POST /oauth/revoke` (RFC 7009), both advertised by discovery. (`P1-09`)
+- **A client may only see or destroy tokens issued to itself**, and another client's is answered exactly as an unknown one — `{"active": false}` or `200` and no action, never a `403`, which would confirm the token exists and belongs to somebody. The check lives inside the same function that identifies the token, because separating them invites a call site that does one and forgets the other.
+- Every negative answer is the identical bytes, from a package-level value rather than a literal per branch. Seven cases compared as whole responses with controls at both ends.
+- Introspection requires a **confidential** client — stricter than RFC 7662, because a public client is one anybody can impersonate by reading a `client_id` out of a browser URL. Revocation admits public clients, as RFC 7009 contemplates: it can only destroy a credential the caller already holds.
+- Revoking a refresh token takes its **whole family**. Revoking an access token cannot work — it is a signed JWT nothing looks up — so it revokes the refresh tokens for the same session **and client**, and the OpenAPI description says plainly that the presented token keeps working until it expires. Session alone would let one client's logout throw away every other application's refresh token in the same SSO session.
+- `PG-19`: per-client rate limiting has a requirement in the card and no owner anywhere in Phase 1.
+
+**Found**
+- **Audit redaction matches key NAMES, not values.** A mutation that wrote the token into the audit payload as `token_hash` was caught by `audit.redactPayload` — but the same value under `revoked_token` sails straight through, because `_` is not one of the separators `IsSensitiveKey` splits on. The two layers cover different things: redaction stops the keys somebody thought of, the test stops the ones nobody did. The natural conclusion from "the audit writer redacts credentials" — that a call site cannot leak one — is wrong; it just has to name the field something new. (`P1-09`)
+- **A mutation that was not a weakening.** Substituting `RevokeForSessionAndClient` for `RevokeFamily` left the family test passing, because the sibling shares both the session and the client. Proving the test works needed a mutation that revokes exactly one row of the lineage. A mutation that does not actually remove the control proves nothing about the test. (`P1-09`)
+- Every negative unit test panicked on a nil database, because every negative case falls through into the refresh lookup. The tempting fix — nil-guarding the lookup — would have turned a construction error into every refresh token silently reporting inactive; the seam was the honest fix. (`P1-09`)
+
 **Added** — the userinfo endpoint ([record](./records/2026-09-10-P1-08-userinfo.md), [spec](./specs/P1-08-userinfo.md))
 - `GET` and `POST /oauth/userinfo`, returning the claims the presented access token's scopes authorise and nothing else. Discovery now advertises all four endpoints a conforming client configures itself from. (`P1-08`)
 - **The scope mapping is tested for absence**, with the exact key set asserted rather than a subset. A handler that returned every claim regardless of scope passes every "is `email` there when `email` was granted" test anybody will write; only an exact comparison catches it. `userinfo.Subject` deliberately cannot hold `Status` or `MFAEnabled`, so what no scope authorises is not in the struct to leak.

@@ -723,3 +723,375 @@ func claimsOf(t *testing.T, f fixture, compact string) map[string]any {
 	}
 	return claims
 }
+
+// --- P1-09: introspection and revocation ---------------------------------------------
+
+// lifecycle builds the handler against everything real: the same key set, the
+// same client store, the same refresh store, the same database.
+func (f fixture) lifecycle(t *testing.T) *LifecycleHandler {
+	t.Helper()
+
+	return &LifecycleHandler{
+		Issuer:   testIssuer,
+		Clients:  clientAdapter{store: f.clients, db: f.db},
+		Verifier: signing.NewVerifier(f.keys),
+		Refresh:  boundRefresh{store: NewRefreshStore(), db: f.db},
+		// The session check is wired, because it is the difference between an
+		// access token that resolves and one reported inactive — leaving it
+		// nil made the access-token revocation test fail for a reason that
+		// looked like the revocation being broken.
+		Sessions: liveness{sessions: session.NewManager(
+			f.db, session.NewCache(f.rdb, nil), audit.NewWriter(f.db, discard(), nil), discard())},
+		Tenant: f.db,
+		Audit:  audit.NewWriter(f.db, discard(), nil),
+		Log:    discard(),
+	}
+}
+
+// boundRefresh is the adapter cmd/authservice wires, reproduced so the test
+// exercises the same seam.
+type boundRefresh struct {
+	store *RefreshStore
+	db    *postgres.DB
+}
+
+func (r boundRefresh) Lookup(ctx context.Context, presented string, now time.Time) (Refresh, error) {
+	return r.store.Lookup(ctx, r.db, presented, now)
+}
+
+func (r boundRefresh) RevokeFamily(ctx context.Context, tx *postgres.Tx, familyID string) (int64, error) {
+	return r.store.RevokeFamily(ctx, tx, familyID)
+}
+
+func (r boundRefresh) RevokeForSessionAndClient(
+	ctx context.Context, tx *postgres.Tx, sessionID, clientID string,
+) (int64, error) {
+	return r.store.RevokeForSessionAndClient(ctx, tx, sessionID, clientID)
+}
+
+// post sends an authenticated form to one of the two lifecycle endpoints.
+func (f fixture) lifecyclePost(
+	t *testing.T, h *LifecycleHandler, path string, form url.Values, clientID, secret string,
+) *httptest.ResponseRecorder {
+	t.Helper()
+
+	r := httptest.NewRequest(http.MethodPost, path, strings.NewReader(form.Encode()))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	r.SetBasicAuth(url.QueryEscape(clientID), url.QueryEscape(secret))
+
+	w := httptest.NewRecorder()
+	if strings.Contains(path, "introspect") {
+		h.Introspect(w, r)
+	} else {
+		h.Revoke(w, r)
+	}
+	return w
+}
+
+// secondClient registers another confidential application in the same
+// organization, which is what the ownership tests need: same tenant, so RLS is
+// not what refuses the request — the ownership rule is.
+func (f fixture) secondClient(t *testing.T) (client.Record, client.Secret) {
+	t.Helper()
+
+	var projectID string
+	f.factory.QueryRow(&projectID,
+		`INSERT INTO projects (org_id, name) VALUES ($1, $2) RETURNING id`, f.orgID, "other")
+
+	var (
+		app    client.Record
+		secret client.Secret
+	)
+	if err := f.db.WithTenant(context.Background(), f.orgID, func(tx *postgres.Tx) error {
+		var err error
+		app, secret, err = f.clients.Create(context.Background(), tx, client.Application{
+			OrgID: f.orgID, ProjectID: projectID, Name: "other", Type: client.TypeWeb,
+			GrantTypes:   []string{GrantAuthorizationCode, GrantRefreshToken},
+			RedirectURIs: []string{"https://other.example.com/cb"},
+		}, "")
+		return err
+	}); err != nil {
+		t.Fatalf("creating the second application: %v", err)
+	}
+	return app, secret
+}
+
+func TestIntrospectingALiveRefreshToken(t *testing.T) {
+	f := setup(t)
+	h := f.lifecycle(t)
+
+	body := decode(t, f.exchange(t, f.issueCode(t, nil)))
+	refresh, _ := body["refresh_token"].(string)
+	if refresh == "" {
+		t.Fatal("no refresh token was issued")
+	}
+
+	w := f.lifecyclePost(t, h, "/oauth/introspect",
+		url.Values{"token": {refresh}}, f.appID, f.secret.Reveal())
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d:\n%s", w.Code, w.Body.String())
+	}
+	got := decode(t, w)
+	if got["active"] != true {
+		t.Fatalf("active = %v for a token issued moments ago:\n%s", got["active"], w.Body.String())
+	}
+	if got["client_id"] != f.appID {
+		t.Errorf("client_id = %v", got["client_id"])
+	}
+	if got["sub"] != f.userID {
+		t.Errorf("sub = %v", got["sub"])
+	}
+	// The address is not here, and the resource server does not need it.
+	for _, forbidden := range []string{"username", "email"} {
+		if _, present := got[forbidden]; present {
+			t.Errorf("the response carries %q", forbidden)
+		}
+	}
+}
+
+// The card's second abuse case, against two real clients in the same
+// organization — so RLS is not what refuses this, the ownership rule is.
+func TestOneClientCannotIntrospectAnothersToken(t *testing.T) {
+	f := setup(t)
+	h := f.lifecycle(t)
+
+	body := decode(t, f.exchange(t, f.issueCode(t, nil)))
+	refresh, _ := body["refresh_token"].(string)
+
+	other, otherSecret := f.secondClient(t)
+
+	// The control: the owner can see it.
+	if got := decode(t, f.lifecyclePost(t, h, "/oauth/introspect",
+		url.Values{"token": {refresh}}, f.appID, f.secret.Reveal())); got["active"] != true {
+		t.Fatal("the owning client cannot introspect its own token; the assertion below proves nothing")
+	}
+
+	w := f.lifecyclePost(t, h, "/oauth/introspect",
+		url.Values{"token": {refresh}}, other.ID, otherSecret.Reveal())
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 with active:false rather than a refusal:\n%s",
+			w.Code, w.Body.String())
+	}
+	got := decode(t, w)
+	if got["active"] != false {
+		t.Error("one client introspected another client's refresh token")
+	}
+	if len(got) != 1 {
+		t.Errorf("the answer leaked detail about another client's token: %v", got)
+	}
+}
+
+func TestOneClientCannotRevokeAnothersToken(t *testing.T) {
+	f := setup(t)
+	h := f.lifecycle(t)
+
+	body := decode(t, f.exchange(t, f.issueCode(t, nil)))
+	refresh, _ := body["refresh_token"].(string)
+
+	other, otherSecret := f.secondClient(t)
+
+	w := f.lifecyclePost(t, h, "/oauth/revoke",
+		url.Values{"token": {refresh}}, other.ID, otherSecret.Reveal())
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 regardless:\n%s", w.Code, w.Body.String())
+	}
+
+	// It must still work. A 200 that quietly destroyed somebody else's token
+	// would be the abuse case succeeding silently.
+	rec := f.post(t, url.Values{
+		"grant_type":    {GrantRefreshToken},
+		"refresh_token": {refresh},
+	}, true)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("another client revoked this token: the refresh now fails %d %s",
+			rec.Code, rec.Body.String())
+	}
+}
+
+// DoD item 3, and RFC 7009 section 2.1: revoking a refresh token invalidates
+// tokens derived from it, not just the row presented.
+func TestRevokingARefreshTokenKillsItsFamily(t *testing.T) {
+	f := setup(t)
+	h := f.lifecycle(t)
+
+	body := decode(t, f.exchange(t, f.issueCode(t, nil)))
+	refresh, _ := body["refresh_token"].(string)
+
+	var familyID string
+	f.factory.QueryRow(&familyID, `SELECT family_id FROM refresh_tokens LIMIT 1`)
+
+	// A sibling in the same family — what a rotation will produce once P3-06
+	// lands, and what "based on the same authorization grant" means.
+	var sibling RefreshToken
+	if err := f.db.WithTenant(context.Background(), f.orgID, func(tx *postgres.Tx) error {
+		var err error
+		sibling, _, err = NewRefreshStore().Issue(context.Background(), tx, Refresh{
+			UserID: f.userID, ClientID: f.appID, OrgID: f.orgID,
+			SessionID: f.sessionID, Scope: []string{"openid"},
+			ExpiresAt: time.Now().Add(RefreshTokenLifetime),
+		}, familyID, time.Now())
+		return err
+	}); err != nil {
+		t.Fatalf("issuing a sibling: %v", err)
+	}
+
+	w := f.lifecyclePost(t, h, "/oauth/revoke",
+		url.Values{"token": {refresh}}, f.appID, f.secret.Reveal())
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d", w.Code)
+	}
+
+	for name, presented := range map[string]string{
+		"the revoked token": refresh,
+		"its sibling":       sibling.Reveal(),
+	} {
+		t.Run(name, func(t *testing.T) {
+			rec := f.post(t, url.Values{
+				"grant_type":    {GrantRefreshToken},
+				"refresh_token": {presented},
+			}, true)
+			if rec.Code == http.StatusOK {
+				t.Error("still redeemable after the family was revoked")
+			}
+		})
+	}
+}
+
+// RFC 7009 section 2.2. Revocation is idempotent, and a client retrying a
+// request it is not sure landed must not be told which attempt worked.
+func TestRevocationIsIdempotent(t *testing.T) {
+	f := setup(t)
+	h := f.lifecycle(t)
+
+	body := decode(t, f.exchange(t, f.issueCode(t, nil)))
+	refresh, _ := body["refresh_token"].(string)
+
+	first := f.lifecyclePost(t, h, "/oauth/revoke",
+		url.Values{"token": {refresh}}, f.appID, f.secret.Reveal())
+	second := f.lifecyclePost(t, h, "/oauth/revoke",
+		url.Values{"token": {refresh}}, f.appID, f.secret.Reveal())
+
+	if first.Code != second.Code {
+		t.Errorf("the second revocation answered %d and the first %d", second.Code, first.Code)
+	}
+	if first.Body.String() != second.Body.String() {
+		t.Error("the two revocations differ in their bodies")
+	}
+}
+
+// A revoked refresh token introspects as inactive, which is the same answer an
+// unknown one gets.
+func TestARevokedTokenIntrospectsAsInactive(t *testing.T) {
+	f := setup(t)
+	h := f.lifecycle(t)
+
+	body := decode(t, f.exchange(t, f.issueCode(t, nil)))
+	refresh, _ := body["refresh_token"].(string)
+
+	revoked := f.lifecyclePost(t, h, "/oauth/introspect",
+		url.Values{"token": {refresh}}, f.appID, f.secret.Reveal())
+	if decode(t, revoked)["active"] != true {
+		t.Fatal("the token was not active before revocation")
+	}
+
+	f.lifecyclePost(t, h, "/oauth/revoke",
+		url.Values{"token": {refresh}}, f.appID, f.secret.Reveal())
+
+	after := f.lifecyclePost(t, h, "/oauth/introspect",
+		url.Values{"token": {refresh}}, f.appID, f.secret.Reveal())
+	unknown := f.lifecyclePost(t, h, "/oauth/introspect",
+		url.Values{"token": {"a-token-that-never-existed"}}, f.appID, f.secret.Reveal())
+
+	if after.Body.String() != unknown.Body.String() {
+		t.Errorf("a revoked token is distinguishable from an unknown one:\n%s\n---\n%s",
+			after.Body.String(), unknown.Body.String())
+	}
+}
+
+// DoD item 4, and the other half of it: the token itself must not be in the
+// entry. The audit log has a 24-month retention, which makes it the worst
+// place in the system for a credential.
+func TestARevocationIsAuditedWithoutTheToken(t *testing.T) {
+	f := setup(t)
+	h := f.lifecycle(t)
+
+	body := decode(t, f.exchange(t, f.issueCode(t, nil)))
+	refresh, _ := body["refresh_token"].(string)
+
+	f.lifecyclePost(t, h, "/oauth/revoke",
+		url.Values{"token": {refresh}}, f.appID, f.secret.Reveal())
+
+	var payloads string
+	f.factory.QueryRow(&payloads,
+		`SELECT COALESCE(string_agg(payload::text, '|'), '') FROM events WHERE event_type = 'token.revoked'`)
+
+	if payloads == "" {
+		t.Fatal("the revocation was not audited")
+	}
+	if !strings.Contains(payloads, f.appID) {
+		t.Errorf("the entry does not name the client: %s", payloads)
+	}
+	for _, forbidden := range []string{refresh, HashRefresh(refresh)} {
+		if strings.Contains(payloads, forbidden) {
+			t.Errorf("the audit entry contains the token or its hash: %s", payloads)
+		}
+	}
+}
+
+// An access token cannot be revoked, and presenting one revokes the refresh
+// tokens behind it instead — RFC 7009 section 2.1's SHOULD. The important half
+// is the scoping: session AND client, never session alone, or one client's
+// logout would throw away every other application's refresh token in the same
+// single sign-on session.
+func TestRevokingAnAccessTokenRevokesTheRefreshBehindIt(t *testing.T) {
+	f := setup(t)
+	h := f.lifecycle(t)
+
+	body := decode(t, f.exchange(t, f.issueCode(t, nil)))
+	access, _ := body["access_token"].(string)
+	refresh, _ := body["refresh_token"].(string)
+
+	// A second client, with its own refresh token on the SAME session.
+	other, otherSecret := f.secondClient(t)
+	var othersToken RefreshToken
+	if err := f.db.WithTenant(context.Background(), f.orgID, func(tx *postgres.Tx) error {
+		var err error
+		othersToken, _, err = NewRefreshStore().Issue(context.Background(), tx, Refresh{
+			UserID: f.userID, ClientID: other.ID, OrgID: f.orgID,
+			SessionID: f.sessionID, Scope: []string{"openid"},
+			ExpiresAt: time.Now().Add(RefreshTokenLifetime),
+		}, "", time.Now())
+		return err
+	}); err != nil {
+		t.Fatalf("issuing the other client's token: %v", err)
+	}
+
+	w := f.lifecyclePost(t, h, "/oauth/revoke",
+		url.Values{"token": {access}}, f.appID, f.secret.Reveal())
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d:\n%s", w.Code, w.Body.String())
+	}
+
+	// Ours is gone.
+	if rec := f.post(t, url.Values{
+		"grant_type":    {GrantRefreshToken},
+		"refresh_token": {refresh},
+	}, true); rec.Code == http.StatusOK {
+		t.Error("the refresh token behind the access token survived")
+	}
+
+	// Theirs is not. This is the assertion that would fail if the predicate
+	// were session alone.
+	var live bool
+	f.factory.QueryRow(&live,
+		`SELECT NOT revoked FROM refresh_tokens WHERE token_hash = $1`,
+		HashRefresh(othersToken.Reveal()))
+	if !live {
+		t.Error("revoking one client's access token destroyed another client's " +
+			"refresh token on the same session")
+	}
+
+	_ = otherSecret
+}

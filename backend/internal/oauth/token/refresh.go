@@ -230,3 +230,37 @@ func (s *RefreshStore) RevokeFamily(ctx context.Context, tx *postgres.Tx, family
 	affected, _ := result.RowsAffected()
 	return affected, nil
 }
+
+// RevokeForSessionAndClient revokes every live refresh token issued to one
+// client for one session.
+//
+// This is what /oauth/revoke does when it is handed an ACCESS token. RFC 7009
+// §2.1 says presenting one SHOULD invalidate the refresh token behind it, and
+// an access token names exactly the pair a refresh token was issued against:
+// its session and its client.
+//
+// Both columns, never just the session. A session commonly backs several
+// applications — that is what single sign-on IS — so revoking by session alone
+// would let one client's logout throw away every other application's refresh
+// token, which is a denial of service one integrator can inflict on the rest
+// of an estate by calling a documented endpoint correctly.
+func (s *RefreshStore) RevokeForSessionAndClient(
+	ctx context.Context, tx *postgres.Tx, sessionID, clientID string,
+) (int64, error) {
+	if sessionID == "" || clientID == "" {
+		// A client_credentials token has no session. Refusing to build a
+		// predicate out of an empty string keeps this from quietly matching
+		// every row with a NULL session_id.
+		return 0, nil
+	}
+
+	result, err := tx.Exec(ctx, `
+		UPDATE refresh_tokens
+		   SET revoked = true
+		 WHERE session_id = $1 AND client_id = $2 AND NOT revoked`, sessionID, clientID)
+	if err != nil {
+		return 0, fmt.Errorf("token: revoking refresh tokens for a session: %w", err)
+	}
+	affected, _ := result.RowsAffected()
+	return affected, nil
+}

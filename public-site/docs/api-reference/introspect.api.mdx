@@ -1,0 +1,90 @@
+---
+id: introspect
+title: "Token introspection (RFC 7662)"
+description: "Answers whether a token is currently good. Most useful for a refresh"
+sidebar_label: "Token introspection (RFC 7662)"
+hide_title: true
+hide_table_of_contents: true
+api: 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
+sidebar_class_name: "post api-method"
+info_path: docs/api-reference/zed-auth-management-api
+custom_edit_url: null
+---
+
+import MethodEndpoint from "@theme/ApiExplorer/MethodEndpoint";
+import ParamsDetails from "@theme/ParamsDetails";
+import RequestSchema from "@theme/RequestSchema";
+import StatusCodes from "@theme/StatusCodes";
+import OperationTabs from "@theme/OperationTabs";
+import TabItem from "@theme/TabItem";
+import Heading from "@theme/Heading";
+import Translate from "@docusaurus/Translate";
+
+<Heading
+  as={"h1"}
+  className={"openapi__heading"}
+  children={"Token introspection (RFC 7662)"}
+>
+</Heading>
+
+<MethodEndpoint
+  method={"post"}
+  path={"/oauth/introspect"}
+  context={"endpoint"}
+>
+  
+</MethodEndpoint>
+
+
+
+Answers whether a token is currently good. Most useful for a refresh
+token, which is opaque and cannot be inspected any other way.
+
+**Client authentication is required, and the client must be
+confidential.** This is stricter than RFC 7662, which leaves the method
+open. A public client has no secret, so admitting one would make this
+endpoint reachable by anyone who can read a `client_id` out of a
+browser URL - a token oracle, which is the one thing it must not be.
+
+**You can only introspect your own tokens.** A token issued to another
+client answers `{"active": false}`, exactly as an unknown one does. It
+is not an error, because an error would confirm the token exists and
+belongs to somebody.
+
+**`{"active": false}` is the answer to everything negative** - unknown,
+expired, revoked, malformed, another client's, or one whose session has
+since ended. There is no `reason` field and there will not be one: it
+would tell a caller holding a captured token whether it ever existed
+and whether it has been revoked since.
+
+`username` is not returned, though the RFC lists it. It is an email
+address, you already have `sub`, and `/oauth/userinfo` will give you
+the address if the user's own token authorises it.
+
+
+<Heading
+  id={"request"}
+  as={"h2"}
+  className={"openapi-tabs__heading"}
+>
+  <Translate id="theme.openapi.request.title">Request</Translate>
+</Heading>
+
+<ParamsDetails>
+  
+</ParamsDetails>
+
+<RequestSchema
+  {...require("./introspect.RequestSchema.json")}
+>
+  
+</RequestSchema>
+
+<StatusCodes
+  {...require("./introspect.StatusCodes.json")}
+>
+  
+</StatusCodes>
+
+
+      
