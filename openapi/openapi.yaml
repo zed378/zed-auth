@@ -814,6 +814,165 @@ paths:
                   value:
                     status: unavailable
 
+  /v1/organizations:
+    get:
+      tags: [Organizations]
+      operationId: listOrganizations
+      summary: List organizations
+      description: |
+        Every organization in the instance, oldest first.
+
+        Instance-scoped by nature — a list that spans tenants cannot be scoped
+        to one — so it requires `INSTANCE_OWNER`. An organization administrator
+        reads their own organization through `GET /v1/organizations/{org_id}`.
+      parameters:
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+      responses:
+        "200":
+          description: A page of organizations.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrganizationList"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+    post:
+      tags: [Organizations]
+      operationId: createOrganization
+      summary: Create an organization
+      description: |
+        Creates a tenant. Requires `INSTANCE_OWNER`.
+
+        `settings` is optional and is **merged onto the instance defaults**
+        rather than replacing them, so an organization created with only
+        `mfa_required` still has a password policy. Unknown keys are rejected
+        rather than stored: a typo that is kept silently becomes a policy that
+        is not in force and looks like it is.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OrganizationCreate"
+      responses:
+        "201":
+          description: The organization was created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Organization"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+  /v1/organizations/{org_id}:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationId"
+
+    get:
+      tags: [Organizations]
+      operationId: getOrganization
+      summary: Read an organization
+      description: |
+        Requires `ORG_ADMIN` over this organization, or `INSTANCE_OWNER`.
+
+        An organization the caller holds nothing over answers `404`, and so
+        does a deleted one — including to an `INSTANCE_OWNER`. A deleted tenant
+        is not a suspended one, and an endpoint that keeps serving it makes
+        "deleted" a label rather than a state.
+      responses:
+        "200":
+          description: The organization.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Organization"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+    patch:
+      tags: [Organizations]
+      operationId: updateOrganization
+      summary: Update an organization
+      description: |
+        A partial update: an absent property is left alone.
+
+        Requires `ORG_OWNER` over this organization — **except `status`, which
+        requires `INSTANCE_OWNER`.** Suspending an organization locks out every
+        user in it, and an organization owner suspending their own tenant is
+        not a capability anybody asked for.
+
+        `settings` is merged key by key, so an update naming one setting leaves
+        the rest as they were. `domain` may be set to `null` to release it.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OrganizationUpdate"
+      responses:
+        "200":
+          description: The updated organization.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Organization"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+    delete:
+      tags: [Organizations]
+      operationId: deleteOrganization
+      summary: Delete an organization
+      description: |
+        A **soft** delete. The row survives, the organization becomes `404`
+        everywhere, its domain is released so it can be claimed again, and its
+        audit history is untouched — `events` carries no foreign key to
+        `organizations`, precisely so a deleted tenant's history outlives it.
+
+        Requires `INSTANCE_OWNER`, and `confirm_name` must match the
+        organization's current name exactly. The confirmation is enforced by
+        the server rather than by the console: a script that deletes the wrong
+        organization never goes near the console at all
+        (`docs/PLAN/08` § Least Privilege).
+      parameters:
+        - name: confirm_name
+          in: query
+          required: true
+          description: |
+            The organization's current name, typed back. A mismatch is `400`.
+          schema:
+            type: string
+            maxLength: 200
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "204":
+          description: The organization was deleted.
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
 components:
   securitySchemes:
     oauth2:
@@ -887,6 +1046,159 @@ components:
         maxLength: 255
 
   schemas:
+    Organization:
+      type: object
+      description: |
+        A tenant.
+
+        `instance_id` is deliberately not exposed. It is an internal grouping
+        with one row in this phase, and a field a client can see is a field a
+        client will eventually send back.
+      required: [id, name, status, settings, created_at, updated_at]
+      additionalProperties: false
+      properties:
+        id:
+          $ref: "#/components/schemas/ResourceId"
+        name:
+          type: string
+          maxLength: 200
+          description: |
+            The display name. Not unique — two customers may legitimately be
+            called the same thing, and a uniqueness rule on a display name is a
+            support-ticket generator.
+          example: Acme Corp
+        domain:
+          type: string
+          nullable: true
+          description: |
+            For domain-based tenant resolution. Unique across the instance and
+            stored lowercased, because two tenants holding the same domain in
+            different cases would make tenant resolution ambiguous — and an
+            ambiguous tenant resolution is a cross-tenant access bug waiting to
+            happen. Verification of ownership is a later phase.
+          example: acme.example
+        status:
+          type: string
+          enum: [active, suspended]
+          description: |
+            A suspended organization's users cannot log in. Changing this
+            requires `INSTANCE_OWNER`.
+        settings:
+          $ref: "#/components/schemas/OrganizationSettings"
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    OrganizationSettings:
+      type: object
+      description: |
+        The organization's policy (`docs/PLAN/08` Part B).
+
+        **Unknown properties are rejected rather than stored.** A misspelled
+        key kept silently becomes a policy that is not in force and looks like
+        it is, and nobody notices until the audit that was supposed to find it
+        does not.
+      additionalProperties: false
+      properties:
+        password_policy:
+          type: object
+          additionalProperties: false
+          properties:
+            min_length:
+              type: integer
+              minimum: 12
+              maximum: 128
+              description: |
+                At least the platform minimum. An organization policy may raise
+                it and never lower it — a tenant setting that can go below the
+                instance floor is a per-tenant way to disable a platform
+                control.
+            require_uppercase:
+              type: boolean
+            max_age_days:
+              type: integer
+              minimum: 0
+              maximum: 3650
+              description: |
+                `0` means passwords never expire, which is a real choice rather
+                than an absent value: NIST SP 800-63B argues forced rotation
+                makes passwords worse.
+        mfa_required:
+          type: boolean
+        session_lifetime_hours:
+          type: integer
+          minimum: 1
+          maximum: 720
+        allowed_login_methods:
+          type: array
+          minItems: 1
+          items:
+            type: string
+            enum: [password]
+          description: |
+            Only `password` is available in this phase. `passkey` and `social`
+            are planned and are rejected until they work — an API that accepts
+            a method nothing implements would silently disable every method
+            that does.
+
+    OrganizationList:
+      type: object
+      required: [organizations]
+      additionalProperties: false
+      properties:
+        organizations:
+          type: array
+          items:
+            $ref: "#/components/schemas/Organization"
+        page_info:
+          $ref: "#/components/schemas/PageInfo"
+
+    OrganizationCreate:
+      type: object
+      description: |
+        Note what cannot be set: `id`, `status`, `created_at`, and the instance.
+        Every one of those is server-set, and a request body with nowhere to put
+        them is why a mass-assignment attempt has nothing to land on
+        (`docs/SECURITY/02` §11).
+      required: [name]
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        domain:
+          type: string
+          nullable: true
+          maxLength: 253
+        settings:
+          $ref: "#/components/schemas/OrganizationSettings"
+
+    OrganizationUpdate:
+      type: object
+      description: |
+        A partial update. An absent property is left alone; `domain: null`
+        releases the domain.
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        domain:
+          type: string
+          nullable: true
+          maxLength: 253
+        status:
+          type: string
+          enum: [active, suspended]
+          description: Requires `INSTANCE_OWNER`.
+        settings:
+          $ref: "#/components/schemas/OrganizationSettings"
+
     OpenIDConfiguration:
       type: object
       description: |
@@ -1027,13 +1339,31 @@ components:
 
     ResourceId:
       type: string
+      format: uuid
       description: |
-        A prefixed, sortable identifier — `usr_`, `org_`, `prj_`, `app_`,
-        `rol_`, `grt_`. The prefix makes an identifier pasted into a support
-        ticket self-describing, and makes passing a project id where a user id
-        belongs visible on sight rather than at the database.
-      pattern: "^[a-z]{3,5}_[0-9A-HJKMNP-TV-Z]{26}$"
-      example: usr_01HQZX3M8K4N7P2R5T9V6W8Y0B
+        A resource's stable identifier. Not sequential and not guessable.
+
+        **This was specified as a prefixed, sortable identifier** — `usr_`,
+        `org_`, `prj_` — and is a UUID instead. The change is deliberate and is
+        recorded as `PG-23`.
+
+        The prefix has a real benefit: an id pasted into a support ticket is
+        self-describing, and passing a project id where a user id belongs is
+        visible on sight rather than at the database. What it cannot survive is
+        being applied to only part of the surface. `docs/PLAN/04` makes every
+        primary key a UUID, the access token's `org_id` claim is a UUID, and
+        OpenID Connect's `sub` — already shipped by `P1-08` — is a UUID that
+        callers store as a user's permanent key.
+
+        Prefixing only the Management API would give the same user two
+        identifiers and make every consumer convert between them, which is a
+        larger and more permanent papercut than the one the prefix removes.
+        Prefixing everything means changing `sub`, which is a protocol field
+        with its own conventions and a value integrators have already stored.
+
+        So: UUIDs everywhere, and if prefixed identifiers are wanted later they
+        arrive everywhere at once or not at all.
+      example: 8f3e6b2a-1c4d-4e5f-9a0b-7c8d9e0f1a2b
 
     ErrorCode:
       type: string
@@ -1282,10 +1612,16 @@ components:
 
     Forbidden:
       description: |
-        Authenticated, but not permitted. Returned for a resource in another
-        organization even when it exists — distinguishing "forbidden" from "not
-        found" across a tenant boundary confirms the resource's existence to
-        someone with no right to know it (`docs/PLAN/08`, `docs/SECURITY/02` §3).
+        Authenticated, and lacking the role this operation requires **within an
+        organization the caller can already see**.
+
+        A resource in an organization the caller holds nothing over answers
+        `404`, not `403`: distinguishing "forbidden" from "not found" across a
+        tenant boundary confirms the resource's existence to someone with no
+        right to know it (`docs/PLAN/08`, `docs/SECURITY/02` §3). A caller who
+        does hold a role over the organization already knows it exists, so
+        hiding it from them would buy nothing and turn "you need a higher role"
+        into a puzzle.
       content:
         application/json:
           schema:

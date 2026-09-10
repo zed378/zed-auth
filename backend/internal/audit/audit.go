@@ -93,8 +93,30 @@ const (
 const (
 	EventOrganizationCreated   EventType = "organization.created"
 	EventOrganizationSuspended EventType = "organization.suspended"
-	EventPolicyUpdated         EventType = "policy.updated"
-	EventPolicyActivated       EventType = "policy.activated"
+
+	// EventOrganizationUpdated records a change to a tenant's name, domain or
+	// settings (P1-16).
+	//
+	// Its payload carries the settings that changed WITH their new values,
+	// like EventApplicationUpdated and for the same reason: "settings changed"
+	// cannot answer the question the log exists for. If somebody with admin
+	// access turns mfa_required off, this is the only place that shows it.
+	EventOrganizationUpdated EventType = "organization.updated"
+
+	// EventOrganizationReactivated is the inverse of suspended. Recorded
+	// separately rather than as an update, because "who un-suspended this
+	// tenant, and when" is a question asked during an incident and answering
+	// it should not require diffing two updates.
+	EventOrganizationReactivated EventType = "organization.reactivated"
+
+	// EventOrganizationDeleted records a soft delete (P1-16).
+	//
+	// The organization row survives and so does its audit history — events has
+	// no foreign key on org_id, deliberately (P0-12) — so this event remains
+	// readable through the instance audit log after the tenant is gone.
+	EventOrganizationDeleted EventType = "organization.deleted"
+	EventPolicyUpdated       EventType = "policy.updated"
+	EventPolicyActivated     EventType = "policy.activated"
 
 	EventApplicationCreated       EventType = "application.created"
 	EventApplicationSecretRotated EventType = "application.secret_rotated"
