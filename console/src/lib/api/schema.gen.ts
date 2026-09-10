@@ -159,6 +159,93 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/oauth/introspect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Token introspection (RFC 7662)
+         * @description Answers whether a token is currently good. Most useful for a refresh
+         *     token, which is opaque and cannot be inspected any other way.
+         *
+         *     **Client authentication is required, and the client must be
+         *     confidential.** This is stricter than RFC 7662, which leaves the method
+         *     open. A public client has no secret, so admitting one would make this
+         *     endpoint reachable by anyone who can read a `client_id` out of a
+         *     browser URL - a token oracle, which is the one thing it must not be.
+         *
+         *     **You can only introspect your own tokens.** A token issued to another
+         *     client answers `{"active": false}`, exactly as an unknown one does. It
+         *     is not an error, because an error would confirm the token exists and
+         *     belongs to somebody.
+         *
+         *     **`{"active": false}` is the answer to everything negative** - unknown,
+         *     expired, revoked, malformed, another client's, or one whose session has
+         *     since ended. There is no `reason` field and there will not be one: it
+         *     would tell a caller holding a captured token whether it ever existed
+         *     and whether it has been revoked since.
+         *
+         *     `username` is not returned, though the RFC lists it. It is an email
+         *     address, you already have `sub`, and `/oauth/userinfo` will give you
+         *     the address if the user's own token authorises it.
+         */
+        post: operations["introspect"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/oauth/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Token revocation (RFC 7009)
+         * @description Throws a token away deliberately - on logout, on a user disconnecting
+         *     an integration, on a suspected leak.
+         *
+         *     **Always answers `200`**, whether something was revoked, nothing
+         *     matched, or the token was already revoked. RFC 7009 section 2.2
+         *     requires it, for the same reason introspection has one negative answer:
+         *     a status that distinguished the cases is an oracle on whether a guessed
+         *     token exists. Revocation is therefore idempotent, and safe to retry.
+         *
+         *     **You can only revoke your own tokens.** Another client's token is
+         *     silently a no-op.
+         *
+         *     **Revoking a refresh token revokes its whole lineage**, not the single
+         *     row - RFC 7009 section 2.1's "tokens based on the same authorization
+         *     grant".
+         *
+         *     **An access token cannot actually be revoked, and this is the one thing
+         *     worth reading twice.** It is a signed JWT that nothing looks up, so
+         *     presenting one revokes the refresh tokens issued for the same session
+         *     and the same client - which stops new access tokens being minted -
+         *     while the token you presented keeps working until it expires, up to ten
+         *     minutes. If you need it dead sooner, end the session: `/oauth/userinfo`
+         *     and every session-backed check stop honouring it immediately.
+         *
+         *     Public clients may revoke. The operation only destroys a credential the
+         *     caller already holds, for its own client.
+         */
+        post: operations["revoke"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/oauth/userinfo": {
         parameters: {
             query?: never;
@@ -455,6 +542,35 @@ export interface components {
              *     asserting `false` would claim a check that never happened.
              */
             email?: string;
+        };
+        /**
+         * @description RFC 7662's response. When `active` is false it is the ONLY property
+         *     present - every negative case answers identically, so nothing here can
+         *     be used to tell them apart.
+         */
+        Introspection: {
+            /** @description Whether the token is currently usable. */
+            active: boolean;
+            /** @description Space-delimited, as granted. */
+            scope?: string;
+            /**
+             * Format: uuid
+             * @description The client the token was issued to - always your own.
+             */
+            client_id?: string;
+            /** @enum {string} */
+            token_type?: "Bearer";
+            /** Format: int64 */
+            exp?: number;
+            /** Format: int64 */
+            iat?: number;
+            /**
+             * Format: uuid
+             * @description The user. Absent for a `client_credentials` token.
+             */
+            sub?: string;
+            aud?: string;
+            iss?: string;
         };
         /**
          * @description OAuth 2.1's error shape (RFC 6749 § 5.2), used by the protocol
@@ -839,6 +955,116 @@ export interface operations {
              * @description `invalid_client`. Carries `WWW-Authenticate: Basic` when Basic
              *     authentication was attempted.
              */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OAuthError"];
+                };
+            };
+        };
+    };
+    introspect: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/x-www-form-urlencoded": {
+                    /** @description The access or refresh token to inspect. */
+                    token: string;
+                    /**
+                     * @description A hint, and only a hint: it decides which lookup is tried
+                     *     first and never the outcome. A wrong hint costs one extra
+                     *     lookup.
+                     * @enum {string}
+                     */
+                    token_type_hint?: "access_token" | "refresh_token";
+                    /** Format: uuid */
+                    client_id?: string;
+                    /**
+                     * @description `client_secret_post`. Prefer the Authorization header;
+                     *     presenting both is refused.
+                     */
+                    client_secret?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description The answer. `{"active": false}` carries nothing else, deliberately. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Introspection"];
+                };
+            };
+            /** @description `invalid_request` - no token was supplied. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OAuthError"];
+                };
+            };
+            /** @description `invalid_client`. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OAuthError"];
+                };
+            };
+        };
+    };
+    revoke: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/x-www-form-urlencoded": {
+                    token: string;
+                    /** @enum {string} */
+                    token_type_hint?: "access_token" | "refresh_token";
+                    /** Format: uuid */
+                    client_id?: string;
+                    client_secret?: string;
+                };
+            };
+        };
+        responses: {
+            /**
+             * @description Always, unless the request itself was malformed or the client could
+             *     not be authenticated. The body is empty; do not infer anything from
+             *     this status about whether a token existed.
+             */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description `invalid_request` - no token was supplied. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OAuthError"];
+                };
+            };
+            /** @description `invalid_client`. */
             401: {
                 headers: {
                     [name: string]: unknown;

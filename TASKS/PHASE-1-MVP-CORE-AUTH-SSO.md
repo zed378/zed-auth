@@ -379,7 +379,7 @@ Found while cleaning up a signature: `AuthenticateClient` checked that a secret 
 
 | | |
 |---|---|
-| **Status** | TODO |
+| **Status** | DONE (one item deferred to `PG-19`) — [record](../MEMORY/records/2026-09-10-P1-09-introspect-revoke.md), [spec](../MEMORY/specs/P1-09-introspect-revoke.md) |
 | **Depends on** | P1-07 |
 | **Plan refs** | `docs/PLAN/05-API-CONTRACT.md` § Core Endpoints, `docs/PLAN/09-SECURITY.md` |
 | **Spec required** | Yes — token lifecycle |
@@ -396,14 +396,25 @@ Found while cleaning up a signature: `AuthenticateClient` checked that a secret 
 6. Audit revocations; do not audit routine introspection, which would flood the log without adding signal.
 
 **Definition of Done**
-- [ ] Unauthenticated introspection is rejected.
-- [ ] An unknown, an expired, and a revoked token produce byte-identical responses.
-- [ ] Revoking a refresh token invalidates tokens derived from it.
-- [ ] Revocation events appear in the audit log.
+- [x] Unauthenticated introspection is rejected — and so is an *authenticated* one from a public client, which is stricter than RFC 7662 and is the point: a client with no secret is one anybody can impersonate by reading a `client_id` out of a browser URL.
+- [x] An unknown, an expired, and a revoked token produce byte-identical responses. Seven negative cases compared as whole responses — status, every header sorted, body — with controls proving the shared answer is really `{"active":false}` and that an active token is distinguishable.
+- [x] Revoking a refresh token invalidates tokens derived from it. The whole family, proved against a real sibling row; a mutation that revokes one row of the family fails the test.
+- [x] Revocation events appear in the audit log — naming the client, the user and the count, and **not** the token. `token_hash` would be redacted by the audit writer anyway; a novel key name would not be, which is what the test is for.
 
 **Abuse cases to test**
-- Using introspection to enumerate valid tokens by response-shape or timing differences.
-- One client revoking another client's token.
+- [x] Using introspection to enumerate valid tokens by response-shape or timing differences. Shape: one negative answer, byte-identical. Timing: the cost follows the token's SHAPE — a JWT costs a signature check, an opaque token a hash and an indexed lookup — and the caller can already see which shape it sent. Within each shape the cost is the same whether or not the token exists.
+- [x] One client revoking another client's token. Tested with two real clients in the SAME organization, so RLS is not what refuses it — the ownership rule is.
+- [x] One client *introspecting* another client's token, which the card does not list and is the same rule seen from the other side.
+
+**What this task also produced**
+- `RefreshStore.RevokeForSessionAndClient`, scoped by both columns. Session alone would let one client's logout throw away every other application's refresh token in the same single sign-on session — a denial of service an integrator could inflict by calling a documented endpoint correctly.
+- `RefreshTokens`, `Tenant` and `Auditor` seams on the new handler, matching `login.Handler`. Came out of a nil-database panic whose tempting fix — a nil guard on the lookup — would have turned a construction error into every refresh token silently reporting inactive.
+- `PG-19` — per-client rate limiting has a requirement and no owner.
+
+**Deliberately not done**
+- **Step 5, per-client rate limiting.** `PG-19`. Both endpoints require client authentication, so abuse costs an attacker a valid client secret rather than a network connection; what it does not bound is a compromised client. `P1-15` is the natural owner.
+- **`username` in the introspection response**, though RFC 7662 lists it. It is an email address, the caller already has `sub`, and `/oauth/userinfo` will give the address to a token that authorises it.
+- **Auditing introspection.** A resource server may call it on every request; the volume would be proportional to API traffic and carry no signal. A no-op revocation is not audited either.
 
 ---
 

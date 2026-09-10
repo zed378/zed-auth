@@ -64,6 +64,15 @@ type Metrics struct {
 	// the request histogram.
 	TokenDuration *prometheus.HistogramVec
 
+	// --- Token lifecycle (P1-09) ---
+
+	// TokenLifecycle counts introspection and revocation by endpoint and a
+	// coarse outcome. Coarse on purpose: "inactive" covers unknown, expired,
+	// revoked and belonging-to-another-client alike, because a metric that
+	// separated them would answer in /metrics the question the response body
+	// deliberately refuses to answer.
+	TokenLifecycle *prometheus.CounterVec
+
 	// --- UserInfo endpoint (P1-08) ---
 
 	// UserInfoTotal is labelled by outcome only, and the outcome vocabulary is
@@ -206,6 +215,11 @@ func NewMetrics(service, version string) *Metrics {
 			"Token endpoint latency by grant, bucketed on docs/PLAN/12's targets.",
 			[]float64{0.01, 0.025, 0.05, 0.1, 0.2, 0.4, 0.8},
 			"grant"),
+
+		TokenLifecycle: factory.counterVec(
+			"auth_token_lifecycle_total",
+			"Introspection and revocation by endpoint and outcome. The outcome is coarse: every inactive answer is one label.",
+			"endpoint", "outcome"),
 
 		UserInfoTotal: factory.counterVec(
 			"auth_userinfo_total",

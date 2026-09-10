@@ -68,6 +68,18 @@ const sidebar: SidebarsConfig = {
         },
         {
           type: "doc",
+          id: "api-reference/introspect",
+          label: "Token introspection (RFC 7662)",
+          className: "api-method post",
+        },
+        {
+          type: "doc",
+          id: "api-reference/revoke",
+          label: "Token revocation (RFC 7009)",
+          className: "api-method post",
+        },
+        {
+          type: "doc",
           id: "api-reference/userinfo",
           label: "UserInfo endpoint",
           className: "api-method get",

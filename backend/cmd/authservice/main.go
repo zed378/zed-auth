@@ -308,6 +308,22 @@ func run() error {
 		Log:      log,
 	}
 
+	// Introspection and revocation (P1-09). One handler, two routes: they
+	// share client authentication and the ownership rule, and splitting them
+	// would be duplicating the rule that says a client may only see or destroy
+	// its own tokens.
+	lifecycleHandler := &token.LifecycleHandler{
+		Issuer:   cfg.Issuer,
+		Clients:  clientLookup{store: clients, db: db},
+		Verifier: signing.NewVerifier(keys),
+		Refresh:  refreshLookup{store: token.NewRefreshStore(), db: db},
+		Sessions: sessionLiveness{sessions: sessions, policy: session.DefaultPolicy},
+		Tenant:   db,
+		Audit:    auditor,
+		Observer: lifecycleObserver{metrics},
+		Log:      log,
+	}
+
 	// The userinfo endpoint (P1-08). The first consumer signing.Verifier has
 	// ever had — until now the service could sign tokens and had never once
 	// verified one of its own.
@@ -362,6 +378,13 @@ func run() error {
 		AuthorizationEndpoint: cfg.Issuer + "/oauth/authorize",
 		TokenEndpoint:         cfg.Issuer + "/oauth/token",
 		UserInfoEndpoint:      cfg.Issuer + "/oauth/userinfo",
+		//
+		// P1-09. RFC 8414 names both; a resource server that reads this
+		// document is exactly the caller introspection exists for, so
+		// advertising them is what makes the endpoint discoverable rather
+		// than something an integrator has to be told about.
+		RevocationEndpoint:    cfg.Issuer + "/oauth/revoke",
+		IntrospectionEndpoint: cfg.Issuer + "/oauth/introspect",
 		ResponseTypes:         []string{"code"},
 		GrantTypes: []string{
 			token.GrantAuthorizationCode,
@@ -390,15 +413,17 @@ func run() error {
 	}
 
 	srv := httpserver.New(cfg.HTTP, httpserver.Deps{
-		Logger:    log,
-		Health:    health,
-		Metrics:   metrics,
-		Discovery: discovery,
-		Authorize: authorizeHandler,
-		Token:     tokenHandler,
-		UserInfo:  userInfoHandler,
-		Login:     loginHandler,
-		Forgot:    http.HandlerFunc(loginHandler.Forgot),
+		Logger:     log,
+		Health:     health,
+		Metrics:    metrics,
+		Discovery:  discovery,
+		Authorize:  authorizeHandler,
+		Token:      tokenHandler,
+		Introspect: http.HandlerFunc(lifecycleHandler.Introspect),
+		Revoke:     http.HandlerFunc(lifecycleHandler.Revoke),
+		UserInfo:   userInfoHandler,
+		Login:      loginHandler,
+		Forgot:     http.HandlerFunc(loginHandler.Forgot),
 		// Explicit configuration, not inferred from the environment: see the
 		// comment on config.HTTPConfig.TrustProxyHeaders. Defaults to false,
 		// so a deployment behind a proxy that forwards client headers
@@ -696,6 +721,40 @@ func (s sessionLiveness) IsLive(ctx context.Context, sessionID string, now time.
 	// the session's identifier and never its cookie — which is PG-14's
 	// separation paying off in a second place.
 	return s.sessions.IsLive(ctx, sessionID, now)
+}
+
+// refreshLookup binds the database to the refresh store, so the lifecycle
+// handler states what it needs (a lookup) rather than how it is done.
+type refreshLookup struct {
+	store *token.RefreshStore
+	db    *postgres.DB
+}
+
+func (r refreshLookup) Lookup(ctx context.Context, presented string, now time.Time) (token.Refresh, error) {
+	return r.store.Lookup(ctx, r.db, presented, now)
+}
+
+func (r refreshLookup) RevokeFamily(ctx context.Context, tx *postgres.Tx, familyID string) (int64, error) {
+	return r.store.RevokeFamily(ctx, tx, familyID)
+}
+
+func (r refreshLookup) RevokeForSessionAndClient(
+	ctx context.Context, tx *postgres.Tx, sessionID, clientID string,
+) (int64, error) {
+	return r.store.RevokeForSessionAndClient(ctx, tx, sessionID, clientID)
+}
+
+// lifecycleObserver counts introspection and revocation outcomes.
+//
+// Labelled by endpoint and a coarse outcome, never by WHY a token was
+// inactive — that would move the disclosure the response body refuses to make
+// into /metrics.
+type lifecycleObserver struct{ m *observability.Metrics }
+
+func (o lifecycleObserver) Lifecycle(endpoint, outcome string) {
+	if o.m != nil {
+		o.m.TokenLifecycle.WithLabelValues(endpoint, outcome).Inc()
+	}
 }
 
 // userInfoObserver counts userinfo outcomes.
