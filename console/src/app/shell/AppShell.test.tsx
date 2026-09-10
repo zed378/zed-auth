@@ -1,15 +1,46 @@
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { expectNoAxeViolations } from "../../test/axe";
 import { AppShell } from "./AppShell";
+import { AuthProvider } from "../../lib/auth/AuthProvider";
+import { AuthError } from "../../lib/auth/oidc";
+import { clearToken, storeToken } from "../../lib/auth/tokens";
+
+/**
+ * The shell renders the session bar, so it needs the auth context — in the
+ * real application it always has one, and useAuth throwing without a provider
+ * is the wiring check that says so.
+ *
+ * The silent renewal is stubbed to report "no session", which is the shell's
+ * anonymous state: the session bar renders nothing, and every landmark
+ * assertion below is about the shell rather than about a signed-in header.
+ * The signed-in variant has its own test at the end.
+ */
+vi.mock("../../lib/auth/oidc", async () => {
+  const actual = await vi.importActual<typeof import("../../lib/auth/oidc")>(
+    "../../lib/auth/oidc",
+  );
+  return { ...actual, renewSilently: () => Promise.reject(new AuthError("login_required", null)) };
+});
+
+beforeEach(() => {
+  // Without this the provider reports "not configured" and the session bar
+  // renders nothing — which is correct behaviour and would have made the
+  // signed-in test below fail for a reason that has nothing to do with the
+  // shell.
+  vi.stubEnv("VITE_AUTH_CLIENT_ID", "console-test-client");
+  vi.stubEnv("VITE_AUTH_ISSUER", "https://auth.example.test");
+});
 
 function renderShell(children = <h1>Page</h1>) {
   return render(
     <MemoryRouter>
-      <AppShell>{children}</AppShell>
+      <AuthProvider>
+        <AppShell>{children}</AppShell>
+      </AuthProvider>
     </MemoryRouter>,
   );
 }
@@ -210,5 +241,30 @@ describe("automated accessibility check", () => {
     const { container } = renderShell();
 
     await expectNoAxeViolations(container);
+  });
+});
+
+describe("the session bar", () => {
+  it("shows nothing when nobody is signed in", async () => {
+    renderShell();
+
+    // The anonymous state. A "sign out" control here would be an affordance
+    // for something that has not happened.
+    expect(screen.queryByRole("button", { name: /sign out/i })).not.toBeInTheDocument();
+  });
+
+  it("names the signed-in user and offers a way out", async () => {
+    const payload = btoa(JSON.stringify({ sub: "user-1", org_id: "org-1", roles: ["ORG_ADMIN"] }))
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/, "");
+    storeToken(`header.${payload}.signature`, 3600);
+
+    renderShell();
+
+    expect(await screen.findByText("user-1")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /sign out/i })).toBeInTheDocument();
+
+    clearToken();
   });
 });

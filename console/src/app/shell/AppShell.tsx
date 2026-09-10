@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 
 import { SideNav } from "./SideNav";
+import { SessionBar } from "./SessionBar";
 import { SkipLink } from "./SkipLink";
 import { UnsupportedWidth } from "./UnsupportedWidth";
 
@@ -43,6 +44,8 @@ export function AppShell({ children }: { children: ReactNode }) {
           <SideNav />
 
           <div className="flex min-w-0 flex-1 flex-col">
+            <SessionBar />
+
             {/*
               tabIndex={-1} makes this a programmatic focus target for the skip
               link without adding it to the tab order. Without it the skip link
