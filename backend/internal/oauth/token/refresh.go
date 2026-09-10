@@ -264,3 +264,30 @@ func (s *RefreshStore) RevokeForSessionAndClient(
 	affected, _ := result.RowsAffected()
 	return affected, nil
 }
+
+// RevokeAllForUser revokes every live refresh token a user holds.
+//
+// The other half of "log out of all sessions" (P1-10 step 4). Ending every
+// session without this leaves the user with live refresh tokens, and an
+// application holding one mints a fresh access token minutes later — so the
+// button would end the browser sessions and quietly leave every integration
+// signed in, which is not what anybody pressing it means.
+//
+// Tenant-scoped like every other write here, so RLS confines it to one
+// organization without this query carrying an org_id predicate somebody could
+// forget.
+func (s *RefreshStore) RevokeAllForUser(
+	ctx context.Context, tx *postgres.Tx, userID string,
+) (int64, error) {
+	if userID == "" {
+		return 0, nil
+	}
+
+	result, err := tx.Exec(ctx,
+		`UPDATE refresh_tokens SET revoked = true WHERE user_id = $1 AND NOT revoked`, userID)
+	if err != nil {
+		return 0, fmt.Errorf("token: revoking every refresh token for a user: %w", err)
+	}
+	affected, _ := result.RowsAffected()
+	return affected, nil
+}
