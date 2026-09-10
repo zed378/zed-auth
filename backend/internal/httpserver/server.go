@@ -99,6 +99,9 @@ type Deps struct {
 	// same reason and on the same condition as Organizations.
 	ProjectAPI Projects
 
+	// ApplicationAPI implements the application operations (P1-18).
+	ApplicationAPI Applications
+
 	// V1 is the Management API chain (P1-15).
 	//
 	// The routes themselves arrive with P1-16 onward. What is registered here
@@ -138,6 +141,9 @@ func New(cfg config.HTTPConfig, deps Deps) *Server {
 	}
 	if deps.V1 != nil && deps.ProjectAPI == nil {
 		panic("httpserver.New: ProjectAPI is required when V1 is configured")
+	}
+	if deps.V1 != nil && deps.ApplicationAPI == nil {
+		panic("httpserver.New: ApplicationAPI is required when V1 is configured")
 	}
 
 	mux := chi.NewRouter()
@@ -254,10 +260,11 @@ func New(cfg config.HTTPConfig, deps Deps) *Server {
 	//
 	// The probes keep their quiet: AccessLog skips them by path.
 	routes := apiRoutes{
-		Health:   deps.Health,
-		Handler:  deps.Discovery,
-		Manager:  deps.Organizations,
-		Projects: deps.ProjectAPI,
+		Health:       deps.Health,
+		Handler:      deps.Discovery,
+		Manager:      deps.Organizations,
+		Projects:     deps.ProjectAPI,
+		Applications: deps.ApplicationAPI,
 	}
 	// The two error paths the generated wrapper would otherwise answer with
 	// http.Error — a bare text/plain body and a status of its choosing.
@@ -397,6 +404,7 @@ type apiRoutes struct {
 	// be several, and each new one would otherwise be a new import here.
 	Manager
 	Projects
+	Applications
 }
 
 // Manager is the part of the generated interface the Management API implements.
@@ -424,6 +432,22 @@ type Projects interface {
 	GetProject(ctx context.Context, request api.GetProjectRequestObject) (api.GetProjectResponseObject, error)
 	UpdateProject(ctx context.Context, request api.UpdateProjectRequestObject) (api.UpdateProjectResponseObject, error)
 	DeleteProject(ctx context.Context, request api.DeleteProjectRequestObject) (api.DeleteProjectResponseObject, error)
+}
+
+// Applications is the application half of the Management API (P1-18).
+//
+// The third sub-interface, and the count is worth watching: each one is a
+// required field every existing endpoint package's test harness has to name.
+// At four, the answer is a shared constructor for Deps rather than a weaker
+// guard — the guard itself is right, because apiRoutes embeds these and a nil
+// one is a panic on the first request to an already-registered route.
+type Applications interface {
+	ListApplications(ctx context.Context, request api.ListApplicationsRequestObject) (api.ListApplicationsResponseObject, error)
+	CreateApplication(ctx context.Context, request api.CreateApplicationRequestObject) (api.CreateApplicationResponseObject, error)
+	GetApplication(ctx context.Context, request api.GetApplicationRequestObject) (api.GetApplicationResponseObject, error)
+	UpdateApplication(ctx context.Context, request api.UpdateApplicationRequestObject) (api.UpdateApplicationResponseObject, error)
+	DeleteApplication(ctx context.Context, request api.DeleteApplicationRequestObject) (api.DeleteApplicationResponseObject, error)
+	RotateApplicationSecret(ctx context.Context, request api.RotateApplicationSecretRequestObject) (api.RotateApplicationSecretResponseObject, error)
 }
 
 var _ api.StrictServerInterface = apiRoutes{}

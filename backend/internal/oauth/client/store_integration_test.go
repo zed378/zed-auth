@@ -611,3 +611,266 @@ func TestCredentialsForAPublicClient(t *testing.T) {
 		t.Error("a public client reported a secret")
 	}
 }
+
+// --- P1-18's two additions ---------------------------------------------------
+
+// GetInProject refuses an application in another project of the SAME
+// organization.
+//
+// RLS cannot hold this boundary — both rows belong to one tenant, so
+// `org_id = current_org_id()` is true for both. The predicate is the only
+// thing separating them, which is why this test exists next to the query
+// rather than only at the HTTP layer.
+func TestGetInProjectRefusesAnotherProjectInTheSameOrganization(t *testing.T) {
+	f := setup(t)
+
+	var elsewhere string
+	f.factory.QueryRow(&elsewhere,
+		`INSERT INTO projects (org_id, name) VALUES ($1, $2) RETURNING id`, f.orgID, "elsewhere")
+
+	var rec Record
+	if err := f.tx(t, func(tx *postgres.Tx) error {
+		var err error
+		rec, _, err = f.store.Create(context.Background(), tx, f.webApp("scoped"), "")
+		return err
+	}); err != nil {
+		t.Fatalf("creating: %v", err)
+	}
+
+	// The same id, the wrong project.
+	err := f.tx(t, func(tx *postgres.Tx) error {
+		_, err := f.store.GetInProject(context.Background(), tx, rec.ID, elsewhere)
+		return err
+	})
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("err = %v, want ErrNotFound — the project predicate did nothing", err)
+	}
+
+	// The control: through its own project it reads back, so the refusal is
+	// about the project rather than about the row being unreachable.
+	if err := f.tx(t, func(tx *postgres.Tx) error {
+		got, err := f.store.GetInProject(context.Background(), tx, rec.ID, f.project)
+		if err != nil {
+			return err
+		}
+		if got.ID != rec.ID {
+			t.Errorf("got %s, want %s", got.ID, rec.ID)
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("reading through the right project: %v", err)
+	}
+}
+
+// A list is scoped to its project and pages by (created_at, id).
+func TestListIsScopedToItsProjectAndPages(t *testing.T) {
+	f := setup(t)
+
+	var elsewhere string
+	f.factory.QueryRow(&elsewhere,
+		`INSERT INTO projects (org_id, name) VALUES ($1, $2) RETURNING id`, f.orgID, "elsewhere")
+	f.factory.Exec(
+		`INSERT INTO applications (project_id, org_id, name, type) VALUES ($1, $2, 'theirs', 'api')`,
+		elsewhere, f.orgID)
+
+	for i := range 5 {
+		if err := f.tx(t, func(tx *postgres.Tx) error {
+			_, _, err := f.store.Create(context.Background(), tx,
+				f.webApp("app-"+string(rune('a'+i))), "")
+			return err
+		}); err != nil {
+			t.Fatalf("creating: %v", err)
+		}
+	}
+
+	var page []Record
+	if err := f.tx(t, func(tx *postgres.Tx) error {
+		var err error
+		page, err = f.store.List(context.Background(), tx, f.project, time.Time{}, "", 10)
+		return err
+	}); err != nil {
+		t.Fatalf("listing: %v", err)
+	}
+
+	if len(page) != 5 {
+		t.Fatalf("%d applications, want 5", len(page))
+	}
+	for _, rec := range page {
+		if rec.Name == "theirs" {
+			t.Error("the list crossed a project boundary")
+		}
+	}
+
+	// size+1 is how the caller learns there is another page: asking for two
+	// returns three.
+	var short []Record
+	if err := f.tx(t, func(tx *postgres.Tx) error {
+		var err error
+		short, err = f.store.List(context.Background(), tx, f.project, time.Time{}, "", 2)
+		return err
+	}); err != nil {
+		t.Fatalf("listing a short page: %v", err)
+	}
+	if len(short) != 3 {
+		t.Fatalf("a page of 2 returned %d rows, want 3 (size+1)", len(short))
+	}
+
+	// And continuing from the second row skips exactly what came before it.
+	var next []Record
+	if err := f.tx(t, func(tx *postgres.Tx) error {
+		var err error
+		next, err = f.store.List(context.Background(), tx, f.project,
+			short[1].CreatedAt, short[1].ID, 10)
+		return err
+	}); err != nil {
+		t.Fatalf("continuing: %v", err)
+	}
+	if len(next) != 3 {
+		t.Fatalf("%d rows after the cursor, want 3", len(next))
+	}
+	for _, rec := range next {
+		if rec.ID == short[0].ID || rec.ID == short[1].ID {
+			t.Errorf("%s was returned twice across the page boundary", rec.ID)
+		}
+	}
+}
+
+// A list in another tenant's project returns nothing, because RLS makes the
+// rows invisible rather than because the predicate matched none.
+func TestListCannotReachAnotherTenantsProject(t *testing.T) {
+	f := setup(t)
+
+	otherOrg := f.factory.Organization(f.factory.Instance())
+	var theirProject string
+	f.factory.QueryRow(&theirProject,
+		`INSERT INTO projects (org_id, name) VALUES ($1, $2) RETURNING id`, otherOrg, "theirs")
+	f.factory.Exec(
+		`INSERT INTO applications (project_id, org_id, name, type) VALUES ($1, $2, 'theirs', 'api')`,
+		theirProject, otherOrg)
+
+	var page []Record
+	if err := f.tx(t, func(tx *postgres.Tx) error {
+		var err error
+		page, err = f.store.List(context.Background(), tx, theirProject, time.Time{}, "", 10)
+		return err
+	}); err != nil {
+		t.Fatalf("listing: %v", err)
+	}
+	if len(page) != 0 {
+		t.Fatalf("%d rows from another tenant's project", len(page))
+	}
+
+	// The control: the same query in the owning tenant sees the row, so the
+	// empty page above is RLS rather than a query that matches nothing.
+	if err := f.db.WithTenant(context.Background(), otherOrg, func(tx *postgres.Tx) error {
+		theirs, err := f.store.List(context.Background(), tx, theirProject, time.Time{}, "", 10)
+		if err != nil {
+			return err
+		}
+		if len(theirs) != 1 {
+			t.Errorf("the owning tenant sees %d rows, want 1", len(theirs))
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("listing as the owner: %v", err)
+	}
+}
+
+// A validator's error is recognisable as a caller mistake, by sentinel.
+//
+// P1-18 first told these apart by matching on the error text and every one of
+// them arrived at the API as a 500 — a string check standing in for a type.
+func TestValidationErrorsCarryTheSentinel(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		err  error
+	}{
+		{"a wildcard redirect URI", func() error {
+			_, err := ValidateRedirectURI("https://*.example.com/cb", TypeWeb)
+			return err
+		}()},
+		{"a removed grant type", ValidateGrantTypes(TypeWeb, []string{"implicit"})},
+		{"a grant the type cannot use", ValidateGrantTypes(TypeSPA, []string{GrantClientCredentials})},
+		{"a blank name", Application{Type: TypeWeb}.Validate()},
+	} {
+		if tc.err == nil {
+			t.Fatalf("%s produced no error, so this case measures nothing", tc.name)
+		}
+		if !errors.Is(tc.err, ErrInvalid) {
+			t.Errorf("%s: %v does not wrap ErrInvalid", tc.name, tc.err)
+		}
+	}
+
+	// The control: an error that is NOT a caller mistake must not wrap it, or
+	// the sentinel would turn every internal failure into a 400.
+	if errors.Is(ErrNotFound, ErrInvalid) {
+		t.Error("ErrNotFound wraps ErrInvalid")
+	}
+}
+
+// An update canonicalises its redirect URIs, exactly as a create does.
+//
+// **Found by a mutation that survived.** Removing `canonicalise` from Update
+// left every validation test passing, because Application.Validate already
+// rejects a bad URI — so what the mutation actually removed was the
+// canonicalisation, and nothing was checking it.
+//
+// The consequence is not theoretical. Redirect matching at authorize time is
+// exact string comparison against the stored form (P1-05, and that is the
+// whole design). A client updated with `HTTPS://App.Example.TEST/cb` would
+// store a form that the browser's `https://app.example.test/cb` never equals,
+// and the login would fail with an error naming neither.
+func TestAnUpdateCanonicalisesItsRedirectURIsLikeACreate(t *testing.T) {
+	f := setup(t)
+
+	const mixed = "HTTPS://App.Example.TEST/CB"
+	const want = "https://app.example.test/CB" // scheme and host lowered, path untouched
+
+	// Create canonicalises — the baseline this update is compared against.
+	created := f.webApp("created-mixed")
+	created.RedirectURIs = []string{mixed}
+
+	var fromCreate Record
+	if err := f.tx(t, func(tx *postgres.Tx) error {
+		var err error
+		fromCreate, _, err = f.store.Create(context.Background(), tx, created, "")
+		return err
+	}); err != nil {
+		t.Fatalf("creating: %v", err)
+	}
+	if got := fromCreate.RedirectURIs[0]; got != want {
+		t.Fatalf("create stored %q, want %q — the baseline is wrong", got, want)
+	}
+
+	// The same value through an update must land identically.
+	var subject Record
+	if err := f.tx(t, func(tx *postgres.Tx) error {
+		var err error
+		subject, _, err = f.store.Create(context.Background(), tx, f.webApp("updated-mixed"), "")
+		return err
+	}); err != nil {
+		t.Fatalf("creating the subject: %v", err)
+	}
+
+	var fromUpdate Record
+	if err := f.tx(t, func(tx *postgres.Tx) error {
+		change := f.webApp("updated-mixed")
+		change.RedirectURIs = []string{mixed}
+		var err error
+		fromUpdate, err = f.store.Update(context.Background(), tx, subject.ID, change, "")
+		return err
+	}); err != nil {
+		t.Fatalf("updating: %v", err)
+	}
+
+	if got := fromUpdate.RedirectURIs[0]; got != want {
+		t.Errorf("update stored %q, want %q — an updated client's redirect URI would never match",
+			got, want)
+	}
+
+	// And the stored form actually matches what a browser would present,
+	// through the same comparison the authorize endpoint uses.
+	if !fromUpdate.Application.MatchesRedirectURI("https://app.example.test/CB") {
+		t.Error("the updated client does not match the URI a browser would send")
+	}
+}

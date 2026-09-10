@@ -17,6 +17,7 @@
 package client
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"net/url"
@@ -107,6 +108,21 @@ var allowedGrants = map[Type][]string{
 	TypeSAML:   {},
 }
 
+// ErrInvalid marks a registration a CALLER got wrong — a wildcard redirect
+// URI, a grant type that no longer exists, a blank name.
+//
+// It exists because the alternative was a caller mistake arriving at the
+// Management API as a 500. P1-18 first tried to tell the two apart by
+// matching on the error text, which is a string check standing in for a type
+// and which did not work: these errors carry no common prefix. A 500 tells
+// the caller nothing they can act on and pages somebody at night for a typo.
+var ErrInvalid = errors.New("client: invalid registration")
+
+// invalid wraps ErrInvalid around a validator message.
+func invalid(format string, args ...any) error {
+	return fmt.Errorf("%w: "+format, append([]any{ErrInvalid}, args...)...)
+}
+
 // ValidateGrantTypes reports whether the requested grants suit the type.
 //
 // Rejects loudly rather than filtering silently: an administrator who asked
@@ -115,27 +131,27 @@ var allowedGrants = map[Type][]string{
 // the flow fails in production.
 func ValidateGrantTypes(t Type, grants []string) error {
 	if !t.Valid() {
-		return fmt.Errorf("unknown client type %q", t)
+		return invalid("unknown client type %q", t)
 	}
 
 	allowed := allowedGrants[t]
 
 	for _, grant := range grants {
 		if reason, forbidden := forbiddenGrants[grant]; forbidden {
-			return fmt.Errorf("grant type %q is never supported: %s", grant, reason)
+			return invalid("grant type %q is never supported: %s", grant, reason)
 		}
 		if !slices.Contains(allowed, grant) {
 			if t.IsPublic() && grant == GrantClientCredentials {
-				return fmt.Errorf(
+				return invalid(
 					"a %s client cannot use %q: that grant is the client authenticating "+
 						"as itself, and a public client has no secret to authenticate with. "+
 						"Use authorization_code with PKCE",
 					t, grant)
 			}
 			if len(allowed) == 0 {
-				return fmt.Errorf("a %s client takes no OIDC grant types; %q was requested", t, grant)
+				return invalid("a %s client takes no OIDC grant types; %q was requested", t, grant)
 			}
-			return fmt.Errorf("a %s client cannot use %q; allowed: %s",
+			return invalid("a %s client cannot use %q; allowed: %s",
 				t, grant, strings.Join(allowed, ", "))
 		}
 	}
@@ -157,17 +173,17 @@ func ValidateGrantTypes(t Type, grants []string) error {
 // matcher starts accepting inputs nobody intended.
 func ValidateRedirectURI(raw string, t Type) (string, error) {
 	if strings.TrimSpace(raw) == "" {
-		return "", fmt.Errorf("redirect URI is empty")
+		return "", invalid("redirect URI is empty")
 	}
 	if raw != strings.TrimSpace(raw) {
-		return "", fmt.Errorf("redirect URI %q has leading or trailing whitespace", raw)
+		return "", invalid("redirect URI %q has leading or trailing whitespace", raw)
 	}
 
 	// Before parsing. A wildcard parses fine as a path character, so a URI
 	// containing one would be stored and then matched literally — the
 	// registrant believing it matches a family of URLs and it matching none.
 	if strings.Contains(raw, "*") {
-		return "", fmt.Errorf(
+		return "", invalid(
 			"redirect URI %q contains a wildcard. Redirect URIs are matched by exact "+
 				"string comparison, so a wildcard would be matched literally and never "+
 				"match anything. Register each URI in full", raw)
@@ -175,11 +191,11 @@ func ValidateRedirectURI(raw string, t Type) (string, error) {
 
 	parsed, err := url.Parse(raw)
 	if err != nil {
-		return "", fmt.Errorf("redirect URI %q is not a valid URI: %w", raw, err)
+		return "", invalid("redirect URI %q is not a valid URI: %w", raw, err)
 	}
 
 	if parsed.Scheme == "" {
-		return "", fmt.Errorf(
+		return "", invalid(
 			"redirect URI %q is relative; it must be absolute, because a relative URI "+
 				"resolves against whatever page the browser happened to be on", raw)
 	}
@@ -187,7 +203,7 @@ func ValidateRedirectURI(raw string, t Type) (string, error) {
 	// url.Parse keeps the fragment separately, and Fragment != "" only catches
 	// "#something". A bare trailing "#" is also a fragment and is also wrong.
 	if parsed.Fragment != "" || strings.Contains(raw, "#") {
-		return "", fmt.Errorf(
+		return "", invalid(
 			"redirect URI %q contains a fragment. A fragment is never sent to the "+
 				"server, so it cannot take part in the match", raw)
 	}
@@ -200,7 +216,7 @@ func ValidateRedirectURI(raw string, t Type) (string, error) {
 
 	case scheme == "http":
 		if !isLoopback(parsed.Hostname()) {
-			return "", fmt.Errorf(
+			return "", invalid(
 				"redirect URI %q uses http. An authorization code sent over cleartext is "+
 					"a code anyone on the path keeps. Use https, or a loopback address "+
 					"(127.0.0.1, [::1], localhost) for local development", raw)
@@ -210,12 +226,12 @@ func ValidateRedirectURI(raw string, t Type) (string, error) {
 		// RFC 8252 private-use scheme, e.g. com.example.app:/callback. Only a
 		// native client can receive one — a browser has no way to dispatch it.
 		if t != TypeNative {
-			return "", fmt.Errorf(
+			return "", invalid(
 				"redirect URI %q uses the custom scheme %q, which only a native client "+
 					"can receive; this client is %s", raw, scheme, t)
 		}
 		if !strings.Contains(scheme, ".") {
-			return "", fmt.Errorf(
+			return "", invalid(
 				"custom scheme %q in %q should be a reverse-DNS name the app owns "+
 					"(RFC 8252 § 7.1), e.g. com.example.app", scheme, raw)
 		}
@@ -223,7 +239,7 @@ func ValidateRedirectURI(raw string, t Type) (string, error) {
 	}
 
 	if parsed.Hostname() == "" {
-		return "", fmt.Errorf("redirect URI %q has no host", raw)
+		return "", invalid("redirect URI %q has no host", raw)
 	}
 
 	// A code delivered to a link-local address is a code delivered somewhere
@@ -236,7 +252,7 @@ func ValidateRedirectURI(raw string, t Type) (string, error) {
 	// audited, admin-only action.
 	if ip := net.ParseIP(parsed.Hostname()); ip != nil {
 		if ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
-			return "", fmt.Errorf(
+			return "", invalid(
 				"redirect URI %q points at a link-local address. Nothing a client owns "+
 					"lives there, and 169.254.169.254 is the cloud metadata service", raw)
 		}
@@ -337,10 +353,10 @@ func (a Application) MatchesPostLogoutRedirectURI(presented string) bool {
 // Validate checks an application as a whole, at registration.
 func (a Application) Validate() error {
 	if !a.Type.Valid() {
-		return fmt.Errorf("unknown client type %q", a.Type)
+		return invalid("unknown client type %q", a.Type)
 	}
 	if strings.TrimSpace(a.Name) == "" {
-		return fmt.Errorf("application name is required")
+		return invalid("application name is required")
 	}
 	if err := ValidateGrantTypes(a.Type, a.GrantTypes); err != nil {
 		return err
@@ -353,14 +369,14 @@ func (a Application) Validate() error {
 	}
 	for _, uri := range a.PostLogoutRedirectURIs {
 		if _, err := ValidateRedirectURI(uri, a.Type); err != nil {
-			return fmt.Errorf("post-logout %w", err)
+			return invalid("post-logout %w", err)
 		}
 	}
 
 	// A client that can start a flow it cannot finish is a configuration error
 	// that surfaces as a failed login rather than as a failed registration.
 	if slices.Contains(a.GrantTypes, GrantAuthorizationCode) && len(a.RedirectURIs) == 0 {
-		return fmt.Errorf(
+		return invalid(
 			"a client using %s needs at least one redirect URI; without one the "+
 				"authorization endpoint has nowhere to send the code", GrantAuthorizationCode)
 	}
