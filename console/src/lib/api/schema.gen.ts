@@ -1102,6 +1102,31 @@ export interface components {
             redirect_uris: string[];
             post_logout_redirect_uris: string[];
             /**
+             * @description Browser origins permitted to **read** a response obtained with this
+             *     application's tokens — `scheme://host[:port]`, nothing more.
+             *
+             *     Empty by default, which means no cross-origin browser access at
+             *     all. A native or server-side client needs none; a single-page
+             *     application needs its own origin here or every `fetch` it makes to
+             *     `/v1/*` and `/oauth/userinfo` fails in the browser.
+             *
+             *     Matched against the `Origin` header by **exact string
+             *     comparison**, so a trailing slash or a path makes an entry that can
+             *     never match. `https` only, except for loopback addresses.
+             *
+             *     Per application rather than instance-wide, deliberately: an origin
+             *     one organization registers must not be able to read another
+             *     organization's data.
+             *
+             *     `/oauth/token` and the discovery documents are NOT governed by this
+             *     — they answer any origin, because they are public and are never
+             *     authenticated by anything a browser attaches on its own.
+             * @example [
+             *       "https://app.example.com"
+             *     ]
+             */
+            allowed_origins: string[];
+            /**
              * @example [
              *       "authorization_code",
              *       "refresh_token"
@@ -1149,6 +1174,15 @@ export interface components {
             redirect_uris?: string[];
             post_logout_redirect_uris?: string[];
             /**
+             * @description Browser origins permitted to read responses obtained with this
+             *     application's tokens. Empty by default, which means none — see
+             *     `Application.allowed_origins`.
+             * @example [
+             *       "https://app.example.com"
+             *     ]
+             */
+            allowed_origins?: string[];
+            /**
              * @description Defaults to `["authorization_code", "refresh_token"]`. `implicit`
              *     and `password` are refused for every type: both hand credentials or
              *     tokens to places that cannot protect them, and OAuth 2.1 removes
@@ -1176,6 +1210,15 @@ export interface components {
             name?: string;
             redirect_uris?: string[];
             post_logout_redirect_uris?: string[];
+            /**
+             * @description Browser origins permitted to read responses obtained with this
+             *     application's tokens. Empty by default, which means none — see
+             *     `Application.allowed_origins`.
+             * @example [
+             *       "https://app.example.com"
+             *     ]
+             */
+            allowed_origins?: string[];
             grant_types?: string[];
         };
         RotatedSecret: {

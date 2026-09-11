@@ -41,6 +41,7 @@
 | P1-25 | Public docs — real quickstart and generated API reference | public-site, docs | M | P1-07, P1-19 |
 | P1-26 | Two demo consumer applications | backend, infra | M | P1-07 |
 | P1-27 | Phase 1 test suite completion | backend, console | L | all above |
+| P1-29 | Cross-origin access policy | backend, console, docs | M | P1-08, P1-15, P1-21 |
 | P1-28 | Phase 1 acceptance validation | all | M | P1-27 |
 
 ---
@@ -1084,6 +1085,38 @@ Also found: `session_id` was in the logger's redaction list — correct when the
 - [x] Both validate tokens locally with no auth-service round-trip. Measured at the service, not asserted at the consumer: 25 verified requests caused **0** key-set fetches in `zedauth-authservice-1`'s own log. `TestVerifyingMakesNoNetworkCallOnceTheKeySetIsCached` counts the same thing in unit tests.
 - [x] Both reject a token with the wrong `aud`. On staging with a genuine ID token minted for the other application — same issuer, same key, same user, in date — refused 401 with the audience named. Plus the inverse, so the refusal is a check rather than a coincidence.
 - [ ] Both are deployed to staging and reachable. Deployed, running, healthy, loopback-bound on `10940`/`10941` and verified there. **Publicly reachable needs two Cloudflare tunnel records** (`demo-a`/`demo-b` → those ports), which are made in the dashboard. Tracked as **DV-03**.
+
+---
+
+## P1-29 — Cross-Origin Access Policy
+
+| | |
+|---|---|
+| **Status** | DONE — [record](../MEMORY/records/2026-09-11-P1-29-cors.md), [ADR-020](../MEMORY/DECISIONS.md) |
+| **Depends on** | P1-08, P1-15, P1-21 |
+| **Plan refs** | `docs/PLAN/05-API-CONTRACT.md` § Cross-Origin Access, `docs/PLAN/04-DATA-MODEL.md` § `applications`, `docs/PLAN/09-SECURITY.md` § Transport & Storage, `docs/SECURITY/02-ATTACK-SURFACE-AND-SCENARIOS.md` §12 |
+| **Spec required** | No — the specification is ADR-020 and the plan amendments it names |
+| **Surface** | backend, console, docs |
+
+**Goal** — Make a browser client possible without making every origin a reader of everybody's data. Closes `PG-17`.
+
+**Why it exists at all.** `PG-17` forecast this in Phase 0. `P1-27` measured it: the first time a real browser was pointed at the login flow, nothing worked. A public client cannot complete the Authorization Code flow without CORS — the authorize step is a navigation and needs nothing, the code exchange is a `fetch` and needs this. So the demo SPA could not sign in and the console could not sign in **or** make a single API call, in any deployment where it is not served from the service's own origin. Every test that passed until then used `curl`, which has no same-origin policy.
+
+**Steps**
+1. Add `applications.allowed_origins text[]`, empty by default, validated like `redirect_uris`: exact origin, `https` outside loopback, no path, no wildcard, canonicalised once at registration.
+2. Serve `Access-Control-Allow-Origin: *` with no credentials on `/.well-known/*` and `/oauth/token` — public content, never authenticated by anything a browser attaches on its own.
+3. Serve the per-application allowlist on `/oauth/userinfo` and `/v1/*`.
+4. Answer a preflight from the union, because a preflight carries no credential; check the actual request per application.
+5. Permit credentials nowhere, and stop the console sending them.
+6. Amend `docs/PLAN/04`, `05` and `09`, and record ADR-020 — a deliberate plan change under `AGENTS.md` rule 9, authorized before implementation.
+
+**Definition of Done**
+- [x] A public client completes a login in a real browser. Verified by `console/e2e/sso.spec.ts` against the demo SPA — the test that could not pass before this task.
+- [x] The console reaches `/v1/*` cross-origin. Its own E2E suite is the proof, and it had never passed.
+- [x] No endpoint returning personal data answers a wildcard origin, and no endpoint anywhere permits credentials. Asserted per endpoint in `internal/httpserver/cors_test.go`, including the negative: an origin registered by one application cannot read a response obtained with another's token.
+- [x] A forged `client_id` does not widen what an origin may read. The claim is read unverified on purpose; naming somebody else's application only makes the check fail.
+- [x] The column, the constraint and both lookups exist in a real database, not just in a migration file. `origins_integration_test.go`, per `PG-24`'s standing warning.
+- [x] `PG-17` is closed, with the plan amended rather than worked around.
 
 ---
 

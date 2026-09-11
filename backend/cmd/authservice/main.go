@@ -587,6 +587,7 @@ func run() error {
 		Logger:         log,
 		Health:         health,
 		Metrics:        metrics,
+		Origins:        originChecker{store: clients, db: db, log: log},
 		Discovery:      discovery,
 		Authorize:      authorizeHandler,
 		Token:          tokenHandler,
@@ -863,6 +864,43 @@ func (c clientLookup) CredentialsFor(
 	ctx context.Context, app client.Application,
 ) (client.Credentials, error) {
 	return c.store.CredentialsFor(ctx, c.db, app)
+}
+
+// originChecker answers the CORS questions from the client store (P1-29).
+//
+// Two lookups because there are two moments. A preflight has no credential, so
+// the most that can be asked is whether ANY application registers the origin;
+// the actual request names an application, so it is asked about that one. See
+// internal/httpserver/cors.go for why the second is the check that matters and
+// the first is not a hole.
+//
+// Every failure answers "not allowed". A database that cannot be reached must
+// not become a service that permits every origin — and the request itself is
+// unaffected either way, since this decides only whether a browser hands the
+// body to the page.
+type originChecker struct {
+	store *client.Store
+	db    *postgres.DB
+	log   *slog.Logger
+}
+
+func (o originChecker) AnyApplicationAllows(r *http.Request, origin string) bool {
+	allowed, err := o.store.OriginIsRegistered(r.Context(), o.db, origin)
+	if err != nil {
+		o.log.Warn("could not check a preflight origin", "error", err.Error())
+		return false
+	}
+	return allowed
+}
+
+func (o originChecker) ApplicationAllows(r *http.Request, clientID, origin string) bool {
+	app, err := o.store.ByClientID(r.Context(), o.db, clientID)
+	if err != nil {
+		// Includes the ordinary case of a client_id that does not exist,
+		// which is why this is not a warning.
+		return false
+	}
+	return app.MatchesOrigin(origin)
 }
 
 // authorizeObserver reports which path an authorization request took.
