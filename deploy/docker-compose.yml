@@ -88,6 +88,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      mailpit:
+        condition: service_started
     environment:
       AUTH_ENV: local
       AUTH_ISSUER: http://localhost:8080
@@ -98,8 +100,29 @@ services:
       # whose local runs skip the check will not notice the day it breaks in
       # staging.
       AUTH_PASSWORD_BREACH_CHECK_ENABLED: "true"
+      # Mail goes to Mailpit (ADR-018: plain SMTP, no provider SDK).
+      #
+      # Wired here rather than left unset because an invitation with nowhere to
+      # go is a user who can never set a password — and because the E2E suite
+      # reads the invitation out of this mailbox, which is the only place the
+      # token ever exists. The service stores a hash; the plaintext is in the
+      # email and nowhere else, and that is deliberate (P1-19).
+      #
+      # `smtp://` with no TLS is refused outside AUTH_ENV=local, so this cannot
+      # follow anyone into a deployed environment by copy-paste.
+      AUTH_SMTP_URL: "smtp://mailpit:1025"
+      AUTH_MAIL_FROM: "auth@localhost"
       AUTH_LOG_LEVEL: debug
       AUTH_LOG_FORMAT: json
+    volumes:
+      # Signing keys. `keyctl generate` writes the private half here and
+      # records the path; the SERVICE is what reads it back, so the two must
+      # agree on the mount point or the reference resolves for the tool and not
+      # for the service (deploy/vm/RUNBOOK-key-rotation.md learned this the
+      # hard way). A named volume rather than a bind mount, because the
+      # resolver refuses a key file that is group- or world-readable (P0-14),
+      # and a bind mount from a Windows host cannot promise otherwise.
+      - auth_secrets:/etc/zed-auth/secrets
     ports:
       - "8080:8080"
     healthcheck:
@@ -117,3 +140,4 @@ services:
 volumes:
   postgres_data:
   redis_data:
+  auth_secrets:

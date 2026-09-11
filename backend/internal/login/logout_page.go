@@ -49,7 +49,14 @@ type LogoutPage struct {
 //
 // The same policy the login page uses, and for the same reasons: no script
 // anywhere, the stylesheet whitelisted by hash, images only when there is a
-// logo to show, and the form allowed to post only back here.
+// logo to show, and the form allowed to post back here — and to follow the
+// redirect that produces, which lands at the client's registered
+// post-logout URI.
+//
+// `form-action 'self'` alone breaks this page in Chrome exactly as it broke
+// the login page (see `Page.RedirectOrigin`): the confirmation posts, the
+// service answers 302, and the browser refuses to follow it. The user is left
+// on an interstitial that appears to do nothing.
 func (p LogoutPage) ContentSecurityPolicy() string {
 	img := "'none'"
 	if p.Branding.LogoURL != "" {
@@ -60,7 +67,7 @@ func (p LogoutPage) ContentSecurityPolicy() string {
 		"default-src 'none'",
 		"style-src '" + p.StyleHash + "'",
 		"img-src " + img,
-		"form-action 'self'",
+		"form-action " + formAction(originOf(p.RedirectURI)),
 		"frame-ancestors 'none'",
 		"base-uri 'none'",
 	}, "; ")
