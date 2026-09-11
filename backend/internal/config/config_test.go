@@ -373,3 +373,71 @@ func TestRetiredSigningKeyVariableIsRefused(t *testing.T) {
 		t.Errorf("the error should name the tool that replaced it, got: %v", err)
 	}
 }
+
+// Cleartext SMTP outside local development (P1-28's staging mail sink).
+//
+// `smtp://` tolerates a relay with no STARTTLS, and an invitation or reset
+// link is a bearer credential for an account. The refusal is the default and
+// must stay the default; the opt-in exists for one arrangement the scheme
+// cannot express — a mail sink running as a sidecar on the same host, over a
+// container network no packet leaves.
+func TestLoadFrom_CleartextSMTPOutsideLocalIsRefusedUnlessAsserted(t *testing.T) {
+	staging := func(extra map[string]string) map[string]string {
+		m := valid()
+		m["AUTH_ENV"] = "staging"
+		m["AUTH_ISSUER"] = "https://auth.example.com"
+		m["AUTH_SMTP_URL"] = "smtp://mailpit:1025"
+		m["AUTH_MAIL_FROM"] = "auth@example.com"
+		for k, v := range extra {
+			m[k] = v
+		}
+		return m
+	}
+
+	t.Run("refused by default", func(t *testing.T) {
+		_, err := LoadFrom(env(staging(nil)))
+		if err == nil {
+			t.Fatal("cleartext SMTP was accepted in staging with no assertion")
+		}
+		// The message has to say what to do, because the person reading it is
+		// looking at a service that will not start.
+		if !strings.Contains(err.Error(), "AUTH_SMTP_ALLOW_CLEARTEXT") {
+			t.Errorf("the refusal does not name the opt-in: %v", err)
+		}
+		if !strings.Contains(err.Error(), "smtps://") {
+			t.Errorf("the refusal does not name the alternative: %v", err)
+		}
+	})
+
+	t.Run("permitted when asserted", func(t *testing.T) {
+		cfg, err := LoadFrom(env(staging(map[string]string{"AUTH_SMTP_ALLOW_CLEARTEXT": "true"})))
+		if err != nil {
+			t.Fatalf("the opt-in did not permit it: %v", err)
+		}
+		if !cfg.Mail.AllowCleartext {
+			t.Error("AllowCleartext did not survive loading")
+		}
+	})
+
+	t.Run("the opt-in changes nothing about smtps", func(t *testing.T) {
+		// It widens exactly one rule. A reader should not have to wonder
+		// whether it also relaxes something else.
+		m := staging(map[string]string{
+			"AUTH_SMTP_ALLOW_CLEARTEXT": "true",
+			"AUTH_SMTP_URL":             "smtps://relay.example.com:587",
+			"AUTH_ISSUER":               "http://auth.example.com",
+		})
+		if _, err := LoadFrom(env(m)); err == nil {
+			t.Fatal("an http issuer was accepted in staging")
+		}
+	})
+
+	t.Run("local needs no assertion", func(t *testing.T) {
+		m := staging(nil)
+		m["AUTH_ENV"] = "local"
+		m["AUTH_ISSUER"] = "http://localhost:8080"
+		if _, err := LoadFrom(env(m)); err != nil {
+			t.Fatalf("local development cannot use Mailpit: %v", err)
+		}
+	})
+}

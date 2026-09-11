@@ -14,6 +14,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"strconv"
@@ -412,6 +413,18 @@ func run() error {
 		// cannot send mail should know before somebody invites their first user.
 		log.Warn("no outbound mail is configured; invitations and password resets will not be delivered",
 			"remedy", "set AUTH_SMTP_URL and AUTH_MAIL_FROM")
+	}
+	if cfg.Mail.AllowCleartext && cfg.Environment != config.EnvLocal {
+		// Every start, deliberately. This is a claim the DEPLOYMENT makes
+		// about its own topology — that the mail hop never leaves the host —
+		// and the service cannot check it. A claim nobody is reminded of is a
+		// claim that outlives the arrangement that justified it: the sidecar
+		// gets replaced by a relay across the network and the variable stays.
+		log.Warn("cleartext SMTP is permitted outside local development",
+			"smtp_url", redactedSMTPHost(cfg.Mail.SMTPURL),
+			"why_this_is_set", "AUTH_SMTP_ALLOW_CLEARTEXT=true",
+			"what_it_asserts", "the mail server is a sidecar on this host and the hop leaves no machine",
+			"if_that_is_no_longer_true", "unset it and use smtps://")
 	}
 
 	// The email-amplification bound (card step 4, docs/SECURITY/02 §10). Its own
@@ -901,6 +914,19 @@ func (o originChecker) ApplicationAllows(r *http.Request, clientID, origin strin
 		return false
 	}
 	return app.MatchesOrigin(origin)
+}
+
+// redactedSMTPHost keeps the host and drops everything else.
+//
+// An SMTP URL can carry `user:password@`, and this line goes to the log on
+// every start. The host is the part an operator needs to recognise; the
+// credential is the part that must never be written down.
+func redactedSMTPHost(raw string) string {
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Host == "" {
+		return "(unparseable)"
+	}
+	return parsed.Scheme + "://" + parsed.Host
 }
 
 // authorizeObserver reports which path an authorization request took.
