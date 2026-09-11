@@ -148,7 +148,11 @@ func (h *Handler) CreateApplication(
 		Type:                   kind,
 		RedirectURIs:           values(request.Body.RedirectUris),
 		PostLogoutRedirectURIs: values(request.Body.PostLogoutRedirectUris),
-		GrantTypes:             defaultGrants(values(request.Body.GrantTypes)),
+		// No default. An application that declares no origins can be read
+		// cross-origin by nobody, which is the safe state and the one every
+		// non-browser client wants (P1-29).
+		AllowedOrigins: values(request.Body.AllowedOrigins),
+		GrantTypes:     defaultGrants(values(request.Body.GrantTypes)),
 	}
 
 	var (
@@ -178,7 +182,8 @@ func (h *Handler) CreateApplication(
 	out := api.ApplicationCreated{
 		Id: body.Id, ProjectId: body.ProjectId, Name: body.Name, Type: body.Type,
 		RedirectUris: body.RedirectUris, PostLogoutRedirectUris: body.PostLogoutRedirectUris,
-		GrantTypes: body.GrantTypes, HasSecret: body.HasSecret,
+		AllowedOrigins: body.AllowedOrigins,
+		GrantTypes:     body.GrantTypes, HasSecret: body.HasSecret,
 		PreviousSecretExpiresAt: body.PreviousSecretExpiresAt,
 		CreatedAt:               body.CreatedAt, UpdatedAt: body.UpdatedAt,
 	}
@@ -239,6 +244,7 @@ func (h *Handler) UpdateApplication(
 			Name:                   before.Name,
 			RedirectURIs:           before.RedirectURIs,
 			PostLogoutRedirectURIs: before.PostLogoutRedirectURIs,
+			AllowedOrigins:         before.AllowedOrigins,
 			GrantTypes:             before.GrantTypes,
 		}
 		if request.Body.Name != nil {
@@ -251,6 +257,12 @@ func (h *Handler) UpdateApplication(
 		}
 		if request.Body.PostLogoutRedirectUris != nil {
 			app.PostLogoutRedirectURIs = *request.Body.PostLogoutRedirectUris
+		}
+		if request.Body.AllowedOrigins != nil {
+			// An explicit empty array revokes every origin, which is a thing
+			// somebody will genuinely want to do in a hurry. Omitting the
+			// field leaves them alone; sending [] clears them.
+			app.AllowedOrigins = *request.Body.AllowedOrigins
 		}
 		if request.Body.GrantTypes != nil {
 			app.GrantTypes = *request.Body.GrantTypes
@@ -565,6 +577,7 @@ func render(rec client.Record) (api.Application, error) {
 		// redirect_uris as null rather than [] has to handle two empties.
 		RedirectUris:           nonNil(rec.RedirectURIs),
 		PostLogoutRedirectUris: nonNil(rec.PostLogoutRedirectURIs),
+		AllowedOrigins:         nonNil(rec.AllowedOrigins),
 		GrantTypes:             nonNil(rec.GrantTypes),
 		HasSecret:              rec.Credentials.HasSecret(),
 		CreatedAt:              rec.CreatedAt,

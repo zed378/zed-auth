@@ -1,0 +1,12 @@
+npm notice run @zed-auth/console@0.1.0 build
+npm notice run tsc --noEmit && vite build
+[36mvite v8.2.2 [32mbuilding client environment for production...[36m[39m
+transforming...
+✓ 104 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                   1.50 kB │ gzip:   0.81 kB
+dist/assets/index-BWzoMzhf.css   20.89 kB │ gzip:   5.06 kB
+dist/assets/index-DMYrF9aD.js   330.79 kB │ gzip: 100.42 kB │ map: 1,634.78 kB
+
+[32m✓ built in 677ms[39m

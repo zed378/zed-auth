@@ -60,6 +60,14 @@ Alongside the hierarchy sit entities scoped to the deployment rather than to any
 | redirect_uris | text[] | |
 | grant_types | text[] | |
 | post_logout_redirect_uris | text[] | |
+| allowed_origins | text[] | browser origins permitted to **read** a response obtained with this application's tokens. `scheme://host[:port]`, exact match against the `Origin` header, `https` outside loopback. Empty by default, which means none. Added by `P1-29`; see `05-API-CONTRACT.md` § Cross-Origin Access and ADR-020 |
+
+> **`redirect_uris` and `allowed_origins` answer different questions** and are
+> not derivable from each other: where an authorization code may be delivered,
+> and who may read a response. A native client has the first and never the
+> second; an API client that a browser dashboard calls has the second and not
+> the first. Per application rather than instance-wide, so an origin one
+> organization registers cannot read another organization's data.
 
 ### `roles`
 | Column | Type | Notes |
