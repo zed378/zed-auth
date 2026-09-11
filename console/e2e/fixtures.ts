@@ -70,6 +70,7 @@ interface Fixtures {
   project: SeededProject;
   application: SeededApplication;
   user: SeededUser;
+  admin: SeededUser;
 }
 
 /**
@@ -148,6 +149,28 @@ function unique(prefix: string): string {
 }
 
 export const test = base.extend<Fixtures>({
+  /**
+   * The bootstrap administrator, for the screens a manager role gates.
+   *
+   * Not created per test, and not creatable at all through the API: assigning
+   * a manager role is `P2`'s work, so this account is seeded by SQL with the
+   * rest of the bootstrap (`PG-26`) and `scripts/e2e-up.sh` hands over its
+   * credentials.
+   *
+   * **Most tests should use `user`, not this.** A suite that runs everything
+   * as the most powerful account in the system is a suite that cannot notice a
+   * missing permission check — which is exactly what `login.spec.ts` asserts
+   * with the ordinary user, by URL.
+   */
+  admin: async ({}, use) => {
+    await use({
+      id: "",
+      orgId,
+      email: required("E2E_ADMIN_EMAIL"),
+      password: required("E2E_ADMIN_PASSWORD"),
+    });
+  },
+
   organization: async ({}, use) => {
     // The organization the bootstrap token is scoped to. Creating a second one
     // needs INSTANCE_OWNER, which the E2E administrator deliberately does not
@@ -180,7 +203,7 @@ export const test = base.extend<Fixtures>({
   },
 
   application: async ({ organization, project }, use) => {
-    const redirectUri = `${process.env.E2E_BASE_URL ?? "http://127.0.0.1:4173"}/auth/callback`;
+    const redirectUri = `${process.env.E2E_BASE_URL ?? "http://localhost:4173"}/auth/callback`;
     const created = await manage<{ id: string }>(
       "POST",
       `/v1/organizations/${organization.id}/projects/${project.id}/applications`,

@@ -1,3 +1,0 @@
-2026/09/11 11:14:42 demo web application listening on :8090 as f3dc6715-7612-4807-a3fc-29a82dcdf127
-2026/09/11 11:14:42 listen tcp :8090: bind: Only one usage of each socket address (protocol/network address/port) is normally permitted.
-exit status 1

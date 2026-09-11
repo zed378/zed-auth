@@ -1,2 +1,0 @@
-2026/09/11 11:14:42 demo SPA listening on :8091 as 1e23784a-44dd-4411-95f6-c88c77aba3e4
-2026/09/11 11:15:08 refused a token: verify: the token is not valid: audience [14034b06-f7e2-42bf-b565-26a2b082a147] does not include "1e23784a-44dd-4411-95f6-c88c77aba3e4"

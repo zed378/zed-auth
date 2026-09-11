@@ -62,3 +62,4 @@ Thumbs.db
 /.e2e-demo-a.log
 /.e2e-demo-b.log
 /.e2e-console-build.log
+/.e2e-bin/
