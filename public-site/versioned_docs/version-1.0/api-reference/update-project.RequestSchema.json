@@ -1,0 +1,1 @@
+{"title":"Body","body":{"required":true,"content":{"application/json":{"schema":{"type":"object","additionalProperties":false,"properties":{"name":{"type":"string","minLength":1,"maxLength":200}},"title":"ProjectUpdate"}}}}}

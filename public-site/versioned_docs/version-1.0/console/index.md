@@ -10,10 +10,13 @@ sidebar_position: 1
 The management console is the web interface for everything Zed Auth manages:
 organizations, projects, applications, users, roles and grants.
 
-:::warning[The console shell exists; its screens do not]
+:::note[What exists today]
 
-The console currently renders its navigation and nothing behind it. Its screens are
-built alongside the API endpoints they use, from Phase 1 onward.
+Sign-in, the organization overview, projects, applications, users and the audit log.
+Roles and grants are not there because they are not built — Phases 2 and 4.
+
+Screens are built alongside the API endpoints they use, and never ahead of them: a
+screen with no endpoint behind it is a screen that has to lie about something.
 
 :::
 
@@ -35,5 +38,16 @@ That is a deliberate constraint rather than an implementation detail. It means:
 
 ## Screens
 
-Documented as they are built. The full inventory is specified in
+| Screen | What it is for |
+|---|---|
+| Sign in | The same Authorization Code + PKCE flow every other application uses. The token is held in memory for the tab and never in `localStorage`. |
+| Organization overview | Whether anything needs attention, in five seconds: active users, projects, pending invitations, and recent activity. |
+| Projects | Projects and, inside one, its applications — registering a client, rotating its secret, editing its redirect URIs. |
+| Users | The list, the detail, and the two-step invitation. Step two is where access is considered, and "no access yet" is an explicit choice rather than a skipped step. |
+| Audit log | Newest first, filterable by event type, actor and time range, with each event's payload as it was stored. |
+
+Not there yet: roles and grants (Phases 2 and 4), sessions per user (the service revokes
+them today; the screen is what is missing), and instance-wide administration.
+
+The full inventory is specified in
 [`docs/UI-UX/08-PAGE-SPECIFICATIONS.md`](https://github.com/zed378/zed-auth/blob/main/docs/UI-UX/08-PAGE-SPECIFICATIONS.md).

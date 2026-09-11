@@ -4,7 +4,7 @@ Every claim on every published page, and what it maps to.
 
 `P0-19`'s Definition of Done asks that this "confirms every claim on every published page maps to something either shipped or explicitly labelled as planned". `docs/UI-UX/21` § Content Governance and `CLAUDE.md` make it a standing rule rather than a launch task: **copy never describes a capability beyond the shipped phase.**
 
-**Audited**: 2026-09-08, at `P0-18`/`P0-19`, against Phase 0.
+**Audited**: 2026-09-11, at `P1-25`, against Phase 1. Previously 2026-09-08 at `P0-18`/`P0-19`, against Phase 0.
 
 Two of the mechanical parts are enforced on every build — `scripts/check-claims.mjs` (every capability carries a phase label, and no label contradicts the roadmap board) and `scripts/check-no-internal-leak.mjs` (nothing verbatim from the documents `docs/PLAN/20` forbids publishing). Neither can read prose. **This document is the part a person has to keep true.**
 
@@ -12,11 +12,13 @@ Two of the mechanical parts are enforced on every build — `scripts/check-claim
 
 ## The rule, and the failure it prevents
 
-The project is in Phase 0. What exists: the service builds, deploys, runs against real PostgreSQL and Redis, enforces tenant isolation in the database, writes an append-only audit log, and serves two operational probes. That is all.
+`docs/UI-UX/21`'s landing-page blueprint writes four capabilities in the present tense — "Log in once, access every registered application", "Everything the console can do, your scripts and CI/CD can do too". Through Phase 0, copying it as written would have claimed four things that did not exist, so all four sat on the page as *design*, each labelled with the roadmap phase that delivers it.
 
-`docs/UI-UX/21`'s own landing-page blueprint writes four capabilities in the present tense — "Log in once, access every registered application", "Everything the console can do, your scripts and CI/CD can do too". Copied as written, the site would claim four things that do not exist.
+**Two of them are now true.** Phase 1 built single sign-on and the management API; `P1-26` demonstrated SSO across two separate applications on staging, and `P1-25` executed the quickstart end to end against the running service. Those two cards now read "Shipped — Phase 1". The other two are unchanged.
 
-They are on the page as *design*, each labelled with the roadmap phase that delivers it, under a heading that says none is finished.
+The rule has a second direction, and this is the first audit to exercise it: **a card still labelled with a phase after that phase shipped is as inaccurate as one claiming something that does not exist.** It just fails in the direction nobody complains about. `check-claims.mjs` now fails the build for either.
+
+What is *not* claimed, and what the status sentence exists to say: there is no hosted offering. "Shipped" here means built, deployed and demonstrable — not that a visitor can sign up. Standing up a new deployment still needs database access for the first organization and administrator (`PG-26`).
 
 ---
 
@@ -26,13 +28,13 @@ They are on the page as *design*, each labelled with the roadmap phase that deli
 |---|---|---|
 | "One login. Every app. Full control over who can do what." | **Positioning** | The hero headline from `docs/UI-UX/21`, verbatim. Describes what the product is *for*, not what a visitor can do today. |
 | "A centralized identity and access service with single sign-on, a complete REST API, and role-based access control…" | **Positioning** | Same reading. Immediately followed by the status statement below. |
-| "**Status: in development.** The service runs and is deployed; the authentication and authorization endpoints described below are being built." | **Shipped, accurate** | Above the fold, deliberately. The service is deployed and healthy at `auth.zedth.my.id`. |
+| "**Status: Phase 1 is built and running.** Single sign-on and the management API work end to end — the quickstart below is executed against a live deployment rather than written from the specification. Roles, delegation and policies are specified and not started. There is no hosted signup: you run it yourself, from source." | **Accurate** | Above the fold, deliberately. Every clause is checkable: the quickstart was executed on 2026-09-11 (`P1-25`), Phases 2 and 4 are not started on the board, and no signup flow exists. `check-claims.mjs` pins both this sentence and the "no hosted signup" clause, so losing either fails the build. |
 | "Stop rebuilding login for every service." + problem framing | **Problem statement** | Describes the reader's situation, claims nothing about the product. |
-| Single sign-on | **Planned — Phase 1** | Labelled on the card. The protocol is now complete — `P1-06` issues codes, `P1-07` exchanges them, `P1-12` is the page a person types a password into, all three done — and the capability is still not available. A visitor cannot register an application (`P1-18`) or create a user with a password (`P1-19`), so there is nothing to sign in to and nobody to sign in as. The audit fired on the day `P1-12` landed and said the card should stop saying "Phase 1"; the fix was to extend the task list rather than to relabel the card, because the thing a capability card promises is *usable by a visitor*, not *implemented*. Second time the same lesson, found by the check the first one produced. |
-| A complete REST API | **Planned — Phase 1** | Labelled. `P1-15`, not started. |
+| Single sign-on | **Shipped** | The card reads "Shipped — Phase 1". `P1-06` issues codes, `P1-07` exchanges them, `P1-12` is the page a person types a password into, `P1-18` registers applications, `P1-19` creates users — and `P1-26` is on the task list because it is the proof rather than another endpoint: two applications, two client IDs, one login, verified against staging. Twice before, this row said the capability was unavailable while its protocol was complete. The distinction the list encodes is *usable*, not *implemented*, and that is what made this the revision that could finally be marked shipped. |
+| A complete REST API | **Shipped** | The card reads "Shipped — Phase 1". `P1-15` is the envelope and the bearer middleware; `P1-16` through `P1-20` are organizations, projects, applications, users and the audit log. The generated reference covers every one of them. |
 | Roles that scale to delegation | **Planned — Phase 4** | Labelled. `P4-01`, not started. |
 | Policies when roles are not enough | **Planned — Phase 4b** | Labelled, and conditional — Phase 4b happens only if `P4B-00`'s justification gate is satisfied. |
-| "Each of these is specified and none is finished." | **Shipped, accurate** | The section heading that makes the four cards unambiguous. Still accurate after `P1-12`: the OIDC endpoints behind single sign-on are finished, and the capability a visitor could use is not. If that sentence ever has to be qualified, it is the card that should change, not the sentence. |
+| "Two of these are built and running; two are specified and not started. The label on each card says which, and it is checked against the roadmap board on every build rather than kept true by hand." | **Accurate** | Replaces "Each of these is specified and none is finished", which stopped being true the day Phase 1 landed. The second clause is itself a claim about the build, and `check-claims.mjs` is what makes it good. |
 | "The engineering plan, the threat model, and every architectural decision are in the repository — including the ones that turned out to be wrong." | **Shipped, accurate** | `docs/PLAN/`, `docs/SECURITY/`, `MEMORY/DECISIONS.md` are all in the public repository. Several ADRs record something built, found wrong, and changed. |
 
 **No social-proof section.** `docs/UI-UX/20`: include it "only once genuinely available", because "an empty or fabricated social-proof section is worse than omitting it entirely". There is nobody to quote.
@@ -66,18 +68,22 @@ They are on the page as *design*, each labelled with the roadmap phase that deli
 
 | Page | Status | Basis |
 |---|---|---|
-| `/docs` home | **Accurate** | Carries an "In development" admonition naming the current phase. |
-| `/docs/quickstart` | **Explicit placeholder** | Opens with a `danger` admonition: "This guide does not exist yet." Lists what it will cover and the four tasks that must ship first. `P1-24` replaces it. |
-| `/docs/concepts/*` | **Model, not endpoints** | `P0-19` step 3 permits this: concepts describe the design rather than shipped endpoints. Each page states it. Derived from `docs/PLAN/03`, `docs/PLAN/04` and `docs/PLAN/08` at a product-explainer level. |
-| `/docs/guides` | **Explicit placeholder** | "Nothing here yet", with the planned list and the phase each arrives in. |
-| `/docs/console` | **Explicit placeholder** | "The console shell exists; its screens do not." |
+| `/docs` home | **Accurate** | Carries a "Where the project is" admonition: Phase 1 built, Phases 2 and 4 named as not built. |
+| `/docs/quickstart` | **Executed, not written** | Every command was run against staging, in order, on 2026-09-11 (`P1-25`). The run corrected three things the page had got wrong from reading the specification: a `refresh_token` that is only issued when `offline_access` is requested, an invented `error_description`, and a `request_id` in the error envelope that is really the `X-Request-Id` header. The page's opening claim — "if one of them does not work for you, that is a bug in this page" — is only safe to print because of that run. |
+| `/docs/concepts/*` | **Model, with per-section phase labels** | Four of the six objects on the model page are now real, and the page says so. The Role and Grant sections gained "*Arrives in Phase 2*" and "*Direct grants arrive in Phase 2, project grants in Phase 4*" — they had no labels at all, which was defensible while nothing on the page was shipped and is not defensible now that most of it is. `authorization.md` already labelled each of its three layers. |
+| `/docs/guides` | **One available, the rest labelled** | "Set up SSO for your application" points at the quickstart. Everything else stays on the planned list with the phase that delivers it, and two rows name the specific blocker rather than only a phase: roles do not exist yet, and provisioning from CI needs `PG-26`. |
+| `/docs/console` | **Accurate** | Lists the five screens that exist and names what is not there — roles, grants, per-user sessions, instance administration. The old text ("the console shell exists; its screens do not") was true at `P0-19` and became false at `P1-22`; it is the same stale-page failure as the archived quickstart, in a page nobody had reason to reopen. |
 | `/docs/api-reference` | **Generated** | From `openapi/openapi.yaml`. It cannot describe an endpoint the service does not serve, because `scripts/openapi-shipped-paths.py` fails CI if the spec documents one. |
 
 ---
 
 ## Changelog (`/changelog`)
 
-One entry, "Phase 0 — foundation". Every item in it maps to a completed task with a MEMORY record. It opens by saying "Nothing user-facing has shipped", which is the accurate framing for a release note about foundations.
+Two entries.
+
+"Phase 0 — foundation" opens by saying "Nothing user-facing has shipped", which was the accurate framing for a release note about foundations.
+
+"Phase 1 — single sign-on and the management API" carries a **Known limits** section, and that section is the part of it this audit cares about: no hosted signup, roles not in tokens, refresh tokens that do not rotate, and one virtual machine against a plan that requires more. A release note listing only additions is a sales page, and `docs/UI-UX/21`'s governance rule is about the impression a page leaves as a whole, not only its individual sentences.
 
 ---
 
@@ -95,3 +101,5 @@ One entry, "Phase 0 — foundation". Every item in it maps to a completed task w
 It confirms the pages as they stand today. It does not prevent a future edit from introducing a present-tense claim in prose, and neither does either script — `check-claims.mjs` checks structure and labels, not sentences.
 
 **Re-audit when**: a phase completes, a capability card is added or reworded, or `/security` is published. Update this file in the same commit as the copy change. A capability audit that lags the site by one release is a document describing a site that no longer exists.
+
+**What the Phase 1 audit added to that list**: re-audit when a capability *ships*, not only when copy changes. Nobody edits a page to introduce the "still says planned" failure. It appears on its own, on the day a task is marked done, in a file nobody opened.

@@ -11,27 +11,30 @@ slug: /
 Everything you need to integrate, from your first login flow to delegating access
 across organizations.
 
-:::warning[In development]
+:::info[Where the project is]
 
-Zed Auth is in Phase 0 of its [roadmap](https://github.com/zed378/zed-auth/blob/main/docs/PLAN/16-IMPLEMENTATION-ROADMAP.md).
-The service runs and is deployed, and the endpoints it currently serves are the
-operational probes in the [API reference](/docs/api-reference).
+Phase 1 is built: single sign-on over OIDC and OAuth 2.1, the management API for
+organizations, projects, applications and users, the hosted login and password pages,
+and the audit log. The [quickstart](/docs/quickstart) was executed end to end against a
+running deployment — every command on it is a command that ran.
 
-The authentication and authorization endpoints are being built. Documentation for them
-describes the design and says which phase delivers it, rather than describing something
-you can call today.
+Roles and permissions arrive in Phase 2; Project Grants and attribute-based policies in
+Phase 4. Pages describing those say so rather than describing something you can call
+today. The [roadmap board](https://github.com/zed378/zed-auth/blob/main/TASKS/PROGRESS.md)
+is what the project actually works from.
 
 :::
 
 ## Start here
 
 **[Concepts](/docs/concepts/model)** — the model Zed Auth is built on: instances,
-organizations, projects, applications, users, roles and grants. Safe to read now,
-because it describes the design rather than a shipped endpoint, and it is what makes
-the rest of the documentation make sense.
+organizations, projects, applications, users, roles and grants. Read it before the
+quickstart if you want the reasoning; read it after if you want to get something
+working first.
 
-**[Quickstart](/docs/quickstart)** — the shortest path to a working login flow. Not
-available yet; the page says what it will cover and what has to ship first.
+**[Quickstart](/docs/quickstart)** — the shortest path to a working login flow: register
+an application, run Authorization Code with PKCE, and verify the token locally without
+calling back here.
 
 **[API reference](/docs/api-reference)** — generated from the OpenAPI specification, so
 it cannot describe an endpoint the service does not serve.
