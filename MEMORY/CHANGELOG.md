@@ -67,6 +67,12 @@ Format follows Keep a Changelog conventions, grouped by release once releases ex
 
 ### 2026-09-11
 
+**Fixed** — the staging console could not be signed in to, and there was nobody to sign in as ([record](./records/2026-09-11-staging-console-bootstrap.md))
+- The deployed console was the 2026-09-09 bundle: before `P1-21` gave it a login and before `P1-22`/`23`/`24` gave it any screens. No console application was registered, and staging held **zero users**. `P1-21` through `P1-24` were merged and never deployed, which is what the staging rule exists to prevent — and it went unnoticed because nothing pointed a browser at staging until `P1-27` built something that could.
+- **Mail on staging**, as a Mailpit sidecar bound to loopback and deliberately not tunnelled — it is a mailbox of password-set links, one bearer credential per message. Without it an invitation was created and dropped, so no account on that host could ever have a password.
+- `AUTH_SMTP_ALLOW_CLEARTEXT`, off by default and logged at `WARN` on every start: the operator asserting the mail hop does not leave the host, which the `smtp://` scheme cannot express. The refusal stays the default, because a relay with no STARTTLS hands an invitation link to anything on the path.
+- The console registered through the Management API with `allowed_origins`, and the first administrator created through it and invited by email. **The bootstrap script never learns the password and never sets one** — it prints a single-use link and a person chooses their own, which is `P1-19`'s design used as intended rather than worked around.
+
 **Added** — an end-to-end environment, and a cross-origin policy ([P1-27](./records/2026-09-11-P1-27-test-suite.md), [P1-29](./records/2026-09-11-P1-29-cors.md), [ADR-020](./DECISIONS.md))
 - `scripts/e2e-up.sh` brings up everything the browser suite needs in one command — stack, migrations, a signing key, the bootstrap, both demo applications registered through the API, and the console built against the client it just created. CI runs the same command. (`P1-27`)
 - Twelve end-to-end tests, all passing in a real browser: sign-in, silent renewal, sign-out genuinely ending the session, an API-driven permission refusal, single sign-on across the two demo applications, and application B refusing a token minted for another. (`P1-27`)
