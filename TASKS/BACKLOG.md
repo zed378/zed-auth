@@ -341,6 +341,24 @@ The cost of the omission is smaller than it looks today, because both claims are
 
 ---
 
+### PG-26 — A new deployment cannot be bootstrapped without database access
+
+**Affects**: `P1-25`'s quickstart, anyone standing up a fresh instance, and `docs/PLAN/17`'s claim that organizations and users are creatable through the REST API.
+
+Found while executing the quickstart end to end. Every step works — once you already have an organization, a project, an administrator and an application. Getting the **first** of each does not work through any published surface:
+
+- `POST /v1/organizations` requires `INSTANCE_OWNER`, and nothing creates the first instance owner.
+- Registering the first application requires a management access token, which requires completing the Authorization Code flow, which requires an already-registered application.
+- The console is itself an application that has to be registered before anyone can log into it.
+
+Every environment so far — local and staging — was seeded with direct `INSERT` statements, which is why this has not blocked anything. It is not a gap in the API contract; the endpoints are correct. It is a missing **operator** path, and it is the first thing a stranger following the quickstart hits.
+
+**Recommendation**: a `bootstrap` subcommand alongside `migrate` in the service image, run once against a new database, creating an organization, an instance owner with a password-set link, and the console's own application registration — printing what it made and nothing it should not. The pieces all exist; nothing here needs new authorization logic.
+
+Until it exists, the quickstart says plainly that this step is an operator task and points here, rather than pretending a reader can start from nothing.
+
+---
+
 ### PG-24 — A corrected migration does not reach databases that already ran it
 
 **Affects**: every environment migrated before a fix, and every future correction to an applied migration.

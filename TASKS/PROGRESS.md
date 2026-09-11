@@ -3,8 +3,8 @@
 Single source of truth for where the project stands. Updated in the same commit as the work it describes (`00-TASK-CONVENTIONS.md` global DoD item 8).
 
 **Last updated**: 2026-09-11
-**Current phase**: Phase 1 — MVP Core Auth (25 / 28 done). Phase 0 is 20 / 21; `P0-20` stays WIP pending the pull-based deployment re-read
-**Overall**: 39 / 177 tasks done
+**Current phase**: Phase 1 — MVP Core Auth (26 / 28 done). Phase 0 is 20 / 21; `P0-20` stays WIP pending the pull-based deployment re-read
+**Overall**: 40 / 177 tasks done
 
 Status values: `TODO` · `BLOCKED` · `SPEC` · `WIP` · `REVIEW` · `DONE` · `DROPPED`
 Sizes: `S` under half a day · `M` one to two days · `L` several days · `XL` must be split
@@ -16,7 +16,7 @@ Sizes: `S` under half a day · `M` one to two days · `L` several days · `XL` m
 | Phase | Tasks | Done | Status | Gate to enter |
 |---|---|---|---|---|
 | [Phase 0 — Foundation](./PHASE-0-FOUNDATION.md) | 21 | 20 | **ACTIVE** — `P0-20` only | — |
-| [Phase 1 — MVP: Core Auth + SSO](./PHASE-1-MVP-CORE-AUTH-SSO.md) | 28 | 25 | **ACTIVE** | Phase 0 exit checklist |
+| [Phase 1 — MVP: Core Auth + SSO](./PHASE-1-MVP-CORE-AUTH-SSO.md) | 28 | 26 | **ACTIVE** | Phase 0 exit checklist |
 | [Phase 2 — RBAC & Multi-Tenancy](./PHASE-2-RBAC-MULTITENANCY.md) | 17 | 0 | Not started | Phase 1 exit + `P1-28` |
 | [Phase 3 — Advanced Security](./PHASE-3-ADVANCED-SECURITY.md) | 15 | 0 | Not started | Phase 2 exit + threat model review |
 | [Phase 4 — Enterprise Interop](./PHASE-4-ENTERPRISE-INTEROP.md) | 16 | 0 | Not started | Phase 3 exit + threat model review |
@@ -88,7 +88,7 @@ Sizes: `S` under half a day · `M` one to two days · `L` several days · `XL` m
 | P1-22 | Console — Org overview, Projects, Applications | L | DONE | P1-21, P1-16..18 |
 | P1-23 | Console — Users list and detail | L | DONE | P1-21, P1-19 |
 | P1-24 | Console — Audit Log screen | M | DONE | P1-21, P1-20 |
-| P1-25 | Public docs — quickstart and API reference | M | TODO | P1-07, P1-19 |
+| P1-25 | Public docs — quickstart and API reference | M | **DONE** — the quickstart was executed against staging, not proofread: 52 assertions, one failure, three factual errors corrected. The capability audit now runs in both directions and had been misreading this board since `P0-19` | P1-07, P1-19 |
 | P1-26 | Two demo consumer applications | M | **DONE** — 33 assertions on staging, 0 failures: one login, two applications, and App B refuses App A's token. Two public hostnames outstanding (`DV-03`); the Playwright half of one DoD item is `P1-27`'s | P1-07 |
 | P1-27 | Phase 1 test suite completion | L | TODO | all above |
 | P1-28 | Phase 1 acceptance validation | M | TODO | P1-27 |

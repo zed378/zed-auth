@@ -10,25 +10,30 @@ sidebar_position: 1
 Task-based how-tos: "set up SSO for your app", "create a Project Grant", "rotate a
 signing key".
 
-:::warning[Nothing here yet]
+:::note[Start with the quickstart]
 
-A guide describes a sequence of real API calls. Those endpoints are built in Phase 1 and
-later, so writing the guides now would mean publishing instructions that cannot be
-followed.
+Setting up SSO for an application — the first guide anyone wants — is the
+[quickstart](/docs/quickstart), end to end, with the security-relevant parameters
+explained where they appear.
 
-Guides arrive with the features they describe. Until then, [concepts](/docs/concepts/model)
-covers the model and the [API reference](/docs/api-reference) covers what the service
-actually serves today.
+The rest of this section is thin on purpose. A guide describes a sequence of real API
+calls, and most of the sequences below need capabilities that are not built. Publishing
+them now would mean publishing instructions that cannot be followed.
 
 :::
+
+## Available
+
+| Guide | Where |
+|---|---|
+| Set up SSO for your application | [Quickstart](/docs/quickstart) |
 
 ## Planned
 
 | Guide | Arrives with |
 |---|---|
-| Set up SSO for your application | Phase 1 |
-| Invite a user and assign their first role | Phase 1 |
-| Provision an organization from CI | Phase 1 |
+| Invite a user and assign their first role | Phase 2 — the invitation works today; roles do not exist yet |
+| Provision an organization from CI | Phase 1 — needs the bootstrap path in `PG-26` |
+| Rotate a signing key without downtime | Phase 3 |
 | Delegate a project to a partner organization | Phase 4 |
 | Add an attribute-based policy | Phase 4b |
-| Rotate a signing key without downtime | Phase 3 |

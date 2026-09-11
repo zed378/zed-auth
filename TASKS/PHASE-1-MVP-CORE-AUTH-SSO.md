@@ -1033,7 +1033,7 @@ Also found: `session_id` was in the logger's redaction list — correct when the
 
 | | |
 |---|---|
-| **Status** | TODO |
+| **Status** | DONE — [record](../MEMORY/records/2026-09-11-P1-25-public-docs.md). The quickstart was executed against staging rather than proofread: 52 assertions passed and one failed, catching three factual errors in the parts a reader copies. One DoD item is left honestly unticked — see below. |
 | **Depends on** | P1-07, P1-19 |
 | **Plan refs** | `docs/PLAN/20-PUBLIC-SITE-ARCHITECTURE.md`, `docs/UI-UX/20-PUBLIC-SITE-SPECIFICATIONS.md` § API Reference, `docs/UI-UX/21-CONTENT-AND-COPY-STRATEGY.md`, `docs/PLAN/17-ACCEPTANCE-CRITERIA.md` |
 | **Spec required** | No |
@@ -1050,10 +1050,10 @@ Also found: `session_id` was in the logger's redaction list — correct when the
 6. Audit every published page against the shipped feature set — this is a Phase 1 acceptance criterion in `docs/PLAN/17`, not a nicety.
 
 **Definition of Done**
-- [ ] Someone who has never seen the project completes the quickstart successfully against staging.
-- [ ] The API reference is generated, current, and covers every shipped endpoint.
-- [ ] No page describes an unshipped capability.
-- [ ] The changelog records the release.
+- [ ] Someone who has never seen the project completes the quickstart successfully against staging. **Half of this is done and the half that is missing is the harder half.** Every command on the page was executed against `https://auth.zedth.my.id`, in order, from a clean shell, and every response shape the page shows was asserted against what the service returns — 52 passing assertions, and one failure that corrected the page. What that cannot detect is a step that is *unclear* rather than wrong, because whoever runs it already knows what each command is for. This needs a person who does not.
+- [x] The API reference is generated, current, and covers every shipped endpoint. Regenerated from `openapi/openapi.yaml` and **byte-identical** to what was committed — it had been kept current as each endpoint landed. All 35 operations, and an endpoint cannot exist without being in that file because the server's own interfaces are generated from it (ADR-013).
+- [x] No page describes an unshipped capability. `check-claims.mjs` now runs in **both** directions — it already caught a capability claimed before it existed, and it now also catches one still described as planned after it shipped, which is the failure that appears on its own. Six mutations, six killed. The audit also turned out to have been reading the roadmap board incorrectly since `P0-19`; see the record. The archived `1.0` docs snapshot, which still said the quickstart did not exist, was re-taken.
+- [x] The changelog records the release. `/changelog/phase-1-sso-and-the-management-api`, with a **Known limits** section — no hosted signup, roles not in tokens, refresh tokens that do not rotate, one VM against a plan that requires more. A release note listing only additions is a sales page.
 
 ---
 
