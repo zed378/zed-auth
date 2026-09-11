@@ -167,6 +167,21 @@ The correct policy keys on the current **user**, not the current organization, w
 
 **Do not let this expire quietly.** `P2-05` cannot be marked done while this is open.
 
+### DV-03 — The demo applications have no public hostnames yet
+
+**Affects**: `P1-26`'s last two DoD items, `P1-27`'s SSO E2E test, and the Phase 1 exit checklist's first two lines.
+**Status**: Open — a handoff, not an engineering gap. Needs Zed.
+
+Both demo applications are deployed, healthy and verified on the staging VM at `127.0.0.1:10940` and `127.0.0.1:10941`. Their registered redirect URIs and their own `DEMO_BASE_URL` say `https://demo-a.zedth.my.id` and `https://demo-b.zedth.my.id`.
+
+What is missing is two Cloudflare tunnel records mapping those hostnames to those ports. The tunnel on this host is token-based and remotely managed, so the mapping is made in the Cloudflare dashboard — the same step that put `console.zedth.my.id` and `app-auth.zedth.my.id` in front of their containers.
+
+**What is blocked until they exist**: walking the SSO flow by hand in a browser (the issuer redirects to a name that does not resolve), and the Playwright E2E test in `P1-27` step 3, which drives a real browser through the same redirect.
+
+**What is not blocked**: everything else. The scripted staging run drives the real issuer over TLS and reaches the applications on loopback, which is how all 33 assertions — including "App B gets a code with no second login" and "App B refuses App A's token" — were verified.
+
+**The moment those records exist**, no redeploy is needed: the containers already believe those are their base URLs.
+
 ---
 
 ## Plan Gaps — ALL RESOLVED 2026-09-08

@@ -65,6 +65,29 @@ Format follows Keep a Changelog conventions, grouped by release once releases ex
 
 ---
 
+### 2026-09-11
+
+**Added** — the two demo consumer applications ([record](./records/2026-09-11-P1-26-demo-applications.md))
+- `demo/` — a confidential web client and a public SPA, genuinely separate: two binaries, two containers, two `client_id`s, two hostnames, two sessions. Two routes in one process would share a session and would be demonstrating the session rather than SSO. (`P1-26`)
+- `demo/internal/verify` — about 200 lines, standard library only, and the only security control either has. `alg` compared rather than obeyed; `typ` exact, which is the half of abuse case A-5 that still works when `aud` is lax; `iss` exact; `aud` containing our own `client_id`; `exp` present and future; the signature over the first two segments **as they arrived**. (`P1-26`)
+- `deploy/demo/` and a `Demo applications` section in `check.sh`. `demo/` is a separate module, so nothing in the Go gates reached it — the fixture `P1-27` depends on could have rotted with every check green. One gate asserts `demo/go.sum` does not exist; another that the SPA is never handed a client secret. (`P1-26`)
+
+**Verified on staging** — `https://auth.zedth.my.id`, real TLS, real login, real tokens. 33 assertions, 0 failures
+- **One login, two applications.** App B received an authorization code with no login page, then its API returned the same subject App A had rendered. That sentence is `docs/PLAN/01`'s MVP definition of done. (`P1-26`)
+- **App B refuses App A's ID token**, 401, naming the audience — with the inverse asserted too, so the refusal is a check rather than a coincidence. (`P1-26`)
+- **25 verified requests caused 0 key-set fetches**, counted in the auth service's own log rather than claimed at the consumer. That is `docs/PLAN/12`'s biggest available latency win, measured. (`P1-26`)
+
+**Fixed**
+- **A JWKS blip would have rejected every valid token.** The verifier refetched on TTL expiry and failed if the fetch failed — so an auth service having a bad minute took every consumer down with it, which is the coupling local validation exists to remove. It now falls back to a key it already holds and refuses only an unknown `kid`, with an error that deliberately does **not** wrap `ErrInvalid`: "we cannot check" must stay distinguishable from "your credential is bad". (`P1-26`)
+- **The SPA's nonce had nowhere real to be checked**, since the browser never opens the token. It now travels to the application's own API and is enforced there. The empty-header refusal turned out to be load-bearing rather than defensive: an absent `nonce` claim compares equal to an absent header. (`P1-26`)
+
+**Found**
+- **Three mutations survived because the checks they removed were subsumed by later ones** — `alg`, the no-expiry case, and the bearer prefix each change the *response* rather than the outcome. The tests now assert what is only true when the check is there: refusal before any key is fetched, "no expiry" rather than "expired", and RFC 6750's distinction between an absent credential and a bad one. A surviving mutation is not always a missing test; sometimes it is a check whose value is not accept-or-reject. (`P1-26`)
+- **A cleanup trap that could not find its compose file** ran six failing statements and reported success, leaving the staging fixture in the database. The array captured a relative path and the trap fires after the script has `cd`'d away. Removed by hand, verified at zero rows. Same class as `P1-19`'s late-armed trap: a cleanup that fails quietly is worse than none, because the tree looks clean. (`P1-26`)
+
+**Outstanding**
+- **`DV-03`** — `demo-a.zedth.my.id` and `demo-b.zedth.my.id` need two Cloudflare tunnel records. Both applications are deployed, healthy and loopback-verified; the containers already believe those are their base URLs, so no redeploy is needed when the records appear. Until then the flow cannot be walked in a browser, which is also what `P1-27`'s Playwright test needs.
+
 ### 2026-09-10
 
 **Added** — the users screens and the audit log ([record](./records/2026-09-10-P1-23-P1-24-console-users-audit.md), [chain](../console/docs/implementation-chain-P1-23-P1-24.md))

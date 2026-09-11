@@ -1,0 +1,82 @@
+# The two demo consumer applications on the staging VM (P1-26).
+#
+# `docs/PLAN/01`'s MVP definition of done is "two applications, one login". The
+# whole value of this file is that the two are genuinely separate: separate
+# containers, separate client IDs, separate hostnames, separate sessions. Two
+# routes in one process would demonstrate nothing — the shared session would do
+# the work SSO is supposed to be doing.
+#
+# Its own compose project, like the console and the public site, so taking the
+# demos down cannot take the database with them.
+#
+# Usage on the VM:
+#   docker compose -f deploy/demo/docker-compose.yml up -d
+#
+# The image is built on the VM from `demo/` (`docker build -t zedauth-demo:<tag>
+# demo/`) for the same reason the console's bundle is copied there: this host
+# has no registry credentials and no CI path into it.
+
+name: zedauth-demo
+
+x-common: &common
+  image: ${DEMO_IMAGE:-zedauth-demo:local}
+  restart: unless-stopped
+  security_opt: [no-new-privileges:true]
+  read_only: true
+  cap_drop: [ALL]
+  logging:
+    driver: json-file
+    options: {max-size: "10m", max-file: "3"}
+  deploy:
+    resources:
+      limits: {memory: 64M}
+
+services:
+  # --- Application A: a confidential web client -----------------------------
+  webapp:
+    <<: *common
+    command: ["/webapp"]
+    environment:
+      DEMO_ISSUER: ${DEMO_ISSUER:?the auth service's public origin is required}
+      DEMO_CLIENT_ID: ${DEMO_WEBAPP_CLIENT_ID:?required}
+      # The only secret in this stack. A confidential client has one; the SPA
+      # below deliberately does not, which is the difference being demonstrated.
+      DEMO_CLIENT_SECRET: ${DEMO_WEBAPP_CLIENT_SECRET:?required}
+      DEMO_BASE_URL: ${DEMO_WEBAPP_BASE_URL:?required}
+      DEMO_ADDR: ":8090"
+    ports:
+      # Loopback only: `cloudflared` runs as a host service and reaches
+      # 127.0.0.1 directly, so nothing else on the subnet can. Same posture as
+      # the auth service on 10800 and the console on 10920.
+      #
+      # Verify with: ss -tlnp | grep 10940 — it must show 127.0.0.1.
+      - "127.0.0.1:${DEMO_WEBAPP_PORT:-10940}:8090"
+    healthcheck:
+      # The binary is the probe: the runtime image is distroless and has no
+      # shell, curl or wget (ADR-008 made the same call for the service).
+      test: ["CMD", "/webapp", "-healthcheck"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+  # --- Application B: a public SPA and its own resource API ------------------
+  spa:
+    <<: *common
+    command: ["/spa"]
+    environment:
+      DEMO_ISSUER: ${DEMO_ISSUER:?the auth service's public origin is required}
+      DEMO_CLIENT_ID: ${DEMO_SPA_CLIENT_ID:?required}
+      # No DEMO_CLIENT_SECRET. A public client has nowhere to keep one — the
+      # browser would have to be handed it — and PKCE is what replaces it.
+      DEMO_BASE_URL: ${DEMO_SPA_BASE_URL:?required}
+      DEMO_ADDR: ":8091"
+    ports:
+      # Verify with: ss -tlnp | grep 10941 — it must show 127.0.0.1.
+      - "127.0.0.1:${DEMO_SPA_PORT:-10941}:8091"
+    healthcheck:
+      test: ["CMD", "/spa", "-healthcheck"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
