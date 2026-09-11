@@ -886,3 +886,65 @@ Rejected now because the console is a **static bundle on a CDN** (`docs/PLAN/06`
 **Plan impact**
 
 None contradicted. `docs/PLAN/06` names the dogfooding constraint and does not specify storage; `docs/SECURITY/02` §6 and §14 describe the threat this answers. `docs/PLAN/02`'s "no console-specific backdoor" is satisfied: the console uses the same endpoints, the same grant and the same prompt parameter any other SPA would.
+
+---
+
+### ADR-020 — Cross-origin access is split: a wildcard on what is public, a per-application allowlist on what is not
+
+| | |
+|---|---|
+| **Date** | 2026-09-11 |
+| **Status** | Accepted |
+| **Task** | `P1-29` (closing `PG-17`) |
+| **Deciders** | Zed |
+
+**Context**
+
+`PG-17` recorded, in Phase 0, that no plan document specifies an origin policy, and that two Phase 1 consumers would need one. It was a forecast. `P1-27` turned it into a measurement.
+
+The first time a real browser was pointed at the login flow, nothing worked. A public client cannot complete the Authorization Code flow without CORS: the authorize step is a **navigation** and needs nothing, but the code exchange is a `fetch` to `/oauth/token` from the application's own origin, and the browser refuses it before the request is sent. So the demo SPA could not sign in, and the console could not sign in **or** make a single Management API call. The console has never worked from a browser in any deployment where it is not served from the service's own origin — which is every deployment `docs/PLAN/06` describes, including staging.
+
+Every test that passed until then drove these flows with `curl`, which has no same-origin policy.
+
+`PG-17`'s own rule was "no endpoint may add CORS headers to unblock a caller", precisely because a one-endpoint exception is how an instance-wide `*` arrives. That rule is what made this a decision to raise rather than to make.
+
+**Decision**
+
+Two policies, chosen per endpoint by what the endpoint actually is.
+
+| | Policy | Credentials |
+|---|---|---|
+| `/.well-known/*`, `/oauth/token` | `Access-Control-Allow-Origin: *` | Never |
+| `/oauth/userinfo`, `/v1/*` | The calling application's `allowed_origins` | Never |
+| everything else | No CORS headers at all | — |
+
+`applications.allowed_origins text[]` is new, empty by default, validated like `redirect_uris`: exact origin, `https` outside loopback, no path, no wildcard, canonicalised once at registration and compared exactly forever after.
+
+Credentials are never allowed anywhere, including where they could be. `/v1/*` and `/oauth/userinfo` authenticate a bearer token and read no cookie, so permitting credentials would create ambient authority for no purpose. The console was changed to stop sending them.
+
+**Alternatives considered**
+
+- **A wildcard everywhere.** Simplest, and precisely the sentence `docs/SECURITY/02` §12 warns about: `/oauth/userinfo` returns an email address and `/v1/*` returns an organization's users. Rejected without hesitation.
+- **An instance-wide allowlist in configuration.** Simpler than a column and no migration. It lets any tenant's registered origin read any other tenant's data from a browser, which was `PG-17`'s specific objection and remains correct.
+- **A per-application allowlist for everything, including the token endpoint.** Consistent, and it does not work: the token exchange happens before the client has any token, so there is nothing to resolve an application from — and a preflight carries no credential by definition. A consistent rule here means no public client can ever log in.
+- **Serve the console from the service's own origin** and add no CORS at all. Genuinely viable, cheapest, and rejected because it trades a security-plan change for a frontend-architecture one — `docs/PLAN/06` deploys the console independently on static hosting — and because third-party SPAs still could not use the service, which is most of the point of being an identity provider.
+- **Verifying the bearer token's signature inside the CORS middleware** to identify the application. Rejected: it costs an RSA verification per request to answer a question whose wrong answer is "the browser hides a response the caller was entitled to". The `client_id` claim is read unverified, and a forged one buys nothing — the origin must still appear in *that* application's list, so naming somebody else's application only makes the check fail.
+
+**Consequences**
+
+- **A browser client works.** That is the whole point, and it was not true before.
+- **A new registration field that is empty by default**, so every existing application keeps exactly the access it had: none. An SPA that does not set it sees every `fetch` fail, which is a confusing first hour for a consumer team — mitigated by the quickstart and by the field's description in the contract, and preferable to an origin somebody did not intend.
+- **A preflight can be answered for an origin registered by a *different* application.** A preflight carries no credential, so the specific application cannot be known; what leaks is one bit about a value the asker already holds, and the actual request is still checked per application. Refusing every preflight instead means nothing works.
+- **`Vary: Origin` is now load-bearing.** A cache that ignores it serves an allowed origin's headers to a refused one. Set on every response, including refusals.
+- **The middleware is not an authorization check and must never be read as one.** A refused origin does not refuse the request — the handler still runs and the browser declines to hand over the body. What decides whether a request is permitted is the bearer check underneath.
+- **A second thing to get wrong when registering an application.** `redirect_uris` and `allowed_origins` look similar and answer different questions: where a code may be delivered, and who may read a response.
+
+**Plan impact**
+
+This is a deliberate plan change under `AGENTS.md` rule 9, authorized explicitly before implementation.
+
+- `docs/PLAN/05-API-CONTRACT.md` — new § Cross-Origin Access, stating both policies and the rule for adding an endpoint to the public set.
+- `docs/PLAN/04-DATA-MODEL.md` — `applications.allowed_origins`.
+- `docs/PLAN/09-SECURITY.md` — the origin policy alongside the other transport controls.
+
+`docs/SECURITY/02` §12's warning is unchanged and is now satisfied rather than merely acknowledged.

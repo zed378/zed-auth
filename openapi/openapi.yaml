@@ -1968,7 +1968,7 @@ components:
         `id` **is** the `client_id`. There is no separate field, because two
         identifiers for one thing is how a console shows the wrong one
         (`docs/PLAN/04` § applications).
-      required: [id, project_id, name, type, redirect_uris, post_logout_redirect_uris, grant_types, has_secret, created_at, updated_at]
+      required: [id, project_id, name, type, redirect_uris, post_logout_redirect_uris, allowed_origins, grant_types, has_secret, created_at, updated_at]
       additionalProperties: false
       properties:
         id:
@@ -1996,6 +1996,31 @@ components:
           items:
             type: string
             format: uri
+        allowed_origins:
+          type: array
+          items:
+            type: string
+          description: |
+            Browser origins permitted to **read** a response obtained with this
+            application's tokens — `scheme://host[:port]`, nothing more.
+
+            Empty by default, which means no cross-origin browser access at
+            all. A native or server-side client needs none; a single-page
+            application needs its own origin here or every `fetch` it makes to
+            `/v1/*` and `/oauth/userinfo` fails in the browser.
+
+            Matched against the `Origin` header by **exact string
+            comparison**, so a trailing slash or a path makes an entry that can
+            never match. `https` only, except for loopback addresses.
+
+            Per application rather than instance-wide, deliberately: an origin
+            one organization registers must not be able to read another
+            organization's data.
+
+            `/oauth/token` and the discovery documents are NOT governed by this
+            — they answer any origin, because they are public and are never
+            authenticated by anything a browser attaches on its own.
+          example: ["https://app.example.com"]
         grant_types:
           type: array
           items:
@@ -2070,6 +2095,15 @@ components:
           items:
             type: string
             format: uri
+        allowed_origins:
+          type: array
+          items:
+            type: string
+          description: |
+            Browser origins permitted to read responses obtained with this
+            application's tokens. Empty by default, which means none — see
+            `Application.allowed_origins`.
+          example: ["https://app.example.com"]
         grant_types:
           type: array
           items:
@@ -2117,6 +2151,15 @@ components:
           items:
             type: string
             format: uri
+        allowed_origins:
+          type: array
+          items:
+            type: string
+          description: |
+            Browser origins permitted to read responses obtained with this
+            application's tokens. Empty by default, which means none — see
+            `Application.allowed_origins`.
+          example: ["https://app.example.com"]
         grant_types:
           type: array
           items:
