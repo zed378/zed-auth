@@ -35,23 +35,47 @@ function required(name: string): string {
 }
 
 /**
- * Records every URL the main frame navigates to.
+ * Records what the browser did: the documents it committed, and the requests
+ * it made.
  *
- * This is how "no second login" becomes a fact rather than an inference. A
- * flow that completes without input already implies the login page never
- * appeared — but only if you trust the test would have blocked there, and a
- * test whose evidence is "it did not hang" is one nobody can debug when it
- * starts hanging.
+ * Both, because they answer different questions and neither alone is enough.
+ *
+ * **Navigations** are how "no second login" becomes a fact rather than an
+ * inference. A flow that completes without input already implies the login
+ * page never appeared — but only if you trust the test would have blocked
+ * there, and a test whose evidence is "it did not hang" is one nobody can
+ * debug when it starts hanging.
+ *
+ * **Requests** are how the trip through the provider is seen at all. A 302 is
+ * never committed as a document, so `/oauth/authorize` appears in no
+ * navigation event — the browser commits at the final destination. Asserting
+ * on navigations alone said single sign-on had not happened while the page
+ * behind it was plainly signed in.
  */
-function recordNavigations(page: Page): string[] {
-  const seen: string[] = [];
-  page.on("framenavigated", (frame) => {
-    if (frame === page.mainFrame()) seen.push(frame.url());
-  });
-  return seen;
+interface BrowserTrace {
+  navigated: string[];
+  requested: string[];
 }
 
-const loginPages = (urls: string[]) => urls.filter((url) => new URL(url).pathname === "/login");
+function record(page: Page): BrowserTrace {
+  const trace: BrowserTrace = { navigated: [], requested: [] };
+  page.on("framenavigated", (frame) => {
+    if (frame === page.mainFrame()) trace.navigated.push(frame.url());
+  });
+  page.on("request", (request) => trace.requested.push(request.url()));
+  return trace;
+}
+
+const pathsOf = (urls: string[]) =>
+  urls.map((url) => {
+    try {
+      return new URL(url).pathname;
+    } catch {
+      return "";
+    }
+  });
+
+const loginPages = (urls: string[]) => pathsOf(urls).filter((path) => path === "/login");
 
 async function signInThroughHostedPage(
   page: Page,
@@ -66,7 +90,7 @@ async function signInThroughHostedPage(
 test.describe("single sign-on across two applications", () => {
   test("logging into A means B does not ask again", async ({ page, user }) => {
     // --- Application A: the confidential web client -----------------------
-    const firstVisit = recordNavigations(page);
+    const firstVisit = record(page);
 
     await page.goto(demoA);
     await page.getByRole("link", { name: /sign in/i }).click();
@@ -76,10 +100,10 @@ test.describe("single sign-on across two applications", () => {
     expect(await page.locator("#subject").textContent()).toBe(user.id);
 
     // The password was typed exactly once, and this is where.
-    expect(loginPages(firstVisit).length).toBe(1);
+    expect(loginPages(firstVisit.navigated).length).toBe(1);
 
     // --- Application B: the public SPA, same browser ----------------------
-    const secondVisit = recordNavigations(page);
+    const secondVisit = record(page);
 
     await page.goto(demoB);
     await page.getByRole("button", { name: /sign in/i }).click();
@@ -90,11 +114,14 @@ test.describe("single sign-on across two applications", () => {
 
     // **The assertion this whole task exists for.** Not "it did not hang" —
     // the browser never visited the login page at all on the way through B.
-    expect(loginPages(secondVisit)).toEqual([]);
+    expect(loginPages(secondVisit.navigated)).toEqual([]);
 
-    // And it went through the provider rather than reading application A's
+    // And it went through the PROVIDER rather than reading application A's
     // session directly, which would be single sign-on in name only.
-    expect(secondVisit.some((url) => new URL(url).pathname === "/oauth/authorize")).toBe(true);
+    //
+    // Asserted on requests, not navigations: /oauth/authorize answers 302 and
+    // is never committed as a document, so it appears in no navigation event.
+    expect(pathsOf(secondVisit.requested)).toContain("/oauth/authorize");
   });
 
   test("signing out of A ends the shared session, so B asks again", async ({ page, user }) => {
@@ -103,13 +130,27 @@ test.describe("single sign-on across two applications", () => {
     await signInThroughHostedPage(page, user);
     await expect(page.getByText(/you are signed in/i)).toBeVisible();
 
-    // Application A's sign-out ends the provider's session too, not only its
+    // Application A's sign-out ends the PROVIDER's session too, not only its
     // own. A logout that leaves the SSO session alive means the next click on
-    // "sign in" signs straight back in, which reads as a broken logout — and
-    // is the failure that makes people stop trusting the button.
+    // "sign in" signs straight back in, which reads as a broken logout and is
+    // what makes people stop trusting the button.
     await page.getByRole("link", { name: /sign out/i }).click();
 
-    const afterLogout = recordNavigations(page);
+    // The confirmation interstitial, and it is deliberate (`P1-10`).
+    //
+    // RP-initiated logout without an `id_token_hint` must not end a session on
+    // a bare GET: any page anywhere could sign a user out of everything with
+    // an <img> tag. The demo sends no hint — it keeps no ID token after
+    // establishing its own session — so it meets the interstitial, which is
+    // the correct behaviour for the request it made.
+    //
+    // The first version of this test navigated straight to application B from
+    // here and reported that logout did not work. It had simply never
+    // confirmed.
+    await expect(page.getByRole("heading", { name: /sign out/i })).toBeVisible();
+    await page.getByRole("button", { name: /sign out/i }).click();
+
+    const afterLogout = record(page);
     await page.goto(demoB);
     await page.getByRole("button", { name: /sign in/i }).click();
 
@@ -117,7 +158,7 @@ test.describe("single sign-on across two applications", () => {
     // without it that test passes just as well against a service that never
     // ends a session at all.
     await expect(page.getByRole("heading", { name: /sign in to/i })).toBeVisible();
-    expect(loginPages(afterLogout).length).toBe(1);
+    expect(loginPages(afterLogout.navigated).length).toBe(1);
   });
 
   test("application B refuses a token minted for another application", async ({

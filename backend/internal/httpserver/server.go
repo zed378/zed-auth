@@ -214,6 +214,22 @@ func New(cfg config.HTTPConfig, deps Deps) *Server {
 		}))
 	}
 	mux.Use(SecurityHeaders)
+
+	// CORS on the MAIN router, before routing (P1-29).
+	//
+	// It was registered per route first, and a preflight answered `405 Method
+	// Not Allowed` with no CORS headers at all: the generated router registers
+	// GET, POST, PATCH and DELETE, never OPTIONS, and chi's
+	// method-not-allowed path does not run route-level middleware. So every
+	// browser request carrying an `Authorization` header — which is every
+	// request the console makes — failed at the preflight, before the actual
+	// call was ever attempted.
+	//
+	// Here it runs before anything is matched, so a preflight is answered
+	// rather than routed. It is path-aware and does nothing at all when there
+	// is no `Origin` header, which is every server-to-server call.
+	mux.Use(CORS(deps.Origins, deps.Logger))
+
 	mux.Use(Timeout(cfg.WriteTimeout - time.Second))
 
 	// --- Routes -----------------------------------------------------------
@@ -247,18 +263,11 @@ func New(cfg config.HTTPConfig, deps Deps) *Server {
 		mux.Method(http.MethodGet, "/oauth/authorize", deps.Authorize)
 	}
 	if deps.Token != nil {
-		// `Access-Control-Allow-Origin: *`, no credentials (P1-29).
-		//
-		// A public client runs this exchange from its own origin with `fetch`,
-		// and without a browser-usable policy here it simply cannot sign in —
-		// the authorize step is a navigation and needs nothing, the exchange
-		// is a fetch and needs this. The endpoint gives nothing to a caller
-		// who cannot present a valid code AND its PKCE verifier, and it reads
-		// no cookie, so `*` grants an attacker's page nothing curl did not
-		// already have.
-		mux.Method(http.MethodPost, "/oauth/token", PublicCORS(deps.Token))
-		mux.Method(http.MethodOptions, "/oauth/token", PublicCORS(http.HandlerFunc(
-			func(http.ResponseWriter, *http.Request) {})))
+		// CORS comes from the router-level middleware above, which gives this
+		// path `Access-Control-Allow-Origin: *` with no credentials (P1-29).
+		// A public client runs this exchange from its own origin with `fetch`
+		// and cannot sign in without it.
+		mux.Method(http.MethodPost, "/oauth/token", deps.Token)
 	}
 	if deps.Introspect != nil {
 		mux.Method(http.MethodPost, "/oauth/introspect", deps.Introspect)
@@ -267,16 +276,15 @@ func New(cfg config.HTTPConfig, deps Deps) *Server {
 		mux.Method(http.MethodPost, "/oauth/revoke", deps.Revoke)
 	}
 	if deps.UserInfo != nil {
-		// Per-application, not `*`: this endpoint returns an email address
-		// (P1-29, PG-17). `docs/PLAN/12` calls it "often called on every page
-		// load by consumer SPAs", which is precisely why it needed a policy
-		// and precisely why the policy cannot be a wildcard.
-		userinfo := RestrictedCORS(deps.Origins, deps.Logger)(deps.UserInfo)
-
+		// The router-level middleware gives this path the PER-APPLICATION
+		// policy, not `*`: it returns an email address (P1-29, PG-17).
+		// `docs/PLAN/12` calls it "often called on every page load by consumer
+		// SPAs", which is why it needed a policy and why that policy cannot be
+		// a wildcard.
+		//
 		// OIDC Core 5.3.1 requires both methods.
-		mux.Method(http.MethodGet, "/oauth/userinfo", userinfo)
-		mux.Method(http.MethodPost, "/oauth/userinfo", userinfo)
-		mux.Method(http.MethodOptions, "/oauth/userinfo", userinfo)
+		mux.Method(http.MethodGet, "/oauth/userinfo", deps.UserInfo)
+		mux.Method(http.MethodPost, "/oauth/userinfo", deps.UserInfo)
 	}
 	if deps.Logout != nil {
 		mux.Method(http.MethodGet, "/oidc/logout", deps.Logout)
@@ -357,19 +365,11 @@ func New(cfg config.HTTPConfig, deps Deps) *Server {
 
 	api.HandlerWithOptions(strict, api.ChiServerOptions{
 		BaseRouter: mux,
-		// CORS OUTSIDE the guard, deliberately.
-		//
-		// Middleware here runs outermost-first, so this sees the response the
-		// guard produces as well as the handler's. That matters: a console
-		// whose token has just expired has to be able to READ its own 401 to
-		// know to renew, and a 401 with no CORS headers is a fetch that
-		// rejects with no status at all. See allowed() in cors.go for what is
-		// and is not decided without a verified token.
-		Middlewares: []api.MiddlewareFunc{
-			CORS(deps.Origins, deps.Logger),
-			noStore,
-			guardV1(deps.V1),
-		},
+		// CORS is not here: it is on the main router, above, so that a
+		// preflight is answered before routing rather than meeting a 405. It
+		// still wraps this handler from the outside, which is what lets a
+		// console read its own 401 and know to renew.
+		Middlewares: []api.MiddlewareFunc{noStore, guardV1(deps.V1)},
 
 		// The THIRD error path, and the one that is easy to miss.
 		//

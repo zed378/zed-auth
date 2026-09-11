@@ -29,7 +29,10 @@ ROOT="$PWD"
 COMPOSE="deploy/docker-compose.yml"
 ISSUER="${E2E_AUTH_ISSUER:-http://localhost:8080}"
 MAILPIT="${E2E_MAILPIT_URL:-http://localhost:8025}"
-CONSOLE_URL="${E2E_BASE_URL:-http://127.0.0.1:4173}"
+# `localhost`, not `127.0.0.1`. They are different sites to a browser, and the
+# console's silent renewal is an iframe against the issuer that needs the SSO
+# cookie — which a third-party iframe does not get. See playwright.config.ts.
+CONSOLE_URL="${E2E_BASE_URL:-http://localhost:4173}"
 DEMO_A_URL="${E2E_DEMO_A_URL:-http://localhost:8090}"
 DEMO_B_URL="${E2E_DEMO_B_URL:-http://localhost:8091}"
 
@@ -211,11 +214,27 @@ fi
 # authorization codes are sent (`P1-21` removed exactly that).
 CONSOLE_CLIENT=$(psql_ "SELECT id FROM applications WHERE project_id = '$PROJECT_ID' AND name = 'e2e-console' LIMIT 1")
 if [ -z "$CONSOLE_CLIENT" ]; then
-  CONSOLE_CLIENT=$(psql_ "INSERT INTO applications (project_id, org_id, name, type, redirect_uris, post_logout_redirect_uris, grant_types)
+  # Two post-logout URIs, not one. `window.location.origin` carries no
+  # trailing slash, and these are matched by exact string comparison like every
+  # other URI here — registering only the slashed form produces a sign-out that
+  # refuses with "an address it has not registered".
+  #
+  # `allowed_origins` is the console's own origin (P1-29). Without it every
+  # Management API call fails in the browser with "CORS" and nothing else —
+  # which is the state this whole stack was in until P1-27 pointed a browser
+  # at it.
+  CONSOLE_CLIENT=$(psql_ "INSERT INTO applications (project_id, org_id, name, type, redirect_uris, post_logout_redirect_uris, grant_types, allowed_origins)
     VALUES ('$PROJECT_ID', '$ORG_ID', 'e2e-console', 'spa',
             ARRAY['$CONSOLE_URL/auth/callback', '$CONSOLE_URL/auth/silent'],
-            ARRAY['$CONSOLE_URL/'],
-            ARRAY['authorization_code','refresh_token']) RETURNING id")
+            ARRAY['$CONSOLE_URL', '$CONSOLE_URL/'],
+            ARRAY['authorization_code','refresh_token'],
+            ARRAY['$CONSOLE_URL']) RETURNING id")
+else
+  # An existing row from before P1-29 has no origins. Kept idempotent rather
+  # than requiring a wipe, because "it worked yesterday" is exactly when this
+  # script gets run again.
+  psql_ "UPDATE applications SET allowed_origins = ARRAY['$CONSOLE_URL']
+          WHERE id = '$CONSOLE_CLIENT' AND NOT ('$CONSOLE_URL' = ANY (allowed_origins))" >/dev/null
 fi
 ok "console client $CONSOLE_CLIENT"
 
@@ -298,9 +317,16 @@ fi
 [ -n "$DEMO_A_ID" ] && [ -n "$DEMO_A_SECRET" ] || die "demo A was not registered"
 
 if [ -z "$DEMO_B_ID" ]; then
+  # `allowed_origins` is demo B's own origin. Its browser half exchanges the
+  # authorization code at /oauth/token — which is in the public CORS set and
+  # needs no registration — and then calls its OWN /api/me, which is
+  # same-origin. The registration is here anyway because a consumer team
+  # copying this SPA will call a resource server eventually, and a demo that
+  # omits the field teaches that it is optional.
   DEMO_B_ID=$(api POST "$APPS" "{\"name\":\"e2e-demo-b\",\"type\":\"spa\",
     \"redirect_uris\":[\"$DEMO_B_URL/\"],
     \"post_logout_redirect_uris\":[\"$DEMO_B_URL/\"],
+    \"allowed_origins\":[\"$DEMO_B_URL\"],
     \"grant_types\":[\"authorization_code\"]}" |
     sed -n 's/.*"id":"\([^"]*\)".*/\1/p')
 fi
@@ -314,22 +340,45 @@ say "Starting the demo applications"
 
 # On the host rather than in containers, deliberately. The issuer they are
 # given has to be the one the BROWSER uses, and a container that resolved
-# `localhost:8080` would reach itself. Two `go run`s avoid an entire class of
-# container-networking confusion for a suite whose failures should all be
-# about authentication.
-: > "$PID_FILE"
-(
-  cd demo
-  DEMO_ISSUER="$ISSUER" DEMO_CLIENT_ID="$DEMO_A_ID" DEMO_CLIENT_SECRET="$DEMO_A_SECRET" \
-    DEMO_BASE_URL="$DEMO_A_URL" DEMO_ADDR=":8090" \
-    go run ./webapp >"$ROOT/.e2e-demo-a.log" 2>&1 &
-  echo $! >> "$PID_FILE"
+# `localhost:8080` would reach itself. Two processes on the host avoid an
+# entire class of container-networking confusion in a suite whose failures
+# should all be about authentication.
+#
+# **Built first, then run — not `go run`.**
+#
+# `go run` compiles to a temporary binary and execs it as a CHILD, so the pid
+# this script can record is the wrapper's. Killing that leaves the server
+# holding its port, and the next run starts a demo that cannot bind, exits,
+# and leaves the PREVIOUS one answering with a client_id that no longer
+# exists. The symptom is an authorize request refusing an application that is
+# right there in the database.
+#
+# `pkill -P` was the first fix and does not work here: on Windows the MSYS
+# process tree does not reach the compiled binary. Building removes the
+# wrapper instead of trying to see through it.
+mkdir -p "$ROOT/.e2e-bin"
+(cd demo && go build -o "$ROOT/.e2e-bin/webapp" ./webapp && go build -o "$ROOT/.e2e-bin/spa" ./spa) \
+  || die "the demo applications did not build"
 
-  DEMO_ISSUER="$ISSUER" DEMO_CLIENT_ID="$DEMO_B_ID" \
-    DEMO_BASE_URL="$DEMO_B_URL" DEMO_ADDR=":8091" \
-    go run ./spa >"$ROOT/.e2e-demo-b.log" 2>&1 &
-  echo $! >> "$PID_FILE"
-)
+# Anything still listening is a leftover, and starting on top of it produces a
+# stack that looks right and serves stale configuration.
+for port in 8090 8091; do
+  if curl -sS -o /dev/null --max-time 2 "http://localhost:$port/healthz" 2>/dev/null; then
+    die "something is already listening on $port. Run: bash scripts/e2e-down.sh"
+  fi
+done
+
+: > "$PID_FILE"
+
+DEMO_ISSUER="$ISSUER" DEMO_CLIENT_ID="$DEMO_A_ID" DEMO_CLIENT_SECRET="$DEMO_A_SECRET" \
+  DEMO_BASE_URL="$DEMO_A_URL" DEMO_ADDR=":8090" \
+  "$ROOT/.e2e-bin/webapp" >"$ROOT/.e2e-demo-a.log" 2>&1 &
+echo $! >> "$PID_FILE"
+
+DEMO_ISSUER="$ISSUER" DEMO_CLIENT_ID="$DEMO_B_ID" \
+  DEMO_BASE_URL="$DEMO_B_URL" DEMO_ADDR=":8091" \
+  "$ROOT/.e2e-bin/spa" >"$ROOT/.e2e-demo-b.log" 2>&1 &
+echo $! >> "$PID_FILE"
 
 for url in "$DEMO_A_URL" "$DEMO_B_URL"; do
   for _ in $(seq 1 45); do
@@ -337,7 +386,7 @@ for url in "$DEMO_A_URL" "$DEMO_B_URL"; do
     sleep 1
   done
   [ "$(curl -sS -o /dev/null -w '%{http_code}' "$url/healthz" 2>/dev/null)" = "200" ] \
-    || die "$url never became healthy — see .e2e-demo-*.log"
+    || die "$url never became healthy — see .e2e-demo-a.log and .e2e-demo-b.log"
   ok "$url is healthy"
 done
 
@@ -365,6 +414,13 @@ export E2E_CONSOLE_CLIENT_ID="$CONSOLE_CLIENT"
 export E2E_BOOTSTRAP_REFRESH_TOKEN="$REFRESH"
 export E2E_MAILPIT_URL="$MAILPIT"
 export E2E_BASE_URL="$CONSOLE_URL"
+# The bootstrap administrator, for the few tests that need a manager role.
+#
+# There is no API that assigns one — `manager_roles` is `P2`'s — so this
+# account is seeded by SQL like the rest of the bootstrap (`PG-26`), and the
+# suite is handed its credentials rather than a way to mint more.
+export E2E_ADMIN_EMAIL="$ADMIN_EMAIL"
+export E2E_ADMIN_PASSWORD="$ADMIN_PASSWORD"
 export E2E_DEMO_A_URL="$DEMO_A_URL"
 export E2E_DEMO_B_URL="$DEMO_B_URL"
 EOF

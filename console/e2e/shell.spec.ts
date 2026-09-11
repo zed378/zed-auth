@@ -1,4 +1,5 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
+import type { Page } from "@playwright/test";
 
 /**
  * The E2E layer's example test — `docs/PLAN/11`'s pyramid, top tier.
@@ -13,7 +14,23 @@ import { expect, test } from "@playwright/test";
  * were once all defined, correctly named, and generating no CSS at all —
  * every jsdom test passed throughout, because jsdom does not apply
  * stylesheets. This layer is where that class of failure becomes visible.
+ *
+ * **The two navigation tests now sign in first.** They were written at `P0-17`
+ * against a console that had no authentication, so they clicked straight into
+ * screens that did not yet require any. `P1-21` gave the console a sign-in and
+ * nothing re-ran these until `P1-27` — at which point they were asserting a
+ * heading on a page that correctly says "Sign in". The shell itself renders
+ * either way, which is why the first two tests still need no session.
  */
+
+async function signIn(page: Page, user: { email: string; password: string }): Promise<void> {
+  await page.goto("/");
+  await page.getByRole("button", { name: /continue to sign in/i }).click();
+  await page.getByLabel(/email/i).fill(user.email);
+  await page.getByLabel(/password/i).fill(user.password);
+  await page.getByRole("button", { name: /sign in/i }).click();
+  await expect(page.getByRole("button", { name: /sign out/i })).toBeVisible();
+}
 
 test.describe("the console shell", () => {
   test("renders, and lets a keyboard user skip to the content", async ({ page }) => {
@@ -54,8 +71,11 @@ test.describe("the console shell", () => {
     expect(accent).toBeTruthy();
   });
 
-  test("navigates between destinations without a full page load", async ({ page }) => {
-    await page.goto("/");
+  test("navigates between destinations without a full page load", async ({ page, admin }) => {
+    // The ADMINISTRATOR, because Users is role-gated and an ordinary user is
+    // correctly refused. `login.spec.ts` asserts that refusal directly; this
+    // test is about routing, and it needs to reach a screen to observe any.
+    await signIn(page, admin);
 
     await page.getByRole("navigation").getByText("Users", { exact: true }).click();
 
@@ -65,7 +85,9 @@ test.describe("the console shell", () => {
     );
   });
 
-  test("a deep link loads directly", async ({ page }) => {
+  test("a deep link loads directly", async ({ page, admin }) => {
+    await signIn(page, admin);
+
     // The bug this catches shipped once: a static host serves /projects as a
     // file, does not find one, and returns 404 — so the application that would
     // have routed it never loads. It works while clicking around inside the

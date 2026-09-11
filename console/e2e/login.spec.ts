@@ -23,8 +23,19 @@ test.describe("the console logs in like any other client", () => {
     // has lost what they were doing (docs/UI-UX/14).
     await page.goto("/audit-log");
 
-    // The hosted login page, served by the identity provider rather than by
-    // the console — and on the provider's own path.
+    // The console's own sign-in page first, with an explicit button.
+    //
+    // Not a redirect. This test asserted one until `P1-27` first ran it
+    // against a real service — it was written in `P1-21` when nothing could
+    // execute it — and the console's actual behaviour is better: a deep link
+    // that silently throws the browser at another origin is a navigation
+    // nobody asked for, and it is indistinguishable from a redirect loop when
+    // it goes wrong.
+    await expect(page.getByRole("heading", { name: /^sign in$/i })).toBeVisible();
+    await page.getByRole("button", { name: /continue to sign in/i }).click();
+
+    // NOW the hosted login page, served by the identity provider rather than
+    // by the console — and on the provider's own path.
     await expect(page.getByRole("heading", { name: /sign in to/i })).toBeVisible();
     expect(new URL(page.url()).pathname).toBe("/login");
 
@@ -78,6 +89,14 @@ test.describe("the console logs in like any other client", () => {
 
     await page.getByRole("button", { name: /sign out/i }).click();
 
+    // The provider's confirmation interstitial (`P1-10`). RP-initiated logout
+    // without an `id_token_hint` must not end a session on a bare GET — any
+    // page anywhere could then sign a user out of everything with an <img>
+    // tag — so the user confirms. The console sends no hint because it keeps
+    // no ID token (ADR-019 keeps only the access token, in memory).
+    await expect(page.getByRole("heading", { name: /sign out/i })).toBeVisible();
+    await page.getByRole("button", { name: /sign out/i }).click();
+
     // Back at the console with no session: the silent renewal now fails with
     // login_required, so the sign-in prompt appears — not a blank screen, and
     // not a signed-in shell whose every data call 401s.
@@ -91,22 +110,41 @@ test.describe("the console logs in like any other client", () => {
   });
 });
 
-test.describe("a route the claims do not permit", () => {
-  test("is unreachable by typing its URL", async ({ page, user }) => {
+test.describe("a screen the caller is not permitted", () => {
+  test("refuses because the API refuses, not because the UI guessed", async ({ page, user }) => {
     await signIn(page, user);
 
     // The seeded user holds no manager role: `P1-19` creates users with none,
-    // and granting them is `P2`'s. So every role-gated screen must refuse —
-    // by URL, which is what docs/UI-UX/08 asks for over merely hiding the nav
-    // item.
-    await page.goto("/policies");
+    // and granting them is `P2`'s.
+    //
+    // **This asserts the refusal comes from the service.** It used to assert
+    // that the console blocked the route from its own token claims — which it
+    // did, for everybody, because the service issues no role claim yet and the
+    // console read "absent" as "none". `P1-27` found that the first time the
+    // console ran in a browser, and `hasRole` now defers when the token says
+    // nothing.
+    //
+    // Deferring is also the right default: `CLAUDE.md` puts enforcement
+    // server-side and permits the console to hide controls only "for UX
+    // purposes". Showing a screen the API refuses costs one clear message.
+    // Hiding a screen the API would have allowed removes a capability from
+    // someone entitled to it, silently.
+    await page.goto("/users");
 
     await expect(page.getByText(/do not have access/i)).toBeVisible();
+
+    // And the reason is a real 403, not a client-side guess: the same user
+    // reaches a screen that needs no privilege.
+    await page.goto("/settings");
+    await expect(page.getByText(/do not have access/i)).not.toBeVisible();
   });
 });
 
 async function signIn(page: Page, user: { email: string; password: string }): Promise<void> {
   await page.goto("/");
+  // The console's own sign-in page, then the provider's. See the first test
+  // for why the console does not redirect on its own.
+  await page.getByRole("button", { name: /continue to sign in/i }).click();
   await signInOnHostedPage(page, user);
   await expect(page.getByRole("button", { name: /sign out/i })).toBeVisible();
 }

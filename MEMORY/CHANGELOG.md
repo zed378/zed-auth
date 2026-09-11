@@ -67,6 +67,26 @@ Format follows Keep a Changelog conventions, grouped by release once releases ex
 
 ### 2026-09-11
 
+**Added** — an end-to-end environment, and a cross-origin policy ([P1-27](./records/2026-09-11-P1-27-test-suite.md), [P1-29](./records/2026-09-11-P1-29-cors.md), [ADR-020](./DECISIONS.md))
+- `scripts/e2e-up.sh` brings up everything the browser suite needs in one command — stack, migrations, a signing key, the bootstrap, both demo applications registered through the API, and the console built against the client it just created. CI runs the same command. (`P1-27`)
+- Twelve end-to-end tests, all passing in a real browser: sign-in, silent renewal, sign-out genuinely ending the session, an API-driven permission refusal, single sign-on across the two demo applications, and application B refusing a token minted for another. (`P1-27`)
+- `FuzzVerify` over the token parser — 944,501 executions, no crash, nothing forged accepted. (`P1-27`)
+- `TestTheWholeFlowFitsTogether` — organization → project → application → user → sign-in → token claims, in one integration test, because every stage had a test and nothing asserted they fit. (`P1-27`)
+- **Cross-origin access**, split by what an endpoint is: a wildcard with no credentials on the discovery documents and the token endpoint, a per-application `allowed_origins` allowlist on everything that returns personal data, and no headers anywhere else. Closes `PG-17`. (`P1-29`)
+
+**Fixed** — four production bugs, all found in the first hour a browser was pointed at the service
+- **The hosted login page could not log anyone in, in any Chromium browser.** `form-action 'self'`, and Chrome enforces `form-action` against the redirect chain a submission produces — so the POST was allowed, the 302 to the registered redirect URI was not. The logout interstitial had it too. (`P1-27`)
+- **No public client could complete a login**, and the console could not make a single API call. (`P1-29`)
+- **Every role-gated console screen refused everybody**, including an organization owner. The console gates on a `roles` claim the service does not issue until `P2-04`, and read "absent" as "none". Those are different answers; `hasRole` now defers to the API when the token says nothing, which is also the right default — `CLAUDE.md` puts enforcement server-side, and hiding a screen the API would have allowed removes a capability silently. (`P1-27`)
+- **Every preflight answered 405.** CORS was route-level middleware, and chi's method-not-allowed path does not run it. (`P1-29`)
+
+**Found**
+- **`alg: none` is refused by go-jose, not by our allowlist.** Reverting `allowedAlgorithms` to include `none` and `HS256` left every test green: the library refuses an unsigned JWS on its own and an HMAC algorithm against an RSA key set. The protection is real, doubly held and invisible through `Verify` — so the test named for it was passing for another reason. The allowlist is now asserted directly. (`P1-27`)
+- Six security controls reverted in turn, six red builds — `P1-27`'s DoD asked for one. (`P1-27`)
+- **The abuse-case coverage map had been stale for three tasks**, listing features that had shipped as "not yet testable" while the tests covering them existed. A checklist only read when it is written is a document about the past. (`P1-27`)
+- The local stack could not issue a token: no signing key, and nowhere to put one. `keyctl` now ships in the image so the tool and the service agree on the path by construction, replacing a runbook procedure that had already gone wrong once. (`P1-27`)
+- `127.0.0.1` and `localhost` are different sites, so the console's silent-renewal iframe never received the SSO cookie. ADR-019 assumed same-site and did not say so. (`P1-27`)
+
 **Added** — the public quickstart, executed rather than written ([record](./records/2026-09-11-P1-25-public-docs.md))
 - `/docs/quickstart` replaces `P0-19`'s placeholder: register an application, run Authorization Code with PKCE, verify the ID token **locally**, call the API. Every command was run against `https://auth.zedth.my.id`, in order, from a clean shell. (`P1-25`)
 - `/changelog/phase-1-sso-and-the-management-api`, with a **Known limits** section. A release note listing only additions is a sales page. (`P1-25`)

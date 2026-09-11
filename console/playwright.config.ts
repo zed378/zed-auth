@@ -57,16 +57,26 @@ export default defineConfig({
   // passes against `vite dev` and has never seen the built bundle is testing
   // something nobody deploys.
   webServer: {
-    // `--host 127.0.0.1` explicitly.
+    // Bound on every interface, addressed as `localhost`.
+    //
+    // Two separate lessons are encoded here and they pull in opposite
+    // directions.
     //
     // Vite's preview server binds `localhost`, which on this machine resolves
-    // to ::1 first, while the readiness probe below dials 127.0.0.1 — so
-    // Playwright waits two minutes for a server that started immediately and
-    // is answering on the other address family. The nginx healthcheck for the
-    // console preview hit the same thing an hour earlier; naming the address
-    // on both sides is the fix in both places.
-    command: "npm run preview -- --host 127.0.0.1 --port 4173 --strictPort",
-    url: "http://127.0.0.1:4173",
+    // to ::1 first, while a probe dialling 127.0.0.1 waits two minutes for a
+    // server that started immediately and is answering on the other address
+    // family. So the bind is explicit.
+    //
+    // But the ADDRESS has to be `localhost`, not `127.0.0.1`, because those
+    // are different SITES to a browser. The console's silent renewal runs
+    // `prompt=none` in an iframe against the issuer, and a third-party iframe
+    // does not receive a `SameSite=Lax` session cookie — so a console at
+    // `127.0.0.1:4173` talking to an issuer at `localhost:8080` can never
+    // renew, and the suite reports a broken console when what is broken is
+    // the test environment. Deployed, both live under one registrable domain
+    // and are same-site (ADR-019 assumed as much and did not say so).
+    command: "npm run preview -- --host 0.0.0.0 --port 4173 --strictPort",
+    url: "http://localhost:4173",
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
   },
