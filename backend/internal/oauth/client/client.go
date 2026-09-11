@@ -161,6 +161,86 @@ func ValidateGrantTypes(t Type, grants []string) error {
 
 // --- redirect URIs ----------------------------------------------------------
 
+// ValidateAllowedOrigin checks one entry of an application's allowed origins.
+//
+// An origin, and only an origin: `scheme://host[:port]`. No path, no query, no
+// fragment, no trailing slash — because that is exactly what a browser puts in
+// an `Origin` header, and the comparison at request time is an exact string
+// match against it. Storing anything else guarantees a value that can never
+// match, which the registrant discovers as "CORS does not work" with nothing
+// pointing at the extra slash they typed.
+//
+// The scheme rule is the redirect URI's rule and for the same reason: a token
+// readable by a page served over cleartext is a token on the wire in
+// cleartext. Loopback is exempt so local development works.
+//
+// **This is the control that keeps one tenant's origin from reading another
+// tenant's data** (`PG-17`). It is per application rather than instance-wide
+// precisely so that an origin registered by one organization cannot read
+// responses obtained with another organization's tokens.
+func ValidateAllowedOrigin(raw string) (string, error) {
+	if strings.TrimSpace(raw) == "" {
+		return "", invalid("allowed origin is empty")
+	}
+	if raw != strings.TrimSpace(raw) {
+		return "", invalid("allowed origin %q has leading or trailing whitespace", raw)
+	}
+
+	// Before parsing, like the wildcard check on redirect URIs — and here the
+	// stakes are higher, because a reader could plausibly expect
+	// `https://*.example.com` to work. It does not, anywhere: `Origin` is a
+	// single concrete origin and the match is exact.
+	if strings.Contains(raw, "*") {
+		return "", invalid(
+			"allowed origin %q contains a wildcard. An Origin header carries one "+
+				"concrete origin and the comparison is exact, so a wildcard would never "+
+				"match. Register each origin in full", raw)
+	}
+
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return "", invalid("allowed origin %q is not a valid URI: %w", raw, err)
+	}
+	if parsed.Host == "" {
+		return "", invalid(
+			"allowed origin %q has no host; an origin is scheme://host[:port]", raw)
+	}
+	if parsed.Path != "" || parsed.RawQuery != "" || parsed.Fragment != "" || strings.Contains(raw, "#") {
+		return "", invalid(
+			"allowed origin %q carries a path, query or fragment. An Origin header is "+
+				"scheme://host[:port] and nothing else, so anything more can never match", raw)
+	}
+	if parsed.User != nil {
+		return "", invalid("allowed origin %q carries credentials", raw)
+	}
+
+	scheme := strings.ToLower(parsed.Scheme)
+	switch scheme {
+	case "https":
+		// The normal case.
+	case "http":
+		if !isLoopback(parsed.Hostname()) {
+			return "", invalid(
+				"allowed origin %q uses http. A response readable by a page served over "+
+					"cleartext is a response on the wire in cleartext. Use https, or a "+
+					"loopback address (127.0.0.1, [::1], localhost) for local development", raw)
+		}
+	default:
+		// Deliberately narrower than redirect URIs. A custom scheme is how a
+		// native client receives a redirect; it is never an origin a browser
+		// sends, and `null` — what a sandboxed or file:// document sends —
+		// must never be registrable.
+		return "", invalid(
+			"allowed origin %q uses the scheme %q. Only http (loopback) and https can "+
+				"be origins a browser sends", raw, scheme)
+	}
+
+	// Lowercased scheme and host, port kept as written. Same canonical form as
+	// a redirect URI, and the same reason: normalise once at registration,
+	// compare exactly forever after.
+	return scheme + "://" + strings.ToLower(parsed.Host), nil
+}
+
 // ValidateRedirectURI checks a URI at REGISTRATION time.
 //
 // This is the permissive end of the system and it is where every check
@@ -307,6 +387,16 @@ type Application struct {
 	RedirectURIs           []string
 	PostLogoutRedirectURIs []string
 	GrantTypes             []string
+
+	// AllowedOrigins are the browser origins that may READ a response
+	// obtained with this application's tokens (`P1-29`, `PG-17`).
+	//
+	// Empty by default, which means no cross-origin browser access at all —
+	// the safe state, and the one every application starts in. It is a
+	// separate list from RedirectURIs because the two answer different
+	// questions: where a code may be delivered, and who may read a response.
+	// An application can legitimately have one and not the other.
+	AllowedOrigins []string
 }
 
 // MatchesRedirectURI reports whether the presented URI is registered.
@@ -350,6 +440,29 @@ func (a Application) MatchesPostLogoutRedirectURI(presented string) bool {
 	return false
 }
 
+// MatchesOrigin reports whether a browser origin may read this application's
+// responses.
+//
+// Exact string comparison against the stored canonical form, like every other
+// matcher here. An empty list matches nothing, which is what makes "no CORS"
+// the default rather than a configuration anyone has to remember.
+//
+// The presented value comes from the browser's `Origin` header, which the
+// browser sets and a page cannot forge. That is the only reason this is a
+// control at all — and the reason it protects nothing against a non-browser
+// caller, which is fine: curl was never subject to it and never needed to be.
+func (a Application) MatchesOrigin(presented string) bool {
+	if presented == "" {
+		return false
+	}
+	for _, origin := range a.AllowedOrigins {
+		if origin == presented {
+			return true
+		}
+	}
+	return false
+}
+
 // Validate checks an application as a whole, at registration.
 func (a Application) Validate() error {
 	if !a.Type.Valid() {
@@ -370,6 +483,11 @@ func (a Application) Validate() error {
 	for _, uri := range a.PostLogoutRedirectURIs {
 		if _, err := ValidateRedirectURI(uri, a.Type); err != nil {
 			return invalid("post-logout %w", err)
+		}
+	}
+	for _, origin := range a.AllowedOrigins {
+		if _, err := ValidateAllowedOrigin(origin); err != nil {
+			return err
 		}
 	}
 

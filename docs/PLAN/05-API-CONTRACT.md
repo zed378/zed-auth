@@ -161,6 +161,52 @@ Full authorization semantics (RBAC roles, Project Grants, ABAC policies) are doc
 - `POST` endpoints support an `Idempotency-Key` header to make automated provisioning retries safe.
 - Webhooks (later phase) for `user.created`, `user.deleted`, `role.assigned`, `role.revoked`, `login.success`, `login.failed`.
 
+### Cross-Origin Access (CORS)
+
+Added 2026-09-11 by `P1-29`, closing `PG-17`. Decision and alternatives: ADR-020.
+
+A browser client cannot use this API without an origin policy, and a single
+policy is wrong for one half of it. There are two, chosen by what the endpoint
+is rather than by who is asking:
+
+| Endpoint | Policy | Credentials |
+|---|---|---|
+| `/.well-known/*`, `POST /oauth/token` | `Access-Control-Allow-Origin: *` | Never |
+| `GET|POST /oauth/userinfo`, `/v1/*` | The calling application's `allowed_origins` | Never |
+| Everything else | No CORS headers at all | — |
+
+**The public set is public by construction.** The token endpoint gives nothing
+to a caller who cannot present a valid authorization code *and* the PKCE
+verifier that produced its challenge, and it reads no cookie. The discovery
+documents are published. A page reading either learns nothing it could not
+learn with `curl`. Without this, no public client can complete a login: the
+authorize step is a navigation and needs nothing, the code exchange is a
+`fetch` and needs this.
+
+**An endpoint joins that set only if both halves hold** — its content is
+public, *and* it is never authenticated by anything a browser attaches on its
+own. Adding one is a change to a written list, reviewed as such.
+
+**Everything else is per application.** `allowed_origins` on `applications` is
+the registration: exact origin (`scheme://host[:port]`, no path, no wildcard),
+`https` outside loopback, empty by default. Matched against the `Origin`
+header by exact string comparison, the same discipline `redirect_uris` lives
+by. Per application rather than instance-wide, so an origin one organization
+registers cannot read another organization's data.
+
+**Credentials are never allowed, anywhere.** Not on the public set, where the
+wildcard forbids it, and not on the restricted set either — those endpoints
+authenticate a bearer token and read no cookie, so permitting credentials
+would create ambient authority for no purpose.
+
+**A preflight is answered against every application's origins**, not one: it
+carries no credential, so the specific application cannot be known yet. The
+request that follows is checked against that application's own list.
+
+**This is not an authorization check.** A refused origin does not refuse the
+request — the handler runs and the browser declines to hand the body to the
+page. What decides whether a request is permitted is the bearer check.
+
 ### Documentation
 
 OpenAPI 3.x specification kept in sync with the implementation (generated from code or validated in CI), with a Swagger UI/Redoc explorer for internal developers.

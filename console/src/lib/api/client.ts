@@ -56,10 +56,20 @@ export const api = createClient<paths>({
   // installed.
   fetch: (request) => globalThis.fetch(request),
 
-  // The console authenticates as an ordinary OIDC client (docs/PLAN/06 § Why the
-  // Console Must Log In Through the Same OIDC Flow), so it carries an SSO
-  // session cookie for the silent-authentication redirect.
-  credentials: "include",
+  // **No credentials on API calls** (P1-29).
+  //
+  // The console authenticates as an ordinary OIDC client (docs/PLAN/06 § Why
+  // the Console Must Log In Through the Same OIDC Flow), and the SSO session
+  // cookie that flow depends on belongs to the silent-authentication redirect
+  // — which is a NAVIGATION in a hidden iframe, not a fetch, and carries its
+  // cookies regardless of what this client says.
+  //
+  // These calls are authenticated by a bearer token and nothing else. `/v1/*`
+  // never reads a cookie, so sending one would be ambient authority created
+  // for no purpose — and it would force the service to answer
+  // `Access-Control-Allow-Credentials: true`, which is a larger claim than
+  // this API needs to make about any origin.
+  credentials: "omit",
 });
 
 /**

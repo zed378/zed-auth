@@ -104,8 +104,28 @@ const (
 // identifiers for one thing is how a console shows the wrong one
 // (`docs/PLAN/04` § applications).
 type Application struct {
-	CreatedAt  time.Time `json:"created_at"`
-	GrantTypes []string  `json:"grant_types"`
+	// AllowedOrigins Browser origins permitted to **read** a response obtained with this
+	// application's tokens — `scheme://host[:port]`, nothing more.
+	//
+	// Empty by default, which means no cross-origin browser access at
+	// all. A native or server-side client needs none; a single-page
+	// application needs its own origin here or every `fetch` it makes to
+	// `/v1/*` and `/oauth/userinfo` fails in the browser.
+	//
+	// Matched against the `Origin` header by **exact string
+	// comparison**, so a trailing slash or a path makes an entry that can
+	// never match. `https` only, except for loopback addresses.
+	//
+	// Per application rather than instance-wide, deliberately: an origin
+	// one organization registers must not be able to read another
+	// organization's data.
+	//
+	// `/oauth/token` and the discovery documents are NOT governed by this
+	// — they answer any origin, because they are public and are never
+	// authenticated by anything a browser attaches on its own.
+	AllowedOrigins []string  `json:"allowed_origins"`
+	CreatedAt      time.Time `json:"created_at"`
+	GrantTypes     []string  `json:"grant_types"`
 
 	// HasSecret Whether a client secret is configured. A boolean, never the secret
 	// and never its hash — it answers the only question a reader
@@ -186,6 +206,11 @@ type Application struct {
 
 // ApplicationCreate There is no `project_id` or `org_id` here — both come from the path.
 type ApplicationCreate struct {
+	// AllowedOrigins Browser origins permitted to read responses obtained with this
+	// application's tokens. Empty by default, which means none — see
+	// `Application.allowed_origins`.
+	AllowedOrigins *[]string `json:"allowed_origins,omitempty"`
+
 	// GrantTypes Defaults to `["authorization_code", "refresh_token"]`. `implicit`
 	// and `password` are refused for every type: both hand credentials or
 	// tokens to places that cannot protect them, and OAuth 2.1 removes
@@ -207,6 +232,27 @@ type ApplicationCreate struct {
 
 // ApplicationCreated defines model for ApplicationCreated.
 type ApplicationCreated struct {
+	// AllowedOrigins Browser origins permitted to **read** a response obtained with this
+	// application's tokens — `scheme://host[:port]`, nothing more.
+	//
+	// Empty by default, which means no cross-origin browser access at
+	// all. A native or server-side client needs none; a single-page
+	// application needs its own origin here or every `fetch` it makes to
+	// `/v1/*` and `/oauth/userinfo` fails in the browser.
+	//
+	// Matched against the `Origin` header by **exact string
+	// comparison**, so a trailing slash or a path makes an entry that can
+	// never match. `https` only, except for loopback addresses.
+	//
+	// Per application rather than instance-wide, deliberately: an origin
+	// one organization registers must not be able to read another
+	// organization's data.
+	//
+	// `/oauth/token` and the discovery documents are NOT governed by this
+	// — they answer any origin, because they are public and are never
+	// authenticated by anything a browser attaches on its own.
+	AllowedOrigins []string `json:"allowed_origins"`
+
 	// ClientSecret **The only time this value exists outside the service.** It is
 	// stored as a hash and cannot be recovered — an application whose
 	// secret is lost is rotated, not recalled.
@@ -320,6 +366,10 @@ type ApplicationType string
 // rather than ignored — silently dropping it would let a caller believe
 // a reclassification happened.
 type ApplicationUpdate struct {
+	// AllowedOrigins Browser origins permitted to read responses obtained with this
+	// application's tokens. Empty by default, which means none — see
+	// `Application.allowed_origins`.
+	AllowedOrigins         *[]string `json:"allowed_origins,omitempty"`
 	GrantTypes             *[]string `json:"grant_types,omitempty"`
 	Name                   *string   `json:"name,omitempty"`
 	PostLogoutRedirectUris *[]string `json:"post_logout_redirect_uris,omitempty"`
