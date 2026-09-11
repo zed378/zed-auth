@@ -167,10 +167,14 @@ The correct policy keys on the current **user**, not the current organization, w
 
 **Do not let this expire quietly.** `P2-05` cannot be marked done while this is open.
 
-### DV-03 — The demo applications have no public hostnames yet
+### DV-03 — The demo applications have no public hostnames yet — **RESOLVED 2026-09-11**
 
 **Affects**: `P1-26`'s last two DoD items, `P1-27`'s SSO E2E test, and the Phase 1 exit checklist's first two lines.
-**Status**: Open — a handoff, not an engineering gap. Needs Zed.
+**Status**: Closed. Zed added the two Cloudflare tunnel records; both hostnames answer.
+
+Verified end to end through the public names — `scratchpad/p126-public.sh`, 15 assertions, 0 failures. Every hop is a real DNS name over real TLS through the tunnel: `demo-a.zedth.my.id` redirects to the issuer, the issuer asks for a password once, the browser comes back to demo A, and `demo-b.zedth.my.id` then obtains a code **with no second login**. Demo B refuses a token minted for demo A, naming the audience.
+
+No redeploy was needed, as predicted: the containers already held those hostnames as their base URLs.
 
 Both demo applications are deployed, healthy and verified on the staging VM at `127.0.0.1:10940` and `127.0.0.1:10941`. Their registered redirect URIs and their own `DEMO_BASE_URL` say `https://demo-a.zedth.my.id` and `https://demo-b.zedth.my.id`.
 

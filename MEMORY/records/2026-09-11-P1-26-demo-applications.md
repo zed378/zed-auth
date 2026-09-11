@@ -110,6 +110,14 @@ This is the same defect class as `P1-19`'s trap-armed-too-late: **a cleanup that
 
 No refresh handling, no back-channel logout receiver, and sessions live in a map that a restart clears. The point is the token handling, and every line that is not about token handling is a line making the reference harder to read. `demo/README.md` says so explicitly, so nobody copies these expecting a framework.
 
-## Left for somebody else
+## Closed the same day: the public hostnames
+
+Zed added the two Cloudflare tunnel records on 2026-09-11, and `scratchpad/p126-public.sh` re-ran the proof through them: **15 assertions, 0 failures**, every hop a real DNS name over real TLS. `demo-a.zedth.my.id` redirects to the issuer, one password is typed, and `demo-b.zedth.my.id` then obtains a code with no second login. Demo B refuses a token minted for demo A, naming the audience.
+
+No redeploy was needed, exactly as the note below predicted — which is the useful part of having written it down.
+
+The original note is kept as it stood:
+
+---
 
 **The public hostnames.** `demo-a.zedth.my.id` and `demo-b.zedth.my.id` are registered as the applications' redirect URIs and are what the containers believe their base URLs to be, but the tunnel maps hostnames to ports in the Cloudflare dashboard, which this session cannot reach. Both are running and verified on loopback; they become publicly reachable the moment those two records exist. Until then the browser flow cannot be walked by hand, because the issuer's redirect goes to a name that does not yet resolve.
