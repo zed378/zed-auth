@@ -360,11 +360,25 @@ mkdir -p "$ROOT/.e2e-bin"
 (cd demo && go build -o "$ROOT/.e2e-bin/webapp" ./webapp && go build -o "$ROOT/.e2e-bin/spa" ./spa) \
   || die "the demo applications did not build"
 
-# Anything still listening is a leftover, and starting on top of it produces a
+# Stop the demos this script started last time, if any.
+#
+# The script promises to be idempotent, and it was not: the guard below refused
+# to start while the PREVIOUS run's demos were still up, so a second run —
+# which is exactly what you do after changing the console — died before
+# rebuilding anything and left the old bundle in place. Stopping our own first
+# is what makes the promise true.
+if [ -f "$PID_FILE" ]; then
+  while read -r pid; do
+    [ -n "$pid" ] && kill "$pid" 2>/dev/null
+  done < "$PID_FILE"
+  sleep 1
+fi
+
+# Anything STILL listening is not ours, and starting on top of it produces a
 # stack that looks right and serves stale configuration.
 for port in 8090 8091; do
   if curl -sS -o /dev/null --max-time 2 "http://localhost:$port/healthz" 2>/dev/null; then
-    die "something is already listening on $port. Run: bash scripts/e2e-down.sh"
+    die "something not started by this script is listening on $port. Run: bash scripts/e2e-down.sh"
   fi
 done
 
