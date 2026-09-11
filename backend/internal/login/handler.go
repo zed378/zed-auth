@@ -315,6 +315,11 @@ func (h *Handler) page(ctx context.Context, pending authorize.Pending, id string
 		StyleHash:  hash,
 		RequestID:  id,
 		ForgotPath: ForgotPath + "?request=" + url.QueryEscape(id),
+		// Where this sign-in ends, for the Content-Security-Policy. The URI
+		// was matched against the registration by exact string comparison in
+		// P1-06 before this request was ever stored, so it is a registered
+		// value rather than anything the caller chose.
+		RedirectOrigin: originOf(pending.Request.RedirectURI),
 	}, nil
 }
 

@@ -16,24 +16,76 @@
 //
 // # Coverage against docs/PLAN/11 § Security Testing
 //
+// Re-audited at `P1-27`. Four rows moved out of "not yet testable" because the
+// features arrived; each now names the test that covers it, and each of those
+// was read to confirm it asserts the abuse case rather than the happy path.
+//
 //	Row-level security prevents cross-org leaks, independent of
 //	  application-layer filtering .......................... TestCrossTenantReadsAreEmpty
 //	                                                         TestUnfilteredQueryCannotSeeAnotherTenant
 //	The runtime role cannot bypass RLS ..................... TestRuntimeRoleCannotBypassRLS
 //	The audit log is append-only .......................... TestAuditLogCannotBeAltered
+//
 //	User enumeration by login timing ...................... internal/authn:
 //	                                                         TestNonexistentUserCostsTheSameAsARealOne
 //	                                                         (lives there because it needs the package's
 //	                                                          own cost parameters; verified to fail when
 //	                                                          the not-found path short-circuits)
 //
+//	Token with the wrong `aud` is rejected ................ internal/management:
+//	                                                         TestATokenForAnotherAudienceCannotAdminister
+//	                                                        internal/oauth/userinfo: handler_test.go
+//	                                                        demo/internal/verify:
+//	                                                         TestATokenMintedForTheOtherApplicationIsRefused
+//	                                                        console/e2e/sso.spec.ts (in a browser,
+//	                                                         against a real token from a real issuer)
+//
+//	Non-exact `redirect_uri` is rejected .................. internal/oauth/client:
+//	                                                         TestRedirectURIMatchingIsExact
+//	                                                         TestPostLogoutRedirectMatchingIsSeparateAndExact
+//	                                                         TestValidateRedirectURIRejects
+//	                                                        internal/oauth/authorize:
+//	                                                         TestPhase1FailuresNeverRedirect
+//
+//	Rate limiting triggers under brute force .............. internal/login:
+//	                                                         TestASimulatedBruteForceIsBlocked
+//	                                                         TestALockedAccountIsIndistinguishableFromAWrongPassword
+//	                                                         TestALockoutIsWrittenToTheAuditLog
+//
+//	An ID token presented as an access token is refused ... internal/signing: Verify's `typ`
+//	                                                        demo/internal/verify:
+//	                                                         TestAnAccessTokenIsNotAcceptedWhereAnIDTokenBelongs
+//
+//	`alg: none` and algorithm confusion ................... internal/signing:
+//	                                                         TestAlgNoneIsRejected, FuzzVerify
+//	                                                        demo/internal/verify:
+//	                                                         TestTheHeaderCannotChooseTheAlgorithm
+//
+//	A token parser that panics or forges .................. internal/signing: FuzzVerify
+//	                                                         (944k executions at P1-27, no crash and
+//	                                                          nothing unsigned accepted)
+//
+//	One tenant's browser origin cannot read another's
+//	  data (P1-29, PG-17) ................................. internal/httpserver:
+//	                                                         TestOnlyAnOriginTheApplicationRegisteredMayReadItsData
+//	                                                         TestForgingTheClientIdDoesNotWidenWhatAnOriginMayRead
+//
+//	The hosted login page cannot post credentials
+//	  anywhere but this service ........................... internal/login:
+//	                                                         TestTheFormMayFollowItsRedirectToTheRegisteredOrigin
+//	                                                         (and console/e2e, which is what found the
+//	                                                          policy that blocked every sign-in)
+//
 //	Not yet testable — the feature does not exist:
-//	  Token with wrong `aud` rejected ...................... P1-07
-//	  Non-exact-match `redirect_uri` rejected .............. P1-06
-//	  Rotated refresh token cannot be reused ............... P3-02
-//	  Rate limiting triggers under brute force ............. P1-13
+//	  Rotated refresh token cannot be reused ............... P3-06
 //	  Receiving org cannot assign a role outside its grant .. P4-01
 //	  Revoked Project Grant invalidates access immediately .. P4-01
+//
+// **What this map cannot do** is notice a Phase 1 abuse case nobody wrote
+// down. It was stale for three tasks before `P1-27` re-read it: three rows
+// said "not yet testable" against features that had shipped, and the tests
+// covering them existed. A checklist that is only read when it is written is a
+// document about the past.
 package security
 
 import (

@@ -1124,7 +1124,7 @@ Also found: `session_id` was in the logger's redaction list — correct when the
 
 | | |
 |---|---|
-| **Status** | TODO |
+| **Status** | DONE — [record](../MEMORY/records/2026-09-11-P1-27-test-suite.md). Built the end-to-end environment and found **four production bugs in its first hour**, each of which had passed every other layer — because every other layer drives the service with `curl`, which enforces no browser rules. One of them became [`P1-29`](#p1-29--cross-origin-access-policy). |
 | **Depends on** | all Phase 1 implementation tasks |
 | **Plan refs** | `docs/PLAN/11-TESTING.md` (all), `docs/PLAN/10-THREAT-MODEL.md` § High-Priority Abuse Scenarios, `docs/SECURITY/05-VERIFICATION-AND-REDTEAM-PLAN.md` |
 | **Spec required** | No |
@@ -1142,11 +1142,11 @@ Also found: `session_id` was in the logger's redaction list — correct when the
 7. Confirm the coverage floor for `internal/authn`, `internal/authz`, and `internal/oidc` from `P0-15`.
 
 **Definition of Done**
-- [ ] Every abuse case named in Phase 1 tasks has a passing automated test.
-- [ ] All four pyramid layers have real Phase 1 coverage.
-- [ ] The full suite runs in CI on every PR within an acceptable duration.
-- [ ] A deliberately-reverted security control causes a red build, demonstrated once.
-- [ ] SAST and dependency scans show no unaddressed critical or high findings (`docs/PLAN/11` § Production-Ready).
+- [x] Every abuse case named in Phase 1 tasks has a passing automated test. The coverage map in `tests/security/isolation_test.go` now names the test for each, and each was read to confirm it asserts the abuse case rather than the happy path. It had been stale for three tasks: three rows said "not yet testable" against features that had shipped.
+- [x] All four pyramid layers have real Phase 1 coverage. Unit throughout; integration gained `TestTheWholeFlowFitsTogether` — organization → project → application → user → sign-in → token claims, the sequence `docs/PLAN/11` names; E2E is twelve browser tests including SSO across the two demo applications; security gained the CORS and CSP abuse cases plus `FuzzVerify`.
+- [x] The full suite runs in CI on every PR within an acceptable duration. A dedicated `e2e` job runs `scripts/e2e-up.sh` — the same command a developer runs, so a CI failure is reproducible locally without reading the workflow. The E2E step used to sit in the console job with no service to talk to, failed every time, and was ignored.
+- [x] A deliberately-reverted security control causes a red build, demonstrated once. **Six of them**, in `scratchpad/mutate-p127.sh`: the algorithm allowlist, exact redirect matching, the per-application origin check, the public-path list, the login form's `form-action`, and the management API's audience check. Six for six — after one stayed green and revealed that `alg: none` is refused by go-jose rather than by our allowlist, so the test named for it was passing for another reason.
+- [x] SAST and dependency scans show no unaddressed critical or high findings. `gosec` and `govulncheck` green throughout; `scripts/check.sh` ends 44 passed, 0 failed.
 
 ---
 

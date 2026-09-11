@@ -14,7 +14,7 @@ import (
 )
 
 // testCache builds a cache over a fixed key set, with no database.
-func testCache(t *testing.T, keys ...*Key) *Cache {
+func testCache(t testing.TB, keys ...*Key) *Cache {
 	t.Helper()
 
 	set, err := NewKeySet(keys)
@@ -26,7 +26,7 @@ func testCache(t *testing.T, keys ...*Key) *Cache {
 }
 
 // newKey generates a key in the given state.
-func newKey(t *testing.T, alg Algorithm, status Status) *Key {
+func newKey(t testing.TB, alg Algorithm, status Status) *Key {
 	t.Helper()
 
 	pair, err := Generate(alg)
@@ -166,6 +166,43 @@ func TestOnlyCurrentKeySigns(t *testing.T) {
 // The classic JWT bug: a verifier reads `alg` from the header and dispatches
 // on it, so `none` selects a path that accepts an empty signature. Here the
 // header is checked against a fixed list BEFORE any key is looked up.
+// The allowlist itself, because it cannot be observed from outside.
+//
+// `P1-27` reverted `allowedAlgorithms` to include `none` and `HS256` and every
+// black-box test still passed — go-jose refuses an unsigned JWS on its own,
+// refuses an HMAC algorithm against an RSA key set, and reports both in a way
+// this package maps to ErrAlgorithmNotAllowed either way. The list is real
+// defence in depth and it is invisible through `Verify`.
+//
+// So this asserts the list. It is the only thing that makes widening it a
+// deliberate, reviewed edit rather than a line somebody adds to make a
+// third-party token work.
+func TestTheAlgorithmAllowlistIsExactlyTwoAsymmetricAlgorithms(t *testing.T) {
+	want := []jose.SignatureAlgorithm{jose.RS256, jose.ES256}
+
+	if len(allowedAlgorithms) != len(want) {
+		t.Fatalf("allowedAlgorithms is %v, want %v", allowedAlgorithms, want)
+	}
+	for i, alg := range want {
+		if allowedAlgorithms[i] != alg {
+			t.Errorf("allowedAlgorithms[%d] = %q, want %q", i, allowedAlgorithms[i], alg)
+		}
+	}
+
+	// Named separately from the equality above, so a failure says WHY rather
+	// than printing two lists and leaving the reader to spot the difference.
+	for _, alg := range allowedAlgorithms {
+		switch alg {
+		case "none", "":
+			t.Errorf("the allowlist contains %q — a token claiming no algorithm", alg)
+		case jose.HS256, jose.HS384, jose.HS512:
+			t.Errorf("the allowlist contains %q, a SYMMETRIC algorithm. This service "+
+				"publishes its keys, so an HMAC algorithm means anyone holding the "+
+				"public key can forge a token", alg)
+		}
+	}
+}
+
 func TestAlgNoneIsRejected(t *testing.T) {
 	key := newKey(t, RS256, StatusCurrent)
 	cache := testCache(t, key)
@@ -178,6 +215,23 @@ func TestAlgNoneIsRejected(t *testing.T) {
 	_, err := NewVerifier(cache).Verify(forged, TypeJWT)
 	if err == nil {
 		t.Fatal("SECURITY: a token with alg:none was accepted")
+	}
+
+	// **And refused by OUR allowlist, not only by the library.**
+	//
+	// `P1-27` reverted `allowedAlgorithms` to include `none` and `HS256` and
+	// this test still passed: go-jose refuses an unsigned JWS on its own, and
+	// an HMAC algorithm against an RSA key set fails on the key type. The
+	// protection is real and doubly held — and a test that only asks "was it
+	// refused" cannot see the half this package owns.
+	//
+	// `ErrAlgorithmNotAllowed` is that half. It exists so the log can say
+	// "algorithm not allowed", which is an attack signature, rather than
+	// "parse error", which is usually a truncated token. Asserting it here
+	// means widening the list breaks this test rather than silently changing
+	// what the log says about an attack.
+	if !errors.Is(err, ErrAlgorithmNotAllowed) {
+		t.Errorf("refused with %v, which is not this package's own algorithm check", err)
 	}
 }
 

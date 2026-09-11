@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"html/template"
+	"net/url"
 	"strings"
 )
 
@@ -63,6 +64,22 @@ type Page struct {
 	PasswordError string
 
 	ForgotPath string
+
+	// RedirectOrigin is the origin of the redirect URI this sign-in will end
+	// at — `scheme://host[:port]`, nothing more.
+	//
+	// It exists for the Content-Security-Policy, and it is not cosmetic.
+	// Chrome applies `form-action` to the REDIRECT CHAIN a submission
+	// produces, not only to the action URL. With `form-action 'self'` the
+	// POST to /login is allowed, the service answers 302 to the client's
+	// registered redirect URI, and the browser refuses to follow it — so no
+	// sign-in can complete in any Chromium browser. The page simply sits
+	// there with the fields still filled and one console message.
+	//
+	// Empty when the URI cannot be parsed, which leaves the policy at 'self'
+	// and the flow broken — but broken closed, and only in a case that cannot
+	// arise from a registration the service accepted.
+	RedirectOrigin string
 }
 
 // The messages. Every credential failure uses the same one.
@@ -195,16 +212,57 @@ func (p Page) ContentSecurityPolicy() string {
 		"default-src 'none'",
 		"style-src '" + p.StyleHash + "'",
 		"img-src " + img,
-		// The form may only post back to this service. Without it, an injected
-		// form action would exfiltrate the password to another origin — and
-		// this is the one page where that is the whole prize.
-		"form-action 'self'",
+		// The form may post back to this service, and the browser may follow
+		// the redirect that produces — to this application's REGISTERED
+		// redirect origin and nowhere else.
+		//
+		// Without the second source, nothing works: Chrome enforces
+		// `form-action` against the redirect chain, so `'self'` alone blocks
+		// the 302 that ends every successful sign-in. Every test before
+		// `P1-27` drove this page with curl, which has no CSP, so the page
+		// passed every one of them and could not log anyone in.
+		//
+		// Without the FIRST source, an injected form action would exfiltrate
+		// the password to another origin, and this is the one page where that
+		// is the whole prize. The origin added here is the one the client
+		// registered and that `P1-06` matched by exact string comparison — not
+		// anything from this request.
+		"form-action " + formAction(p.RedirectOrigin),
 		// Clickjacking, in the modern spelling. X-Frame-Options is sent too:
 		// they overlap, and the older header is the one some proxies and
 		// embedded browsers still act on.
 		"frame-ancestors 'none'",
 		"base-uri 'none'",
 	}, "; ")
+}
+
+// formAction builds the `form-action` source list.
+//
+// `'self'` plus one registered origin, or `'self'` alone when there is none to
+// add. Kept as a function so the login page and the logout interstitial cannot
+// drift apart on the one directive whose failure mode is "nothing works, and
+// only in a real browser".
+func formAction(redirectOrigin string) string {
+	if redirectOrigin == "" {
+		return "'self'"
+	}
+	return "'self' " + redirectOrigin
+}
+
+// originOf reduces a URL to scheme://host[:port].
+//
+// Anything else in the URL — path, query, fragment — is meaningless in a CSP
+// source and including it would silently widen or break the directive. A URL
+// this cannot parse, or one that is not http(s), yields the empty string.
+func originOf(raw string) string {
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Host == "" {
+		return ""
+	}
+	if parsed.Scheme != "https" && parsed.Scheme != "http" {
+		return ""
+	}
+	return parsed.Scheme + "://" + parsed.Host
 }
 
 // pageTemplate is the login form.

@@ -3,8 +3,8 @@
 Single source of truth for where the project stands. Updated in the same commit as the work it describes (`00-TASK-CONVENTIONS.md` global DoD item 8).
 
 **Last updated**: 2026-09-11
-**Current phase**: Phase 1 — MVP Core Auth (27 / 29 done — `P1-29` was added mid-phase; see its card). Phase 0 is 20 / 21; `P0-20` stays WIP pending the pull-based deployment re-read
-**Overall**: 41 / 178 tasks done
+**Current phase**: Phase 1 — MVP Core Auth (28 / 29 done — `P1-29` was added mid-phase; see its card). Only `P1-28`, the acceptance walk, remains. Phase 0 is 20 / 21; `P0-20` stays WIP pending the pull-based deployment re-read
+**Overall**: 42 / 178 tasks done
 
 Status values: `TODO` · `BLOCKED` · `SPEC` · `WIP` · `REVIEW` · `DONE` · `DROPPED`
 Sizes: `S` under half a day · `M` one to two days · `L` several days · `XL` must be split
@@ -16,7 +16,7 @@ Sizes: `S` under half a day · `M` one to two days · `L` several days · `XL` m
 | Phase | Tasks | Done | Status | Gate to enter |
 |---|---|---|---|---|
 | [Phase 0 — Foundation](./PHASE-0-FOUNDATION.md) | 21 | 20 | **ACTIVE** — `P0-20` only | — |
-| [Phase 1 — MVP: Core Auth + SSO](./PHASE-1-MVP-CORE-AUTH-SSO.md) | 29 | 27 | **ACTIVE** | Phase 0 exit checklist |
+| [Phase 1 — MVP: Core Auth + SSO](./PHASE-1-MVP-CORE-AUTH-SSO.md) | 29 | 28 | **ACTIVE** | Phase 0 exit checklist |
 | [Phase 2 — RBAC & Multi-Tenancy](./PHASE-2-RBAC-MULTITENANCY.md) | 17 | 0 | Not started | Phase 1 exit + `P1-28` |
 | [Phase 3 — Advanced Security](./PHASE-3-ADVANCED-SECURITY.md) | 15 | 0 | Not started | Phase 2 exit + threat model review |
 | [Phase 4 — Enterprise Interop](./PHASE-4-ENTERPRISE-INTEROP.md) | 16 | 0 | Not started | Phase 3 exit + threat model review |
@@ -90,7 +90,7 @@ Sizes: `S` under half a day · `M` one to two days · `L` several days · `XL` m
 | P1-24 | Console — Audit Log screen | M | DONE | P1-21, P1-20 |
 | P1-25 | Public docs — quickstart and API reference | M | **DONE** — the quickstart was executed against staging, not proofread: 52 assertions, one failure, three factual errors corrected. The capability audit now runs in both directions and had been misreading this board since `P0-19` | P1-07, P1-19 |
 | P1-26 | Two demo consumer applications | M | **DONE** — 33 assertions on staging, 0 failures: one login, two applications, and App B refuses App A's token. Two public hostnames outstanding (`DV-03`); the Playwright half of one DoD item is `P1-27`'s | P1-07 |
-| P1-27 | Phase 1 test suite completion | L | TODO | all above |
+| P1-27 | Phase 1 test suite completion | L | **DONE** — the end-to-end environment found four production bugs in its first hour, each of which had passed every other layer. Twelve browser tests; six reverted security controls, six red builds; 944k fuzz executions | all above |
 | P1-28 | Phase 1 acceptance validation | M | TODO | P1-27 |
 | P1-29 | Cross-origin access policy | M | **DONE** — added mid-phase. `PG-17` stopped being a forecast the first time a browser was pointed at the login flow: no public client could complete one, and the console could not call the API at all. Closed with a split policy, ADR-020 | P1-08, P1-15, P1-21 |
 

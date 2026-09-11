@@ -102,6 +102,9 @@ func TestContentSecurityPolicy(t *testing.T) {
 
 	for _, directive := range []string{
 		"default-src 'none'",
+		// 'self' is a PREFIX of the real directive now — the page under test
+		// has no redirect origin, and the case that does is asserted below in
+		// TestTheFormMayFollowItsRedirectToTheRegisteredOrigin.
 		"form-action 'self'",
 		"frame-ancestors 'none'",
 		"base-uri 'none'",
@@ -115,6 +118,73 @@ func TestContentSecurityPolicy(t *testing.T) {
 	// must never appear is a permission for one.
 	if strings.Contains(policy, "unsafe-inline") || strings.Contains(policy, "unsafe-eval") {
 		t.Errorf("the policy permits inline or eval:\n%s", policy)
+	}
+}
+
+// The directive that made every browser sign-in impossible.
+//
+// `form-action` is enforced by Chrome against the REDIRECT CHAIN a submission
+// produces, not only against the action URL. With `'self'` alone, the POST to
+// /login was permitted, the service answered 302 to the application's
+// registered redirect URI, and the browser refused to follow it — so no
+// sign-in could ever complete in a Chromium browser.
+//
+// Every test this page had drove it with curl, which has no CSP. It passed all
+// of them and could not log anybody in. `P1-27` found it the first time a real
+// browser was pointed at the flow.
+func TestTheFormMayFollowItsRedirectToTheRegisteredOrigin(t *testing.T) {
+	page := samplePage()
+	page.Style, page.StyleHash = renderStyle(DefaultAccent)
+	page.RedirectOrigin = "https://app.example.com"
+
+	policy := page.ContentSecurityPolicy()
+
+	if !strings.Contains(policy, "form-action 'self' https://app.example.com") {
+		t.Errorf("the form cannot reach the redirect it will be sent to:\n%s", policy)
+	}
+
+	// And nowhere else. A wildcard here would make the one page whose whole
+	// prize is a password able to post it anywhere.
+	if strings.Contains(policy, "form-action *") || strings.Contains(policy, "form-action https:") {
+		t.Errorf("the policy permits posting to any origin:\n%s", policy)
+	}
+}
+
+// With no origin to add, the directive falls back to 'self' rather than to
+// something permissive. The sign-in then cannot complete — which is the right
+// failure for a state that cannot arise from a registration the service
+// accepted.
+func TestAnUnusableRedirectLeavesTheFormRestrictedToThisService(t *testing.T) {
+	page := samplePage()
+	page.Style, page.StyleHash = renderStyle(DefaultAccent)
+	page.RedirectOrigin = ""
+
+	if got := page.ContentSecurityPolicy(); !strings.Contains(got, "form-action 'self';") {
+		t.Errorf("the fallback is not 'self' alone:\n%s", got)
+	}
+}
+
+func TestOriginOfKeepsOnlySchemeAndHost(t *testing.T) {
+	for _, given := range []struct{ raw, want string }{
+		{"https://app.example.com/callback", "https://app.example.com"},
+		{"https://app.example.com:8443/cb?a=1#f", "https://app.example.com:8443"},
+		{"http://localhost:8090/callback", "http://localhost:8090"},
+
+		// A path, a query or a fragment in a CSP source is meaningless, and
+		// including one would silently change what the directive matches.
+		{"https://app.example.com/a/b/c", "https://app.example.com"},
+
+		// Not http(s), so not something a browser will navigate a form
+		// submission to — and not something to put in a source list.
+		{"myapp://callback", ""},
+		{"javascript:alert(1)", ""},
+		{"", ""},
+		{"not a url at all", ""},
+		{"https://", ""},
+	} {
+		if got := originOf(given.raw); got != given.want {
+			t.Errorf("originOf(%q) = %q, want %q", given.raw, got, given.want)
+		}
 	}
 }
 

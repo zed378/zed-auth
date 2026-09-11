@@ -16,8 +16,9 @@ import { test as base } from "@playwright/test";
  */
 
 const issuer = required("E2E_AUTH_ISSUER");
-const bootstrapToken = required("E2E_BOOTSTRAP_TOKEN");
 const orgId = required("E2E_ORG_ID");
+const clientId = required("E2E_CONSOLE_CLIENT_ID");
+const refreshToken = required("E2E_BOOTSTRAP_REFRESH_TOKEN");
 
 /**
  * Reads an environment variable, or fails loudly.
@@ -69,18 +70,70 @@ interface Fixtures {
   project: SeededProject;
   application: SeededApplication;
   user: SeededUser;
+  admin: SeededUser;
 }
 
-/** A Management API call as the bootstrap administrator. */
-async function manage<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const response = await fetch(`${issuer}${path}`, {
-    method,
-    headers: {
-      Authorization: `Bearer ${bootstrapToken}`,
-      "Content-Type": "application/json",
-    },
-    body: body === undefined ? undefined : JSON.stringify(body),
+/**
+ * The bootstrap administrator's access token, obtained on demand.
+ *
+ * An access token lives ten minutes (`P1-07`), and a Playwright run does not
+ * reliably finish inside ten minutes. Handing the suite a token minted at
+ * setup time produces a suite that passes locally and fails in CI at whichever
+ * test happens to be running when the clock runs out — which is the shape of
+ * flake that gets a test quarantined instead of fixed.
+ *
+ * So the environment supplies a REFRESH token and this mints access tokens
+ * from it. Kept in a variable rather than fetched per call, because a token
+ * exchange per API call would make the suite's own load the thing under test.
+ */
+let accessToken: string | null = null;
+
+async function mintAccessToken(): Promise<string> {
+  const response = await fetch(`${issuer}/oauth/token`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "refresh_token",
+      refresh_token: refreshToken,
+      client_id: clientId,
+    }),
   });
+
+  if (!response.ok) {
+    throw new Error(
+      `the bootstrap refresh token was refused (${response.status}). It is ` +
+        `minted by scripts/e2e-up.sh; re-run that. ${await response.text()}`,
+    );
+  }
+  const tokens = (await response.json()) as { access_token?: string };
+  if (tokens.access_token === undefined) {
+    throw new Error("the refresh gave back no access token");
+  }
+  return tokens.access_token;
+}
+
+/**
+ * A Management API call as the bootstrap administrator.
+ *
+ * Retries exactly once on a 401, after minting a fresh token. One retry, not a
+ * loop: a 401 that survives a new token is a permission problem, and retrying
+ * it would turn a clear failure into a slow one.
+ */
+async function manage<T>(method: string, path: string, body?: unknown): Promise<T> {
+  const send = async (token: string) =>
+    fetch(`${issuer}${path}`, {
+      method,
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+
+  accessToken ??= await mintAccessToken();
+  let response = await send(accessToken);
+
+  if (response.status === 401) {
+    accessToken = await mintAccessToken();
+    response = await send(accessToken);
+  }
 
   if (!response.ok) {
     const detail = await response.text();
@@ -96,6 +149,28 @@ function unique(prefix: string): string {
 }
 
 export const test = base.extend<Fixtures>({
+  /**
+   * The bootstrap administrator, for the screens a manager role gates.
+   *
+   * Not created per test, and not creatable at all through the API: assigning
+   * a manager role is `P2`'s work, so this account is seeded by SQL with the
+   * rest of the bootstrap (`PG-26`) and `scripts/e2e-up.sh` hands over its
+   * credentials.
+   *
+   * **Most tests should use `user`, not this.** A suite that runs everything
+   * as the most powerful account in the system is a suite that cannot notice a
+   * missing permission check — which is exactly what `login.spec.ts` asserts
+   * with the ordinary user, by URL.
+   */
+  admin: async ({}, use) => {
+    await use({
+      id: "",
+      orgId,
+      email: required("E2E_ADMIN_EMAIL"),
+      password: required("E2E_ADMIN_PASSWORD"),
+    });
+  },
+
   organization: async ({}, use) => {
     // The organization the bootstrap token is scoped to. Creating a second one
     // needs INSTANCE_OWNER, which the E2E administrator deliberately does not
@@ -128,7 +203,7 @@ export const test = base.extend<Fixtures>({
   },
 
   application: async ({ organization, project }, use) => {
-    const redirectUri = `${process.env.E2E_BASE_URL ?? "http://127.0.0.1:4173"}/auth/callback`;
+    const redirectUri = `${process.env.E2E_BASE_URL ?? "http://localhost:4173"}/auth/callback`;
     const created = await manage<{ id: string }>(
       "POST",
       `/v1/organizations/${organization.id}/projects/${project.id}/applications`,
@@ -159,7 +234,12 @@ export const test = base.extend<Fixtures>({
     const created = await manage<{ id: string }>(
       "POST",
       `/v1/organizations/${organization.id}/users`,
-      { email, display_name: "E2E User", send_invite_email: false },
+      // The email IS sent, because the token only exists inside it. `P0-15`
+      // wrote `false` here when the seam was imagined as a database reader;
+      // `user_tokens` stores a SHA-256 and nothing else, so there is nothing
+      // for a reader to read. Locally the mail goes to Mailpit, which accepts
+      // everything and delivers nothing.
+      { email, display_name: "E2E User", send_invite_email: true },
     );
 
     // The password is set the way a real user sets one: through the invitation
@@ -167,7 +247,7 @@ export const test = base.extend<Fixtures>({
     // absence is deliberate (`P1-19`) — so the suite proves the invitation
     // flow works on its way to having a user who can log in.
     const password = "Correct-Horse-Battery-Staple-E2E";
-    await acceptInvitation(created.id, password);
+    await acceptInvitation(email, password);
 
     await use({ id: created.id, orgId: organization.id, email, password });
 
@@ -179,28 +259,36 @@ export const test = base.extend<Fixtures>({
 });
 
 /**
- * Completes an invitation without a mailbox.
+ * Completes an invitation by reading the mailbox the service actually sent to.
  *
- * The link is never returned by the API — that is the point of `P1-19` — so a
- * test environment has to read the token from where the service put it. The
- * helper below is the seam: CI supplies `E2E_INVITE_READER`, a small endpoint
- * or script with database access, rather than the suite reaching into the
- * database itself from a browser process.
+ * `P0-15` left this as a seam called `E2E_INVITE_READER` — "a small endpoint or
+ * script with database access". `P1-27` implemented it against the mailbox
+ * instead, and the reason is that the database **cannot** answer the question:
+ * `user_tokens` stores only a SHA-256 of the token, so the plaintext exists in
+ * exactly one place, which is the email. A reader with database access would
+ * have had to be given the ability to mint a token instead of read one, and a
+ * binary in this repository that hands out working invitation links is a worse
+ * thing to own than a test that reads a development mailbox.
+ *
+ * It is also the stronger test. Reading the mail exercises the delivery path —
+ * template, recipient, link construction — none of which any other test covers.
+ *
+ * `E2E_MAILPIT_URL` points at the Mailpit instance in `deploy/docker-compose.yml`.
+ * Mailpit is a development mail sink: it accepts everything and delivers
+ * nothing, so no message this suite triggers can reach a real address.
  */
-async function acceptInvitation(userId: string, password: string): Promise<void> {
-  const reader = process.env.E2E_INVITE_READER;
-  if (reader === undefined || reader === "") {
+async function acceptInvitation(email: string, password: string): Promise<void> {
+  const mailpit = process.env.E2E_MAILPIT_URL;
+  if (mailpit === undefined || mailpit === "") {
     throw new Error(
-      "E2E_INVITE_READER is required: an invitation link is only ever mailed, " +
-        "so a test that needs a usable account has to read the token from the " +
-        "environment that sent it. See TASKS/PHASE-1 P1-27.",
+      "E2E_MAILPIT_URL is required: an invitation link is only ever mailed, and " +
+        "the service stores only a hash of the token — so a test that needs a " +
+        "usable account has to read the message. Bring the stack up with " +
+        "scripts/e2e-up.sh, which sets it. See TASKS/PHASE-1 P1-27.",
     );
   }
 
-  const token = (await (await fetch(`${reader}?user_id=${encodeURIComponent(userId)}`)).text()).trim();
-  if (token === "") {
-    throw new Error(`no invitation token was found for ${userId}`);
-  }
+  const token = await readInvitationToken(mailpit, email);
 
   const form = new URLSearchParams({ token, password, password_confirm: password });
   const page = await fetch(`${issuer}/password/set?token=${encodeURIComponent(token)}`);
@@ -220,6 +308,45 @@ async function acceptInvitation(userId: string, password: string): Promise<void>
   if (!response.ok) {
     throw new Error(`setting the password answered ${response.status}`);
   }
+}
+
+/**
+ * Finds the invitation message for one address and extracts its token.
+ *
+ * Polls, because the send happens in the request that created the user and the
+ * message lands a moment later. A single immediate read would be flaky in
+ * exactly the way that gets a test quarantined rather than fixed.
+ *
+ * The search is scoped to the address, so two tests running in parallel cannot
+ * read each other's invitations — the addresses are unique per fixture.
+ */
+async function readInvitationToken(mailpit: string, email: string): Promise<string> {
+  const deadline = Date.now() + 15_000;
+  let lastSeen = "no message arrived";
+
+  while (Date.now() < deadline) {
+    const response = await fetch(
+      `${mailpit}/api/v1/search?query=${encodeURIComponent(`to:${email}`)}&limit=5`,
+    );
+    if (response.ok) {
+      const found = (await response.json()) as { messages?: { ID: string }[] };
+      for (const message of found.messages ?? []) {
+        const body = await (await fetch(`${mailpit}/api/v1/message/${message.ID}`)).json();
+        const text = `${(body as { Text?: string }).Text ?? ""}`;
+        // The link the service built, with the token in its query string.
+        // Matched from the URL rather than from prose, so a copy change to the
+        // message cannot silently break this into a timeout.
+        const token = /[?&]token=([A-Za-z0-9_-]+)/.exec(text)?.[1];
+        if (token !== undefined) return token;
+        lastSeen = `a message arrived for ${email} with no token link in it`;
+      }
+    } else {
+      lastSeen = `Mailpit answered ${response.status}`;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 300));
+  }
+
+  throw new Error(`no invitation token for ${email}: ${lastSeen}`);
 }
 
 export { expect } from "@playwright/test";
