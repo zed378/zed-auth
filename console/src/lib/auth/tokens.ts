@@ -68,7 +68,17 @@ export function needsRenewal(now = Date.now()): boolean {
 export interface Claims {
   subject: string;
   orgId: string | null;
-  roles: string[];
+  /**
+   * The manager roles the token asserts, or `null` when it asserts nothing.
+   *
+   * The distinction is not pedantry. Until `P2-04` fills the role claim, this
+   * service issues access tokens with no role information at all — so "the
+   * array is empty" and "we have not been told" are both represented by an
+   * empty array unless they are kept apart, and treating the second as the
+   * first means the console refuses every role-gated screen to everybody,
+   * including an organization owner.
+   */
+  roles: string[] | null;
   expiresAt: number;
 }
 
@@ -98,16 +108,20 @@ export function claimsFrom(token: string | null): Claims | null {
 }
 
 /**
- * The manager roles in a token.
+ * The manager roles in a token, or `null` when it carries none.
  *
  * Tolerant about shape and strict about type: `P2-04` will nest role claims
  * under an organization key, and this must not start reporting a role because
  * a future claim happens to be an object with a `roles` property. Only an
  * array of strings counts.
+ *
+ * **`null` means the token said nothing**, which is the state every token is
+ * in today. An empty array means it said "none", which will become possible
+ * when the claim exists. See `hasRole` for why the two must not be conflated.
  */
-function rolesFrom(payload: Record<string, unknown>): string[] {
+function rolesFrom(payload: Record<string, unknown>): string[] | null {
   const raw = payload.roles ?? payload.manager_roles;
-  if (!Array.isArray(raw)) return [];
+  if (!Array.isArray(raw)) return null;
   return raw.filter((entry): entry is string => typeof entry === "string");
 }
 

@@ -145,10 +145,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     window.location.assign(buildLogoutUrl(config, window.location.origin));
   }, [config]);
 
+  /**
+   * Whether the signed-in user holds any of these roles — **as far as the
+   * token says**.
+   *
+   * A token that carries no role claim at all returns `true`, and that is
+   * deliberate. Until `P2-04` fills the claim, this service issues access
+   * tokens with no role information, so a strict reading refuses every
+   * role-gated screen to everybody including an organization owner — which is
+   * what it did, undetected, from `P1-22` until `P1-27` first drove the
+   * console in a browser.
+   *
+   * Deferring is also the correct default beyond that window. `CLAUDE.md`:
+   * authorization is enforced server-side, always, and the console may hide UI
+   * "for UX purposes" — a hidden control is never the thing protecting an
+   * action. So the failure modes are not symmetric. Showing a screen the API
+   * will refuse costs one clear "you do not have access" message, which every
+   * screen already renders. Hiding a screen the API would have allowed is a
+   * capability silently removed from someone entitled to it, with nothing
+   * anywhere saying so.
+   *
+   * When the claim does arrive, an empty array means "none" and this correctly
+   * returns false.
+   */
   const hasRole = useCallback(
     (...roles: string[]) => {
       if (claims === null) return false;
-      return roles.some((role) => claims.roles.includes(role));
+      if (claims.roles === null) return true;
+      return roles.some((role) => claims.roles?.includes(role) ?? false);
     },
     [claims],
   );

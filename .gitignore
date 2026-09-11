@@ -51,3 +51,15 @@ Thumbs.db
 # --- Local infrastructure state ---
 /deploy/.volumes/
 /deploy/*.local.yml
+
+# --- End-to-end environment (scripts/e2e-up.sh) ---
+#
+# `.e2e.env` carries a live refresh token for the local stack. It is a
+# local-development credential and still has no business in a commit: a token
+# in git history is a token that outlives every rotation.
+/.e2e.env
+/.e2e.pids
+/.e2e-demo-a.log
+/.e2e-demo-b.log
+/.e2e-console-build.log
+/.e2e-bin/

@@ -113,12 +113,24 @@ describe("reading claims", () => {
     }
   });
 
-  it("reports no roles rather than guessing when the claim is the wrong shape", () => {
-    // P2-04 nests role claims under an organization key. This must not start
-    // reporting a role because a future claim happens to be an object.
-    for (const roles of [{ org: ["ORG_OWNER"] }, "ORG_OWNER", 42, null]) {
-      expect(claimsFrom(encode({ sub: "u", roles }))?.roles).toEqual([]);
+  it("reports roles as unknown rather than guessing when the claim is the wrong shape", () => {
+    // Strict about type: `P2-04` nests role claims under an organization key,
+    // and this must not start reporting a role because a future claim happens
+    // to be an object. Anything that is not an array of strings is "the token
+    // did not tell us" — `null` — which `hasRole` treats as deferring to the
+    // API rather than as "no roles".
+    //
+    // The distinction matters because every token issued today is in that
+    // state: the role claim does not exist yet. Reading it as an empty array
+    // made the console refuse every role-gated screen to everybody, including
+    // an organization owner, from `P1-22` until `P1-27` ran it in a browser.
+    for (const roles of [{ org: ["ORG_OWNER"] }, "ORG_OWNER", 42, null, undefined]) {
+      expect(claimsFrom(encode({ sub: "u", roles }))?.roles).toBeNull();
     }
+
+    // And an actual array is taken at face value, empty or not.
+    expect(claimsFrom(encode({ sub: "u", roles: [] }))?.roles).toEqual([]);
+    expect(claimsFrom(encode({ sub: "u", roles: ["ORG_ADMIN"] }))?.roles).toEqual(["ORG_ADMIN"]);
   });
 
   it("drops non-string entries from a role array", () => {
