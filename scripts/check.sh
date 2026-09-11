@@ -90,6 +90,42 @@ else
 fi
 rm -rf "$tidy_tmp"
 
+# --- Demo applications ------------------------------------------------------
+
+# `demo/` is a separate Go module (see demo/go.mod), so nothing in the Go
+# section above reaches it: `go test ./...` inside backend/ does not cross a
+# module boundary. Without these gates the SSO fixture P1-27 depends on could
+# rot without a single check turning red.
+
+section "Demo applications"
+
+if [ -z "$(gofmt -l demo 2>/dev/null)" ]; then
+  pass "gofmt (demo)"
+else
+  fail "gofmt (demo) — unformatted files:"
+  gofmt -l demo | sed 's/^/      /'
+fi
+
+if (cd demo && go vet ./... 2>&1); then pass "go vet (demo)"; else fail "go vet (demo)"; fi
+if (cd demo && go build ./... 2>&1); then pass "go build (demo)"; else fail "go build (demo)"; fi
+
+if (cd demo && go test ./... >/dev/null 2>&1); then
+  pass "demo tests"
+else
+  fail "demo tests"
+  (cd demo && go test ./... 2>&1 | grep -v "^ok" | head -20)
+fi
+
+# The module has no dependencies outside the standard library, deliberately
+# (demo/go.mod says why: a reference implementation that needs a JWT library
+# teaches "pick a library", which is where permissive defaults come from).
+# A go.sum appearing here means that changed and nobody said so.
+if [ ! -f demo/go.sum ]; then
+  pass "demo module has no external dependencies"
+else
+  fail "demo/go.sum exists — the demo module gained a dependency"
+fi
+
 # --- Integration ------------------------------------------------------------
 
 section "Integration"
@@ -606,6 +642,26 @@ if docker info >/dev/null 2>&1; then
     pass "tunnel compose is valid"
   else
     fail "tunnel compose is invalid"
+  fi
+
+  if DEMO_ISSUER=https://ci.example.com      DEMO_WEBAPP_CLIENT_ID=app-a DEMO_WEBAPP_CLIENT_SECRET=secret      DEMO_WEBAPP_BASE_URL=https://a.ci.example.com      DEMO_SPA_CLIENT_ID=app-b DEMO_SPA_BASE_URL=https://b.ci.example.com      docker compose -f deploy/demo/docker-compose.yml config -q 2>&1; then
+    pass "demo compose is valid"
+  else
+    fail "demo compose is invalid"
+  fi
+
+  # The SPA is a public client. If it is ever handed a secret, the deployment
+  # is asserting something the client profile cannot deliver — a secret shipped
+  # to a browser is a published secret.
+  if DEMO_ISSUER=https://ci.example.com      DEMO_WEBAPP_CLIENT_ID=app-a DEMO_WEBAPP_CLIENT_SECRET=secret      DEMO_WEBAPP_BASE_URL=https://a.ci.example.com      DEMO_SPA_CLIENT_ID=app-b DEMO_SPA_BASE_URL=https://b.ci.example.com      docker compose -f deploy/demo/docker-compose.yml config --format json 2>/dev/null |
+     python3 -c "
+import json,sys
+services = json.load(sys.stdin)['services']
+sys.exit(1 if 'DEMO_CLIENT_SECRET' in services['spa']['environment'] else 0)
+" 2>/dev/null; then
+    pass "the demo SPA is given no client secret"
+  else
+    fail "the demo SPA is given a client secret"
   fi
 
   # The schema owner bypasses RLS and can alter the audit log. If the service

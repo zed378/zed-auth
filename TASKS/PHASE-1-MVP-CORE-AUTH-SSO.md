@@ -1061,7 +1061,7 @@ Also found: `session_id` was in the logger's redaction list — correct when the
 
 | | |
 |---|---|
-| **Status** | TODO |
+| **Status** | DONE — [record](../MEMORY/records/2026-09-11-P1-26-demo-applications.md). Built, deployed and verified on staging (33 assertions, 0 failures). Two DoD items are not yet fully met and say so below: the Playwright half belongs to `P1-27`, and the public hostnames need two Cloudflare tunnel records this session cannot create (**DV-03**). |
 | **Depends on** | P1-07 |
 | **Plan refs** | `docs/PLAN/01-PRODUCT-SCOPE.md` § MVP Definition of Done, `docs/PLAN/17-ACCEPTANCE-CRITERIA.md` § Phase 1, `docs/PLAN/03-ARCHITECTURE.md` § Main Data Flow |
 | **Spec required** | No |
@@ -1079,11 +1079,11 @@ Also found: `session_id` was in the logger's redaction list — correct when the
 7. Keep them in the repository as living integration documentation — a reference implementation consumer teams can copy.
 
 **Definition of Done**
-- [ ] Two applications with distinct hostnames and client IDs authenticate real users.
-- [ ] Logging into App A then opening App B requires no second login — verified manually and by an automated E2E test.
-- [ ] Both validate tokens locally with no auth-service round-trip.
-- [ ] Both reject a token with the wrong `aud`.
-- [ ] Both are deployed to staging and reachable.
+- [x] Two applications with distinct hostnames and client IDs authenticate real users. Registered through the Management API — not an `INSERT` — so the deployment exercised `P1-18` too: `web` with a secret returned once at creation, `spa` refused one and reporting `has_secret: false`. A real user signed into both through `https://auth.zedth.my.id`.
+- [ ] Logging into App A then opening App B requires no second login — verified manually and by an automated E2E test. **The claim is proven; the two named methods are not both done.** The scripted staging run drives the real issuer over TLS and asserts App B receives a code with no login page. The Playwright version is `P1-27` step 3, which owns E2E; the manual walk needs the hostnames below.
+- [x] Both validate tokens locally with no auth-service round-trip. Measured at the service, not asserted at the consumer: 25 verified requests caused **0** key-set fetches in `zedauth-authservice-1`'s own log. `TestVerifyingMakesNoNetworkCallOnceTheKeySetIsCached` counts the same thing in unit tests.
+- [x] Both reject a token with the wrong `aud`. On staging with a genuine ID token minted for the other application — same issuer, same key, same user, in date — refused 401 with the audience named. Plus the inverse, so the refusal is a check rather than a coincidence.
+- [ ] Both are deployed to staging and reachable. Deployed, running, healthy, loopback-bound on `10940`/`10941` and verified there. **Publicly reachable needs two Cloudflare tunnel records** (`demo-a`/`demo-b` → those ports), which are made in the dashboard. Tracked as **DV-03**.
 
 ---
 
