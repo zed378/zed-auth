@@ -58,10 +58,18 @@ const PROGRESS = resolve(here, "../../TASKS/PROGRESS.md");
  * So a capability is shipped when all of its tasks are, and the audit says
  * which ones are outstanding.
  */
+/**
+ * The label a shipped capability carries instead of a phase, mirroring
+ * `src/pages/index.tsx`. A literal here rather than an import: this script
+ * reads the BUILT html, so the check should depend on what a visitor sees and
+ * not on whether a TSX module compiles.
+ */
+const SHIPPED = "Shipped — Phase 1";
+
 const CAPABILITY_CLAIMS = [
   {
     label: "Single sign-on",
-    phase: "Phase 1",
+    phase: SHIPPED,
     // The list grew a second time, and for the same reason it grew the first.
     //
     // `P1-06` issues the code, `P1-07` exchanges it, `P1-12` is where a user
@@ -76,12 +84,20 @@ const CAPABILITY_CLAIMS = [
     //
     // The distinction the list has to encode is *usable by a visitor*, not
     // *implemented*. That is what a capability card promises.
-    tasks: ["P1-06", "P1-07", "P1-12", "P1-18", "P1-19"],
+    // A fourth revision, and this one closes the loop rather than widening it.
+    // `P1-26` is here because it is the proof: two separate applications, two
+    // client IDs, one login, verified against staging. Until something had
+    // actually done that, "single sign-on" described the endpoints rather than
+    // the capability.
+    tasks: ["P1-06", "P1-07", "P1-12", "P1-18", "P1-19", "P1-26"],
   },
   {
     label: "A complete REST API",
-    phase: "Phase 1",
-    tasks: ["P1-15"],
+    // `P1-15` is the envelope and the bearer middleware. The four resource
+    // groups are what make "everything the console can do" true, and the audit
+    // log is the read the console's own screen depends on.
+    phase: SHIPPED,
+    tasks: ["P1-15", "P1-16", "P1-17", "P1-18", "P1-19", "P1-20"],
   },
   {
     label: "Roles that scale to delegation",
@@ -167,8 +183,23 @@ for (const claim of CAPABILITY_CLAIMS) {
 
   if (!card.includes(claim.phase)) {
     problems.push(
-      `the "${claim.label}" card does not carry its phase label "${claim.phase}" — ` +
+      `the "${claim.label}" card does not carry its label "${claim.phase}" — ` +
         `an unlabelled capability reads as available`,
+    );
+  }
+
+  // A shipped card must not ALSO carry a bare phase label, and a planned card
+  // must not carry the shipped marker. Either mixture reads as the other thing
+  // to somebody skimming the grid.
+  if (claim.phase === SHIPPED && /Phase [0-9]/.test(card.split(SHIPPED).join(""))) {
+    problems.push(
+      `the "${claim.label}" card is marked shipped and still carries a bare ` +
+        `phase label, which reads as planned`,
+    );
+  }
+  if (claim.phase !== SHIPPED && card.includes("Shipped")) {
+    problems.push(
+      `the "${claim.label}" card is labelled "${claim.phase}" and also says "Shipped"`,
     );
   }
 }
@@ -177,13 +208,34 @@ for (const claim of CAPABILITY_CLAIMS) {
 
 const progress = readFileSync(PROGRESS, "utf8");
 
-/** Reads a task's status from the PROGRESS board. */
+/**
+ * Reads a task's status from the PROGRESS board.
+ *
+ * The STATUS COLUMN, not the row. The first version searched the whole line
+ * for a bolded `**DONE**`, and the board bolds a status only when the row
+ * carries a caveat worth drawing the eye to — most completed tasks are a plain
+ * `DONE`. So this read every one of them as unfinished.
+ *
+ * The effect was invisible in the direction the check was originally written:
+ * everything looked less shipped than it was, which only ever suppressed a
+ * complaint. It surfaced the moment the check gained its other direction and a
+ * capability had to PROVE it was shipped. A check that fails safe in one
+ * direction and silently wrong in the other is worth distrusting on sight.
+ *
+ * Parsing the column rather than the line also means a status of "not DONE",
+ * or a note mentioning DONE, cannot be mistaken for the status itself.
+ */
 function statusOf(taskId) {
   const row = progress
     .split("\n")
     .find((line) => line.startsWith(`| ${taskId} |`));
   if (!row) return null;
-  return /\*\*DONE\*\*/.test(row) ? "DONE" : "NOT DONE";
+
+  // | id | name | size | status | depends on |
+  const status = row.split("|")[4];
+  if (status === undefined) return null;
+
+  return /^\s*(\*\*)?DONE(\*\*)?\b/.test(status) ? "DONE" : "NOT DONE";
 }
 
 for (const claim of CAPABILITY_CLAIMS) {
@@ -197,7 +249,17 @@ for (const claim of CAPABILITY_CLAIMS) {
 
   const outstanding = claim.tasks.filter((task) => statusOf(task) !== "DONE");
 
-  if (outstanding.length === 0) {
+  // The direction that matters most, and the one the first version of this
+  // check did not have: the page says a visitor can use this, and the board
+  // says it is not finished.
+  if (claim.phase === SHIPPED && outstanding.length > 0) {
+    problems.push(
+      `"${claim.label}" is described as shipped, but ${outstanding.join(", ")} ` +
+        `${outstanding.length === 1 ? "is" : "are"} not DONE on the PROGRESS board`,
+    );
+  }
+
+  if (claim.phase !== SHIPPED && outstanding.length === 0) {
     problems.push(
       `"${claim.label}" is labelled "${claim.phase}" but every task it needs ` +
         `(${claim.tasks.join(", ")}) is DONE — it has shipped, and describing ` +
@@ -208,23 +270,38 @@ for (const claim of CAPABILITY_CLAIMS) {
 
 // --- the site's own status statement ---------------------------------------
 
-// The landing page says the service is in development. That has to stop being
-// true at some point, and the moment it does this line is the one that lies.
-if (!landingText.includes("Status: in development")) {
+// The landing page carries one status sentence, and it is the sentence a
+// visitor reads before any card. It said "in development" through Phase 0 and
+// now says Phase 1 is built — changed on the page, here and in CLAIMS.md in
+// one commit, which is what the old message asked for. Pinning the current
+// wording means the next change has to be deliberate too.
+const STATUS = "Status: Phase 1 is built and running";
+if (!landingText.includes(STATUS)) {
   problems.push(
-    'the landing page no longer carries its "Status: in development" statement — ' +
+    `the landing page no longer carries its "${STATUS}" statement — ` +
       "if that is deliberate, update this check and CLAIMS.md together",
+  );
+}
+
+// And the qualifier inside it. With two capabilities marked shipped, this is
+// the sentence that keeps "shipped" from reading as "available to you, now" —
+// there is no hosted offering to sign up for.
+if (!landingText.includes("no hosted signup")) {
+  problems.push(
+    "the landing page no longer says there is no hosted signup, which is what " +
+      'stops a "Shipped" label reading as an invitation to sign up',
   );
 }
 
 if (problems.length > 0) fail(problems);
 
-const remaining = CAPABILITY_CLAIMS.map(
-  (claim) =>
-    `${claim.label} (${claim.tasks.filter((t) => statusOf(t) !== "DONE").join(", ")})`,
-);
+const shipped = CAPABILITY_CLAIMS.filter((c) => c.phase === SHIPPED);
+const planned = CAPABILITY_CLAIMS.filter((c) => c.phase !== SHIPPED);
+const outstandingFor = (c) =>
+  c.tasks.filter((t) => statusOf(t) !== "DONE").join(", ");
 
 console.log(
-  `${CAPABILITY_CLAIMS.length} capability claims audited; each labelled and unshipped.\n` +
-    `  still outstanding: ${remaining.join("; ")}`,
+  `${CAPABILITY_CLAIMS.length} capability claims audited; every label matches the board.
+  shipped: ${shipped.map((c) => c.label).join("; ") || "none"}
+  planned: ${planned.map((c) => `${c.label} (${outstandingFor(c)})`).join("; ") || "none"}`,
 );

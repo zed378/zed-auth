@@ -83,6 +83,14 @@ const config: Config = {
           // something exists that does not; a version dropdown implying a 1.0
           // release would be the same lie in a different control.
           //
+          // **Re-snapshotted at `P1-25`.** The original was taken during Phase
+          // 0, so the archived quickstart said "this guide does not exist yet"
+          // — still published, still reachable, and false the moment the real
+          // quickstart landed. A stale snapshot is not a neutral artifact: it
+          // is a page making a claim about the product, and nobody re-reads it
+          // because it is archived by definition. Retake it whenever the
+          // current docs change materially, or delete it.
+          //
           // Delete the `1.0` snapshot when a real release replaces it:
           //   rm -rf versioned_docs/version-1.0 versioned_sidebars/version-1.0-sidebars.json
           //   and remove it from versions.json

@@ -13,10 +13,15 @@ import type { ReactNode } from "react";
  * **Nothing claims a capability that has not shipped** (`docs/UI-UX/21` § Content
  * Governance, `CLAUDE.md`). `docs/UI-UX/21`'s capabilities blueprint has four
  * cards — SSO, REST API, RBAC, policy-based access — written in the present
- * tense. The project is in Phase 0: the service runs, it is deployed, and it
- * serves two operational probes. None of those four exist yet. So they are
- * described as the design, in a section that says the roadmap phase each
- * arrives in, rather than as things a visitor can use today.
+ * tense. Two of them are now true: Phase 1 built single sign-on and the
+ * management API, and `P1-25` executed the quickstart against a running
+ * deployment. The other two are still the design, labelled with the roadmap
+ * phase that delivers them.
+ *
+ * The rule runs in both directions, which is the part that took a second
+ * attempt. A card labelled "Phase 1" after Phase 1 shipped is as inaccurate as
+ * one claiming a capability that does not exist — it just fails in the
+ * direction nobody notices.
  *
  * **No social proof section.** `docs/UI-UX/20` is explicit: include it "only once
  * genuinely available", because "an empty or fabricated social-proof section
@@ -30,24 +35,41 @@ import type { ReactNode } from "react";
 interface Capability {
   title: string;
   body: string;
-  /** The `docs/PLAN/16` phase that delivers it. */
+  /**
+   * The `docs/PLAN/16` phase that delivers it, or `SHIPPED` once every task it
+   * needs is done.
+   *
+   * Both directions are checked on every build by `scripts/check-claims.mjs`:
+   * a capability still labelled with a phase whose tasks are all complete is
+   * as inaccurate as one claiming to be available while they are not. The
+   * first version only checked one direction, and this label is the reason it
+   * had to grow the other — Phase 1 finished and the page went on describing
+   * single sign-on as planned.
+   */
   phase: string;
 }
+
+/** The label a shipped capability carries instead of a phase. */
+export const SHIPPED = "Shipped — Phase 1";
 
 const CAPABILITIES: Capability[] = [
   {
     title: "Single sign-on",
     body:
       "Log in once, reach every registered application — over standard OIDC and " +
-      "OAuth 2.1, not a proprietary protocol.",
-    phase: "Phase 1",
+      "OAuth 2.1, not a proprietary protocol. Authorization Code with PKCE, a " +
+      "hosted login page, and tokens you verify locally against the published " +
+      "key set.",
+    phase: SHIPPED,
   },
   {
     title: "A complete REST API",
     body:
-      "Everything the console can do, your scripts and CI can do too. Nothing is " +
-      "reachable only through the interface.",
-    phase: "Phase 1",
+      "Everything the console can do, your scripts and CI can do too. " +
+      "Organizations, projects, applications, users and the audit log, with the " +
+      "reference generated from the same specification the service is built " +
+      "from. Nothing is reachable only through the interface.",
+    phase: SHIPPED,
   },
   {
     title: "Roles that scale to delegation",
@@ -92,8 +114,8 @@ export default function Home(): ReactNode {
           </p>
 
           <div className="site-cta-row">
-            <Link className="button button--primary button--lg" to="/docs">
-              Read the docs
+            <Link className="button button--primary button--lg" to="/docs/quickstart">
+              Get started
             </Link>
             <Link className="button button--secondary button--lg" to="/docs/concepts/model">
               Understand the model
@@ -104,15 +126,18 @@ export default function Home(): ReactNode {
             The honest status, above the fold rather than buried.
 
             `docs/UI-UX/21`'s blueprint puts "Get Started" here, pointing at a
-            quickstart. There is no working integration to start, so the CTA
-            points at the docs instead — a "Get Started" button leading to a
-            page that says "not available yet" costs more trust than it wins.
+            quickstart. For Phase 0 it pointed at the docs instead, because a
+            "Get Started" button leading to a page that says "not available
+            yet" costs more trust than it wins. `P1-25` made the quickstart
+            real — executed end to end against a running deployment — so the
+            button now points where the blueprint always said it should.
           */}
           <p className="site-lede" style={{ marginTop: "2rem" }}>
-            <strong>Status: in development.</strong> The service runs and is deployed;
-            the authentication and authorization endpoints described below are being
-            built. This site describes the design and says which phase each part
-            arrives in.
+            <strong>Status: Phase 1 is built and running.</strong> Single sign-on and the
+            management API work end to end — the quickstart below is executed against a
+            live deployment rather than written from the specification. Roles,
+            delegation and policies are specified and not started. There is no hosted
+            signup: you run it yourself, from source.
           </p>
         </div>
       </header>
@@ -131,10 +156,11 @@ export default function Home(): ReactNode {
 
       <section className="site-section">
         <div className="site-container">
-          <h2>What it is designed to do</h2>
+          <h2>What it does, and what it will do</h2>
           <p className="site-lede" style={{ marginBottom: "2.5rem" }}>
-            Each of these is specified and none is finished. The phase label is the
-            roadmap milestone that delivers it.
+            Two of these are built and running; two are specified and not started. The
+            label on each card says which, and it is checked against the roadmap board
+            on every build rather than kept true by hand.
           </p>
 
           <div className="site-grid">
