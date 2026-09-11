@@ -96,11 +96,21 @@ func (s *IdempotencyStore) Begin(
 	hash := HashRequest(method, path, body)
 
 	// ON CONFLICT DO NOTHING, then read. The insert is the lock.
+	//
+	// `created_at` is written explicitly rather than left to its DEFAULT now().
+	// The column default is the DATABASE's clock and `expires_at` is the
+	// CALLER's, so the row was built from two clocks and
+	// `idempotency_expires_after_creation` compared them against each other —
+	// a constraint that means "the caller's clock is less than a day behind
+	// the database's", which is not what it was written to say. The reclaim
+	// path below already sets both from `now`; this one now does too, so the
+	// constraint compares two points on one clock and the TTL is the only
+	// thing it can fail on.
 	result, err := tx.Exec(ctx, `
-		INSERT INTO idempotency_records (org_id, client_id, key, request_hash, method, path, expires_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		INSERT INTO idempotency_records (org_id, client_id, key, request_hash, method, path, created_at, expires_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		ON CONFLICT (org_id, client_id, key) DO NOTHING`,
-		orgID, clientID, key, hash, method, path, now.Add(IdempotencyTTL))
+		orgID, clientID, key, hash, method, path, now, now.Add(IdempotencyTTL))
 	if err != nil {
 		return nil, fmt.Errorf("management: claiming an idempotency key: %w", err)
 	}
