@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Demo SPA</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 40rem; margin: 3rem auto; padding: 0 1rem; }
+  code { word-break: break-all; }
+  dt { font-weight: 600; margin-top: .5rem; }
+  .problem { color: #9b1c1c; }
+</style>
+</head>
+<body>
+<h1>Demo SPA</h1>
+
+<!--
+  A public client. No secret is served to this page, because there is nowhere
+  in a browser to keep one — which is what PKCE replaces it with.
+-->
+<p id="status">Starting…</p>
+
+<div id="signed-out" hidden>
+  <p>You are not signed in.</p>
+  <p><button id="signin" type="button">Sign in</button></p>
+</div>
+
+<div id="signed-in" hidden>
+  <p>You are signed in. The claims below came from this application's own API,
+     which verified the token locally against the published key set — it did
+     not call the auth service.</p>
+  <dl>
+    <dt>Subject</dt><dd><code id="subject"></code></dd>
+    <dt>Organization</dt><dd><code id="org"></code></dd>
+    <dt>Token expires</dt><dd><code id="expires"></code></dd>
+    <dt>Verified by</dt><dd><code id="verified-by"></code></dd>
+  </dl>
+  <p><button id="signout" type="button">Sign out</button></p>
+</div>
+
+<p id="problem" class="problem" role="alert" hidden></p>
+
+<script type="module" src="/app.js"></script>
+</body>
+</html>
