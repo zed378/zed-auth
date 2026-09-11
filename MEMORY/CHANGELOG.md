@@ -67,6 +67,23 @@ Format follows Keep a Changelog conventions, grouped by release once releases ex
 
 ### 2026-09-11
 
+**Added** — the public quickstart, executed rather than written ([record](./records/2026-09-11-P1-25-public-docs.md))
+- `/docs/quickstart` replaces `P0-19`'s placeholder: register an application, run Authorization Code with PKCE, verify the ID token **locally**, call the API. Every command was run against `https://auth.zedth.my.id`, in order, from a clean shell. (`P1-25`)
+- `/changelog/phase-1-sso-and-the-management-api`, with a **Known limits** section. A release note listing only additions is a sales page. (`P1-25`)
+- The landing page says Phase 1 is built, and the two capability cards that said "Phase 1" now say "Shipped". (`P1-25`)
+
+**Fixed** — three factual errors the execution caught, in the parts a reader copies
+- The page showed a `refresh_token` in the token response. One is issued only when `offline_access` is requested; registering the grant type makes it permitted, not automatic. (`P1-25`)
+- An `error_description` that was invented from reading the specification, and a `request_id` inside the error envelope — a field the envelope does not have, because `additionalProperties: false`. The correlation id is the `X-Request-Id` header. (`P1-25`)
+
+**Fixed** — two defects found while deploying
+- **The site was redirecting HTTPS visitors to HTTP.** Docusaurus builds a directory per route, so `/about` is a 301 to `/about/`, and nginx built that `Location` absolutely from what it sees: `http://$host`, no port, no TLS. Cloudflare's edge and any browser holding the HSTS entry hide it — the request that is not covered is a first visit from a browser that has never seen the host, which is the visit a marketing site exists for. `absolute_redirect off`. (`P1-25`)
+- **The archived `1.0` docs snapshot still said the quickstart did not exist**, served at `/docs/1.0/quickstart` and reachable from the version dropdown. An archived page is still a published page making a claim, and nobody re-reads it because it is archived by definition. Re-snapshotted. (`P1-25`)
+
+**Found**
+- **The capability audit had been reading the roadmap board incorrectly since `P0-19`.** `statusOf` matched a bolded `**DONE**` against the whole row; the board bolds a status only when the row carries a caveat, so every plain `DONE` read as unfinished. In the direction the check was written that failure is invisible — everything looks less shipped than it is, which only suppresses complaints. It surfaced the moment the check gained its other direction and a capability had to prove it *had* shipped. It now parses the status column. A check that fails safe one way and is silently wrong the other is worth distrusting on sight. (`P1-25`)
+- **`PG-26`** — a new deployment cannot be bootstrapped without database access. The first organization needs `INSTANCE_OWNER` and nothing creates the first one; the first application needs a token only an already-registered application can obtain; the console is itself an application that must be registered first. Not a gap in the API contract — a missing operator path, and the first wall a stranger hits. The quickstart says so plainly rather than opening with a step nobody can perform. (`P1-25`)
+
 **Added** — the two demo consumer applications ([record](./records/2026-09-11-P1-26-demo-applications.md))
 - `demo/` — a confidential web client and a public SPA, genuinely separate: two binaries, two containers, two `client_id`s, two hostnames, two sessions. Two routes in one process would share a session and would be demonstrating the session rather than SSO. (`P1-26`)
 - `demo/internal/verify` — about 200 lines, standard library only, and the only security control either has. `alg` compared rather than obeyed; `typ` exact, which is the half of abuse case A-5 that still works when `aud` is lax; `iss` exact; `aud` containing our own `client_id`; `exp` present and future; the signature over the first two segments **as they arrived**. (`P1-26`)
