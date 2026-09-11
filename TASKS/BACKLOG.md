@@ -377,6 +377,34 @@ The cost of the omission is smaller than it looks today, because both claims are
 
 ---
 
+### PG-27 — No SBOM is produced, so a dependency can appear without anyone seeing it
+
+**Affects**: `docs/SECURITY/05`'s supply-chain row, which asks for "automated dependency scanning on every build, **SBOM diff review on every release**". The first half is done; the second does not exist.
+
+Found by `P1-28`'s threat-model review, walking the nineteen categories rather than the seven in `docs/PLAN/11`.
+
+`govulncheck` runs on every build and answers *"does anything we import have a known CVE"*. That is the more useful question most days, and it is not this one. An SBOM diff answers *"what changed"* — which catches a dependency **appearing**, including one pulled in transitively by a patch bump that no CVE has been filed against yet, and including one that a compromised maintainer published an hour ago. A vulnerability scanner cannot see a package nobody has reported yet; a diff sees every package.
+
+The cost is low and the moment to pay it is a release, not a commit: `go version -m` on the built binary, or `syft` against the image, written to a file and compared with the previous tag's.
+
+**Not a Phase 1 acceptance criterion** — `docs/PLAN/17` does not mention it, and `docs/SECURITY/05` puts SBOM review at "every release", which Phase 1 is not. It becomes due at the first tagged release that anybody other than this project consumes.
+
+**Recommendation**: generate the SBOM in the `docker` CI job, attach it to the release, and fail a release build whose SBOM adds a module that the diff review has not seen. Phase 5 (`docs/PLAN/16` § Hardening) is the natural home; the work is small enough to land earlier.
+
+---
+
+### PG-28 — The container image is never scanned
+
+**Affects**: `docs/SECURITY/05`'s container/runtime row, which asks for "automated container image scanning".
+
+Also found by `P1-28`'s review. What CI does prove about the image is real and worth keeping: it is built from `gcr.io/distroless/static-debian12:nonroot`, it runs as a non-root user and a test asserts that, and on staging it runs `read_only` with `no-new-privileges` and `cap_drop: ALL`.
+
+A `distroless/static` image has no shell, no package manager and no libc, so there is very little in it *to* find — which is a genuine mitigation and the reason this has not bitten. It is still not the check. The image contains our own binaries and whatever the base image ships, and "there is probably nothing there" is an argument, not a scan.
+
+**Recommendation**: `trivy image` (or `grype`) in the `docker` job, failing on HIGH and CRITICAL with an explicit allowlist file for anything triaged and accepted — the same shape `gosec -severity medium` already uses, where the gate is stricter than the rule so findings are seen rather than accumulated. Pairs naturally with `PG-27`, since both want to run where the image is built.
+
+---
+
 ### PG-26 — A new deployment cannot be bootstrapped without database access
 
 **Affects**: `P1-25`'s quickstart, anyone standing up a fresh instance, and `docs/PLAN/17`'s claim that organizations and users are creatable through the REST API.
