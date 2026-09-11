@@ -307,9 +307,17 @@ Reusing `id` and simply never displaying it was considered and rejected: that is
 
 ---
 
-### PG-17 — There is no CORS policy anywhere in the plan, and two Phase 1 consumers need one
+### PG-17 — There is no CORS policy anywhere in the plan, and two Phase 1 consumers need one — **RESOLVED 2026-09-11**
 
 **Affects**: `P1-08` (userinfo), `P1-15` onward (the Management API), `P1-21` (console login).
+
+**Resolved by `P1-29`** ([ADR-020](../MEMORY/DECISIONS.md), [record](../MEMORY/records/2026-09-11-P1-29-cors.md)), with the plan amended rather than worked around: `docs/PLAN/05` § Cross-Origin Access, `docs/PLAN/04` § `applications`, `docs/PLAN/09` § Transport & Storage.
+
+The recommendation below was taken almost unchanged — a per-application `allowed_origins text[]`, empty by default, validated like `redirect_uris`. The one thing it did not anticipate is the split: the token endpoint and the discovery documents needed a wildcard, because a public client cannot complete a login without one and there is no application to resolve at the moment the exchange happens. Everything returning personal data is per application, which was this gap's actual objection.
+
+The rest of this entry is kept as written, because the measurement below is what made the decision, and because the "until then" rule was the right rule right up until it was answered.
+
+---
 
 `docs/PLAN/12-PERFORMANCE.md` says `/oauth/userinfo` is "often called on every page load by consumer SPAs". An SPA calling it is a browser making a cross-origin request, and no plan document specifies an origin policy — not `docs/PLAN/05-API-CONTRACT.md`, not `docs/PLAN/09-SECURITY.md`, not `docs/PLAN/06-FRONTEND-ARCHITECTURE.md`. The only mention anywhere is `docs/SECURITY/02` §12, which names "tokens exposed via overly permissive CORS configuration" as a leak path — a warning with no rule behind it to follow.
 

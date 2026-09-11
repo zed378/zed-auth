@@ -22,6 +22,13 @@ The Auth Service is the most sensitive component in the entire system — a comp
 - **TLS mandatory** everywhere, no HTTP fallback.
 - Session cookies: `HttpOnly`, `Secure`, `SameSite=Lax` (or `Strict` where UX allows).
 - Sensitive DB data (e.g. OIDC client secrets) encrypted at rest.
+- **Cross-origin access is split by what an endpoint is**, not configured
+  globally: a wildcard on the public endpoints (discovery, the token endpoint —
+  public content, never authenticated by anything a browser attaches on its
+  own), and a per-application `allowed_origins` allowlist on everything that
+  returns personal data. Credentials are never permitted on either.
+  Specification in `05-API-CONTRACT.md` § Cross-Origin Access; reasoning and
+  alternatives in ADR-020. Added by `P1-29`, closing `PG-17`.
 
 ## Protection Against Common Attacks
 
@@ -35,6 +42,7 @@ The Auth Service is the most sensitive component in the entire system — a comp
 | Session fixation | Regenerate session ID after successful login |
 | Privilege escalation via the API | Every management API endpoint validates the caller's permission against the scope of the resource being accessed |
 | Delegation abuse | `role_keys` assigned by a receiving org must be validated as a subset of `granted_role_keys` (`08-AUTHORIZATION.md`) |
+| Cross-origin data theft | Endpoints returning personal data answer only origins the calling application registered, never a wildcard; credentials are never permitted, so no response depends on a cookie a browser attached by itself (`05-API-CONTRACT.md` § Cross-Origin Access) |
 
 ## Audit & Anomaly Detection
 
