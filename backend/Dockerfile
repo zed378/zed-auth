@@ -31,6 +31,28 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
       -ldflags="-s -w" \
       -o /out/migrate ./cmd/migrate
 
+# keyctl ships in the image too (P1-27).
+#
+# It did not, and deploy/vm/RUNBOOK-key-rotation.md compensated by building it
+# in a throwaway golang container and bind-mounting the binary next to the
+# secrets — a procedure whose own header says "read the mount paths before you
+# paste this", because the first execution of it wrote the private key
+# somewhere the service could not read and produced a service that refused to
+# start hours later, with no obvious connection to a rotation done that
+# morning.
+#
+# Shipping it makes the mount point correct by construction: the tool and the
+# service are the same image, with the same paths.
+#
+# It grants an attacker nothing. keyctl needs AUTH_MIGRATE_DSN — the schema
+# OWNER's credentials — which the service container is deliberately never given
+# (see deploy/vm/docker-compose.yml). Anyone holding those can already do
+# everything keyctl does, with psql.
+RUN CGO_ENABLED=0 GOOS=linux go build \
+      -trimpath \
+      -ldflags="-s -w" \
+      -o /out/keyctl ./cmd/keyctl
+
 # --- runtime stage ----------------------------------------------------------
 FROM gcr.io/distroless/static-debian12:nonroot AS runtime
 
@@ -42,6 +64,7 @@ WORKDIR /
 
 COPY --from=build /out/authservice /authservice
 COPY --from=build /out/migrate /migrate
+COPY --from=build /out/keyctl /keyctl
 
 # Migrations are a separate binary and a separate deployment step. They are
 # never run implicitly at service startup in production

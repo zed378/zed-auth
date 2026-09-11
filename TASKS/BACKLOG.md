@@ -325,6 +325,30 @@ The console makes it concrete rather than hypothetical: it is served from `conso
 
 ---
 
+#### What `P1-27` measured, 2026-09-11 — this is no longer a forecast
+
+The first time a real browser was pointed at the login flow, it stopped here.
+
+A public client cannot complete the Authorization Code flow without CORS. The authorize step is a **navigation** and needs nothing; the code exchange is a `fetch` to `/oauth/token` from the application's own origin, and the browser refuses it with `Failed to fetch` before the request is sent. That affects:
+
+- **the demo SPA** (`P1-26`), which cannot exchange its code at all, and
+- **the console** (`P1-21`), which cannot exchange its code AND cannot make a single Management API call.
+
+So the console has never been able to sign in from a browser, in any deployment where it is not served from the service's own origin — which is every deployment the plan describes, including staging today (`console.zedth.my.id` against `auth.zedth.my.id`). Every test that passed until now drove these flows with `curl`, which has no same-origin policy.
+
+That makes this a **Phase 1 exit blocker**, not a Phase 2 nicety: `docs/PLAN/17`'s checklist requires organizations, projects, applications and users to be creatable through the console, and the console cannot reach the API.
+
+**The split that matters**, and the reason a single answer is wrong:
+
+| Endpoint | What it needs | Why |
+|---|---|---|
+| `/.well-known/*`, `/oauth/token` | `Access-Control-Allow-Origin: *`, **no credentials** | Public by construction. The token endpoint hands nothing to a caller who cannot present a valid code and its PKCE verifier, and it is not cookie-authenticated, so an origin cannot use a victim's ambient session. Every OIDC provider does this, and a public client is unusable without it. |
+| `/oauth/userinfo`, `/v1/*` | The per-application `allowed_origins` above | Bearer-authenticated and returns personal data. `*` here is precisely the sentence `docs/SECURITY/02` §12 warns about. |
+
+The recommendation above is unchanged for the second row. The first row is the part that was not separated before, and separating it is what makes "no blanket `*`" and "a browser can log in" both true at once.
+
+---
+
 ### PG-18 — `email_verified` is an OIDC claim with no column behind it
 
 **Affects**: `P1-08`, `P1-19.5` (invitation acceptance), and any consumer that gates on a verified address.
