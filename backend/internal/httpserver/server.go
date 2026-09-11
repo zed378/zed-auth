@@ -34,6 +34,13 @@ type Deps struct {
 	Health  *Health
 	Metrics *observability.Metrics
 
+	// Origins decides which browser origins may read a response from the
+	// endpoints that return personal data (P1-29). Nil means no cross-origin
+	// read is permitted anywhere those endpoints serve, which is the correct
+	// failure: the API still works for every non-browser caller, and a browser
+	// on another origin sees nothing rather than something it should not.
+	Origins OriginChecker
+
 	// Discovery serves the two documents a consumer configures itself from.
 	// Optional: nil means the routes are not registered at all, rather than
 	// registered and returning an error. A 404 is the honest answer for a
@@ -240,7 +247,18 @@ func New(cfg config.HTTPConfig, deps Deps) *Server {
 		mux.Method(http.MethodGet, "/oauth/authorize", deps.Authorize)
 	}
 	if deps.Token != nil {
-		mux.Method(http.MethodPost, "/oauth/token", deps.Token)
+		// `Access-Control-Allow-Origin: *`, no credentials (P1-29).
+		//
+		// A public client runs this exchange from its own origin with `fetch`,
+		// and without a browser-usable policy here it simply cannot sign in —
+		// the authorize step is a navigation and needs nothing, the exchange
+		// is a fetch and needs this. The endpoint gives nothing to a caller
+		// who cannot present a valid code AND its PKCE verifier, and it reads
+		// no cookie, so `*` grants an attacker's page nothing curl did not
+		// already have.
+		mux.Method(http.MethodPost, "/oauth/token", PublicCORS(deps.Token))
+		mux.Method(http.MethodOptions, "/oauth/token", PublicCORS(http.HandlerFunc(
+			func(http.ResponseWriter, *http.Request) {})))
 	}
 	if deps.Introspect != nil {
 		mux.Method(http.MethodPost, "/oauth/introspect", deps.Introspect)
@@ -249,9 +267,16 @@ func New(cfg config.HTTPConfig, deps Deps) *Server {
 		mux.Method(http.MethodPost, "/oauth/revoke", deps.Revoke)
 	}
 	if deps.UserInfo != nil {
+		// Per-application, not `*`: this endpoint returns an email address
+		// (P1-29, PG-17). `docs/PLAN/12` calls it "often called on every page
+		// load by consumer SPAs", which is precisely why it needed a policy
+		// and precisely why the policy cannot be a wildcard.
+		userinfo := RestrictedCORS(deps.Origins, deps.Logger)(deps.UserInfo)
+
 		// OIDC Core 5.3.1 requires both methods.
-		mux.Method(http.MethodGet, "/oauth/userinfo", deps.UserInfo)
-		mux.Method(http.MethodPost, "/oauth/userinfo", deps.UserInfo)
+		mux.Method(http.MethodGet, "/oauth/userinfo", userinfo)
+		mux.Method(http.MethodPost, "/oauth/userinfo", userinfo)
+		mux.Method(http.MethodOptions, "/oauth/userinfo", userinfo)
 	}
 	if deps.Logout != nil {
 		mux.Method(http.MethodGet, "/oidc/logout", deps.Logout)
@@ -331,8 +356,20 @@ func New(cfg config.HTTPConfig, deps Deps) *Server {
 	})
 
 	api.HandlerWithOptions(strict, api.ChiServerOptions{
-		BaseRouter:  mux,
-		Middlewares: []api.MiddlewareFunc{noStore, guardV1(deps.V1)},
+		BaseRouter: mux,
+		// CORS OUTSIDE the guard, deliberately.
+		//
+		// Middleware here runs outermost-first, so this sees the response the
+		// guard produces as well as the handler's. That matters: a console
+		// whose token has just expired has to be able to READ its own 401 to
+		// know to renew, and a 401 with no CORS headers is a fetch that
+		// rejects with no status at all. See allowed() in cors.go for what is
+		// and is not decided without a verified token.
+		Middlewares: []api.MiddlewareFunc{
+			CORS(deps.Origins, deps.Logger),
+			noStore,
+			guardV1(deps.V1),
+		},
 
 		// The THIRD error path, and the one that is easy to miss.
 		//

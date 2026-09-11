@@ -81,6 +81,7 @@ const columns = `
 	id, org_id, project_id, name, type,
 	client_secret_hash, previous_client_secret_hash, previous_client_secret_expires_at,
 	to_jsonb(redirect_uris), to_jsonb(post_logout_redirect_uris), to_jsonb(grant_types),
+	to_jsonb(allowed_origins),
 	created_at, updated_at`
 
 // jsonStrings scans a JSON array of strings.
@@ -127,12 +128,13 @@ func scan(row interface{ Scan(...any) error }) (Record, error) {
 		redirects     jsonStrings
 		postLogout    jsonStrings
 		grants        jsonStrings
+		origins       jsonStrings
 	)
 
 	err := row.Scan(
 		&rec.ID, &rec.OrgID, &rec.ProjectID, &rec.Name, &rec.Type,
 		&secretHash, &previousHash, &previousUntil,
-		&redirects, &postLogout, &grants,
+		&redirects, &postLogout, &grants, &origins,
 		&rec.CreatedAt, &rec.UpdatedAt,
 	)
 	if err != nil {
@@ -142,6 +144,7 @@ func scan(row interface{ Scan(...any) error }) (Record, error) {
 	rec.RedirectURIs = redirects
 	rec.PostLogoutRedirectURIs = postLogout
 	rec.GrantTypes = grants
+	rec.AllowedOrigins = origins
 
 	rec.Credentials = Credentials{
 		Hash:              secretHash.String,
@@ -174,6 +177,9 @@ func (s *Store) Create(
 	if app.PostLogoutRedirectURIs, err = canonicalise(app.PostLogoutRedirectURIs, app.Type); err != nil {
 		return Record{}, Secret{}, err
 	}
+	if app.AllowedOrigins, err = canonicaliseOrigins(app.AllowedOrigins); err != nil {
+		return Record{}, Secret{}, err
+	}
 
 	var (
 		secret Secret
@@ -190,11 +196,11 @@ func (s *Store) Create(
 	row := tx.QueryRow(ctx, `
 		INSERT INTO applications (
 			org_id, project_id, name, type, client_secret_hash,
-			redirect_uris, post_logout_redirect_uris, grant_types)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+			redirect_uris, post_logout_redirect_uris, grant_types, allowed_origins)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		RETURNING `+columns,
 		app.OrgID, app.ProjectID, app.Name, string(app.Type), hash,
-		app.RedirectURIs, app.PostLogoutRedirectURIs, app.GrantTypes,
+		app.RedirectURIs, app.PostLogoutRedirectURIs, app.GrantTypes, app.AllowedOrigins,
 	)
 
 	rec, err := scan(row)
@@ -332,14 +338,18 @@ func (s *Store) Update(
 	if app.PostLogoutRedirectURIs, err = canonicalise(app.PostLogoutRedirectURIs, before.Type); err != nil {
 		return Record{}, err
 	}
+	if app.AllowedOrigins, err = canonicaliseOrigins(app.AllowedOrigins); err != nil {
+		return Record{}, err
+	}
 
 	row := tx.QueryRow(ctx, `
 		UPDATE applications
-		   SET name = $2, redirect_uris = $3, post_logout_redirect_uris = $4, grant_types = $5
+		   SET name = $2, redirect_uris = $3, post_logout_redirect_uris = $4,
+		       grant_types = $5, allowed_origins = $6
 		 WHERE id = $1
 		RETURNING `+columns,
 		id, app.Name,
-		app.RedirectURIs, app.PostLogoutRedirectURIs, app.GrantTypes,
+		app.RedirectURIs, app.PostLogoutRedirectURIs, app.GrantTypes, app.AllowedOrigins,
 	)
 
 	after, err := scan(row)
@@ -498,6 +508,24 @@ func canonicalise(uris []string, t Type) ([]string, error) {
 	return out, nil
 }
 
+// canonicaliseOrigins is canonicalise for the allowed-origins list.
+//
+// Separate from the URI version rather than sharing it through a flag: the two
+// accept different things on purpose — a redirect URI may carry a path and a
+// native client's custom scheme, an origin may carry neither — and a shared
+// function with a mode parameter is how those rules drift into each other.
+func canonicaliseOrigins(origins []string) ([]string, error) {
+	out := make([]string, 0, len(origins))
+	for _, origin := range origins {
+		canonical, err := ValidateAllowedOrigin(origin)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, canonical)
+	}
+	return out, nil
+}
+
 func firstNonEmpty(a, b string) string {
 	if a != "" {
 		return a
@@ -521,14 +549,15 @@ func (s *Store) ByClientID(ctx context.Context, db *postgres.DB, clientID string
 		redirects  jsonStrings
 		postLogout jsonStrings
 		grants     jsonStrings
+		origins    jsonStrings
 	)
 
 	err := db.SQL().QueryRowContext(ctx, `
 		SELECT id, org_id, project_id, name, type,
-		       redirect_uris, post_logout_redirect_uris, grant_types
+		       redirect_uris, post_logout_redirect_uris, grant_types, allowed_origins
 		  FROM application_by_client_id($1)`, clientID,
 	).Scan(&app.ID, &app.OrgID, &app.ProjectID, &app.Name, &app.Type,
-		&redirects, &postLogout, &grants)
+		&redirects, &postLogout, &grants, &origins)
 
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
@@ -540,7 +569,32 @@ func (s *Store) ByClientID(ctx context.Context, db *postgres.DB, clientID string
 	app.RedirectURIs = redirects
 	app.PostLogoutRedirectURIs = postLogout
 	app.GrantTypes = grants
+	app.AllowedOrigins = origins
 	return app, nil
+}
+
+// OriginIsRegistered reports whether ANY application registers this origin.
+//
+// For the CORS preflight and nothing else. A preflight arrives with an
+// `Origin` header and no credential — that is what the specification says a
+// preflight is — so there is no token to resolve an application from, and the
+// per-application check cannot yet be made. See the migration for why
+// answering this is acceptable and refusing it is not.
+//
+// The actual request that follows carries a bearer token and IS checked
+// against that application's own list. This function decides only whether a
+// browser is permitted to ask.
+func (s *Store) OriginIsRegistered(ctx context.Context, db *postgres.DB, origin string) (bool, error) {
+	if origin == "" {
+		return false, nil
+	}
+	var registered bool
+	if err := db.SQL().QueryRowContext(ctx,
+		`SELECT origin_is_registered($1)`, origin,
+	).Scan(&registered); err != nil {
+		return false, fmt.Errorf("client: checking a preflight origin: %w", err)
+	}
+	return registered, nil
 }
 
 // CredentialsFor reads an application's secret state.
