@@ -86,6 +86,27 @@ type Config struct {
 type MailConfig struct {
 	SMTPURL string
 	From    string
+
+	// AllowCleartext permits `smtp://` outside local development.
+	//
+	// Off by default, and the default is the important part: `smtp://`
+	// tolerates a relay with no STARTTLS, and an invitation or reset link is a
+	// bearer credential for an account. Against a relay reached over a network
+	// that is a mistake worth refusing to boot on.
+	//
+	// It exists because one arrangement is genuinely safe and the scheme alone
+	// cannot express it: a mail sink running as a sidecar on the same host,
+	// reached over a private container network that no packet leaves. Staging
+	// runs Mailpit that way — without this, staging can send no mail at all,
+	// which means no invitation and no password reset can be exercised there,
+	// which means the only environment where they are tested is a developer's
+	// laptop.
+	//
+	// Set deliberately, never inferred, and logged at WARN on every start so
+	// that an operator who sets it once cannot forget. Same shape as
+	// AUTH_TRUST_PROXY_HEADERS: a claim the deployment makes about its own
+	// topology, which the service cannot verify and must not guess.
+	AllowCleartext bool
 }
 
 // Configured reports whether mail can be sent.
@@ -263,8 +284,9 @@ func LoadFrom(getenv Getenv) (*Config, error) {
 		Environment: Environment(l.optional("AUTH_ENV", string(EnvLocal))),
 		Issuer:      l.required("AUTH_ISSUER"),
 		Mail: MailConfig{
-			SMTPURL: l.optional("AUTH_SMTP_URL", ""),
-			From:    l.optional("AUTH_MAIL_FROM", ""),
+			SMTPURL:        l.optional("AUTH_SMTP_URL", ""),
+			From:           l.optional("AUTH_MAIL_FROM", ""),
+			AllowCleartext: l.boolean("AUTH_SMTP_ALLOW_CLEARTEXT", false),
 		},
 		HTTP: HTTPConfig{
 			Addr:              l.optional("AUTH_HTTP_ADDR", ":8080"),
@@ -475,11 +497,18 @@ func (l *loader) validate(cfg *Config) {
 			// fails per message instead of at startup.
 			l.problem("AUTH_MAIL_FROM is required when AUTH_SMTP_URL is set")
 		}
-		if strings.HasPrefix(cfg.Mail.SMTPURL, "smtp://") && cfg.Environment != EnvLocal {
+		if strings.HasPrefix(cfg.Mail.SMTPURL, "smtp://") &&
+			cfg.Environment != EnvLocal && !cfg.Mail.AllowCleartext {
 			// smtp:// tolerates a relay with no STARTTLS, and an invitation or
 			// reset link is a bearer credential for an account. Outside local
-			// development that is a mistake worth refusing to boot on.
-			l.problem("AUTH_SMTP_URL uses smtp:// outside local development; use smtps:// so links are not sent over a cleartext hop")
+			// development that is a mistake worth refusing to boot on —
+			// unless the operator has stated that the hop does not leave the
+			// host, which is what AUTH_SMTP_ALLOW_CLEARTEXT asserts. See
+			// MailConfig.AllowCleartext for when that is true and when it is
+			// somebody silencing a warning.
+			l.problem("AUTH_SMTP_URL uses smtp:// outside local development; use smtps:// " +
+				"so links are not sent over a cleartext hop, or set " +
+				"AUTH_SMTP_ALLOW_CLEARTEXT=true if the server is a sidecar on this host")
 		}
 		if strings.HasSuffix(cfg.Issuer, "/") {
 			// A trailing slash silently produces an `iss` claim that does not

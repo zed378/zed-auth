@@ -45,6 +45,7 @@ services:
     depends_on:
       postgres: {condition: service_healthy}
       redis:    {condition: service_healthy}
+      mailpit:  {condition: service_started}
 
     # Named explicitly rather than loaded with env_file. env_file would pass the
     # whole file in, including AUTH_POSTGRES_OWNER_PASSWORD and
@@ -77,6 +78,22 @@ services:
       # rather than as an absence of data.
       AUTH_PASSWORD_BREACH_CHECK_ENABLED: ${AUTH_PASSWORD_BREACH_CHECK_ENABLED:-true}
       AUTH_PASSWORD_BREACH_TIMEOUT: ${AUTH_PASSWORD_BREACH_TIMEOUT:-2s}
+      # Outbound mail, into the sink below (ADR-018).
+      #
+      # Without it an invitation is created and never delivered, so no account
+      # on this host can ever have a password — which is the state staging was
+      # in until `P1-28`: one organization, one project, zero users, and a
+      # console nobody could sign in to.
+      #
+      # `smtp://` outside local development is normally refused, because an
+      # invitation link is a bearer credential and a relay with no STARTTLS
+      # hands it to anything on the path. AUTH_SMTP_ALLOW_CLEARTEXT is the
+      # operator asserting the hop does not leave the host: `mailpit` resolves
+      # on this compose network only, and the service logs the assertion at
+      # WARN on every start so it cannot be forgotten.
+      AUTH_SMTP_URL: ${AUTH_SMTP_URL:-smtp://mailpit:1025}
+      AUTH_MAIL_FROM: ${AUTH_MAIL_FROM:-auth@zedth.my.id}
+      AUTH_SMTP_ALLOW_CLEARTEXT: ${AUTH_SMTP_ALLOW_CLEARTEXT:-true}
       AUTH_LOG_LEVEL: ${AUTH_LOG_LEVEL:-info}
       AUTH_LOG_FORMAT: ${AUTH_LOG_FORMAT:-json}
       # Metrics listener. Inside the container it binds all interfaces so the
@@ -146,6 +163,40 @@ services:
     deploy:
       resources:
         limits: {memory: 512M}
+
+  # --- Mail sink --------------------------------------------------------------
+  #
+  # Mailpit accepts everything and delivers nothing, which is exactly right for
+  # a staging host: invitations and password resets can be exercised without a
+  # single message reaching a real inbox.
+  #
+  # **Its web interface is NOT tunnelled, and must not be.** It is a mailbox
+  # containing password-set links for every account on this host — a bearer
+  # credential per message. Loopback only; read it over SSH.
+  #
+  #   ssh infra@<host> 'curl -sS localhost:10925/api/v1/messages'
+  mailpit:
+    image: axllent/mailpit:v1.21
+    restart: always
+    environment:
+      # Retention, so the box does not grow without bound. Each message holds a
+      # credential, and a short window is both housekeeping and hygiene.
+      MP_MAX_MESSAGES: "500"
+    ports:
+      # Verify with: ss -tlnp | grep 10925 — it must show 127.0.0.1.
+      - "127.0.0.1:${AUTH_MAILPIT_PORT:-10925}:8025"
+    expose:
+      - "1025"
+    healthcheck:
+      test: ["CMD", "sh", "-c", "wget -q -O /dev/null http://127.0.0.1:8025/api/v1/info"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    security_opt: [no-new-privileges:true]
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
 
   postgres:
     image: postgres:17.2-alpine
