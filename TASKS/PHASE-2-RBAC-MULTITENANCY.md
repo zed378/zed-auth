@@ -217,7 +217,7 @@
 
 | | |
 |---|---|
-| **Status** | TODO |
+| **Status** | DONE (one item needs the VM) — [record](../MEMORY/records/2026-09-12-P2-06-authz-check.md), [spec](../MEMORY/specs/P2-06-authz-check.md). Not yet on staging |
 | **Depends on** | P2-03 |
 | **Plan refs** | `docs/PLAN/05-API-CONTRACT.md` § Authorization Check Endpoint, `docs/PLAN/08-AUTHORIZATION.md` Part A, `docs/PLAN/12-PERFORMANCE.md`, `docs/PLAN/13-OBSERVABILITY.md` |
 | **Spec required** | Yes — authorization core |
@@ -236,12 +236,16 @@
 8. Instrument decision latency, allow/deny ratio, and error rate, feeding `docs/PLAN/13`'s alert on sustained latency breach.
 
 **Definition of Done**
-- [ ] Request and response match `docs/PLAN/05`'s documented example exactly.
-- [ ] Decisions read live grant data, and a revocation is reflected on the next check.
-- [ ] Raw resource attributes never appear in any log, verified by test.
-- [ ] A dependency failure produces a deny, not an allow, verified by fault injection.
-- [ ] `docs/PLAN/12`'s RBAC latency targets are met under load.
-- [ ] `reasons` is populated and useful for support and audit.
+- [x] Request and response match `docs/PLAN/05`'s documented example exactly.
+- [x] Decisions read live grant data, and a revocation is reflected on the next check. The caller's token is minted **once**, before the revocation, and reused — so the only way the second answer can differ is if the decision read live data. This also closes `P2-03`'s open item.
+- [x] Raw resource attributes never appear in any log, verified by capturing everything the handler logs during a request carrying a canary — and failing if the log is **empty** as well as if it contains the canary, so silence cannot satisfy it.
+- [x] A dependency failure produces a deny, not an allow, verified by fault injection. It answers **503**, not a 200 claiming a decision was reached, which a caller may cache and which makes an outage look like a policy change on every dashboard watching the allow ratio.
+- [ ] **`docs/PLAN/12`'s RBAC latency targets are met under load. Not measured:** `scripts/loadtest` must run on the VM, which was unreachable this session. The tightest targets in the document (p50 < 20ms, p95 < 80ms, p99 < 150ms), on the endpoint expected to carry the most traffic — so this is not a formality.
+- [x] `reasons` is populated and useful for support and audit — and identical for every denial, because an endpoint whose reasons distinguished "no such user" from "no such role" would answer "does this user exist?" to anybody with a token.
+
+**Added along the way**
+- `Member`, the requirement meaning "holds a valid token for this organization". The policy table could previously say "an administrator" or nothing at all, and requiring `ORG_ADMIN` here would mean every service that checks a permission holds an administrative role over the organization.
+- `UNAVAILABLE` as a fault class, distinct from `INTERNAL`: a bug here versus a dependency that did not answer.
 
 **Abuse cases to test**
 - Querying a decision about a subject the caller has no business asking about (`docs/SECURITY/02` §2).

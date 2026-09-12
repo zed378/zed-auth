@@ -5,6 +5,7 @@ package role
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
+	"github.com/zed378/zed-auth/backend/internal/api"
 	"github.com/zed378/zed-auth/backend/internal/application"
 	"github.com/zed378/zed-auth/backend/internal/audit"
 	"github.com/zed378/zed-auth/backend/internal/auditlog"
@@ -105,6 +107,7 @@ func setupAPI(t *testing.T) *apiFixture {
 		ApplicationAPI: application.New(base.db, auditor, discard()),
 		RoleAPI:        New(base.db, auditor, discard()),
 		GrantAPI:       grant.New(base.db, auditor, discard()),
+		AuthzAPI:       stubAuthz{},
 		UserAPI:        &user.Handler{Store: user.NewStore(), DB: base.db, Audit: auditor, Log: discard()},
 		AuditAPI:       &auditlog.Handler{DB: base.db, Log: discard()},
 	})
@@ -172,3 +175,16 @@ func signingKeys(t *testing.T, stack *testsupport.Stack) *signing.Cache {
 }
 
 var _ http.Handler = (http.Handler)(nil)
+
+// stubAuthz stands in for the authorization check.
+//
+// The real handler cannot be used here: `internal/authz` imports this package
+// for its permission-key validator, so importing it back from this package's
+// test is a cycle. That direction is correct — the decision depends on what a
+// permission key IS — and the stub costs nothing, because nothing in this
+// suite asks a question.
+type stubAuthz struct{}
+
+func (stubAuthz) CheckAuthorization(context.Context, api.CheckAuthorizationRequestObject) (api.CheckAuthorizationResponseObject, error) {
+	return nil, errors.New("role tests do not wire the authorization check")
+}

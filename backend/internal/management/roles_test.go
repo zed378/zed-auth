@@ -369,16 +369,22 @@ func TestAProjectIsInvisibleToSomebodyWithNoGrantOverIt(t *testing.T) {
 // one cell changed when somebody edits `satisfies`.
 func TestTheHierarchyMatchesThePlan(t *testing.T) {
 	// want[held][required]
+	//
+	// Member is in here because `P2-06` added it, and adding a role without
+	// adding its row would leave this test passing while covering less than it
+	// claims — the exact way an exhaustive test stops being exhaustive.
 	want := map[Role]map[Role]bool{
-		InstanceOwner: {InstanceOwner: true, OrgOwner: true, OrgAdmin: true, ProjectOwner: true, ProjectGrantOwner: false},
-		OrgOwner:      {InstanceOwner: false, OrgOwner: true, OrgAdmin: true, ProjectOwner: true, ProjectGrantOwner: false},
-		OrgAdmin:      {InstanceOwner: false, OrgOwner: false, OrgAdmin: true, ProjectOwner: true, ProjectGrantOwner: false},
-		ProjectOwner:  {InstanceOwner: false, OrgOwner: false, OrgAdmin: false, ProjectOwner: true, ProjectGrantOwner: false},
+		InstanceOwner: {InstanceOwner: true, OrgOwner: true, OrgAdmin: true, ProjectOwner: true, ProjectGrantOwner: false, Member: true},
+		OrgOwner:      {InstanceOwner: false, OrgOwner: true, OrgAdmin: true, ProjectOwner: true, ProjectGrantOwner: false, Member: true},
+		OrgAdmin:      {InstanceOwner: false, OrgOwner: false, OrgAdmin: true, ProjectOwner: true, ProjectGrantOwner: false, Member: true},
+		ProjectOwner:  {InstanceOwner: false, OrgOwner: false, OrgAdmin: false, ProjectOwner: true, ProjectGrantOwner: false, Member: true},
 		// Reserved: holds nothing, satisfies nothing.
-		ProjectGrantOwner: {InstanceOwner: false, OrgOwner: false, OrgAdmin: false, ProjectOwner: false, ProjectGrantOwner: false},
+		ProjectGrantOwner: {InstanceOwner: false, OrgOwner: false, OrgAdmin: false, ProjectOwner: false, ProjectGrantOwner: false, Member: false},
+		// The floor. Being inside the tenant implies nothing else at all.
+		Member: {InstanceOwner: false, OrgOwner: false, OrgAdmin: false, ProjectOwner: false, ProjectGrantOwner: false, Member: true},
 	}
 
-	all := []Role{InstanceOwner, OrgOwner, OrgAdmin, ProjectOwner, ProjectGrantOwner}
+	all := []Role{InstanceOwner, OrgOwner, OrgAdmin, ProjectOwner, ProjectGrantOwner, Member}
 	for _, held := range all {
 		for _, required := range all {
 			got := held.Satisfies(required)
@@ -417,5 +423,56 @@ func TestEveryRefusalCarriesAReason(t *testing.T) {
 		if d.Reason == "" {
 			t.Errorf("refusal %d carries no reason", i)
 		}
+	}
+}
+
+// --- P2-06: membership ------------------------------------------------------
+
+// `Member` is satisfied by the caller's own token saying which organization
+// they belong to, with no grant anywhere.
+//
+// It exists because `/v1/authz/check` is called by consumer applications on
+// every protected request they serve, and requiring ORG_ADMIN there would mean
+// every such service holds an administrative role over the organization.
+func TestMembershipNeedsNoGrant(t *testing.T) {
+	// No grants at all, and a token belonging to orgA.
+	plain := Caller{UserID: userID, OrgID: orgA}
+
+	if d := Authorize(plain, Requirement{Role: Member, Scope: ScopeOrganization},
+		Target{OrgID: orgA}); !d.Allowed {
+		t.Errorf("a member of the organization was refused: %s", d.Reason)
+	}
+
+	// And not somebody else's organization, which is the half that matters.
+	if d := Authorize(plain, Requirement{Role: Member, Scope: ScopeOrganization},
+		Target{OrgID: orgB}); d.Allowed {
+		t.Error("a member of organization A passed a Member check for organization B")
+	}
+}
+
+// Membership is the floor, not a back door: it satisfies nothing above itself.
+func TestMembershipBuysNothingElse(t *testing.T) {
+	plain := Caller{UserID: userID, OrgID: orgA}
+
+	for _, req := range []Requirement{
+		{Role: OrgAdmin, Scope: ScopeOrganization},
+		{Role: OrgOwner, Scope: ScopeOrganization},
+		{Role: ProjectOwner, Scope: ScopeProject},
+		{Role: InstanceOwner, Scope: ScopeInstance},
+	} {
+		if d := Authorize(plain, req, Target{OrgID: orgA, ProjectID: projectA}); d.Allowed {
+			t.Errorf("a plain member satisfied %s", req.Role)
+		}
+	}
+}
+
+// An administrator of another organization is not a member of this one — their
+// grant over orgB says nothing about orgA.
+func TestAGrantElsewhereIsNotMembershipHere(t *testing.T) {
+	elsewhere := Caller{UserID: userID, OrgID: orgB, Grants: []Grant{{Role: OrgAdmin, ScopeID: orgB}}}
+
+	if d := Authorize(elsewhere, Requirement{Role: Member, Scope: ScopeOrganization},
+		Target{OrgID: orgA}); d.Allowed {
+		t.Error("an administrator of another organization passed a Member check here")
 	}
 }

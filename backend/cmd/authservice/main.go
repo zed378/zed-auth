@@ -28,6 +28,7 @@ import (
 	"github.com/zed378/zed-auth/backend/internal/audit"
 	"github.com/zed378/zed-auth/backend/internal/auditlog"
 	"github.com/zed378/zed-auth/backend/internal/authn"
+	"github.com/zed378/zed-auth/backend/internal/authz"
 	"github.com/zed378/zed-auth/backend/internal/config"
 	"github.com/zed378/zed-auth/backend/internal/grant"
 	"github.com/zed378/zed-auth/backend/internal/httpserver"
@@ -408,6 +409,7 @@ func run() error {
 	applications := application.New(db, auditor, log)
 	roles := role.New(db, auditor, log)
 	grants := grant.New(db, auditor, log)
+	authzChecks := &authz.Handler{DB: db, Log: log, Observer: authzObserver{metrics}}
 
 	// Outbound email (ADR-018). A nil sender is a valid deployment: invitations
 	// still create their token and the response says the message was not sent.
@@ -624,6 +626,7 @@ func run() error {
 		ApplicationAPI: applications,
 		RoleAPI:        roles,
 		GrantAPI:       grants,
+		AuthzAPI:       authzChecks,
 		UserAPI:        users,
 		AuditAPI:       &auditlog.Handler{DB: db, Log: log},
 		// Explicit configuration, not inferred from the environment: see the
@@ -1010,6 +1013,40 @@ func (o lifecycleObserver) Lifecycle(endpoint, outcome string) {
 }
 
 // rateLimitObserver reports what the limiter did.
+// authzObserver feeds P2-06's decisions to the metrics registry.
+//
+// Decisions and failures are separate counters, deliberately: a check that
+// reached no decision is not a deny, and counting it as one would make an
+// outage look like a policy change on every dashboard watching the ratio.
+type authzObserver struct{ m *observability.Metrics }
+
+func (o authzObserver) AuthorizationDecided(allowed bool, took time.Duration) {
+	if o.m == nil {
+		return
+	}
+	outcome := "deny"
+	if allowed {
+		outcome = "allow"
+	}
+	// The `mode` label is "rbac" today and becomes "abac" when Phase 4b adds
+	// policy evaluation — which is why `P0-11` reserved these two metrics with
+	// that label rather than leaving the extension to invent its own.
+	o.m.AuthzDecisions.WithLabelValues(outcome, "rbac").Inc()
+	o.m.AuthzCheckDuration.WithLabelValues("rbac").Observe(took.Seconds())
+}
+
+func (o authzObserver) AuthorizationFailed(took time.Duration) {
+	if o.m == nil {
+		return
+	}
+	// "error" is its own value of the same label rather than a deny, so an
+	// outage does not show up as a policy change on a dashboard watching the
+	// allow ratio — and `docs/PLAN/13`'s alert on the error rate has a series
+	// to read.
+	o.m.AuthzDecisions.WithLabelValues("error", "rbac").Inc()
+	o.m.AuthzCheckDuration.WithLabelValues("rbac").Observe(took.Seconds())
+}
+
 type rateLimitObserver struct{ m *observability.Metrics }
 
 func (o rateLimitObserver) Refused(bound string) {

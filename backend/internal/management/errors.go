@@ -47,6 +47,16 @@ const (
 
 	// Internal: anything else.
 	Internal
+
+	// Unavailable: no answer was reached, and the caller may retry.
+	//
+	// Distinct from Internal, which says a bug happened here. This says a
+	// dependency did not answer, which is a different thing for a caller to
+	// act on — and for `/v1/authz/check` (P2-06) it is the difference between
+	// "we checked and the answer is no" and "no decision was reached". The
+	// first is cacheable and makes an outage look like a policy change on
+	// every dashboard watching the allow/deny ratio; the second is neither.
+	Unavailable
 )
 
 // Fault is an error with a class, carried to the middleware that writes it.
@@ -94,6 +104,7 @@ var mapping = map[Class]struct {
 	Conflict:        {http.StatusConflict, api.CONFLICT},
 	RateLimited:     {http.StatusTooManyRequests, api.RATELIMITED},
 	Internal:        {http.StatusInternalServerError, api.INTERNAL},
+	Unavailable:     {http.StatusServiceUnavailable, api.UNAVAILABLE},
 }
 
 // Status and Code report how a class is answered.
