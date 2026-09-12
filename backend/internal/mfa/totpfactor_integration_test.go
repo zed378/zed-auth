@@ -244,13 +244,9 @@ func TestTheFrameworkOnlySeesActiveFactors(t *testing.T) {
 
 	enrolment, _ := totp.Begin(context.Background(), f.userID, f.orgID, "phone")
 
-	factors := &PostgresFactors{
-		Store: f.store,
-		DB:    f.db,
-		OrgOf: func(context.Context, string) (string, error) { return f.orgID, nil },
-	}
+	factors := &PostgresFactors{Store: f.store, DB: f.db}
 
-	pending, err := factors.Confirmed(context.Background(), f.userID)
+	pending, err := factors.Confirmed(context.Background(), f.orgID, f.userID)
 	if err != nil {
 		t.Fatalf("Confirmed: %v", err)
 	}
@@ -263,7 +259,7 @@ func TestTheFrameworkOnlySeesActiveFactors(t *testing.T) {
 		t.Fatalf("Confirm: %v", err)
 	}
 
-	active, err := factors.Confirmed(context.Background(), f.userID)
+	active, err := factors.Confirmed(context.Background(), f.orgID, f.userID)
 	if err != nil {
 		t.Fatalf("Confirmed: %v", err)
 	}
@@ -306,12 +302,8 @@ func TestTheFrameworkChallengesWithARealFactor(t *testing.T) {
 	}
 
 	framework := &Framework{
-		Registry: NewRegistry(totp),
-		Store: &PostgresFactors{
-			Store: f.store,
-			DB:    f.db,
-			OrgOf: func(context.Context, string) (string, error) { return f.orgID, nil },
-		},
+		Registry:   NewRegistry(totp),
+		Store:      &PostgresFactors{Store: f.store, DB: f.db},
 		Challenges: newMemoryChallenges(),
 		Now:        func() time.Time { return at },
 	}

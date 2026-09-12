@@ -40,6 +40,30 @@ const (
 	EventSessionCreated EventType = "session.created"
 	EventSessionRevoked EventType = "session.revoked"
 
+	// The second factor, recorded separately from the password (P3-03 step 7).
+	//
+	// Separate because the two answer different questions. `user.login.failed`
+	// rising means somebody is guessing PASSWORDS, which is noise on any
+	// service exposed to the internet. `user.mfa.failed` rising means somebody
+	// is guessing CODES, which they can only be doing if they already have a
+	// working password — so it is one of the few signals in the log that
+	// indicates a credential is already lost rather than being hunted for.
+	// Averaging them into one event would hide the second inside the first.
+	//
+	// The payload carries the factor TYPE and never the code, never the
+	// factor's secret, and never the challenge handle.
+	EventMFASucceeded EventType = "user.mfa.success"
+	EventMFAFailed    EventType = "user.mfa.failed"
+
+	// EventMFAChallenged is a password proven and a factor demanded.
+	//
+	// Beyond what P3-03 step 7 asks for, and worth the row: an attacker holding
+	// a WORKING password who is stopped by the factor step leaves no trace at
+	// all unless they also guess wrong at least once. This is the line that
+	// says a credential is already lost, which is the most actionable thing the
+	// login path can tell an operator.
+	EventMFAChallenged EventType = "user.mfa.challenged"
+
 	// EventTokenIssued records a successful exchange at the token endpoint
 	// (P1-07). The payload names the client, the grant and the scope, and
 	// never a token — the whole point of the event is to reconstruct who was

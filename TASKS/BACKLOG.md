@@ -377,6 +377,57 @@ The cost of the omission is smaller than it looks today, because both claims are
 
 ---
 
+### BL-07 — `authn`'s login-policy code has no unit tests and reads 0% coverage
+
+**Affects**: `internal/authn/loginpolicy.go` (`ParseLoginPolicy`, `LoginPolicy.Allows`, `PolicyStore.LoginPolicy`), introduced by `P2-10`.
+
+Found while restoring the coverage floor for `P3-03`, and **not caused by it**. The three functions that decide an organization's `allowed_login_methods` and session lifetime have no test in their own package at all:
+
+```
+internal/authn/loginpolicy.go:57   Allows             0.0%
+internal/authn/loginpolicy.go:67   ParseLoginPolicy   0.0%
+internal/authn/loginpolicy.go:145  LoginPolicy        0.0%
+```
+
+They are exercised, but only **indirectly**, through `internal/login`'s integration tests — and coverage for a package counts only tests in that package, which is why this never surfaced. It surfaced now because `P3-03` added `UserStore.ByID` and the package had no headroom left above its 80% floor.
+
+**Why it matters more than the number.** `ParseLoginPolicy` reads attacker-irrelevant but operator-critical JSON: get it wrong and an organization that disabled password sign-in still permits it, or one that set a twelve-hour session gets the default. `Allows` is the function that answers "may this method be used here", and `P1-12` calls it **before** any credential work — so a wrong answer is a policy that silently does not apply. The failure mode is invisible: everything keeps working, just not the way the organization configured it.
+
+The indirect coverage is real and the code is not untested in the ordinary sense. What is missing is the table of cases a unit test would state — an empty `allowed_login_methods`, an unknown method name, a malformed settings blob, a lifetime outside its bounds — each of which the integration tests exercise at most one of.
+
+**Recommendation**: a `loginpolicy_test.go` covering the parse table and the `Allows` matrix, on the pattern `password_test.go` already uses. Small, and it belongs to `P2-10`'s surface rather than to whichever task next happens to push the package under its floor.
+
+**Not fixed in `P3-03`**, deliberately: the task's own additions are covered, and widening a task to repair an unrelated package is how a scoped change becomes an unreviewable one.
+
+---
+
+### PG-38 — A sequential MFA step turns the login page into a password oracle, and no plan document says so
+
+**Affects**: `TASKS/PHASE-3-ADVANCED-SECURITY.md` § P3-03 step 4, `docs/PLAN/05-API-CONTRACT.md` § Standard Login Flow, `docs/SECURITY/02-ATTACK-SURFACE-AND-SCENARIOS.md` § Information Disclosure.
+
+`P3-03` step 4 asks for this:
+
+> Keep messaging uniform: whether the password or the code was wrong must not be distinguishable to an attacker probing the flow.
+
+In a **sequential** flow — password, then code — that requirement cannot be met by choosing words. Reaching the code step is itself the disclosure: the page appears only when the password was right, whatever is written on it. `docs/PLAN/05` § Standard Login Flow specifies exactly this shape ("validated → (if `mfa_required`) directed to the MFA step"), so the plan asks for a flow and then asks for a property that flow does not have.
+
+Today `/login` answers every failure identically (`P1-12`), so the service currently leaks nothing about which passwords are correct. **Adding MFA is what introduces the oracle**, which makes this a regression rather than a pre-existing limitation, and worth recording as one.
+
+**The two ways to actually close it**, both with real costs:
+
+| Option | Cost |
+|---|---|
+| **Decoy challenge** — issue a challenge for a wrong password too, so the step reveals nothing | Every user who mistypes their password is asked for a code, including the majority who have enrolled no factor at all. The cost lands on people who did nothing wrong, to deny an attacker something `P1-13`'s limiter already makes expensive |
+| **Single-step form** — password and code on one page | Breaks `docs/PLAN/05`'s specified flow, breaks "offer only the factors this user has" (the page cannot know before the password is proven), and is worse for users who need to open an app between the two fields |
+
+**What `P3-03` does**: the sequential flow, no decoy, with uniformity enforced *within* the challenge step — wrong code, expired challenge, spent challenge and a removed factor all render identically. The residual is the step's existence, bounded by the same per-address and per-IP limiter a password attempt already pays.
+
+This is the trade every sequential-MFA implementation in wide deployment makes. It is recorded rather than left implicit because the card asks for something stronger than what was built, and the next person should find the reasoning rather than assume the requirement was met.
+
+**Recommendation**: `docs/PLAN/05` should state that the MFA step discloses password validity and that the limiter is the control that bounds it, or the card's step 4 should be reworded to the property that is achievable — *uniformity within each step*. Either way through the deliberate plan-change process; the wording as it stands cannot be satisfied and so cannot be checked.
+
+---
+
 ### PG-37 — `P2-13` is a console task whose Definition of Done needed an endpoint that did not exist
 
 **Affects**: `TASKS/PHASE-2-RBAC-MULTITENANCY.md` § P2-13, `docs/PLAN/05-API-CONTRACT.md`.

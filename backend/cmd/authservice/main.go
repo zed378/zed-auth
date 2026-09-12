@@ -8,6 +8,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"flag"
 	"fmt"
@@ -35,6 +36,7 @@ import (
 	"github.com/zed378/zed-auth/backend/internal/login"
 	"github.com/zed378/zed-auth/backend/internal/mail"
 	"github.com/zed378/zed-auth/backend/internal/management"
+	"github.com/zed378/zed-auth/backend/internal/mfa"
 	"github.com/zed378/zed-auth/backend/internal/oauth/authorize"
 	"github.com/zed378/zed-auth/backend/internal/oauth/client"
 	"github.com/zed378/zed-auth/backend/internal/oauth/token"
@@ -522,6 +524,30 @@ func run() error {
 		Policy:    session.DefaultPolicy,
 	}
 
+	// The second factor (P3-02, P3-03).
+	//
+	// Built here or not at all. `cfg.MFA.SealKeyRef` empty means no key, which
+	// means no sealer, which means no verifier, which means an EMPTY registry —
+	// and an empty registry makes `Framework.Required` return no challenge on
+	// every call. That chain is deliberate: there is no configuration in which
+	// this service asks for a factor it cannot verify, and none in which it
+	// stores a secret it cannot encrypt.
+	factorFramework, err := buildMFA(cfg, secrets, db, rdb, log)
+	if err != nil {
+		// Fatal. A deployment that configured MFA and cannot build it must not
+		// start: every enrolled user would sign in on a password alone, and
+		// neither they nor the operator would be told.
+		log.Error("multi-factor authentication could not be configured", "error", err.Error())
+		return err
+	}
+	if factorFramework == nil {
+		// Said once, plainly, for ADR-015's reason: "somebody turned it off"
+		// and "it has been broken for three weeks" must be visible in the same
+		// place. A quiet absence is indistinguishable from a bug.
+		log.Info("multi-factor authentication is not configured; no login will be challenged for a second factor",
+			"set", "AUTH_MFA_SEAL_KEY_REF")
+	}
+
 	// The hosted login page (P1-12). It closes the loop: /oauth/authorize
 	// sends a browser here when there is no session, and Resume sends it back
 	// with a code once there is one.
@@ -538,6 +564,7 @@ func run() error {
 		Policy:        session.DefaultPolicy,
 		Limiter:       limiter,
 		IP:            clientIP,
+		MFA:           factorFramework,
 
 		// P1-19's two hosted pages. The token lookup is passed as a function
 		// because resolving a link before a tenant is known needs the
@@ -636,6 +663,7 @@ func run() error {
 		Logout:         logoutHandler,
 		Login:          loginHandler,
 		Forgot:         http.HandlerFunc(loginHandler.Forgot),
+		MFA:            mfaRoute(factorFramework, loginHandler),
 		SetPassword:    http.HandlerFunc(loginHandler.SetPassword),
 		V1:             v1,
 		Organizations:  organizations,
@@ -750,6 +778,10 @@ func exitCode(err error) int {
 // which is precisely the failure mode P0-14 exists to remove.
 type serviceSecrets struct {
 	adminToken string
+
+	// mfaSealKey encrypts stored factor secrets (P3-02). Empty means MFA is
+	// not configured, which config.MFAConfig documents as a deliberate state.
+	mfaSealKey []byte
 }
 
 // resolveSecrets reads every configured secret reference.
@@ -771,7 +803,105 @@ func resolveSecrets(cfg *config.Config) (serviceSecrets, error) {
 		out.adminToken = string(raw)
 	}
 
+	if cfg.MFA.SealKeyRef != "" {
+		raw, err := resolver.Resolve(config.SecretRef(cfg.MFA.SealKeyRef))
+		if err != nil {
+			// Fatal, not a warning. A deployment that ASKED for MFA and cannot
+			// read its key must not start without it: every enrolled user would
+			// sign in with a password alone, and neither they nor the operator
+			// would be told.
+			return out, fmt.Errorf("resolve MFA seal key: %w", err)
+		}
+		out.mfaSealKey = raw
+	}
+
 	return out, nil
+}
+
+// buildMFA assembles the factor framework, or reports that it is not configured.
+//
+// A nil framework and a nil error is the "not configured" answer, and it is a
+// first-class state rather than a failure: a deployment without a seal key runs
+// exactly as every deployment did before P3-02, with the difference stated in
+// the startup log.
+func buildMFA(
+	cfg *config.Config, secrets serviceSecrets, db *postgres.DB,
+	rdb *redis.Client, log *slog.Logger,
+) (*mfa.Framework, error) {
+	if !cfg.MFA.Enabled() {
+		return nil, nil
+	}
+
+	sealer, err := mfa.NewSealer(secrets.mfaSealKey)
+	if err != nil {
+		return nil, fmt.Errorf("build the factor sealer: %w", err)
+	}
+
+	factorStore := &mfa.Store{}
+
+	totp := &mfa.TOTP{
+		Store:  factorStore,
+		DB:     db,
+		Sealer: sealer,
+		Log:    log,
+		// What the user sees in their authenticator app. The issuer rather
+		// than a product name, so somebody with entries for several
+		// deployments can tell them apart.
+		Issuer: cfg.Issuer,
+		// A factor id does not name a tenant and every write goes through
+		// WithTenant, so the org is resolved by the one narrow SECURITY
+		// DEFINER function migration 20260912000029 adds. It returns an
+		// organization id and nothing else.
+		OrgOf: func(ctx context.Context, factorID string) (string, error) {
+			return factorOrg(ctx, db, factorID)
+		},
+	}
+
+	return &mfa.Framework{
+		Registry: mfa.NewRegistry(totp),
+		Store:    &mfa.PostgresFactors{Store: factorStore, DB: db},
+		// The challenge and the attempt counter share one Redis, which is what
+		// lets the counter fail CLOSED without that being a decision about
+		// availability: a Redis that cannot count cannot hold a challenge
+		// either, so the login has already failed by the time the bound
+		// refuses.
+		Challenges: mfa.NewRedisChallenges(rdb),
+		Attempts:   &mfa.RedisAttempts{Client: rdb},
+		Log:        log,
+	}, nil
+}
+
+// factorOrg resolves a factor id to its organization.
+//
+// Outside any tenant, through mfa_factor_org — see the migration for why the
+// privilege is narrow enough to be worth having.
+func factorOrg(ctx context.Context, db *postgres.DB, factorID string) (string, error) {
+	var orgID sql.NullString
+	if err := db.SQL().QueryRowContext(ctx,
+		`SELECT mfa_factor_org($1)`, factorID).Scan(&orgID); err != nil {
+		return "", fmt.Errorf("resolve the organization for a factor: %w", err)
+	}
+	if !orgID.Valid {
+		// No such factor. An error rather than an empty tenant, because an
+		// empty tenant would run the caller's query against `current_org_id()`
+		// of nothing — which matches no rows and would present as a wrong code
+		// rather than as the inconsistency it is.
+		return "", fmt.Errorf("no organization for factor %s", factorID)
+	}
+	return orgID.String, nil
+}
+
+// mfaRoute registers /login/mfa only when there is a framework behind it.
+//
+// A nil http.Handler in the Deps means the route is not registered at all,
+// which is the honest shape: a challenge page with nothing behind it would
+// refuse every answer, and that reads to a user as a broken authenticator
+// rather than as a feature this deployment does not have.
+func mfaRoute(framework *mfa.Framework, h *login.Handler) http.Handler {
+	if framework == nil {
+		return nil
+	}
+	return http.HandlerFunc(h.MFAStep)
 }
 
 // passwordChecks bundles the P1-02 pieces a password-set path needs.
