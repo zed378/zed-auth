@@ -299,6 +299,12 @@ type fixture struct {
 
 	adminToken string
 
+	// Exposed so a test can mint a token this fixture did not: `P2-16`'s
+	// claim-tampering suite needs a validly SIGNED token whose claims say
+	// something the database does not.
+	signer   *signing.Signer
+	clientID string
+
 	orgA, orgB   string
 	projectA     string
 	otherProject string
@@ -507,6 +513,7 @@ func setup(t *testing.T) *fixture {
 		db: db, dsn: stack.AppDSN, redis: rdb, factory: factory,
 		handler: srv.Handler(), authz: authzHandler,
 		grants: grantHandler, roles: roleHandler, adminToken: adminSigned,
+		signer: signer, clientID: clientID,
 		orgA: orgA, orgB: orgB,
 		projectA: projectA, otherProject: otherProject, projectB: projectB,
 		subject: subject, token: signed,
