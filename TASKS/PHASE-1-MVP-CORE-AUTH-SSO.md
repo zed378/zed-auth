@@ -1154,7 +1154,7 @@ Also found: `session_id` was in the logger's redaction list — correct when the
 
 | | |
 |---|---|
-| **Status** | TODO |
+| **Status** | DONE — [phase summary](../MEMORY/records/2026-09-12-P1-phase-1-summary.md), [threat-model review](../MEMORY/records/2026-09-11-P1-28-threat-model-review.md), [the staging incident](../MEMORY/records/2026-09-11-staging-auth-state-deleted.md) |
 | **Depends on** | P1-27 |
 | **Plan refs** | `docs/PLAN/17-ACCEPTANCE-CRITERIA.md` § Phase 1, `docs/PLAN/01-PRODUCT-SCOPE.md` § MVP Definition of Done, `docs/PLAN/12-PERFORMANCE.md` |
 | **Spec required** | No |
@@ -1172,12 +1172,12 @@ Also found: `session_id` was in the logger's redaction list — correct when the
 7. Update `PROGRESS.md` and tag the release.
 
 **Definition of Done**
-- [ ] Every `docs/PLAN/17` Phase 1 criterion is verified with recorded evidence.
-- [ ] Load test results are recorded against `docs/PLAN/12`'s targets, with any gap explicitly accepted or scheduled.
-- [ ] API and console consistency is demonstrated.
-- [ ] The Phase 2 threat-model review is complete.
-- [ ] A phase summary exists in `MEMORY/`.
-- [ ] Anything deferred out of Phase 1 is in `BACKLOG.md`, not merely remembered.
+- [x] Every `docs/PLAN/17` Phase 1 criterion is verified with recorded evidence. Walked against the deployed service, not the repository: 35 assertions, 0 failures, re-run green after the staging restore. The harness is `scratchpad/p128-acceptance.sh`; its evidence is in the phase summary.
+- [x] Load test results are recorded against `docs/PLAN/12`'s targets, with any gap explicitly accepted or scheduled. Every endpoint is within target in isolation; `/oauth/token` misses p50 and p95 in the **mixed** workload. Accepted rather than fixed — a shared 4-core VM, one replica, no read replica, and the plan's own remedy is Phase 5. `scripts/loadtest/` so the next release can re-measure.
+- [x] API and console consistency is demonstrated. `console/e2e/consistency.spec.ts`, 5 tests, both directions, plus one asserting the console reaches no undocumented endpoint. It found a real spec violation: no Client ID column.
+- [x] The Phase 2 threat-model review is complete. Nineteen categories from `docs/SECURITY/05` — sixteen verified, three with no surface yet, two gaps logged as `PG-27` and `PG-28`.
+- [x] A phase summary exists in `MEMORY/`. It doubles as this task's record: a separate `P1-28` record would have restated it.
+- [x] Anything deferred out of Phase 1 is in `BACKLOG.md`, not merely remembered. `PG-19`, `PG-26`, `PG-27`, `PG-28`, `PG-29`.
 
 ---
 
@@ -1185,11 +1185,13 @@ Also found: `session_id` was in the logger's redaction list — correct when the
 
 Directly from `docs/PLAN/17-ACCEPTANCE-CRITERIA.md` § Phase 1:
 
-- [ ] Two independent internal applications authenticate real users through this service.
-- [ ] A user logged into Application A opens Application B and is not prompted to log in again.
-- [ ] `POST /oauth/token` and `GET /oauth/authorize` conform exactly to `docs/PLAN/05-API-CONTRACT.md`.
-- [ ] Organizations, projects, applications, and users are creatable via both the REST API and the console, and the two stay consistent.
-- [ ] Failed and successful logins appear in the audit log with correct actor and timestamp.
-- [ ] Login rate limiting demonstrably blocks a simulated brute-force attempt.
-- [ ] All Phase 1 items in `docs/PLAN/11-TESTING.md`'s pyramid have passing automated tests in CI.
-- [ ] The public landing page and docs quickstart exist and accurately reflect the real MVP flow.
+Verified 2026-09-11 against `https://auth.zedth.my.id`, the deployed service, through its public hostnames — 35 assertions, 0 failures, and re-run green after the staging restore that afternoon.
+
+- [x] Two independent internal applications authenticate real users through this service. Two distinct client ids, one confidential and one public; a real sign-in through demo A, accepted by the demo's own verifier.
+- [x] A user logged into Application A opens Application B and is not prompted to log in again. A code with no login page; and `console/e2e/sso.spec.ts` asserts in a browser that the login page was never visited.
+- [x] `POST /oauth/token` and `GET /oauth/authorize` conform exactly to `docs/PLAN/05-API-CONTRACT.md`. Eleven assertions, including that a phase-1 failure never redirects and that `plain` PKCE is refused. The contract itself is enforced by CI — the server interface is generated from the spec (ADR-013).
+- [x] Organizations, projects, applications, and users are creatable via both the REST API and the console, and the two stay consistent. Both directions, in a browser, holding a real token.
+- [x] Failed and successful logins appear in the audit log with correct actor and timestamp. And the runtime role cannot rewrite them.
+- [x] Login rate limiting demonstrably blocks a simulated brute-force attempt. Blocked after 7; the lockout is audited and names neither the account nor the address. **Behind the tunnel every request shares one bucket** (`PG-19`) — the control works, and what it currently protects is the deployment rather than the account.
+- [x] All Phase 1 items in `docs/PLAN/11-TESTING.md`'s pyramid have passing automated tests in CI. Eight jobs; 45 local gates; six reverted security controls, six red builds.
+- [x] The public landing page and docs quickstart exist and accurately reflect the real MVP flow. The quickstart was executed against staging rather than proofread, and the claims audit runs in both directions on every build.

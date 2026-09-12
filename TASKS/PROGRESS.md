@@ -16,8 +16,8 @@ Sizes: `S` under half a day · `M` one to two days · `L` several days · `XL` m
 | Phase | Tasks | Done | Status | Gate to enter |
 |---|---|---|---|---|
 | [Phase 0 — Foundation](./PHASE-0-FOUNDATION.md) | 21 | 20 | **ACTIVE** — `P0-20` only | — |
-| [Phase 1 — MVP: Core Auth + SSO](./PHASE-1-MVP-CORE-AUTH-SSO.md) | 29 | 28 | **ACTIVE** | Phase 0 exit checklist |
-| [Phase 2 — RBAC & Multi-Tenancy](./PHASE-2-RBAC-MULTITENANCY.md) | 17 | 0 | Not started | Phase 1 exit + `P1-28` |
+| [Phase 1 — MVP: Core Auth + SSO](./PHASE-1-MVP-CORE-AUTH-SSO.md) | 29 | 29 | **COMPLETE** — [summary](../MEMORY/records/2026-09-12-P1-phase-1-summary.md), tagged `v0.1.0-phase1` | Phase 0 exit checklist |
+| [Phase 2 — RBAC & Multi-Tenancy](./PHASE-2-RBAC-MULTITENANCY.md) | 17 | 0 | **ACTIVE** | Phase 1 exit + `P1-28` — **met** 2026-09-12 |
 | [Phase 3 — Advanced Security](./PHASE-3-ADVANCED-SECURITY.md) | 15 | 0 | Not started | Phase 2 exit + threat model review |
 | [Phase 4 — Enterprise Interop](./PHASE-4-ENTERPRISE-INTEROP.md) | 16 | 0 | Not started | Phase 3 exit + threat model review |
 | [Phase 4b — ABAC](./PHASE-4B-ABAC.md) | 11 | 0 | **CONDITIONAL** | A concrete requirement RBAC cannot express (`P4B-00`) |
@@ -91,7 +91,7 @@ Sizes: `S` under half a day · `M` one to two days · `L` several days · `XL` m
 | P1-25 | Public docs — quickstart and API reference | M | **DONE** — the quickstart was executed against staging, not proofread: 52 assertions, one failure, three factual errors corrected. The capability audit now runs in both directions and had been misreading this board since `P0-19` | P1-07, P1-19 |
 | P1-26 | Two demo consumer applications | M | **DONE** — 33 assertions on staging, 0 failures: one login, two applications, and App B refuses App A's token. Two public hostnames outstanding (`DV-03`); the Playwright half of one DoD item is `P1-27`'s | P1-07 |
 | P1-27 | Phase 1 test suite completion | L | **DONE** — the end-to-end environment found four production bugs in its first hour, each of which had passed every other layer. Twelve browser tests; six reverted security controls, six red builds; 944k fuzz executions | all above |
-| P1-28 | Phase 1 acceptance validation | M | TODO | P1-27 |
+| P1-28 | Phase 1 acceptance validation | M | **DONE** — the eight criteria walked against the deployed service, 35 assertions, 0 failures. The first load test: every endpoint within target in isolation, `/oauth/token` over on p50 and p95 in the **mixed** workload — accepted, with the capacity curve recorded. Found a missing Client ID column, a suite that expired at noon, a gate that passed without reading its input, and a backup that cannot restore the signing key (`PG-29`) | P1-27 |
 | P1-29 | Cross-origin access policy | M | **DONE** — added mid-phase. `PG-17` stopped being a forecast the first time a browser was pointed at the login flow: no public client could complete one, and the console could not call the API at all. Closed with a split policy, ADR-020 | P1-08, P1-15, P1-21 |
 
 **Critical path**: `P1-11` → `P1-06` → `P1-07` → everything else. Session management and the token endpoint are the two tasks that block the most downstream work; start them first and give them the most review attention.
