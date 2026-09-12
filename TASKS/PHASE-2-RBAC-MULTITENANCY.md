@@ -412,7 +412,7 @@
 
 | | |
 |---|---|
-| **Status** | TODO |
+| **Status** | DONE — 2026-09-12, [record](../MEMORY/records/2026-09-12-P2-12-console-authorizations.md). End-to-end verified against a local stack; not yet on staging |
 | **Depends on** | P2-03 |
 | **Plan refs** | `docs/UI-UX/08-PAGE-SPECIFICATIONS.md` (Authorizations tab), `docs/UI-UX/04-USER-FLOWS.md`, `docs/UI-UX/06-VISUAL-LANGUAGE.md` (role-source badge) |
 | **Spec required** | No — implementation chain mandatory |
@@ -430,11 +430,11 @@
 7. Mirror the User detail Grants tab from the same components.
 
 **Definition of Done**
-- [ ] The implementation chain table is committed.
-- [ ] The role-source badge is present and renders "direct" correctly, ready for "delegated" in Phase 4.
-- [ ] Assignment and revocation are covered by an E2E test.
-- [ ] A user with no grants shows an unambiguous no-access state.
-- [ ] Permission keys are visible at assignment time.
+- [x] The implementation chain table is committed — `console/docs/implementation-chain-P2-12.md`, covering both screens and the new component.
+- [x] The role-source badge is present and renders "direct" correctly, ready for "delegated" in Phase 4 — both branches built and tested, though the delegated one is unreachable until `P4-01` lifts the database's refusal of a non-null `project_grant_id`. Its source organization is in the accessibility tree as well as in a `title`, because `docs/UI-UX/06`'s "on hover/tap" is a mouse affordance.
+- [x] Assignment and revocation are covered by an E2E test — 3 Playwright tests against a real service, each asserting against **both** the screen and the Management API. 20/20 E2E green.
+- [x] A user with no grants shows an unambiguous no-access state — "No access", with the reason it is normal rather than a fault.
+- [x] Permission keys are visible at assignment time — beneath each role in the assignment list, so an admin sees what they are granting rather than a name they have to already know.
 
 ---
 

@@ -377,6 +377,22 @@ The cost of the omission is smaller than it looks today, because both claims are
 
 ---
 
+### PG-36 — Nothing can answer "who has access to this project?"
+
+**Affects**: `P2-12`'s Authorizations tab, `docs/PLAN/17`'s access-review expectations, and any future access certification (`DF-01`).
+
+Grants are stored one row per user per project and exposed **only under the user**: `GET /v1/organizations/{org_id}/users/{user_id}/grants`. There is no `GET .../projects/{project_id}/grants`.
+
+So the console can answer "what access does Budi have in Till?" and cannot answer "who can do anything in Till?" — and neither can any API consumer. The second question is the one an access review starts from, the one an incident starts from, and the one somebody asks before deleting a project.
+
+`P2-12` built the screen the API supports — search a user, then act — rather than faking a roster by issuing a grants request per search result. That would be `N+1` requests producing something that still is not the roster: it would cover only the users matching whatever was typed.
+
+**The workaround today** is to list the organization's users and ask per user, which is exactly the fan-out the console declined to hide. It is fine for a small organization and wrong for a large one.
+
+**Recommendation**: `GET /v1/organizations/{org_id}/projects/{project_id}/grants`, cursor-paginated like every other list, returning `user_id` and `role_keys`. The query is a single indexed read — `user_grants` is already keyed by `(org_id, project_id)` — so this is an endpoint and a handler, not a data-model change. `docs/PLAN/05` should name it, through the deliberate plan-change process.
+
+---
+
 ### PG-34 — `P2-11` asks for built-in roles to be non-editable; the API it depends on says only their identity is frozen
 
 **Affects**: `TASKS/PHASE-2-RBAC-MULTITENANCY.md` § P2-11 step 5 and its Definition of Done, and the Roles tab that implements them.

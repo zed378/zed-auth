@@ -178,12 +178,15 @@ describe("user detail", () => {
 
     renderScreen(<UserDetailPage />, "/users/u1", "/users/:userId");
 
-    await userEvent.click(await screen.findByRole("tab", { name: /grants/i }));
+    // Grants used to be the example here. `P2-12` made it real, so the
+    // assertion moved to a tab that is still ahead of us rather than being
+    // deleted — P1-23 step 3's rule outlives any particular tab.
+    await userEvent.click(await screen.findByRole("tab", { name: /multi-factor/i }));
 
-    // P1-23 step 3: an empty tab and an unavailable one look similar and mean
-    // opposite things. This one says which.
+    // An empty tab and an unavailable one look similar and mean opposite
+    // things. This one says which.
     expect(screen.getByText(/not available yet/i)).toBeInTheDocument();
-    expect(screen.getByText(/does not exist yet, not because this user has none/i)).toBeInTheDocument();
+    expect(screen.getByText(/Phase 3/i)).toBeInTheDocument();
   });
 
   it("states the consequence of deactivation, not just that it is irreversible", async () => {

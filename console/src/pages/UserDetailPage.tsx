@@ -5,9 +5,12 @@ import { Link, useParams } from "react-router-dom";
 import { Badge, statusTone } from "../components/Badge";
 import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import { RoleList } from "../components/RoleSourceBadge";
 import { ErrorState, Skeleton } from "../components/states";
+import { Table } from "../components/Table";
+import type { Column } from "../components/Table";
 import { api, queryKeys } from "../lib/api/client";
-import { useOrgId } from "../lib/api/queries";
+import { useOrgId, useProjects, useUserGrants } from "../lib/api/queries";
 import { useAuth } from "../lib/auth/AuthProvider";
 
 /**
@@ -67,7 +70,7 @@ export function UserDetailPage() {
         {(
           [
             ["profile", "Profile", true],
-            ["grants", "Grants", false],
+            ["grants", "Grants", true],
             ["sessions", "Sessions", false],
             ["mfa", "Multi-factor", false],
           ] as [Tab, string, boolean][]
@@ -104,6 +107,8 @@ export function UserDetailPage() {
             userId={userId ?? ""}
             onChanged={() => void user.refetch()}
           />
+        ) : tab === "grants" ? (
+          <GrantsTab orgId={orgId} userId={userId ?? null} />
         ) : (
           <NotYet tab={tab} />
         )}
@@ -217,15 +222,74 @@ function ProfileTab({
   );
 }
 
-function NotYet({ tab }: { tab: Tab }) {
-  const copy: Record<Exclude<Tab, "profile">, { title: string; body: string }> = {
-    grants: {
-      title: "Grants are not available yet",
-      body:
-        "Assigning roles and project grants to a user arrives with the authorization work in " +
-        "Phase 2. This tab is empty because the capability does not exist yet, not because this " +
-        "user has none.",
+/**
+ * Every project this user has access to (P2-12 step 7).
+ *
+ * The card asks for this to mirror the Authorizations tab "from the same
+ * components", and the reason is `docs/UI-UX/08` § Cross-Screen Requirements:
+ * the role-source badge is mandatory on **every** screen showing roles. Two
+ * screens rendering grants two ways is how one of them ends up without it.
+ *
+ * This is the read side. Granting happens on the project, because a role only
+ * means anything inside one — and the Authorizations tab is where the
+ * project's roles and their permission keys are in front of you.
+ */
+function GrantsTab({ orgId, userId }: { orgId: string | null; userId: string | null }) {
+  const grants = useUserGrants(orgId, userId);
+  const projects = useProjects(orgId);
+
+  type Row = { project_id: string; role_keys: string[] };
+  const rows = (grants.data ?? []) as Row[];
+
+  const nameOf = (projectId: string) =>
+    (projects.data ?? []).find((project) => project.id === projectId)?.name ?? projectId;
+
+  const columns: Column<Row>[] = [
+    {
+      key: "project",
+      header: "Project",
+      cell: (row) => (
+        <Link to={`/projects/${row.project_id}/authorizations`} className="underline">
+          {nameOf(row.project_id)}
+        </Link>
+      ),
     },
+    {
+      key: "roles",
+      header: "Roles",
+      // Named, never counted (`docs/UI-UX/18`), each with its source.
+      cell: (row) => <RoleList roleKeys={row.role_keys} />,
+    },
+  ];
+
+  return (
+    <>
+      <Table<Row>
+        caption="Projects this user has access to"
+        columns={columns}
+        rows={rows}
+        rowKey={(row) => row.project_id}
+        status={grants.isPending ? "loading" : grants.isError ? "error" : "ready"}
+        errorKind={kindOf(grants.error)}
+        onRetry={() => void grants.refetch()}
+        what="grants"
+        filtered={false}
+      />
+      {!grants.isPending && !grants.isError && rows.length === 0 ? (
+        // The empty table already says "No grants yet". This says what that
+        // MEANS, which is the thing `docs/PLAN/08` § Least Privilege makes
+        // load-bearing: no grant is no access, not a default.
+        <p className="mt-3 max-w-prose text-small text-text-secondary">
+          This is the normal state for a new account. There is no implicit or default role, so
+          until they are granted one in a project, every authorization check for them is denied.
+        </p>
+      ) : null}
+    </>
+  );
+}
+
+function NotYet({ tab }: { tab: Tab }) {
+  const copy: Record<Exclude<Tab, "profile" | "grants">, { title: string; body: string }> = {
     sessions: {
       title: "Sessions are not shown here yet",
       body:
@@ -238,7 +302,7 @@ function NotYet({ tab }: { tab: Tab }) {
     },
   };
 
-  const { title, body } = copy[tab as Exclude<Tab, "profile">];
+  const { title, body } = copy[tab as Exclude<Tab, "profile" | "grants">];
 
   return (
     <div className="rounded border border-border bg-bg-surface p-5">
