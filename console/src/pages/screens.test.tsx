@@ -1,16 +1,14 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AuditLogPage } from "./AuditLogPage";
 import { UserDetailPage } from "./UserDetailPage";
 import { UsersPage } from "./UsersPage";
-import { AuthProvider } from "../lib/auth/AuthProvider";
 import { AuthError } from "../lib/auth/oidc";
-import { clearToken, storeToken } from "../lib/auth/tokens";
+import { clearToken } from "../lib/auth/tokens";
 import { expectNoAxeViolations } from "../test/axe";
+import { renderScreen, signIn, stubApi } from "../test/harness";
 
 /**
  * The user and audit-log screens (P1-23, P1-24).
@@ -28,60 +26,6 @@ vi.mock("../lib/auth/oidc", async () => {
     renewSilently: () => Promise.reject(new AuthError("login_required", null)),
   };
 });
-
-const encode = (payload: Record<string, unknown>) =>
-  `header.${btoa(JSON.stringify(payload)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")}.signature`;
-
-function signIn(roles = ["ORG_ADMIN"]) {
-  storeToken(encode({ sub: "admin-1", org_id: "org-1", roles, exp: 2_000_000_000 }), 3600);
-}
-
-/** Answers every API call with one canned body, or a failure. */
-function stubApi(handler: (url: string) => { status: number; body: unknown }) {
-  vi.stubGlobal("fetch", (input: RequestInfo | URL) => {
-    // A Request, not a string: the client hands `fetch` a Request object, and
-    // `String(request)` is "[object Request]" — which silently matched no
-    // branch of any handler here and answered every call with the success
-    // body, including the POST this test needs to fail.
-    const url =
-      typeof input === "string"
-        ? input
-        : input instanceof Request
-          ? input.url
-          : input.toString();
-    const { status, body } = handler(url);
-    return Promise.resolve(
-      new Response(JSON.stringify(body), {
-        status,
-        headers: { "Content-Type": "application/json" },
-      }),
-    );
-  });
-}
-
-/**
- * `routePath` matters for any screen that reads `useParams`.
- *
- * Rendering the component directly under a MemoryRouter leaves params empty,
- * so a detail screen's query stays disabled and the test measures a permanent
- * loading state rather than the screen.
- */
-function renderScreen(ui: React.ReactElement, path = "/", routePath = "*") {
-  const queryClient = new QueryClient({
-    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
-  });
-  return render(
-    <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={[path]}>
-        <AuthProvider>
-          <Routes>
-            <Route path={routePath} element={ui} />
-          </Routes>
-        </AuthProvider>
-      </MemoryRouter>
-    </QueryClientProvider>,
-  );
-}
 
 beforeEach(() => {
   clearToken();
