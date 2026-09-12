@@ -29,6 +29,7 @@ import (
 	"github.com/zed378/zed-auth/backend/internal/auditlog"
 	"github.com/zed378/zed-auth/backend/internal/authn"
 	"github.com/zed378/zed-auth/backend/internal/config"
+	"github.com/zed378/zed-auth/backend/internal/grant"
 	"github.com/zed378/zed-auth/backend/internal/httpserver"
 	"github.com/zed378/zed-auth/backend/internal/login"
 	"github.com/zed378/zed-auth/backend/internal/mail"
@@ -403,6 +404,7 @@ func run() error {
 	// guard there — and wrong here.
 	applications := application.New(db, auditor, log)
 	roles := role.New(db, auditor, log)
+	grants := grant.New(db, auditor, log)
 
 	// Outbound email (ADR-018). A nil sender is a valid deployment: invitations
 	// still create their token and the response says the message was not sent.
@@ -618,6 +620,7 @@ func run() error {
 		ProjectAPI:     projects,
 		ApplicationAPI: applications,
 		RoleAPI:        roles,
+		GrantAPI:       grants,
 		UserAPI:        users,
 		AuditAPI:       &auditlog.Handler{DB: db, Log: log},
 		// Explicit configuration, not inferred from the environment: see the

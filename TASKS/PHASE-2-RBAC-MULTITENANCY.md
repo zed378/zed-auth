@@ -101,7 +101,7 @@
 
 | | |
 |---|---|
-| **Status** | TODO |
+| **Status** | DONE (one item is `P2-06`'s) — [record](../MEMORY/records/2026-09-12-P2-03-user-grants.md), [spec](../MEMORY/specs/P2-03-user-grants.md). Not yet on staging |
 | **Depends on** | P2-01, P1-19 |
 | **Plan refs** | `docs/PLAN/04-DATA-MODEL.md` § `user_grants`, `docs/PLAN/08-AUTHORIZATION.md` Part A, § Least Privilege |
 | **Spec required** | Yes — authorization core |
@@ -120,11 +120,14 @@
 8. Make revocation immediately effective: it must not wait for the access token to expire, which is what `P2-06`'s real-time check exists for.
 
 **Definition of Done**
-- [ ] A user with no grant has zero access, verified by test — this is a literal `docs/PLAN/17` Phase 2 criterion.
-- [ ] A grant referencing a nonexistent role key is rejected.
-- [ ] Grant changes are audited with full detail.
-- [ ] A non-null `project_grant_id` is rejected in this phase, with the test that will be inverted in Phase 4.
-- [ ] Revocation is reflected by `/v1/authz/check` immediately.
+- [x] A user with no grant has zero access, verified by test. Asserted as an **absence**, because the absence is the control: nothing writes a grant except these endpoints, so there is no code path to test — and a future "default role for new users" convenience would break it with no other assertion noticing.
+- [x] A grant referencing a nonexistent role key is rejected, by a trigger as well as by the application, and the refusal **names which key**.
+- [x] Grant changes are audited with full detail: actor, subject, project, and the exact keys added or removed. The revocation event keeps what the user could do, because afterwards it is the only record.
+- [x] A non-null `project_grant_id` is rejected in this phase, by a trigger whose **body** `P4-01` replaces rather than a CHECK it would have to drop — dropping a constraint is how a window opens between removing the refusal and adding the real check. The test is written to be inverted, not deleted.
+- [ ] **Revocation is reflected by `/v1/authz/check` immediately. Blocked: that endpoint is `P2-06`.** The property underneath is delivered and tested — the row is deleted rather than flagged, so nothing can read it afterwards — and the end-to-end assertion lands with `P2-06`.
+
+**Decided, as step 6 asked**
+- Re-authentication for sensitive grant changes is **Phase 3**. MFA itself is `P3-01`, and a re-authentication prompt with no second factor behind it is a password re-entry: friction without assurance.
 
 **Abuse cases to test**
 - Self-granting: a user assigning themselves a role they cannot administer (`docs/SECURITY/02` §3).
