@@ -140,6 +140,7 @@ export const queryKeys = {
   projects: ["projects"] as const,
   applications: ["applications"] as const,
   roles: ["roles"] as const,
+  grants: ["grants"] as const,
   users: ["users"] as const,
   events: ["events"] as const,
 } as const;

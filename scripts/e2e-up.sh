@@ -417,6 +417,10 @@ ok "console built with client $CONSOLE_CLIENT"
 
 # --- the environment ---------------------------------------------------------
 
+# An UNQUOTED heredoc, because it has to expand $ISSUER and the rest -- which
+# means backticks inside it are command substitution, comment or not. The ones
+# in the prose below are escaped for that reason; the names in those comments
+# were being run as commands until P2-12 saw the errors in the output.
 cat > "$ENV_FILE" <<EOF
 # Written by scripts/e2e-up.sh. Source it, then run the suite.
 #
@@ -430,8 +434,8 @@ export E2E_MAILPIT_URL="$MAILPIT"
 export E2E_BASE_URL="$CONSOLE_URL"
 # The bootstrap administrator, for the few tests that need a manager role.
 #
-# There is no API that assigns one — `manager_roles` is `P2`'s — so this
-# account is seeded by SQL like the rest of the bootstrap (`PG-26`), and the
+# There is no API that assigns one — \`manager_roles\` is \`P2\`'s — so this
+# account is seeded by SQL like the rest of the bootstrap (\`PG-26\`), and the
 # suite is handed its credentials rather than a way to mint more.
 export E2E_ADMIN_EMAIL="$ADMIN_EMAIL"
 export E2E_ADMIN_PASSWORD="$ADMIN_PASSWORD"
