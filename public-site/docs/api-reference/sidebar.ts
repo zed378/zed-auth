@@ -172,6 +172,42 @@ const sidebar: SidebarsConfig = {
     },
     {
       type: "category",
+      label: "Roles",
+      items: [
+        {
+          type: "doc",
+          id: "api-reference/list-roles",
+          label: "List a project's roles",
+          className: "api-method get",
+        },
+        {
+          type: "doc",
+          id: "api-reference/create-role",
+          label: "Define a role",
+          className: "api-method post",
+        },
+        {
+          type: "doc",
+          id: "api-reference/get-role",
+          label: "Read a role",
+          className: "api-method get",
+        },
+        {
+          type: "doc",
+          id: "api-reference/update-role",
+          label: "Change a role's label or permissions",
+          className: "api-method patch",
+        },
+        {
+          type: "doc",
+          id: "api-reference/delete-role",
+          label: "Delete a role",
+          className: "api-method delete",
+        },
+      ],
+    },
+    {
+      type: "category",
       label: "Applications",
       items: [
         {

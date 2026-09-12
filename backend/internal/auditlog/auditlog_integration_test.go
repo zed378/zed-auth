@@ -115,6 +115,7 @@ func setup(t *testing.T) *fixture {
 		Organizations:  stubManager{},
 		ProjectAPI:     stubProjects{},
 		ApplicationAPI: stubApplications{},
+		RoleAPI:        stubRoles{},
 		UserAPI:        stubUsers{},
 		AuditAPI:       &Handler{DB: db, Log: discard()},
 	})
@@ -765,5 +766,31 @@ func (stubUsers) ReactivateUser(context.Context, api.ReactivateUserRequestObject
 	return nil, errNotWired
 }
 func (stubUsers) ResetUserPassword(context.Context, api.ResetUserPasswordRequestObject) (api.ResetUserPasswordResponseObject, error) {
+	return nil, errNotWired
+}
+
+// stubRoles is the role half of the Management API, which this suite does not
+// exercise. Present because httpserver.New refuses a /v1 chain with any half
+// missing — a nil handler behind a registered route is a panic on the first
+// request rather than a boot failure (P1-18's reasoning, P2-02's addition).
+type stubRoles struct{}
+
+func (stubRoles) ListRoles(context.Context, api.ListRolesRequestObject) (api.ListRolesResponseObject, error) {
+	return nil, errNotWired
+}
+
+func (stubRoles) CreateRole(context.Context, api.CreateRoleRequestObject) (api.CreateRoleResponseObject, error) {
+	return nil, errNotWired
+}
+
+func (stubRoles) GetRole(context.Context, api.GetRoleRequestObject) (api.GetRoleResponseObject, error) {
+	return nil, errNotWired
+}
+
+func (stubRoles) UpdateRole(context.Context, api.UpdateRoleRequestObject) (api.UpdateRoleResponseObject, error) {
+	return nil, errNotWired
+}
+
+func (stubRoles) DeleteRole(context.Context, api.DeleteRoleRequestObject) (api.DeleteRoleResponseObject, error) {
 	return nil, errNotWired
 }

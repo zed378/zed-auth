@@ -1118,6 +1118,164 @@ paths:
         "429": { $ref: "#/components/responses/RateLimited" }
         "500": { $ref: "#/components/responses/InternalError" }
 
+  /v1/organizations/{org_id}/projects/{project_id}/roles:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationId"
+      - $ref: "#/components/parameters/ProjectId"
+
+    get:
+      tags: [Roles]
+      operationId: listRoles
+      summary: List a project's roles
+      description: |
+        Requires `PROJECT_OWNER` over this project, or any organization-scoped
+        role over the organization containing it.
+
+        Ordered by `key` rather than by creation time. A role list is read as a
+        reference table, and somebody looking for `billing-admin` should not
+        have to know when it was created.
+
+        Each role carries `grant_count`, so a console can warn before a delete
+        instead of discovering the refusal afterwards.
+      parameters:
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+      responses:
+        "200":
+          description: A page of roles.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoleList"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+    post:
+      tags: [Roles]
+      operationId: createRole
+      summary: Define a role
+      description: |
+        Requires `PROJECT_OWNER` over this project, or any organization-scoped
+        role over the organization containing it.
+
+        A role's `key` is unique within its project and may repeat freely
+        across projects: `admin` in one project is unrelated to `admin` in
+        another (`docs/PLAN/08` Part A). The five administrative role names are
+        reserved, because a project role called `org_admin` would arrive in a
+        token beside a manager role of the same name meaning something else.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RoleCreate"
+      responses:
+        "201":
+          description: The role was defined.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Role"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+  /v1/organizations/{org_id}/projects/{project_id}/roles/{role_id}:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationId"
+      - $ref: "#/components/parameters/ProjectId"
+      - $ref: "#/components/parameters/RoleId"
+
+    get:
+      tags: [Roles]
+      operationId: getRole
+      summary: Read a role
+      description: |
+        Requires `PROJECT_OWNER` over this project, or any organization-scoped
+        role over the organization containing it.
+      responses:
+        "200":
+          description: The role.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Role"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+    patch:
+      tags: [Roles]
+      operationId: updateRole
+      summary: Change a role's label or permissions
+      description: |
+        Requires `PROJECT_OWNER` over this project, or any organization-scoped
+        role over the organization containing it.
+
+        **The `key` cannot be changed, by anyone.** A grant references a role by
+        key with no foreign key to cascade, so re-keying would silently orphan
+        every grant holding the old one — a rename that removes access. A
+        different key means a different role.
+
+        A built-in role's `display_name` and permissions may still be edited;
+        only its identity is frozen.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RoleUpdate"
+      responses:
+        "200":
+          description: The updated role.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Role"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+    delete:
+      tags: [Roles]
+      operationId: deleteRole
+      summary: Delete a role
+      description: |
+        Requires `PROJECT_OWNER` over this project, or any organization-scoped
+        role over the organization containing it.
+
+        **Refused while any grant still references the role**, with the count,
+        rather than cascaded. A cascade removes access from every user holding
+        the role across every application reading it, in response to a request
+        that looks like tidying up — and nothing afterwards explains why those
+        people lost access.
+
+        A built-in role cannot be deleted at all.
+      responses:
+        "204":
+          description: The role was deleted.
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
   /v1/organizations/{org_id}/projects/{project_id}/applications:
     parameters:
       - $ref: "#/components/parameters/OrganizationId"
@@ -1727,6 +1885,17 @@ components:
       schema:
         $ref: "#/components/schemas/ResourceId"
 
+    RoleId:
+      name: role_id
+      in: path
+      required: true
+      description: |
+        The role. Note that a **grant** references a role by its `key` within a
+        project, not by this id (`docs/PLAN/04` § user_grants) — the id
+        addresses the row, the key is what a token carries.
+      schema:
+        $ref: "#/components/schemas/ResourceId"
+
     IdempotencyKey:
       name: Idempotency-Key
       in: header
@@ -1783,6 +1952,108 @@ components:
         so it must not be able to change the shape of a token claim. The same
         pattern is the `roles_key_shape` constraint in the database.
       example: "read-only"
+
+    Role:
+      type: object
+      description: |
+        A named bundle of permission keys, belonging to exactly one project.
+
+        Roles are scoped per project so that `admin` in one project cannot
+        imply `admin` in another (`docs/PLAN/08` Part A) — the failure that
+        prevents is the one nobody notices until it is an incident.
+      required: [id, project_id, key, display_name, permission_keys, is_builtin, grant_count, created_at, updated_at]
+      additionalProperties: false
+      properties:
+        id:
+          $ref: "#/components/schemas/ResourceId"
+        project_id:
+          $ref: "#/components/schemas/ResourceId"
+        key:
+          $ref: "#/components/schemas/RoleKey"
+        display_name:
+          type: string
+          maxLength: 128
+          example: Billing Administrator
+        permission_keys:
+          type: array
+          maxItems: 256
+          items:
+            $ref: "#/components/schemas/PermissionKey"
+          description: |
+            What the role carries. May be empty: a role with no permissions is
+            a label, and labels are useful before the permissions exist.
+          example: ["billing:read", "billing.invoice:write"]
+        is_builtin:
+          type: boolean
+          description: |
+            A role the service owns. It cannot be deleted or re-keyed, by any
+            caller. No built-in roles are seeded today — see `PG-30`.
+        grant_count:
+          type: integer
+          minimum: 0
+          description: |
+            How many user grants reference this role. It is what a delete would
+            have to refuse, so a console can warn first.
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    RoleList:
+      type: object
+      required: [roles]
+      additionalProperties: false
+      properties:
+        roles:
+          type: array
+          items:
+            $ref: "#/components/schemas/Role"
+        page_info:
+          $ref: "#/components/schemas/PageInfo"
+
+    RoleCreate:
+      type: object
+      required: [key, display_name]
+      additionalProperties: false
+      properties:
+        key:
+          $ref: "#/components/schemas/RoleKey"
+        display_name:
+          type: string
+          minLength: 1
+          maxLength: 128
+        permission_keys:
+          type: array
+          maxItems: 256
+          items:
+            $ref: "#/components/schemas/PermissionKey"
+          description: |
+            Optional. Duplicates are **refused**, not folded: silently changing
+            what was sent means the stored row does not match the request, and
+            the caller finds out from a later read.
+
+    RoleUpdate:
+      type: object
+      description: |
+        `key` is absent deliberately and is not editable. See the endpoint.
+      required: [display_name, permission_keys]
+      additionalProperties: false
+      properties:
+        display_name:
+          type: string
+          minLength: 1
+          maxLength: 128
+        permission_keys:
+          type: array
+          maxItems: 256
+          items:
+            $ref: "#/components/schemas/PermissionKey"
+          description: |
+            Replaces the set entirely. A partial update of an array is
+            ambiguous — add, remove, or replace — and the audit event records
+            what was added and removed, which needs a complete before and after.
 
     Organization:
       type: object
