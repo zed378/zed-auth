@@ -96,6 +96,33 @@ export function useRoles(orgId: string | null, projectId: string | null) {
   });
 }
 
+/**
+ * Every grant one user holds, across every project (P2-12).
+ *
+ * Addressed by user rather than by project because that is the only shape the
+ * API offers: `docs/PLAN/04` stores one row per user per project, and the
+ * Management API exposes it under the user. A project-wide roster would need
+ * an endpoint that does not exist — see `PG-36`.
+ *
+ * An empty list is the **normal** state for a new account, not an error:
+ * `docs/PLAN/08` § Least Privilege means a user with no grant has no access at
+ * all, and there is no implicit default role.
+ */
+export function useUserGrants(orgId: string | null, userId: string | null) {
+  return useQuery({
+    queryKey: [...queryKeys.grants, orgId, userId],
+    enabled: orgId !== null && userId !== null,
+    queryFn: async () => {
+      const { data, error } = await api.GET(
+        "/v1/organizations/{org_id}/users/{user_id}/grants",
+        { params: { path: { org_id: orgId as string, user_id: userId as string } } },
+      );
+      if (error !== undefined) throw asFailure(error);
+      return data.grants;
+    },
+  });
+}
+
 export function useUsers(orgId: string | null, search: string) {
   return useQuery({
     queryKey: [...queryKeys.users, orgId, search],

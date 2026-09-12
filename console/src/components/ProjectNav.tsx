@@ -23,6 +23,7 @@ export function ProjectNav({ projectId }: { projectId: string }) {
   const tabs = [
     { to: `/projects/${projectId}`, label: "Applications", end: true },
     { to: `/projects/${projectId}/roles`, label: "Roles", end: false },
+    { to: `/projects/${projectId}/authorizations`, label: "Authorizations", end: false },
   ];
 
   return (
