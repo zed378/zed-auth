@@ -502,7 +502,7 @@
 
 | | |
 |---|---|
-| **Status** | TODO |
+| **Status** | DONE — 2026-09-12, [record](../MEMORY/records/2026-09-12-P2-15-docs.md) |
 | **Depends on** | P2-06, P2-08 |
 | **Plan refs** | `docs/PLAN/20-PUBLIC-SITE-ARCHITECTURE.md` § Site Structure, `docs/UI-UX/21-CONTENT-AND-COPY-STRATEGY.md` |
 | **Spec required** | No |
@@ -520,10 +520,10 @@
 7. Audit every page for unshipped claims — Project Grants and ABAC are still Phase 4 and 4b.
 
 **Definition of Done**
-- [ ] The claim format in the docs matches the emitted tokens byte for byte.
-- [ ] The revocation window and snapshot semantics are stated plainly.
-- [ ] The API reference covers every new endpoint.
-- [ ] No page mentions Project Grants or ABAC as available.
+- [x] The claim format in the docs matches the emitted tokens byte for byte — **tested**, not read: `backend/internal/oauth/token/docsclaims_test.go` builds the expected key from `RoleClaimNamespace` and asserts it appears in the published pages. Verified by introducing the typo a reader would copy (`org:project:` → `org:projects:`) and watching it fail.
+- [x] The revocation window and snapshot semantics are stated plainly — "a revoked permission may still be honoured for up to 30 seconds", with what causes it and what it means for an irreversible step; and a `503` is explicitly not a denial.
+- [x] The API reference covers every new endpoint — regenerated, including `/v1/me/organizations`.
+- [x] No page mentions Project Grants or ABAC as available — asserted by a test, which also caught the reverse problem: `concepts/authorization.md` still said roles "arrive in Phase 2" after they had shipped.
 
 ---
 
