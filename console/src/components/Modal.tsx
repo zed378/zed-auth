@@ -33,6 +33,27 @@ export function Modal({
   const panel = useRef<HTMLDivElement>(null);
   const restoreTo = useRef<HTMLElement | null>(null);
 
+  /**
+   * The latest `onClose`, held in a ref so the focus effect does not depend on
+   * its identity (P2-11).
+   *
+   * It did, and the consequence was not subtle: a caller that passes an inline
+   * arrow — which is every caller that closes over its own state — hands this
+   * a new function on every render, so the effect tore down and re-ran after
+   * **every keystroke**, and its cleanup calls `focus()`. Typing in a field
+   * moved focus back to the dialog after the first character, and the second
+   * character went nowhere.
+   *
+   * Whether that fires depended on which component owned the state, so the two
+   * existing callers happened to be safe and the third was not. A shared
+   * component that breaks depending on how the caller spells a prop is a trap
+   * rather than an API, so the dependency is removed instead of documented.
+   */
+  const closeRef = useRef(onClose);
+  useEffect(() => {
+    closeRef.current = onClose;
+  }, [onClose]);
+
   useEffect(() => {
     if (!open) return;
 
@@ -44,7 +65,7 @@ export function Modal({
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape" && dismissible) {
-        onClose();
+        closeRef.current();
         return;
       }
       if (event.key !== "Tab") return;
@@ -71,7 +92,7 @@ export function Modal({
       document.removeEventListener("keydown", onKeyDown);
       restoreTo.current?.focus();
     };
-  }, [open, onClose, dismissible]);
+  }, [open, dismissible]);
 
   if (!open) return null;
 

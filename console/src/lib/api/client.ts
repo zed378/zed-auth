@@ -139,6 +139,7 @@ export const queryKeys = {
   organizations: ["organizations"] as const,
   projects: ["projects"] as const,
   applications: ["applications"] as const,
+  roles: ["roles"] as const,
   users: ["users"] as const,
   events: ["events"] as const,
 } as const;

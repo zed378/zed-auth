@@ -377,6 +377,40 @@ The cost of the omission is smaller than it looks today, because both claims are
 
 ---
 
+### PG-34 — `P2-11` asks for built-in roles to be non-editable; the API it depends on says only their identity is frozen
+
+**Affects**: `TASKS/PHASE-2-RBAC-MULTITENANCY.md` § P2-11 step 5 and its Definition of Done, and the Roles tab that implements them.
+
+The card says:
+
+> Built-in roles render as **non-editable** with a clear explanation.
+
+The API it is built on says the opposite about everything except identity. `openapi/openapi.yaml`, `updateRole`:
+
+> A built-in role's `display_name` and permissions may still be edited; only its identity is frozen.
+
+Both are deliberate. The card was written before `P2-02` worked out what "built-in" costs, and `P2-02` landed on a narrower freeze on purpose: a service-owned role whose **label** cannot be corrected is a typo nobody can fix, while a role whose **key** can change is a rename that silently revokes access from everyone holding it.
+
+**What was built**: the console matches the API. A built-in role's key is read-only and says why, its delete control is replaced by the reason it is absent, and its name and permissions are editable like any other role's. Making the console stricter than the API would have produced a capability reachable only by `curl`, which is the inverse of the API-first rule and just as confusing.
+
+**The card should be amended** to "built-in roles cannot be deleted or re-keyed, and say so" — a wording change, through the deliberate process (`AGENTS.md` rule 9), not a code change. Nothing is broken today because **no built-in roles are seeded** (`PG-30`), so the divergence has no live behaviour behind it yet; it will the moment one is.
+
+---
+
+### PG-35 — The project detail is specified as tabs and no tab component is specified
+
+**Affects**: `docs/UI-UX/07-COMPONENT-SPECIFICATION.md`, `docs/UI-UX/08-PAGE-SPECIFICATIONS.md` § Project detail, `P2-11`, `P2-12`.
+
+`docs/UI-UX/08` names three tabs on the project detail — Applications, Roles, and Authorizations from `P2-12` — and `docs/UI-UX/13` requires every interactive pattern to have a stated keyboard model. `docs/UI-UX/07` specifies Table, Badge, Button, Modal, Side Panel, Breadcrumb, Confirmation Dialog and Form Field. **It does not specify a tab.**
+
+`UserDetailPage` already renders real ARIA tabs, because its tabs genuinely are panels inside one document. The project detail's are not: each is a route with its own data, loading state, error state and back-button behaviour.
+
+`P2-11` implemented the project detail's as what they are — a labelled `nav` of links with `aria-current` — rather than inventing a `Tabs` component that a later specification would have to contradict. The reasoning is in `console/docs/implementation-chain-P2-11.md`.
+
+**`docs/UI-UX/07` should say which of the two a screen gets and when**, because the next person to add a tabbed screen has two working examples in this codebase that disagree, and no document saying they are supposed to.
+
+---
+
 ### PG-33 — Part B lists four tenant-resolution options and the service uses a fifth
 
 **Affects**: `docs/PLAN/08-AUTHORIZATION.md` Part B § Tenant Resolution, and anyone reading it to learn how a request finds its organization.
