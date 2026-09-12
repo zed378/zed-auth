@@ -692,6 +692,9 @@ var errNotWired = fmt.Errorf("this harness does not wire that half of the Manage
 
 type stubManager struct{}
 
+func (stubManager) ListAdministeredOrganizations(context.Context, api.ListAdministeredOrganizationsRequestObject) (api.ListAdministeredOrganizationsResponseObject, error) {
+	return nil, errNotWired
+}
 func (stubManager) ListOrganizations(context.Context, api.ListOrganizationsRequestObject) (api.ListOrganizationsResponseObject, error) {
 	return nil, errNotWired
 }

@@ -106,6 +106,19 @@ func (r Role) Satisfies(required Role) bool {
 	return slices.Contains(satisfies[r], required)
 }
 
+// Reach is how many roles a role satisfies — its height in the hierarchy.
+//
+// Exported so a caller can order roles by strength without restating the
+// hierarchy. "ORG_ADMIN, ORG_OWNER" is alphabetical and reads as though the
+// first is the stronger; ordering by Reach cannot go out of date when
+// `satisfies` changes, because it IS `satisfies` (P2-13).
+//
+// Zero for a role this service does not define, which sorts such a value at
+// the bottom rather than the top.
+func (r Role) Reach() int {
+	return len(satisfies[r])
+}
+
 // Valid reports whether a role is one this phase understands.
 func (r Role) Valid() bool {
 	_, known := satisfies[r]
@@ -178,6 +191,22 @@ const (
 	// grant's scope_id is a project id, and a role held over project X says
 	// nothing whatsoever about project Y.
 	ScopeProject
+
+	// ScopeSelf requires nothing beyond a valid token, because the endpoint
+	// describes the CALLER rather than any resource (P2-13).
+	//
+	// `GET /v1/me/organizations` is the only one, and the reason it can be
+	// unauthorized is that it grants nothing: it is derived from the caller's
+	// own `manager_roles` rows, so it can only ever report what they already
+	// hold. There is no organization it could disclose that they do not
+	// already administer.
+	//
+	// It is a named scope rather than an absence, so it still goes through
+	// Authorize and still appears in `Policy` — `TestEveryV1RouteHasADeclaredPermission`
+	// keeps holding, and "this route needs no permission" stays a decision
+	// somebody wrote down rather than an omission nobody noticed. The zero
+	// value remains unsatisfiable.
+	ScopeSelf
 )
 
 // Decision is the outcome of an authorization check.
@@ -231,7 +260,7 @@ type Target struct {
 // Authorize decides whether a caller may act on a target.
 //
 // This is the single resolution function `P2-05` step 5 asks for. Every /v1
-// route reaches it through `Middleware.Require`, and `TestEveryRouteHasAPolicy`
+// route reaches it through `Middleware.Require`, and `TestEveryV1RouteHasADeclaredPermission`
 // fails on a route that declares no requirement — so a bespoke check in a
 // handler would be an addition to this, never a replacement for it.
 func Authorize(c Caller, req Requirement, target Target) Decision {
@@ -253,6 +282,14 @@ func Authorize(c Caller, req Requirement, target Target) Decision {
 				InstanceScoped: target.OrgID != "" && target.OrgID != c.OrgID,
 			}
 		}
+	}
+
+	if req.Scope == ScopeSelf {
+		// After the InstanceOwner branch above, so an instance owner's
+		// Decision still carries InstanceScoped and the handler reads outside
+		// one tenant. Before every scope check below, because there is no
+		// target to check against: the endpoint is about whoever is asking.
+		return Decision{Allowed: true}
 	}
 
 	if req.Scope == ScopeInstance {

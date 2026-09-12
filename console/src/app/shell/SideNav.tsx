@@ -1,4 +1,5 @@
 import { NavLink } from "react-router-dom";
+import { OrgSwitcher } from "./OrgSwitcher";
 
 /**
  * The navigation tree from docs/PLAN/06-FRONTEND-ARCHITECTURE.md § Information
@@ -88,6 +89,15 @@ export function SideNav() {
           </span>
         </div>
       </div>
+
+      {/*
+        The active organization, directly under the wordmark and above every
+        destination (P2-13 step 4). Placed here rather than in the session bar
+        because an administrator looks at the top-left to answer "where am I",
+        and because it has to be on EVERY screen — a switcher that appears only
+        on some is one somebody will not check before a delete.
+      */}
+      <OrgSwitcher />
 
       <ul className="flex flex-col gap-1 px-2 pb-4 tablet:px-3">
         {SECTIONS.map((section, index) => (
