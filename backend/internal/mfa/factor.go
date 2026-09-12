@@ -17,7 +17,23 @@ import (
 	"time"
 )
 
-// Type names a factor kind. The values are the ones `user_factors.type` allows.
+// Status is an enrolment's state. The values are the ones
+// `user_mfa_factors.status` allows.
+type Status string
+
+const (
+	// StatusPending is enrolled and not yet proven. It is not a factor.
+	StatusPending Status = "pending"
+
+	// StatusActive is proven and answerable.
+	StatusActive Status = "active"
+)
+
+// Active reports whether this factor may be challenged with.
+func (f Factor) Active() bool { return f.Status == StatusActive }
+
+// Type names a factor kind. The values are the ones
+// `user_mfa_factors.type` allows.
 type Type string
 
 const (
@@ -66,13 +82,14 @@ type Factor struct {
 	Type   Type
 	Label  string
 
-	// Confirmed is false until the user has proven they can use it.
+	// Status is `pending` until the user has proven they can use the factor,
+	// then `active` (`docs/PLAN/04` § user_mfa_factors).
 	//
-	// An unconfirmed factor is invisible to the challenge, does not satisfy
+	// A pending factor is invisible to the challenge, does not satisfy
 	// `mfa_required`, and does not count as the last factor for the purposes
 	// of refusing a removal. Enrolment happens when the user proves the
 	// factor works, not when a secret is generated.
-	Confirmed bool
+	Status Status
 
 	LastUsedAt *time.Time
 	CreatedAt  time.Time

@@ -3,8 +3,8 @@
 Single source of truth for where the project stands. Updated in the same commit as the work it describes (`00-TASK-CONVENTIONS.md` global DoD item 8).
 
 **Last updated**: 2026-09-12
-**Current phase**: Phase 3 — Advanced Security (1 / 15). Phase 2 complete (17 / 17), tagged `v0.2.0-phase2` — [summary](../MEMORY/records/2026-09-12-P2-phase-2-summary.md). Phase 3 is gated on its threat-model review, which is [done](../MEMORY/records/2026-09-12-P2-17-phase-3-threat-review.md). Phase 0 is 20 / 21; `P0-20` stays WIP pending the pull-based deployment re-read
-**Overall**: 67 / 178 tasks done
+**Current phase**: Phase 3 — Advanced Security (2 / 15). Phase 2 complete (17 / 17), tagged `v0.2.0-phase2` — [summary](../MEMORY/records/2026-09-12-P2-phase-2-summary.md). Phase 3 is gated on its threat-model review, which is [done](../MEMORY/records/2026-09-12-P2-17-phase-3-threat-review.md). Phase 0 is 20 / 21; `P0-20` stays WIP pending the pull-based deployment re-read
+**Overall**: 68 / 178 tasks done
 
 > **Phase 2 has not run on staging.** The VM has been unreachable since its deploy key
 > was lost with a session scratchpad. Verification moved to a local Docker stack
@@ -24,7 +24,7 @@ Sizes: `S` under half a day · `M` one to two days · `L` several days · `XL` m
 | [Phase 0 — Foundation](./PHASE-0-FOUNDATION.md) | 21 | 20 | **ACTIVE** — `P0-20` only | — |
 | [Phase 1 — MVP: Core Auth + SSO](./PHASE-1-MVP-CORE-AUTH-SSO.md) | 29 | 29 | **COMPLETE** — [summary](../MEMORY/records/2026-09-12-P1-phase-1-summary.md), tagged `v0.1.0-phase1` | Phase 0 exit checklist |
 | [Phase 2 — RBAC & Multi-Tenancy](./PHASE-2-RBAC-MULTITENANCY.md) | 17 | 17 | **COMPLETE** — [summary](../MEMORY/records/2026-09-12-P2-phase-2-summary.md), tagged `v0.2.0-phase2`. Not yet on staging | Phase 1 exit + `P1-28` — **met** 2026-09-12 |
-| [Phase 3 — Advanced Security](./PHASE-3-ADVANCED-SECURITY.md) | 15 | 1 | **ACTIVE** — gate met: Phase 2 exit checklist verified, [threat review](../MEMORY/records/2026-09-12-P2-17-phase-3-threat-review.md) done | Phase 2 exit + threat model review |
+| [Phase 3 — Advanced Security](./PHASE-3-ADVANCED-SECURITY.md) | 15 | 2 | **ACTIVE** — gate met: Phase 2 exit checklist verified, [threat review](../MEMORY/records/2026-09-12-P2-17-phase-3-threat-review.md) done | Phase 2 exit + threat model review |
 | [Phase 4 — Enterprise Interop](./PHASE-4-ENTERPRISE-INTEROP.md) | 16 | 0 | Not started | Phase 3 exit + threat model review |
 | [Phase 4b — ABAC](./PHASE-4B-ABAC.md) | 11 | 0 | **CONDITIONAL** | A concrete requirement RBAC cannot express (`P4B-00`) |
 | [Phase 5 — Hardening](./PHASE-5-HARDENING.md) | 16 | 0 | Not started | Phase 4 exit; 4b done or declined |
@@ -135,7 +135,7 @@ Sizes: `S` under half a day · `M` one to two days · `L` several days · `XL` m
 | ID | Task | Size | Status | Depends on |
 |---|---|---|---|---|
 | P3-01 | MFA framework and step-up architecture | L | **DONE** — a frame with no factor in it: TOTP and WebAuthn are `P3-02` and `P3-05`, and both are implementations of one interface. The partially-authenticated state is the object the spec calls the highest-risk one, and its design is mostly refusals — it carries no claims, its handle is hashed before it becomes a key, its expiry is Redis's TTL rather than a timestamp somebody compares, and a failed attempt does not extend it. `amr` is derived from what was USED, with an architecture test against writing it anywhere else. The mutation run found **three tests that proved the outcome rather than the control**. Step 2's login-flow wiring is deferred to `P3-03`, which brings a factor that can exercise it | P1-11, P2-10 |
-| P3-02 | TOTP enrollment | M | TODO | P3-01 |
+| P3-02 | TOTP enrollment | M | **DONE** — the algorithm is in the repository rather than in a dependency (thirty lines, frozen since 2011, and a supply-chain compromise of a library that computes second factors compromises every second factor at once) and is therefore tested against **RFC 6238's own published vectors** rather than against itself. Replay is bounded by recording the COUNTER, never the code — the code is a live credential until its step ends. Corrected a silent deviation: `P3-01` created `user_factors.secret`, `docs/PLAN/04` specifies `user_mfa_factors.secret_encrypted`. `users.mfa_enabled` is now maintained by a trigger, because a denormalized flag that can disagree with its source is worse than no flag. Steps 4 and 8 carried to `P3-12`, which has the endpoint | P3-01 |
 | P3-03 | TOTP verification at login | M | TODO | P3-02 |
 | P3-04 | Recovery codes and lost-device process | M | TODO | P3-02 |
 | P3-05 | WebAuthn / passkey support | L | TODO | P3-01 |
