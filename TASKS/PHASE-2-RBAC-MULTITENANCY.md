@@ -531,7 +531,7 @@
 
 | | |
 |---|---|
-| **Status** | TODO |
+| **Status** | DONE — 2026-09-12, [record](../MEMORY/records/2026-09-12-P2-16-test-suite.md) |
 | **Depends on** | all Phase 2 implementation tasks |
 | **Plan refs** | `docs/PLAN/11-TESTING.md`, `docs/PLAN/10-THREAT-MODEL.md`, `docs/SECURITY/02` §2, §3 |
 | **Spec required** | No |
@@ -548,10 +548,12 @@
 6. Wire everything into CI with the security tests as a distinct, visible suite.
 
 **Definition of Done**
-- [ ] Every abuse case named in Phase 2 tasks has a passing test.
-- [ ] The manager role hierarchy has exhaustive combinatorial coverage.
-- [ ] Cross-tenant isolation is verified at both layers, independently.
-- [ ] The full suite is green in CI.
+- [x] Every abuse case named in Phase 2 tasks has a passing test — the per-task suites cover their own; this task added the two nobody owned: **claim tampering** (6 tests presenting validly-signed tokens whose claims contradict the database) and **plan degradation under many tenants**.
+- [x] The manager role hierarchy has exhaustive combinatorial coverage — 6,300 combinations against an expectation **derived from `docs/PLAN/08` Part C's prose rather than from `satisfies`**, plus a two-grant union test, a reason-on-every-outcome test, and an invisibility test that the required role cannot be guessed from.
+- [x] Cross-tenant isolation is verified at both layers, independently — RLS without application filtering (`tests/security/isolation_test.go`, pre-existing) and the authorization layer with an honest database (`hierarchy_exhaustive_test.go`). Now also at the **planner** layer: the tenant predicate must reach the index, or isolation is correct and unaffordable.
+- [x] The full suite is green — the whole Go integration suite, the security suite as its own target, 230 console tests and 24 Playwright tests.
+
+**Note on scope** — steps 2, 3 and 6 were already satisfied before this task (`full_flow_integration_test.go`, the 7 Playwright tests from `P2-11`…`P2-13`, and the existing `make test-security` target). The record says which, because a suite whose value is claimed rather than located is one nobody can audit.
 
 ---
 
