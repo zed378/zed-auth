@@ -889,6 +889,46 @@ None contradicted. `docs/PLAN/06` names the dogfooding constraint and does not s
 
 ---
 
+### ADR-021 — Role claims are scoped to one project and bounded at 64, and truncate rather than drop
+
+**Status**: accepted, 2026-09-12 (`P2-04`)
+
+**Context**
+
+`P2-04` step 5 asks for this decision explicitly, and asks for it to be recorded *"before it becomes a production incident"*.
+
+An access token travels in an `Authorization` header. Most reverse proxies and application servers cap total header size around 8 KB — nginx's `large_client_header_buffers` defaults to 8 KB, and Node, Go and most WSGI servers land in the same range. A JWT is base64, so every byte of claim costs about 1.37 bytes of header.
+
+A role claim that grows without bound therefore has a failure mode with three unpleasant properties. It appears **at the consumer**, not here. It appears **in production**, because nobody tests with a user who has 400 roles. And it appears **for one user** — whichever unlucky person accumulated the most grants — which reads as "the application is broken for Priya" rather than as a token problem.
+
+**Decision**
+
+Three things, together.
+
+**The claim carries only the roles held in the requesting client's own project.** A token is issued to one client, that client belongs to one project, and `docs/PLAN/08` Part A's claim key is per-project. So the token grows with the roles a user holds *in that project* rather than with the number of projects the organization has. This is the mitigation that actually bounds the common case.
+
+**The claim is capped at 64 keys** — `token.MaxRoleClaims`, matching `grant.MaxRoleKeys`. A grant cannot carry more than 64 role keys, so one project's claim cannot legitimately need more, and the two constants are deliberately equal: if one moves without the other, a grant becomes writable that cannot be fully represented in a token.
+
+**Over the cap, the claim is truncated, not dropped.** A truncated claim is a **true subset**: every role in it is one the user holds. A consumer reading it denies some access it should have granted, which the user reports and an administrator can fix. A dropped claim would be indistinguishable from "this user has no roles" — the same outcome, with no signal. And the third option, failing token issuance, takes down every login for that user rather than degrading one decision.
+
+The asymmetry is the argument: **denying access that should have been granted is recoverable; granting access that should have been denied is not.**
+
+**Why not a reference token for the pathological case**
+
+The card names this alternative. It was not taken, for now.
+
+A reference token — an opaque handle the consumer exchanges at `/oauth/introspect` — has no size limit at all, and it is what a system with genuinely unbounded claims should use. It also turns every authorization decision into a network call to this service, which `docs/PLAN/12` is explicit about avoiding: local JWT verification with no round trip is named there as "the single biggest latency win available".
+
+Adopting it to solve a problem no deployment has yet would trade a real, measured property for a hypothetical one. The 64-key bound is where that trade gets re-examined: if a real organization hits it, the answer is a reference token for that client, not a bigger number.
+
+**Consequences**
+
+- A consumer must treat the role claim as potentially incomplete. `docs/PLAN/08` already says claims are a point-in-time snapshot and that sensitive decisions belong at `/v1/authz/check`; this adds a second reason to reach for it.
+- `grant.MaxRoleKeys` and `token.MaxRoleClaims` must move together. Both carry a comment saying so.
+- A user legitimately needing more than 64 roles in one project has a role model problem — that is 64 distinct permission bundles in one application — and the right answer is fewer, broader roles rather than a larger token.
+
+---
+
 ### ADR-020 — Cross-origin access is split: a wildcard on what is public, a per-application allowlist on what is not
 
 | | |
