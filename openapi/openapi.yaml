@@ -973,6 +973,78 @@ paths:
         "429": { $ref: "#/components/responses/RateLimited" }
         "500": { $ref: "#/components/responses/InternalError" }
 
+  /v1/authz/check:
+    post:
+      tags: [Authorization]
+      operationId: checkAuthorization
+      summary: Ask whether a subject may perform an action
+      description: |
+        The real-time authorization decision, read from **live grant data**
+        rather than from the caller's token claims.
+
+        An access token carries a user's roles as a snapshot taken when it was
+        issued (`docs/PLAN/08` Part A). That is right for most decisions and
+        costs no round trip. It is wrong for anything destructive, anything
+        involving money, and anything an auditor will ask about — because a
+        role revoked a minute ago is still in a token minted before that.
+        **This endpoint reflects a revocation on the next call.**
+
+        ### What it decides
+
+        The permission asked about is `resource.type` + `:` + `action` — so
+        `approve` on a `purchase_request` asks whether the subject holds a role
+        carrying `purchase_request:approve`. The decision is scoped to the
+        **caller's own organization and project**, both taken from the access
+        token; neither can be named in the request.
+
+        `resource.id`, `resource.attributes` and `context` are accepted and are
+        not used by the role-based decision. They are what attribute-based
+        policies will read, and accepting them now means a consumer sending
+        them today does not change its code later.
+
+        ### Treat anything that is not a 200 as denied
+
+        If the decision cannot be completed — a dependency is unavailable — the
+        response is `503`, not `200` with `allowed: false`. The difference
+        matters: `allowed: false` says "we checked and the answer is no", which
+        a caller may cache and which makes an outage look like a policy change.
+        A `503` says "no decision was reached".
+
+        Nothing is ever allowed by a failure.
+
+        ### Not audited, deliberately
+
+        This is a read, and it happens on every protected request in every
+        consumer application. An audit row per decision would multiply the
+        audit log by the traffic of the entire fleet and turn the record an
+        investigator reads into a firehose nobody can query. Decisions are
+        counted as metrics instead.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AuthorizationCheck"
+      responses:
+        "200":
+          description: A decision was reached. It may be a denial.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthorizationDecision"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/InternalError" }
+        "503":
+          description: |
+            No decision was reached. **Treat as denied.**
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
   /v1/organizations/{org_id}/users/{user_id}/grants:
     parameters:
       - $ref: "#/components/parameters/OrganizationId"
@@ -2260,6 +2332,91 @@ components:
           items:
             $ref: "#/components/schemas/RoleKey"
 
+    AuthorizationCheck:
+      type: object
+      required: [subject, action, resource]
+      additionalProperties: false
+      properties:
+        subject:
+          type: object
+          required: [user_id]
+          additionalProperties: false
+          properties:
+            user_id:
+              $ref: "#/components/schemas/ResourceId"
+        action:
+          type: string
+          minLength: 1
+          maxLength: 64
+          description: |
+            The verb, lower-case. Combined with `resource.type` it forms the
+            permission key the subject must hold — `approve` on
+            `purchase_request` asks for `purchase_request:approve`.
+          example: approve
+        resource:
+          type: object
+          required: [type]
+          additionalProperties: false
+          properties:
+            type:
+              type: string
+              minLength: 1
+              maxLength: 64
+              description: The kind of thing being acted on.
+              example: purchase_request
+            id:
+              type: string
+              maxLength: 255
+              description: |
+                The specific thing. Accepted, and not used by the role-based
+                decision — a role is held over a kind of resource, not over one
+                instance. Attribute-based policies will read it.
+
+                Never logged: it is the consumer's own business identifier.
+              example: pr_9931
+            attributes:
+              type: object
+              additionalProperties: true
+              description: |
+                Whatever the consumer knows about the resource. Accepted,
+                unused today, and **never logged** — these are the consumer
+                application's business data and this service has no business
+                keeping them.
+              example: { department: finance, amount: 8000000 }
+        context:
+          type: object
+          additionalProperties: true
+          description: |
+            Request context. Accepted and unused today.
+          example: { ip: "10.0.4.2", time: "2026-09-08T14:00:00Z" }
+
+    AuthorizationDecision:
+      type: object
+      required: [allowed, reasons]
+      additionalProperties: false
+      properties:
+        allowed:
+          type: boolean
+        matched_policy:
+          type: string
+          description: |
+            What decided the outcome. Under role-based access control the role
+            **is** the policy that matched, so this is a role key. Empty on a
+            denial, because nothing matched.
+          example: finance_approver
+        reasons:
+          type: array
+          items:
+            type: string
+          description: |
+            The outcome in words, for support and audit.
+
+            A denial says the same thing however it was reached. A subject who
+            does not exist and one who holds no matching role produce an
+            identical response — otherwise this endpoint would answer "does
+            this user exist?" for anybody holding a valid token.
+          example: ["subject holds role \"finance_approver\"", "role \"finance_approver\" carries permission \"purchase_request:approve\""]
+
     Organization:
       type: object
       description: |
@@ -3103,6 +3260,12 @@ components:
         - CONFLICT
         - RATE_LIMITED
         - INTERNAL
+        # P2-06. Distinct from INTERNAL because it means something a caller can
+        # act on: no decision was reached, the request may be retried, and in
+        # the authorization endpoint's case the correct interpretation is
+        # "denied". INTERNAL says a bug happened here; this says a dependency
+        # did not answer.
+        - UNAVAILABLE
 
     ErrorDetail:
       type: object

@@ -504,6 +504,65 @@ export interface paths {
         patch: operations["updateOrganization"];
         trace?: never;
     };
+    "/v1/authz/check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ask whether a subject may perform an action
+         * @description The real-time authorization decision, read from **live grant data**
+         *     rather than from the caller's token claims.
+         *
+         *     An access token carries a user's roles as a snapshot taken when it was
+         *     issued (`docs/PLAN/08` Part A). That is right for most decisions and
+         *     costs no round trip. It is wrong for anything destructive, anything
+         *     involving money, and anything an auditor will ask about — because a
+         *     role revoked a minute ago is still in a token minted before that.
+         *     **This endpoint reflects a revocation on the next call.**
+         *
+         *     ### What it decides
+         *
+         *     The permission asked about is `resource.type` + `:` + `action` — so
+         *     `approve` on a `purchase_request` asks whether the subject holds a role
+         *     carrying `purchase_request:approve`. The decision is scoped to the
+         *     **caller's own organization and project**, both taken from the access
+         *     token; neither can be named in the request.
+         *
+         *     `resource.id`, `resource.attributes` and `context` are accepted and are
+         *     not used by the role-based decision. They are what attribute-based
+         *     policies will read, and accepting them now means a consumer sending
+         *     them today does not change its code later.
+         *
+         *     ### Treat anything that is not a 200 as denied
+         *
+         *     If the decision cannot be completed — a dependency is unavailable — the
+         *     response is `503`, not `200` with `allowed: false`. The difference
+         *     matters: `allowed: false` says "we checked and the answer is no", which
+         *     a caller may cache and which makes an outage look like a policy change.
+         *     A `503` says "no decision was reached".
+         *
+         *     Nothing is ever allowed by a failure.
+         *
+         *     ### Not audited, deliberately
+         *
+         *     This is a read, and it happens on every protected request in every
+         *     consumer application. An audit row per decision would multiply the
+         *     audit log by the traffic of the entire fleet and turn the record an
+         *     investigator reads into a firehose nobody can query. Decisions are
+         *     counted as metrics instead.
+         */
+        post: operations["checkAuthorization"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/organizations/{org_id}/users/{user_id}/grants": {
         parameters: {
             query?: never;
@@ -1267,6 +1326,80 @@ export interface components {
         GrantUpdate: {
             role_keys: components["schemas"]["RoleKey"][];
         };
+        AuthorizationCheck: {
+            subject: {
+                user_id: components["schemas"]["ResourceId"];
+            };
+            /**
+             * @description The verb, lower-case. Combined with `resource.type` it forms the
+             *     permission key the subject must hold — `approve` on
+             *     `purchase_request` asks for `purchase_request:approve`.
+             * @example approve
+             */
+            action: string;
+            resource: {
+                /**
+                 * @description The kind of thing being acted on.
+                 * @example purchase_request
+                 */
+                type: string;
+                /**
+                 * @description The specific thing. Accepted, and not used by the role-based
+                 *     decision — a role is held over a kind of resource, not over one
+                 *     instance. Attribute-based policies will read it.
+                 *
+                 *     Never logged: it is the consumer's own business identifier.
+                 * @example pr_9931
+                 */
+                id?: string;
+                /**
+                 * @description Whatever the consumer knows about the resource. Accepted,
+                 *     unused today, and **never logged** — these are the consumer
+                 *     application's business data and this service has no business
+                 *     keeping them.
+                 * @example {
+                 *       "department": "finance",
+                 *       "amount": 8000000
+                 *     }
+                 */
+                attributes?: {
+                    [key: string]: unknown;
+                };
+            };
+            /**
+             * @description Request context. Accepted and unused today.
+             * @example {
+             *       "ip": "10.0.4.2",
+             *       "time": "2026-09-08T14:00:00Z"
+             *     }
+             */
+            context?: {
+                [key: string]: unknown;
+            };
+        };
+        AuthorizationDecision: {
+            allowed: boolean;
+            /**
+             * @description What decided the outcome. Under role-based access control the role
+             *     **is** the policy that matched, so this is a role key. Empty on a
+             *     denial, because nothing matched.
+             * @example finance_approver
+             */
+            matched_policy?: string;
+            /**
+             * @description The outcome in words, for support and audit.
+             *
+             *     A denial says the same thing however it was reached. A subject who
+             *     does not exist and one who holds no matching role produce an
+             *     identical response — otherwise this endpoint would answer "does
+             *     this user exist?" for anybody holding a valid token.
+             * @example [
+             *       "subject holds role \"finance_approver\"",
+             *       "role \"finance_approver\" carries permission \"purchase_request:approve\""
+             *     ]
+             */
+            reasons: string[];
+        };
         /**
          * @description A tenant.
          *
@@ -1841,7 +1974,7 @@ export interface components {
          *     (`docs/SECURITY/02` §12).
          * @enum {string}
          */
-        ErrorCode: "VALIDATION_ERROR" | "UNAUTHENTICATED" | "PERMISSION_DENIED" | "NOT_FOUND" | "CONFLICT" | "RATE_LIMITED" | "INTERNAL";
+        ErrorCode: "VALIDATION_ERROR" | "UNAUTHENTICATED" | "PERMISSION_DENIED" | "NOT_FOUND" | "CONFLICT" | "RATE_LIMITED" | "INTERNAL" | "UNAVAILABLE";
         /**
          * @description One specific problem within a failed request. Present for
          *     `VALIDATION_ERROR`, where naming the bad field is helpful and discloses
@@ -2851,6 +2984,44 @@ export interface operations {
             409: components["responses"]["Conflict"];
             429: components["responses"]["RateLimited"];
             500: components["responses"]["InternalError"];
+        };
+    };
+    checkAuthorization: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AuthorizationCheck"];
+            };
+        };
+        responses: {
+            /** @description A decision was reached. It may be a denial. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthorizationDecision"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            429: components["responses"]["RateLimited"];
+            500: components["responses"]["InternalError"];
+            /** @description No decision was reached. **Treat as denied.** */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
         };
     };
     listUserGrants: {
