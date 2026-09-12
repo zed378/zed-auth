@@ -287,7 +287,7 @@
 
 | | |
 |---|---|
-| **Status** | TODO |
+| **Status** | DONE (one item needs the VM) — [record](../MEMORY/records/2026-09-12-P2-08-multi-org.md). Not yet on staging |
 | **Depends on** | P0-08, P1-16 |
 | **Plan refs** | `docs/PLAN/08-AUTHORIZATION.md` Part B, `docs/PLAN/02-REQUIREMENTS.md` FR-11, `docs/PLAN/01-PRODUCT-SCOPE.md` § Out of Scope |
 | **Spec required** | Yes — tenant isolation |
@@ -305,11 +305,11 @@
 7. Load-test with multiple organizations present to confirm RLS does not degrade query plans (`docs/PLAN/08` Part B mentions per-`org_id` indexing and partitioning as the growth strategy).
 
 **Definition of Done**
-- [ ] A second organization is created and fully functional with no migration.
-- [ ] Cross-org data access is impossible at both the RLS and application layers, verified by a dedicated security test.
-- [ ] An architecture test fails if any query path can run without tenant context.
-- [ ] Audit log reads are org-scoped under every filter combination.
-- [ ] Query performance with multiple organizations is measured and acceptable.
+- [x] A second organization is created and fully functional with no migration. A complete second tenant — organization, project, application, role, user, grant — with every row asserted to land. `docs/PLAN/02`'s assumption holds.
+- [x] Cross-org data access is impossible at both the RLS and application layers. **This found a real hole**: `applications` and `project_grants` had no rule that their organization owns their project, so a row could be filed under the wrong tenant and then hidden by RLS from the organization that owns the project. Proven by dropping the new trigger and watching the test report the state the table was in this morning.
+- [x] An architecture test fails if any query path can run without tenant context — and in **both directions**, because an exception listed for a file that no longer bypasses anything is as much rot as an unchecked bypass. It cannot forbid the bypass outright: six reads resolve the tenant itself, so requiring one first would be circular. It makes each deliberate instead.
+- [x] Audit log reads are org-scoped under every filter combination, generated rather than listed — and the test asserts the caller can still read their **own** history, since every isolation assertion is otherwise satisfied by an endpoint returning nothing.
+- [ ] **Query performance with multiple organizations is measured. Not run:** `scripts/loadtest` needs the VM, which was unreachable this session. The question `docs/PLAN/08` Part B raises is whether RLS degrades query plans once several tenants share a table.
 
 **Abuse cases to test**
 - Cross-tenant IDOR on every resource type (`docs/SECURITY/02` §2, §14).
