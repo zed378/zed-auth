@@ -137,6 +137,12 @@ export const queryKeys = {
   // Without that, switching organizations renders the previous one's cached
   // data — a leak in the UI even with a correct API (PF-20).
   organizations: ["organizations"] as const,
+
+  // The one key deliberately NOT scoped to an organization: it describes the
+  // CALLER, and re-fetching it on every switch would empty the switcher the
+  // moment it is used (P2-13).
+  administered: ["administered-organizations"] as const,
+
   projects: ["projects"] as const,
   applications: ["applications"] as const,
   roles: ["roles"] as const,

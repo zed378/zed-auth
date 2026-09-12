@@ -417,6 +417,45 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/me/organizations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the organizations the caller administers
+         * @description The organizations this caller holds a manager role over, with the roles
+         *     they hold. Requires only a valid access token.
+         *
+         *     **It needs no permission because it grants no access.** The response is
+         *     derived from the caller's own `manager_roles` rows, so it can only ever
+         *     describe what they already hold — there is nothing here that a caller
+         *     could learn about an organization they do not administer. An endpoint
+         *     that requires a role in order to report which roles you have is one
+         *     nobody can bootstrap from.
+         *
+         *     An `INSTANCE_OWNER` administers every organization, so this answers the
+         *     same set as `GET /v1/organizations` for them — paginated the same way,
+         *     because an instance may have more organizations than fit in one page.
+         *
+         *     This exists because the console's organization switcher must show
+         *     exactly the organizations the caller may act in, and deriving that from
+         *     the token's `urn:authservice:manager_roles` claim would be wrong twice:
+         *     the claim carries role names without their scopes, and a role in a
+         *     token is a snapshot up to ten minutes stale. The switcher is UI; what
+         *     it offers must come from the same place the API's own refusals do.
+         */
+        get: operations["listAdministeredOrganizations"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/organizations": {
         parameters: {
             query?: never;
@@ -1471,6 +1510,39 @@ export interface components {
              *     that does.
              */
             allowed_login_methods?: "password"[];
+        };
+        /**
+         * @description One organization the caller administers, and what they hold over it.
+         *
+         *     Deliberately smaller than `Organization`: no `settings`, no `status`,
+         *     no timestamps. This is a switcher's list, and an endpoint that requires
+         *     no permission should return the least it can — an organization's
+         *     settings are readable through `GET /v1/organizations/{org_id}`, which
+         *     requires `ORG_ADMIN` over it.
+         */
+        AdministeredOrganization: {
+            id: components["schemas"]["ResourceId"];
+            /** @example Acme Corporation */
+            name: string;
+            /**
+             * @description The manager roles the caller holds over this organization, highest
+             *     first. `INSTANCE_OWNER` appears against every organization: its
+             *     scope is the instance, not any one tenant.
+             *
+             *     `PROJECT_OWNER` is deliberately absent, and so is any organization
+             *     reached only through one. Its scope is a project, and offering a
+             *     switch into an organization where `GET /v1/organizations/{org_id}`
+             *     and every screen beneath it answers 403 would be a switcher whose
+             *     entries lead to refusals.
+             * @example [
+             *       "ORG_ADMIN"
+             *     ]
+             */
+            roles: ("INSTANCE_OWNER" | "ORG_OWNER" | "ORG_ADMIN")[];
+        };
+        AdministeredOrganizationList: {
+            organizations: components["schemas"]["AdministeredOrganization"][];
+            page_info?: components["schemas"]["PageInfo"];
         };
         OrganizationList: {
             organizations: components["schemas"]["Organization"][];
@@ -2806,6 +2878,46 @@ export interface operations {
                     "application/json": components["schemas"]["ReadinessStatus"];
                 };
             };
+        };
+    };
+    listAdministeredOrganizations: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Maximum items to return. The server may return fewer, and returning
+                 *     fewer never means the collection is exhausted — only an absent
+                 *     `next_page_token` means that.
+                 */
+                page_size?: components["parameters"]["PageSize"];
+                /**
+                 * @description The `next_page_token` from the previous response. Opaque: its contents
+                 *     are not part of the contract and must not be constructed, parsed, or
+                 *     persisted by a client.
+                 */
+                page_token?: components["parameters"]["PageToken"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /**
+             * @description The organizations the caller administers. Empty for a caller who
+             *     administers none, which is the normal state for an ordinary user.
+             */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdministeredOrganizationList"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            429: components["responses"]["RateLimited"];
+            500: components["responses"]["InternalError"];
         };
     };
     listOrganizations: {

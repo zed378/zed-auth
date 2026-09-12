@@ -3,6 +3,7 @@ import { BrowserRouter } from "react-router-dom";
 
 import { ErrorBoundary } from "./app/ErrorBoundary";
 import { AuthProvider } from "./lib/auth/AuthProvider";
+import { OrgProvider } from "./lib/org/OrgProvider";
 import { AppRoutes } from "./app/routes";
 import { AppShell } from "./app/shell/AppShell";
 
@@ -52,9 +53,17 @@ export function App() {
             renders the signed-in user's name.
           */}
           <AuthProvider>
-            <AppShell>
-              <AppRoutes />
-            </AppShell>
+            {/*
+              Inside AuthProvider because the default organization is the
+              token's, and inside the router because the active one is carried
+              in the URL (P2-13). Outside the shell, because the shell renders
+              the switcher and has to know what it is switching.
+            */}
+            <OrgProvider>
+              <AppShell>
+                <AppRoutes />
+              </AppShell>
+            </OrgProvider>
           </AuthProvider>
         </BrowserRouter>
       </QueryClientProvider>

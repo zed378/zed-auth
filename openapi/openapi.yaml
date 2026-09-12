@@ -814,6 +814,49 @@ paths:
                   value:
                     status: unavailable
 
+  /v1/me/organizations:
+    get:
+      tags: [Organizations]
+      operationId: listAdministeredOrganizations
+      summary: List the organizations the caller administers
+      description: |
+        The organizations this caller holds a manager role over, with the roles
+        they hold. Requires only a valid access token.
+
+        **It needs no permission because it grants no access.** The response is
+        derived from the caller's own `manager_roles` rows, so it can only ever
+        describe what they already hold — there is nothing here that a caller
+        could learn about an organization they do not administer. An endpoint
+        that requires a role in order to report which roles you have is one
+        nobody can bootstrap from.
+
+        An `INSTANCE_OWNER` administers every organization, so this answers the
+        same set as `GET /v1/organizations` for them — paginated the same way,
+        because an instance may have more organizations than fit in one page.
+
+        This exists because the console's organization switcher must show
+        exactly the organizations the caller may act in, and deriving that from
+        the token's `urn:authservice:manager_roles` claim would be wrong twice:
+        the claim carries role names without their scopes, and a role in a
+        token is a snapshot up to ten minutes stale. The switcher is UI; what
+        it offers must come from the same place the API's own refusals do.
+      parameters:
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+      responses:
+        "200":
+          description: |
+            The organizations the caller administers. Empty for a caller who
+            administers none, which is the normal state for an ordinary user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdministeredOrganizationList"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
   /v1/organizations:
     get:
       tags: [Organizations]
@@ -2514,6 +2557,54 @@ components:
             are planned and are rejected until they work — an API that accepts
             a method nothing implements would silently disable every method
             that does.
+
+    AdministeredOrganization:
+      type: object
+      description: |
+        One organization the caller administers, and what they hold over it.
+
+        Deliberately smaller than `Organization`: no `settings`, no `status`,
+        no timestamps. This is a switcher's list, and an endpoint that requires
+        no permission should return the least it can — an organization's
+        settings are readable through `GET /v1/organizations/{org_id}`, which
+        requires `ORG_ADMIN` over it.
+      required: [id, name, roles]
+      additionalProperties: false
+      properties:
+        id:
+          $ref: "#/components/schemas/ResourceId"
+        name:
+          type: string
+          example: Acme Corporation
+        roles:
+          type: array
+          minItems: 1
+          items:
+            type: string
+            enum: [INSTANCE_OWNER, ORG_OWNER, ORG_ADMIN]
+          description: |
+            The manager roles the caller holds over this organization, highest
+            first. `INSTANCE_OWNER` appears against every organization: its
+            scope is the instance, not any one tenant.
+
+            `PROJECT_OWNER` is deliberately absent, and so is any organization
+            reached only through one. Its scope is a project, and offering a
+            switch into an organization where `GET /v1/organizations/{org_id}`
+            and every screen beneath it answers 403 would be a switcher whose
+            entries lead to refusals.
+          example: ["ORG_ADMIN"]
+
+    AdministeredOrganizationList:
+      type: object
+      required: [organizations]
+      additionalProperties: false
+      properties:
+        organizations:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdministeredOrganization"
+        page_info:
+          $ref: "#/components/schemas/PageInfo"
 
     OrganizationList:
       type: object

@@ -507,6 +507,11 @@ type apiRoutes struct {
 // compile error: adding an operation to openapi.yaml under /v1 breaks this
 // interface's satisfaction, which breaks apiRoutes, which breaks the build.
 type Manager interface {
+	// The caller's own view of what they administer (P2-13). On Manager
+	// because the organization package implements it — it reads the
+	// organizations table — even though the route is not nested under one.
+	ListAdministeredOrganizations(ctx context.Context, request api.ListAdministeredOrganizationsRequestObject) (api.ListAdministeredOrganizationsResponseObject, error)
+
 	ListOrganizations(ctx context.Context, request api.ListOrganizationsRequestObject) (api.ListOrganizationsResponseObject, error)
 	CreateOrganization(ctx context.Context, request api.CreateOrganizationRequestObject) (api.CreateOrganizationResponseObject, error)
 	GetOrganization(ctx context.Context, request api.GetOrganizationRequestObject) (api.GetOrganizationResponseObject, error)

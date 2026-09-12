@@ -30,10 +30,20 @@ import (
 // Chain.Handle has: forgetting to annotate an endpoint makes it unreachable
 // rather than open.
 //
-// Unreachable is safe but still broken, so TestEveryRouteHasAPolicy walks the
+// Unreachable is safe but still broken, so TestEveryV1RouteHasADeclaredPermission walks the
 // routes the router actually registers and fails on any that is missing. The
 // failure lands on the first test run rather than as a 403 in production.
 var Policy = map[string]Requirement{
+	// --- The caller themselves (P2-13) ---
+	//
+	// The one route in the table that demands no role. It reports which
+	// organizations the caller administers, derived from their own grants, so
+	// it can only describe access they already have. `Member` and `ScopeSelf`
+	// rather than absence from the table: an unlisted route is refused, and
+	// "this needs no permission" should be a sentence somebody wrote, not a
+	// gap somebody left.
+	"GET /v1/me/organizations": {Role: Member, Scope: ScopeSelf},
+
 	// --- Organizations (P1-16) ---
 	//
 	// Listing and creating are instance-scoped because they are genuinely
