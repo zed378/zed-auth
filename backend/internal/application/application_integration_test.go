@@ -34,6 +34,7 @@ import (
 	"github.com/zed378/zed-auth/backend/internal/audit"
 	"github.com/zed378/zed-auth/backend/internal/auditlog"
 	"github.com/zed378/zed-auth/backend/internal/config"
+	"github.com/zed378/zed-auth/backend/internal/grant"
 	"github.com/zed378/zed-auth/backend/internal/httpserver"
 	"github.com/zed378/zed-auth/backend/internal/management"
 	"github.com/zed378/zed-auth/backend/internal/oauth/client"
@@ -140,6 +141,7 @@ func setup(t *testing.T) *fixture {
 		ProjectAPI:     &project.Handler{Store: project.NewStore(), DB: db, Audit: auditor, Log: discard()},
 		ApplicationAPI: New(db, auditor, discard()),
 		RoleAPI:        role.New(db, auditor, discard()),
+		GrantAPI:       grant.New(db, auditor, discard()),
 		// Fourth of four. Nothing here calls it; httpserver.New refuses a /v1
 		// chain with any half of the Management API missing, and the handler
 		// refuses a deactivation it cannot make real rather than panicking on

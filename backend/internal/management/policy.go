@@ -106,6 +106,22 @@ var Policy = map[string]Requirement{
 	"POST /v1/organizations/{org_id}/users/{user_id}/reactivate":     {Role: OrgAdmin, Scope: ScopeOrganization},
 	"POST /v1/organizations/{org_id}/users/{user_id}/password-reset": {Role: OrgAdmin, Scope: ScopeOrganization},
 
+	// --- User grants (P2-03) ---
+	//
+	// ORG_ADMIN over the organization, NOT the project scope `P2-02` uses.
+	// The path is about a user, so a project-scoped caller who could reach it
+	// would be able to enumerate the organization's users one grant request at
+	// a time — a narrower role buying a wider read.
+	//
+	// Nothing is raised to ORG_OWNER. Granting roles is the routine work of
+	// administering an organization, and the escalation these routes actually
+	// have to prevent — an administrator granting to THEMSELVES — is refused
+	// in the handler, because no role requirement can express it.
+	"GET /v1/organizations/{org_id}/users/{user_id}/grants":                 {Role: OrgAdmin, Scope: ScopeOrganization},
+	"POST /v1/organizations/{org_id}/users/{user_id}/grants":                {Role: OrgAdmin, Scope: ScopeOrganization},
+	"PATCH /v1/organizations/{org_id}/users/{user_id}/grants/{project_id}":  {Role: OrgAdmin, Scope: ScopeOrganization},
+	"DELETE /v1/organizations/{org_id}/users/{user_id}/grants/{project_id}": {Role: OrgAdmin, Scope: ScopeOrganization},
+
 	// --- Audit log (P1-20) ---
 	//
 	// One entry, and there will never be more. The table is append-only at the

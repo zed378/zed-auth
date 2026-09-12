@@ -28,6 +28,7 @@ import (
 	"github.com/zed378/zed-auth/backend/internal/audit"
 	"github.com/zed378/zed-auth/backend/internal/auditlog"
 	"github.com/zed378/zed-auth/backend/internal/config"
+	"github.com/zed378/zed-auth/backend/internal/grant"
 	"github.com/zed378/zed-auth/backend/internal/httpserver"
 	"github.com/zed378/zed-auth/backend/internal/management"
 	"github.com/zed378/zed-auth/backend/internal/oauth/token"
@@ -120,6 +121,7 @@ func setupEndpoints(t *testing.T) *endpoints {
 		// Third of three, for the reason the comment above gives.
 		ApplicationAPI: application.New(db, auditor, discard()),
 		RoleAPI:        role.New(db, auditor, discard()),
+		GrantAPI:       grant.New(db, auditor, discard()),
 		// Fourth of four. Nothing here calls it; httpserver.New refuses a /v1
 		// chain with any half of the Management API missing, and the handler
 		// refuses a deactivation it cannot make real rather than panicking on

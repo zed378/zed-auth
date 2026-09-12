@@ -116,6 +116,7 @@ func setup(t *testing.T) *fixture {
 		ProjectAPI:     stubProjects{},
 		ApplicationAPI: stubApplications{},
 		RoleAPI:        stubRoles{},
+		GrantAPI:       stubGrants{},
 		UserAPI:        stubUsers{},
 		AuditAPI:       &Handler{DB: db, Log: discard()},
 	})
@@ -792,5 +793,26 @@ func (stubRoles) UpdateRole(context.Context, api.UpdateRoleRequestObject) (api.U
 }
 
 func (stubRoles) DeleteRole(context.Context, api.DeleteRoleRequestObject) (api.DeleteRoleResponseObject, error) {
+	return nil, errNotWired
+}
+
+// stubGrants is the user-grant half of the Management API, which this suite
+// does not exercise. Present because httpserver.New refuses a /v1 chain with
+// any half missing (P2-03).
+type stubGrants struct{}
+
+func (stubGrants) ListUserGrants(context.Context, api.ListUserGrantsRequestObject) (api.ListUserGrantsResponseObject, error) {
+	return nil, errNotWired
+}
+
+func (stubGrants) GrantRolesToUser(context.Context, api.GrantRolesToUserRequestObject) (api.GrantRolesToUserResponseObject, error) {
+	return nil, errNotWired
+}
+
+func (stubGrants) ReplaceUserGrant(context.Context, api.ReplaceUserGrantRequestObject) (api.ReplaceUserGrantResponseObject, error) {
+	return nil, errNotWired
+}
+
+func (stubGrants) RevokeUserGrant(context.Context, api.RevokeUserGrantRequestObject) (api.RevokeUserGrantResponseObject, error) {
 	return nil, errNotWired
 }

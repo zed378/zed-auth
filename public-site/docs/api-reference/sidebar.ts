@@ -136,6 +136,36 @@ const sidebar: SidebarsConfig = {
     },
     {
       type: "category",
+      label: "Grants",
+      items: [
+        {
+          type: "doc",
+          id: "api-reference/list-user-grants",
+          label: "List a user's roles, per project",
+          className: "api-method get",
+        },
+        {
+          type: "doc",
+          id: "api-reference/grant-roles-to-user",
+          label: "Grant roles in a project",
+          className: "api-method post",
+        },
+        {
+          type: "doc",
+          id: "api-reference/replace-user-grant",
+          label: "Replace a user's roles in a project",
+          className: "api-method patch",
+        },
+        {
+          type: "doc",
+          id: "api-reference/revoke-user-grant",
+          label: "Revoke a user's access to a project",
+          className: "api-method delete",
+        },
+      ],
+    },
+    {
+      type: "category",
       label: "Projects",
       items: [
         {
