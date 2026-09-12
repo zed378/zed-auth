@@ -120,6 +120,47 @@ func (f idemFixture) complete(t *testing.T, org, client, key string, status int,
 	}
 }
 
+// --- the row is built from one clock -----------------------------------------
+
+// This suite stopped passing at 12:00 UTC on 2026-09-11 and nothing had
+// changed.
+//
+// `now()` above is fixed at 2026-09-10 12:00, so every record it wrote expired
+// 24 hours later. `created_at` was left to its column DEFAULT — the DATABASE's
+// clock — while `expires_at` came from the caller's, so
+// `idempotency_expires_after_creation` was quietly comparing two different
+// clocks. The moment real time passed the fixed clock's TTL, every insert
+// violated it. In production the same constraint said "the caller's clock is
+// less than a day behind the database's", which is not what it was written to
+// say and not something a CHECK constraint should be deciding.
+//
+// `Begin` now writes both. This asserts it with a clock a year out, where a
+// row built from two clocks cannot be written at all — so a revert fails here
+// deliberately rather than in whichever suite runs first after a TTL elapses.
+func TestARecordIsWrittenEntirelyFromTheCallersClock(t *testing.T) {
+	f := setupIdempotency(t)
+
+	lastYear := time.Date(2025, 9, 10, 12, 0, 0, 0, time.UTC)
+	if _, err := f.claims.Begin(context.Background(), f.orgA, f.clientA, "stale-clock",
+		"POST", "/v1/users", []byte(`{"a":1}`), lastYear); err != nil {
+		t.Fatalf("a record dated a year ago could not be written: %v", err)
+	}
+
+	// Read back as the owner, which bypasses RLS: this is an inspection, not
+	// an isolation claim.
+	var created, expires time.Time
+	f.factory.QueryRow(&created,
+		`SELECT created_at FROM idempotency_records WHERE key = $1`, "stale-clock")
+	f.factory.QueryRow(&expires,
+		`SELECT expires_at FROM idempotency_records WHERE key = $1`, "stale-clock")
+	if !created.Equal(lastYear) {
+		t.Errorf("created_at is %s, not the %s the caller passed — the database's clock won", created, lastYear)
+	}
+	if want := lastYear.Add(IdempotencyTTL); !expires.Equal(want) {
+		t.Errorf("expires_at is %s, want %s", expires, want)
+	}
+}
+
 // --- the three outcomes -------------------------------------------------------------
 
 // The sequence the header exists for: claim, answer, replay.

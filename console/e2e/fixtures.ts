@@ -71,6 +71,15 @@ interface Fixtures {
   application: SeededApplication;
   user: SeededUser;
   admin: SeededUser;
+
+  /**
+   * A Management API call as the bootstrap administrator.
+   *
+   * Exposed so a test can assert what the API sees, which is the only way to
+   * check that the console wrote where it claimed to (`P1-28`, `docs/PLAN/17`
+   * § Phase 1 — "creating via one is visible via the other").
+   */
+  api: <T>(method: string, path: string, body?: unknown) => Promise<T>;
 }
 
 /**
@@ -149,6 +158,10 @@ function unique(prefix: string): string {
 }
 
 export const test = base.extend<Fixtures>({
+  api: async ({}, use) => {
+    await use(manage);
+  },
+
   /**
    * The bootstrap administrator, for the screens a manager role gates.
    *
