@@ -62,6 +62,10 @@ SHIPPED = {
     # the path, which an organization-scoped role also satisfies (P2-05).
     "/v1/organizations/{org_id}/projects/{project_id}/roles",
     "/v1/organizations/{org_id}/projects/{project_id}/roles/{role_id}",
+    # P2-03. The row that actually grants access. ORG_ADMIN over the
+    # organization, because the path is about a user.
+    "/v1/organizations/{org_id}/users/{user_id}/grants",
+    "/v1/organizations/{org_id}/users/{user_id}/grants/{project_id}",
     # P1-19. Users, and the two verb sub-resources the card asks for instead
     # of a delete.
     "/v1/organizations/{org_id}/users",
