@@ -30,6 +30,19 @@ type Handler struct {
 	// Audit is P1-15's guarded recorder. Every mutation writes through it, so
 	// the per-request trail the audit guard checks afterwards is marked.
 	Audit management.Recorder
+
+	// Cache is the authorization cache to invalidate when a role's permissions
+	// change (P2-07). Optional.
+	//
+	// Per PROJECT rather than per role: a decision looks up several roles at
+	// once, so they are cached together — which also means one edit costs one
+	// delete instead of a scan over everybody holding the role.
+	Cache Invalidator
+}
+
+// Invalidator drops what a role change made stale.
+type Invalidator interface {
+	InvalidateProjectRoles(ctx context.Context, orgID, projectID string)
 }
 
 func New(db *postgres.DB, recorder management.Recorder, log *slog.Logger) *Handler {
@@ -124,6 +137,10 @@ func (h *Handler) CreateRole(
 
 	// grant_count is 0 by construction: the role did not exist a moment ago,
 	// so nothing can reference it.
+	// A new role changes what the project defines, so the cached
+	// definitions are stale even though nobody holds it yet.
+	h.invalidate(ctx, projectID)
+
 	rendered, err := render(created, 0)
 	if err != nil {
 		return nil, err
@@ -223,6 +240,10 @@ func (h *Handler) UpdateRole(
 		return nil, faultFrom(err)
 	}
 
+	// The invalidation that matters: this is the call that changes what an
+	// existing role CARRIES, and therefore what every holder may do.
+	h.invalidate(ctx, projectID)
+
 	rendered, err := render(updated, counts[updated.Key])
 	if err != nil {
 		return nil, err
@@ -268,7 +289,20 @@ func (h *Handler) DeleteRole(
 		return nil, faultFrom(err)
 	}
 
+	h.invalidate(ctx, projectID)
+
 	return api.DeleteRole204Response{}, nil
+}
+
+func (h *Handler) invalidate(ctx context.Context, projectID string) {
+	if h.Cache == nil {
+		return
+	}
+	orgID, _ := management.ScopeFrom(ctx)
+	if orgID == "" {
+		return
+	}
+	h.Cache.InvalidateProjectRoles(ctx, orgID, projectID)
 }
 
 // --- helpers ----------------------------------------------------------------
