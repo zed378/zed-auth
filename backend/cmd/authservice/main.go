@@ -308,6 +308,9 @@ func run() error {
 	}
 
 	tokenHandler := &token.Handler{
+		// P2-04: the role claims. Wired explicitly so a deployment that
+		// forgets it issues role-less tokens loudly rather than silently.
+		Roles:    grant.NewTokenClaims(db),
 		Issuer:   cfg.Issuer,
 		Clients:  clientLookup{store: clients, db: db},
 		Codes:    authorize.NewStore(rdb),

@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lib/pq"
 	"github.com/redis/go-redis/v9"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
@@ -48,6 +49,7 @@ type fixture struct {
 	orgID     string
 	userID    string
 	appID     string
+	projectID string
 	sessionID string
 	secret    client.Secret
 	verifier  string
@@ -130,17 +132,18 @@ func setup(t *testing.T) fixture {
 	}
 
 	f := fixture{
-		db:       db,
-		rdb:      rdb,
-		factory:  factory,
-		codes:    authorize.NewStore(rdb),
-		clients:  clients,
-		orgID:    orgID,
-		userID:   userID,
-		appID:    app.ID,
-		secret:   secret,
-		verifier: "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk",
-		keys:     keys,
+		db:        db,
+		rdb:       rdb,
+		factory:   factory,
+		codes:     authorize.NewStore(rdb),
+		clients:   clients,
+		orgID:     orgID,
+		userID:    userID,
+		appID:     app.ID,
+		projectID: projectID,
+		secret:    secret,
+		verifier:  "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk",
+		keys:      keys,
 
 		sessionID: browser.ID,
 	}
@@ -155,8 +158,32 @@ func setup(t *testing.T) fixture {
 		DB:       db,
 		Audit:    auditor,
 		Log:      discard(),
+
+		// P2-04. A local reader rather than `grant.NewTokenClaims`, because
+		// importing `internal/grant` here would be a cycle: its own tests
+		// import this package to mint tokens. The query is the same one.
+		Roles: rolesFromDB{db: db},
 	}
 	return f
+}
+
+// rolesFromDB is the production reader's query, inlined to avoid an import
+// cycle between this package's tests and `internal/grant`.
+type rolesFromDB struct{ db *postgres.DB }
+
+func (r rolesFromDB) ForToken(ctx context.Context, orgID, userID, projectID string) (RoleClaims, error) {
+	var out RoleClaims
+	err := r.db.WithTenant(ctx, orgID, func(tx *postgres.Tx) error {
+		return tx.QueryRow(ctx, `
+			SELECT
+			  coalesce((SELECT role_keys FROM user_grants
+			             WHERE user_id = $1 AND project_id = $2), '{}'),
+			  coalesce((SELECT array_agg(role ORDER BY role) FROM manager_roles
+			             WHERE user_id = $1), '{}')`,
+			userID, projectID,
+		).Scan(pq.Array(&out.Keys), pq.Array(&out.Manager))
+	})
+	return out, err
 }
 
 // signingKeys creates a real key through P1-03's store, so the token is signed

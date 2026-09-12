@@ -51,7 +51,28 @@ type Handler struct {
 	Observer Observer
 	Log      *slog.Logger
 
+	// Roles supplies the role claims (P2-04). An interface, so this package
+	// does not need to know how grants are stored — the same arrangement
+	// Clients, Codes and Sessions use.
+	//
+	// A nil Roles issues tokens with an EMPTY role claim rather than failing.
+	// That is the safe direction: a consumer reading no roles denies access it
+	// might have granted, which is recoverable, where failing token issuance
+	// would take down every login in the deployment.
+	Roles Roles
+
 	Now func() time.Time
+}
+
+// Roles reads what a token should say about a user (P2-04).
+type Roles interface {
+	ForToken(ctx context.Context, orgID, userID, projectID string) (RoleClaims, error)
+}
+
+// RoleClaims are the two role sets a token carries.
+type RoleClaims struct {
+	Keys    []string
+	Manager []string
 }
 
 func (h *Handler) now() time.Time {
@@ -309,12 +330,45 @@ func (h *Handler) clientCredentials(
 	}, nil
 }
 
+// rolesFor reads the role claims, or reports none.
+//
+// A failure here does NOT fail the token. `docs/PLAN/08` is explicit that
+// claims are a point-in-time snapshot and that a consumer needing certainty
+// asks `/v1/authz/check` — so a token with no roles is a token that grants
+// less, which every consumer already has to handle, whereas refusing to issue
+// one takes down every login in the deployment because one query failed.
+//
+// It is logged at ERROR, because a service quietly issuing role-less tokens is
+// an outage that looks like a permissions bug to everybody downstream.
+func (h *Handler) rolesFor(ctx context.Context, subject Subject, app client.Application) ([]string, []string) {
+	if h.Roles == nil || subject.UserID == "" {
+		return nil, nil
+	}
+
+	claims, err := h.Roles.ForToken(ctx, subject.OrgID, subject.UserID, app.ProjectID)
+	if err != nil {
+		if h.Log != nil {
+			h.Log.Error("a token was issued without role claims",
+				"error", err.Error(), "client_id", app.ID, "project_id", app.ProjectID)
+		}
+		return nil, nil
+	}
+	return claims.Keys, claims.Manager
+}
+
 // --- issuance -------------------------------------------------------------------------
 
 func (h *Handler) issue(
 	ctx context.Context, app client.Application, subject Subject,
 	scope []string, withIDToken bool, now time.Time,
 ) (response, error) {
+	// Read here rather than at each call site, so both grants that produce a
+	// user token — the authorization code and the refresh — carry the same
+	// claims by construction. A refresh token minted before a role was granted
+	// therefore produces a token that HAS it: the claims are a snapshot of
+	// now, not of when the session began.
+	subject.RoleKeys, subject.ManagerRoles = h.rolesFor(ctx, subject, app)
+
 	accessClaims, err := AccessTokenClaims(subject, now)
 	if err != nil {
 		return response{}, err
