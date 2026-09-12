@@ -32,7 +32,7 @@ func quotas(t *testing.T, q Quota) (*Quotas, *redis.Client, *counting) {
 	}
 
 	observer := &counting{}
-	return NewQuotas(rdb, observer, discard()).WithQuota(q), rdb, observer
+	return NewQuotas(rdb, observer, discard()).WithQuota(q, ""), rdb, observer
 }
 
 func quotaNoon() time.Time { return time.Date(2026, 9, 10, 12, 0, 0, 0, time.UTC) }
@@ -252,5 +252,51 @@ func TestARequestWithNoClientIsNotCounted(t *testing.T) {
 	}
 	if len(keys) != 0 {
 		t.Errorf("an unidentified request created counters: %v", keys)
+	}
+}
+
+// Two bounds under different namespaces do not share an allowance (P2-17).
+//
+// This is the property that makes a second bound worth having. `/v1/authz/check`
+// is called on every protected request and gets 6,000 a minute; the Management
+// API gets 600. If both counted under the same Redis key, the looser allowance
+// would be spent by the traffic the tighter one governs — a consumer's
+// authorization checks would exhaust an administrator's quota, and neither
+// bound would be the one anybody wrote down.
+//
+// Against real Redis, because the sharing that matters is between KEYS and a
+// stub counter cannot have the bug.
+func TestTwoNamespacesDoNotShareAnAllowance(t *testing.T) {
+	stack := testsupport.Start(t)
+	rdb := redis.NewClient(&redis.Options{Addr: stack.RedisAddr})
+	t.Cleanup(func() { _ = rdb.Close() })
+	if err := rdb.FlushAll(context.Background()).Err(); err != nil {
+		t.Fatalf("flushing redis: %v", err)
+	}
+
+	ctx := context.Background()
+	now := quotaNoon()
+	const client = "the-same-client"
+
+	base := NewQuotas(rdb, &counting{}, discard())
+	ordinary := base.WithQuota(Quota{Limit: 2, Window: time.Minute}, "")
+	hot := base.WithQuota(Quota{Limit: 2, Window: time.Minute}, "authz")
+
+	// Spend the ordinary allowance completely.
+	for i := 0; i < 2; i++ {
+		if v := ordinary.Consume(ctx, client, now); !v.Allowed {
+			t.Fatalf("the ordinary bound refused request %d of its own allowance of 2", i+1)
+		}
+	}
+	if v := ordinary.Consume(ctx, client, now); v.Allowed {
+		t.Fatal("the ordinary bound allowed a third request against an allowance of 2")
+	}
+
+	// The other bound, for the same client, is untouched.
+	for i := 0; i < 2; i++ {
+		if v := hot.Consume(ctx, client, now); !v.Allowed {
+			t.Errorf("the namespaced bound refused request %d — it is sharing a counter "+
+				"with the ordinary one, so the two allowances are really one", i+1)
+		}
 	}
 }

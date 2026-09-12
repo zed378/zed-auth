@@ -86,7 +86,7 @@ func setupAPI(t *testing.T) *apiFixture {
 		},
 		RateLimit: &management.RateLimit{
 			Counter: ratelimit.NewQuotas(rdb, nil, discard()).
-				WithQuota(ratelimit.Quota{Limit: 300, Window: time.Minute}),
+				WithQuota(ratelimit.Quota{Limit: 300, Window: time.Minute}, ""),
 		},
 		Idempotency: &management.Idempotency{Claims: management.NewDBClaims(base.db), Log: discard()},
 		Audit:       &management.AuditGuard{Log: discard()},

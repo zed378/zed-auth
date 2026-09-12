@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/go-chi/chi/v5"
+
 	"github.com/zed378/zed-auth/backend/internal/ratelimit"
 )
 
@@ -34,7 +36,28 @@ type Counter interface {
 type RateLimit struct {
 	Counter Counter
 
+	// HotCounter bounds the routes in HotRoutes, which are called at a rate
+	// the Management API's own bound was never sized for (P2-17).
+	//
+	// Optional: nil means every route uses Counter, which is what every
+	// deployment did before Phase 2 had an endpoint on a consumer's hot path.
+	HotCounter Counter
+
 	Now func() time.Time
+}
+
+// HotRoutes are the /v1 routes a consumer calls per-request rather than
+// per-administrator-action.
+//
+// A table rather than a flag on each route, for `Policy`'s reason: the whole
+// set is readable in one screen, and "which endpoints get the larger
+// allowance" is a question somebody will ask during a review.
+//
+// One entry, and it should stay short. A route in here is a route whose bound
+// is loose enough to be worth justifying individually — see
+// `ratelimit.PerClientAuthz` for this one's justification.
+var HotRoutes = map[string]bool{
+	"POST /v1/authz/check": true,
 }
 
 func (rl *RateLimit) now() time.Time {
@@ -65,7 +88,15 @@ func (rl *RateLimit) Wrap(next http.Handler) http.Handler {
 			return
 		}
 
-		verdict := rl.Counter.Consume(r.Context(), caller.ClientID, rl.now())
+		counter := rl.Counter
+		if rl.HotCounter != nil {
+			if rc := chi.RouteContext(r.Context()); rc != nil &&
+				HotRoutes[PolicyKey(r.Method, rc.RoutePattern())] {
+				counter = rl.HotCounter
+			}
+		}
+
+		verdict := counter.Consume(r.Context(), caller.ClientID, rl.now())
 
 		// On EVERY response, not only on a refusal. A client that learns its
 		// remaining allowance only once it has run out cannot pace itself.
