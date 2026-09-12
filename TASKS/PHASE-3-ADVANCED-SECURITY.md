@@ -75,7 +75,7 @@
 
 | | |
 |---|---|
-| **Status** | TODO |
+| **Status** | DONE — 2026-09-12, [record](../MEMORY/records/2026-09-12-P3-02-totp-enrollment.md), [spec](../MEMORY/specs/P3-02-totp-enrollment.md). **Steps 4 and 8 belong to the enrolment endpoint, which lands with `P3-12`** — see below |
 | **Depends on** | P3-01 |
 | **Plan refs** | `docs/PLAN/02-REQUIREMENTS.md` FR-2, `docs/PLAN/05-API-CONTRACT.md` § MFA, `docs/UI-UX/08-PAGE-SPECIFICATIONS.md` (MFA tab) |
 | **Spec required** | Yes — credential handling |
@@ -94,11 +94,15 @@
 8. Audit enrollment start and completion.
 
 **Definition of Done**
-- [ ] The secret is encrypted at rest and never returned after enrollment.
-- [ ] The factor activates only after a successful verification.
-- [ ] Enrollment requires recent authentication.
-- [ ] A used code cannot be replayed within its window, verified by test.
-- [ ] Clock skew tolerance is exactly one step each way.
+- [x] The secret is encrypted at rest and never returned after enrollment — AES-256-GCM with a fresh nonce per seal, and an integration test reads the raw column to confirm it contains neither the plaintext nor its base32 form. `Factor` has no field for a secret, so no read path can return one by mistake.
+- [x] The factor activates only after a successful verification — `pending` until a code proves it, and a pending factor is invisible to the challenge, to `mfa_required`, and to `users.mfa_enabled`.
+- [~] Enrollment requires recent authentication — **the requirement is specified and unenforced, because there is no enrolment endpoint to enforce it at.** The mechanism is not reachable from outside. Carried to `P3-12`, which adds the self-service screen and its endpoint.
+- [x] A used code cannot be replayed within its window, verified by test — the **counter** is recorded, never the code, and the bound is a `WHERE` clause so two concurrent presentations cannot both win. Strictly-greater, so an earlier step's code is refused too.
+- [x] Clock skew tolerance is exactly one step each way — asserted from both directions: ±1 accepted, ±2 refused.
+
+**Also** — corrected a silent deviation from `docs/PLAN/04`: `P3-01` created `user_factors.secret`, the plan specifies `user_mfa_factors.secret_encrypted` with a `status` enum. Renamed before anything could depend on the wrong names, and `users.mfa_enabled` — which the plan calls a denormalized flag with this table as its source of truth — is now maintained by a trigger rather than by whichever code path remembers.
+
+**Step 8's audit call sites** are likewise deferred: the event names and payload rules are in the spec (§14), and nothing emits them because nothing calls enrolment yet.
 
 ---
 
@@ -395,6 +399,17 @@
 ---
 
 ## P3-12 — Console: Personal Account Settings
+
+> **Carries two requirements from `P3-02`**, whose mechanism exists and whose
+> endpoint does not:
+>
+> - **Enrolment requires recent authentication** (`P3-02` step 4). A hijacked
+>   session must not be able to silently add a factor and make the takeover
+>   permanent and MFA-protected. The current password, or a fresh verification
+>   of an existing factor, before enrolment begins.
+> - **Enrolment start and completion are audited** (`P3-02` step 8). The event
+>   names and payload rules are in `MEMORY/specs/P3-02-totp-enrollment.md` §14:
+>   the factor **type**, never the material.
 
 | | |
 |---|---|
