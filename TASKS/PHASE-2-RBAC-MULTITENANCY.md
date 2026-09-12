@@ -140,7 +140,7 @@
 
 | | |
 |---|---|
-| **Status** | TODO |
+| **Status** | DONE — [record](../MEMORY/records/2026-09-12-P2-04-role-claims.md), [ADR-021](../MEMORY/DECISIONS.md). Not yet on staging |
 | **Depends on** | P2-03, P1-07 |
 | **Plan refs** | `docs/PLAN/08-AUTHORIZATION.md` Part A § How Role Claims Get Into the Token, Part C § Token Claim Format |
 | **Spec required** | Yes — token format, hard to change later |
@@ -162,11 +162,11 @@
 6. Document in the public docs that claims are a **point-in-time snapshot**: a revocation after issuance is not reflected until expiry, which is exactly why `docs/PLAN/08` says to prefer `/v1/authz/check` for sensitive actions.
 
 **Definition of Done**
-- [ ] The claim format matches `docs/PLAN/08`'s documented JSON exactly, asserted by test.
-- [ ] `org_id` is present inside every role value.
-- [ ] A role assigned in Project A appears only in the Project A claim, scoped correctly — a literal `docs/PLAN/17` Phase 2 criterion.
-- [ ] Token size stays bounded for a heavily-granted user, with the strategy recorded as an ADR.
-- [ ] The snapshot semantics are documented publicly.
+- [x] The claim format matches `docs/PLAN/08`'s documented JSON exactly, asserted against the **literal JSON** rather than a Go structure that marshals into something similar — a struct test passes when a field is renamed in both places at once.
+- [x] `org_id` is present inside every role value, with a test naming it specifically because it is genuinely redundant today and is therefore the field somebody will remove.
+- [x] A role assigned in Project A appears only in the Project A claim. The assertion is the **absence** from project B's token; checking only that the granted role appears would pass against a service that puts every role in every token.
+- [x] Token size stays bounded for a heavily-granted user — 64 keys, truncating rather than dropping, [ADR-021](../MEMORY/DECISIONS.md), recorded before it became an incident as step 5 asked.
+- [x] The snapshot semantics are documented publicly, on the authorization concepts page, with the reason rather than the rule.
 
 **Abuse cases to test**
 - Token tampering to add a role, defeated by signature verification (`docs/SECURITY/02` §1).
