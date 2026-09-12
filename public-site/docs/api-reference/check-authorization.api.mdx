@@ -1,0 +1,107 @@
+---
+id: check-authorization
+title: "Ask whether a subject may perform an action"
+description: "The real-time authorization decision, read from **live grant data**"
+sidebar_label: "Ask whether a subject may perform an action"
+hide_title: true
+hide_table_of_contents: true
+api: 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
+sidebar_class_name: "post api-method"
+info_path: docs/api-reference/zed-auth-management-api
+custom_edit_url: null
+---
+
+import MethodEndpoint from "@theme/ApiExplorer/MethodEndpoint";
+import ParamsDetails from "@theme/ParamsDetails";
+import RequestSchema from "@theme/RequestSchema";
+import StatusCodes from "@theme/StatusCodes";
+import OperationTabs from "@theme/OperationTabs";
+import TabItem from "@theme/TabItem";
+import Heading from "@theme/Heading";
+import Translate from "@docusaurus/Translate";
+
+<Heading
+  as={"h1"}
+  className={"openapi__heading"}
+  children={"Ask whether a subject may perform an action"}
+>
+</Heading>
+
+<MethodEndpoint
+  method={"post"}
+  path={"/v1/authz/check"}
+  context={"endpoint"}
+>
+  
+</MethodEndpoint>
+
+
+
+The real-time authorization decision, read from **live grant data**
+rather than from the caller's token claims.
+
+An access token carries a user's roles as a snapshot taken when it was
+issued (`docs/PLAN/08` Part A). That is right for most decisions and
+costs no round trip. It is wrong for anything destructive, anything
+involving money, and anything an auditor will ask about — because a
+role revoked a minute ago is still in a token minted before that.
+**This endpoint reflects a revocation on the next call.**
+
+### What it decides
+
+The permission asked about is `resource.type` + `:` + `action` — so
+`approve` on a `purchase_request` asks whether the subject holds a role
+carrying `purchase_request:approve`. The decision is scoped to the
+**caller's own organization and project**, both taken from the access
+token; neither can be named in the request.
+
+`resource.id`, `resource.attributes` and `context` are accepted and are
+not used by the role-based decision. They are what attribute-based
+policies will read, and accepting them now means a consumer sending
+them today does not change its code later.
+
+### Treat anything that is not a 200 as denied
+
+If the decision cannot be completed — a dependency is unavailable — the
+response is `503`, not `200` with `allowed: false`. The difference
+matters: `allowed: false` says "we checked and the answer is no", which
+a caller may cache and which makes an outage look like a policy change.
+A `503` says "no decision was reached".
+
+Nothing is ever allowed by a failure.
+
+### Not audited, deliberately
+
+This is a read, and it happens on every protected request in every
+consumer application. An audit row per decision would multiply the
+audit log by the traffic of the entire fleet and turn the record an
+investigator reads into a firehose nobody can query. Decisions are
+counted as metrics instead.
+
+
+<Heading
+  id={"request"}
+  as={"h2"}
+  className={"openapi-tabs__heading"}
+>
+  <Translate id="theme.openapi.request.title">Request</Translate>
+</Heading>
+
+<ParamsDetails>
+  
+</ParamsDetails>
+
+<RequestSchema
+  {...require("./check-authorization.RequestSchema.json")}
+>
+  
+</RequestSchema>
+
+<StatusCodes
+  {...require("./check-authorization.StatusCodes.json")}
+>
+  
+</StatusCodes>
+
+
+      

@@ -181,6 +181,7 @@ func setup(t *testing.T) *fixture {
 		ApplicationAPI: stubApplications{},
 		RoleAPI:        stubRoles{},
 		GrantAPI:       stubGrants{},
+		AuthzAPI:       stubAuthz{},
 		UserAPI:        users,
 		AuditAPI:       &auditlog.Handler{DB: db, Log: discard()},
 	})
@@ -1344,5 +1345,13 @@ func (stubGrants) ReplaceUserGrant(context.Context, api.ReplaceUserGrantRequestO
 }
 
 func (stubGrants) RevokeUserGrant(context.Context, api.RevokeUserGrantRequestObject) (api.RevokeUserGrantResponseObject, error) {
+	return nil, errNotWired
+}
+
+// stubAuthz is the authorization check, which this suite does not exercise.
+// Present because httpserver.New refuses a /v1 chain with any half missing.
+type stubAuthz struct{}
+
+func (stubAuthz) CheckAuthorization(context.Context, api.CheckAuthorizationRequestObject) (api.CheckAuthorizationResponseObject, error) {
 	return nil, errNotWired
 }
