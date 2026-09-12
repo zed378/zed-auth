@@ -377,6 +377,52 @@ The cost of the omission is smaller than it looks today, because both claims are
 
 ---
 
+### PG-31 — Nothing anywhere creates an API for assigning manager roles
+
+**Affects**: `P2-05` steps 6 and 7, `P2-13`'s organization switcher, the console's ability to show who administers anything, `PG-26`'s bootstrap problem, and every deployment after the first.
+
+`manager_roles` is the table that decides who may administer this service — `INSTANCE_OWNER`, `ORG_OWNER`, `ORG_ADMIN`, `PROJECT_OWNER`, `PROJECT_GRANT_OWNER`. It has existed since `P0-07`, it is read on every `/v1` request, and **no endpoint writes it**. `openapi/openapi.yaml` does not contain the word "manager".
+
+Searched across all seven phase files: no task creates one. `P2-05` is the closest, and it is about *enforcing* the hierarchy rather than administering it. So two of its own steps have nothing to attach to:
+
+- Step 6, "require confirmation and audit for granting `INSTANCE_OWNER` or `ORG_OWNER`" — there is no grant operation to confirm or audit.
+- Step 7, "guard against removing the last `ORG_OWNER`" — there is no removal to guard.
+
+Every manager role in every environment so far was created with a direct `INSERT`. `P1-19`'s record says so plainly, the staging bootstrap script does it, and `PG-26` describes the same wall from the other side.
+
+**Why it is more than an inconvenience.** An administrator cannot be given or taken away through any published surface. A departing employee's `ORG_OWNER` is removed by somebody with database access, if they remember — and `docs/SECURITY/02` §3's privilege-escalation scenarios are all about a table nobody can inspect through the API. The console cannot answer "who can administer this organization", which is the first question in an incident.
+
+**Recommendation**: `/v1/organizations/{org_id}/managers` with list, grant and revoke, `ORG_OWNER` to write and `ORG_ADMIN` to read, plus the two guards `P2-05` already specifies — confirmation and audit for the powerful roles, and a refusal to remove the last `ORG_OWNER`. The authorization model to enforce it exists as of `P2-05`; what is missing is only the endpoint.
+
+This is a **roadmap gap rather than a plan contradiction**: `docs/PLAN/08` describes the roles correctly and `docs/PLAN/05` never promised the endpoint. Adding the task goes through the deliberate process.
+
+---
+
+### PG-32 — The hierarchy diagram does not say whether an ORG_ADMIN administers a project
+
+**Affects**: `P2-05`'s inheritance table, `P2-02`'s authorization, and every endpoint under a project.
+
+`docs/PLAN/08` Part C draws the hierarchy as a tree:
+
+```
+INSTANCE_OWNER --> ORG_OWNER
+ORG_OWNER      --> ORG_ADMIN
+ORG_OWNER      --> PROJECT_OWNER
+PROJECT_OWNER  --> PROJECT_GRANT_OWNER
+```
+
+with the rule "permissions flow downward only". Read strictly, `ORG_ADMIN` and `PROJECT_OWNER` are **siblings**: neither inherits the other, so an endpoint requiring `PROJECT_OWNER` refuses an `ORG_ADMIN`.
+
+That reading contradicts two things. The diagram's own label for `ORG_ADMIN` is "org access, except deleting org/changing owner" — and a project is inside the organization. And Phase 1 already ships `ORG_ADMIN` creating, editing and listing projects and applications (`P1-17`, `P1-18`), which is project administration by any reading; under the strict interpretation those endpoints have been wrong since they were written.
+
+It also produces an incoherent system: an `ORG_ADMIN` could create a project but not manage the roles inside it.
+
+**What `P2-05` implemented**: `ORG_ADMIN` satisfies `PROJECT_OWNER` **within its own organization**, and never outside it. Downward-only still holds in the direction that matters — a `PROJECT_OWNER` never gains `ORG_ADMIN`, and cannot reach anything outside its one project. The reasoning is in `internal/management/roles.go` beside the table, not only here.
+
+**What the plan should say**: that the tree shows *delegation paths* rather than an exclusive partition, or that an organization-scoped role covers every project in its organization. One sentence either way; picking it is a plan change and goes through the deliberate process (`AGENTS.md` rule 9).
+
+---
+
 ### PG-30 — The two "built-in roles" the plan names are not roles of that kind
 
 **Affects**: `P2-01` (the `roles` entity and its `is_builtin` column), `P2-02`, `P2-11`, and anyone reading `docs/PLAN/08` Part A to learn the role model.

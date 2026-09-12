@@ -363,7 +363,8 @@ func requireInstanceOwner(ctx context.Context) error {
 	}
 
 	decision := management.Authorize(caller,
-		management.Requirement{Role: management.InstanceOwner, Scope: management.ScopeInstance}, "")
+		management.Requirement{Role: management.InstanceOwner, Scope: management.ScopeInstance},
+		management.Target{})
 	if decision.Allowed {
 		return nil
 	}

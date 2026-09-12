@@ -17,7 +17,7 @@ Sizes: `S` under half a day · `M` one to two days · `L` several days · `XL` m
 |---|---|---|---|---|
 | [Phase 0 — Foundation](./PHASE-0-FOUNDATION.md) | 21 | 20 | **ACTIVE** — `P0-20` only | — |
 | [Phase 1 — MVP: Core Auth + SSO](./PHASE-1-MVP-CORE-AUTH-SSO.md) | 29 | 29 | **COMPLETE** — [summary](../MEMORY/records/2026-09-12-P1-phase-1-summary.md), tagged `v0.1.0-phase1` | Phase 0 exit checklist |
-| [Phase 2 — RBAC & Multi-Tenancy](./PHASE-2-RBAC-MULTITENANCY.md) | 17 | 1 | **ACTIVE** | Phase 1 exit + `P1-28` — **met** 2026-09-12 |
+| [Phase 2 — RBAC & Multi-Tenancy](./PHASE-2-RBAC-MULTITENANCY.md) | 17 | 2 | **ACTIVE** | Phase 1 exit + `P1-28` — **met** 2026-09-12 |
 | [Phase 3 — Advanced Security](./PHASE-3-ADVANCED-SECURITY.md) | 15 | 0 | Not started | Phase 2 exit + threat model review |
 | [Phase 4 — Enterprise Interop](./PHASE-4-ENTERPRISE-INTEROP.md) | 16 | 0 | Not started | Phase 3 exit + threat model review |
 | [Phase 4b — ABAC](./PHASE-4B-ABAC.md) | 11 | 0 | **CONDITIONAL** | A concrete requirement RBAC cannot express (`P4B-00`) |
@@ -106,7 +106,7 @@ Sizes: `S` under half a day · `M` one to two days · `L` several days · `XL` m
 | P2-02 | Management API — roles | M | TODO | P2-01 |
 | P2-03 | User grants | L | TODO | P2-01, P1-19 |
 | P2-04 | Role claims in the access token | L | TODO | P2-03, P1-07 |
-| P2-05 | Manager role enforcement, full hierarchy | L | TODO | P1-15 |
+| P2-05 | Manager role enforcement, full hierarchy | L | **DONE** (two steps blocked) — taken **before** `P2-02`, which requires a `PROJECT_OWNER` that satisfied nothing. Adds the project scope, with an empty project id refused rather than treated as a wildcard. The hierarchy diagram needed a reading (`PG-32`): `ORG_ADMIN` and `PROJECT_OWNER` are drawn as siblings, which would make every project endpoint from `P1-17` wrong. An architecture test now reads the source for permission decisions made outside the one resolution function. Steps 6–7 blocked by `PG-31`: **nothing anywhere writes `manager_roles`** | P1-15 |
 | P2-06 | `POST /v1/authz/check` — RBAC | L | TODO | P2-03 |
 | P2-07 | Authorization decision caching | M | TODO | P2-06 |
 | P2-08 | Multi-organization activation | L | TODO | P0-08, P1-16 |
