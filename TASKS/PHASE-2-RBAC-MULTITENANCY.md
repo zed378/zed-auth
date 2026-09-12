@@ -471,7 +471,7 @@
 
 | | |
 |---|---|
-| **Status** | TODO |
+| **Status** | DONE — 2026-09-12, [record](../MEMORY/records/2026-09-12-P2-14-console-policies.md). Not yet on staging. **Fixed a settings-merge bug** the screen exposed: the API promised a key-by-key merge and delivered a shallow one |
 | **Depends on** | P2-10 |
 | **Plan refs** | `docs/UI-UX/08-PAGE-SPECIFICATIONS.md` (Policies — Access tab), `docs/UI-UX/15-FORM-UX.md`, `docs/PLAN/08-AUTHORIZATION.md` Part B |
 | **Spec required** | No — implementation chain mandatory |
@@ -488,11 +488,13 @@
 6. Show the current effective values alongside the editable fields, so an admin knows what they are changing from.
 
 **Definition of Done**
-- [ ] Settings map exactly to `docs/PLAN/08` Part B's documented JSON shape.
-- [ ] Nothing on the screen claims enforcement that does not exist in the current phase.
-- [ ] Consequential changes warn before applying.
-- [ ] Validation errors render inline per `docs/UI-UX/15`.
-- [ ] Accessibility and responsive requirements are met.
+- [x] Settings map exactly to `docs/PLAN/08` Part B's documented JSON shape — the form sends the whole `OrganizationSettings` document, typed from the generated schema, with `allowed_login_methods` typed as the spec's enum rather than `string[]` so the console cannot offer a method the API rejects.
+- [x] Nothing on the screen claims enforcement that does not exist — `mfa_required` carries "Not enforced yet" and the sentence "setting this changes nothing today"; reverting either turns a test red.
+- [x] Consequential changes warn before applying — and **only** consequential ones, so the confirmation stays meaningful. A shorter session, a removed sign-in method and a newly-introduced password expiry each name who they affect. A password expiry of `0` is treated as the loosest value rather than the smallest number.
+- [x] Validation errors render inline per `docs/UI-UX/15` — `aria-invalid` plus `aria-describedby`, replacing the helper text rather than stacking under it. Bounds come from the generated `settings.gen.ts`, so the form and the server share one definition.
+- [x] Accessibility and responsive requirements are met — every section a real `fieldset`/`legend`, axe clean, `max-w-prose` on the explanatory copy.
+
+**Also fixed** — `jsonb || jsonb` is a shallow merge, so a settings update naming one password rule discarded its two siblings, silently. `20260912000026_settings_deep_merge` replaces it with a general recursive merge; 3 integration tests, the first written to fail against the old behaviour.
 
 ---
 

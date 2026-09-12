@@ -873,6 +873,15 @@ type Organization struct {
 	// key kept silently becomes a policy that is not in force and looks like
 	// it is, and nobody notices until the audit that was supposed to find it
 	// does not.
+	//
+	// Every `default` here is the value the service applies when an
+	// organization's settings say nothing — the same value the
+	// `organizations.settings` column default carries and the same one
+	// `authn.DefaultPolicy` and `authn.DefaultLoginPolicy` hold. They are
+	// documented here because the console must show an administrator what
+	// they are changing *from*, and a console restating them would be a third
+	// copy free to drift. `TestSpecDefaultsMatchTheService` fails if the two
+	// Go values and these stop agreeing.
 	Settings OrganizationSettings `json:"settings"`
 
 	// Status A suspended organization's users cannot log in. Changing this
@@ -899,6 +908,15 @@ type OrganizationCreate struct {
 	// key kept silently becomes a policy that is not in force and looks like
 	// it is, and nobody notices until the audit that was supposed to find it
 	// does not.
+	//
+	// Every `default` here is the value the service applies when an
+	// organization's settings say nothing — the same value the
+	// `organizations.settings` column default carries and the same one
+	// `authn.DefaultPolicy` and `authn.DefaultLoginPolicy` hold. They are
+	// documented here because the console must show an administrator what
+	// they are changing *from*, and a console restating them would be a third
+	// copy free to drift. `TestSpecDefaultsMatchTheService` fails if the two
+	// Go values and these stop agreeing.
 	Settings *OrganizationSettings `json:"settings,omitempty"`
 }
 
@@ -921,14 +939,28 @@ type OrganizationList struct {
 // key kept silently becomes a policy that is not in force and looks like
 // it is, and nobody notices until the audit that was supposed to find it
 // does not.
+//
+// Every `default` here is the value the service applies when an
+// organization's settings say nothing — the same value the
+// `organizations.settings` column default carries and the same one
+// `authn.DefaultPolicy` and `authn.DefaultLoginPolicy` hold. They are
+// documented here because the console must show an administrator what
+// they are changing *from*, and a console restating them would be a third
+// copy free to drift. `TestSpecDefaultsMatchTheService` fails if the two
+// Go values and these stop agreeing.
 type OrganizationSettings struct {
 	// AllowedLoginMethods Only `password` is available in this phase. `passkey` and `social`
 	// are planned and are rejected until they work — an API that accepts
 	// a method nothing implements would silently disable every method
 	// that does.
 	AllowedLoginMethods *[]OrganizationSettingsAllowedLoginMethods `json:"allowed_login_methods,omitempty"`
-	MfaRequired         *bool                                      `json:"mfa_required,omitempty"`
-	PasswordPolicy      *struct {
+
+	// MfaRequired Stored and validated; **not enforced**. Multi-factor enrolment
+	// arrives in Phase 3, and until it does this records an intention
+	// rather than a control. No surface may describe it as active
+	// (`docs/UI-UX/21` governance rule).
+	MfaRequired    *bool `json:"mfa_required,omitempty"`
+	PasswordPolicy *struct {
 		// MaxAgeDays `0` means passwords never expire, which is a real choice rather
 		// than an absent value: NIST SP 800-63B argues forced rotation
 		// makes passwords worse.
@@ -959,6 +991,15 @@ type OrganizationUpdate struct {
 	// key kept silently becomes a policy that is not in force and looks like
 	// it is, and nobody notices until the audit that was supposed to find it
 	// does not.
+	//
+	// Every `default` here is the value the service applies when an
+	// organization's settings say nothing — the same value the
+	// `organizations.settings` column default carries and the same one
+	// `authn.DefaultPolicy` and `authn.DefaultLoginPolicy` hold. They are
+	// documented here because the console must show an administrator what
+	// they are changing *from*, and a console restating them would be a third
+	// copy free to drift. `TestSpecDefaultsMatchTheService` fails if the two
+	// Go values and these stop agreeing.
 	Settings *OrganizationSettings `json:"settings,omitempty"`
 
 	// Status Requires `INSTANCE_OWNER`.
