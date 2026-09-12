@@ -407,9 +407,19 @@ func run() error {
 	// audit writer, which is right for the token endpoint — there is no HTTP
 	// guard there — and wrong here.
 	applications := application.New(db, auditor, log)
+	// One cache, three users: the decision reads through it, and the two
+	// handlers that change what it holds invalidate it (P2-07).
+	//
+	// Built here rather than inside each so there is exactly one TTL and one
+	// Redis client — two caches with different TTLs over the same data is a
+	// revocation window nobody can state.
+	authzCache := authz.NewCache(rdb, authzCacheObserver{metrics}, log)
+
 	roles := role.New(db, auditor, log)
+	roles.Cache = authzCache
 	grants := grant.New(db, auditor, log)
-	authzChecks := &authz.Handler{DB: db, Log: log, Observer: authzObserver{metrics}}
+	grants.Cache = authzCache
+	authzChecks := &authz.Handler{DB: db, Log: log, Observer: authzObserver{metrics}, Cache: authzCache}
 
 	// Outbound email (ADR-018). A nil sender is a valid deployment: invitations
 	// still create their token and the response says the message was not sent.
@@ -1045,6 +1055,41 @@ func (o authzObserver) AuthorizationFailed(took time.Duration) {
 	// to read.
 	o.m.AuthzDecisions.WithLabelValues("error", "rbac").Inc()
 	o.m.AuthzCheckDuration.WithLabelValues("rbac").Observe(took.Seconds())
+}
+
+// authzCacheObserver feeds P2-07's cache behaviour to the metrics registry.
+//
+// The entry AGE is the one worth having: a TTL is an upper bound anybody can
+// read off a constant, while this says what the fleet actually served.
+type authzCacheObserver struct{ m *observability.Metrics }
+
+func (o authzCacheObserver) CacheLookup(kind string, hit bool) {
+	if o.m == nil {
+		return
+	}
+	outcome := "miss"
+	if hit {
+		outcome = "hit"
+	}
+	o.m.AuthzCacheLookups.WithLabelValues(kind, outcome).Inc()
+}
+
+func (o authzCacheObserver) CacheEntryAge(kind string, age time.Duration) {
+	if o.m != nil {
+		o.m.AuthzCacheEntryAge.WithLabelValues(kind).Observe(age.Seconds())
+	}
+}
+
+func (o authzCacheObserver) CacheUnavailable() {
+	if o.m != nil {
+		o.m.AuthzCacheLookups.WithLabelValues("any", "unavailable").Inc()
+	}
+}
+
+func (o authzCacheObserver) InvalidationFailed(kind string) {
+	if o.m != nil {
+		o.m.AuthzCacheInvalidationFailures.WithLabelValues(kind).Inc()
+	}
 }
 
 type rateLimitObserver struct{ m *observability.Metrics }
