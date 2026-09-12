@@ -377,6 +377,24 @@ The cost of the omission is smaller than it looks today, because both claims are
 
 ---
 
+### PG-33 — Part B lists four tenant-resolution options and the service uses a fifth
+
+**Affects**: `docs/PLAN/08-AUTHORIZATION.md` Part B § Tenant Resolution, and anyone reading it to learn how a request finds its organization.
+
+Part B says:
+
+> Options (combinable): by domain (`acme.auth.company.com`), by path, by email domain at login, or a single default organization for purely internal deployments. MVP: single default organization, schema kept multi-tenant-ready.
+
+The service does none of those. **The organization is the one that owns the OIDC client the request is authenticating to** — determined before a password is typed, from a value the caller must already supply for the protocol to work.
+
+That is not a deviation anybody chose: it fell out of `P1-05` giving applications an `org_id` and `P1-06` resolving the client before anything else. It is also better than the four for a specific reason — there is nothing for a caller to supply and therefore nothing to forge, where a subdomain is a `Host` header and a path segment is a path.
+
+It happens to subsume the MVP mode Part B wanted: with one organization owning every client, every request resolves to it with no special case.
+
+Recorded and reasoned in [ADR-023](../MEMORY/DECISIONS.md). **Part B should name it**, as the default with the other four available as additions for a deployment that needs a tenant chosen before a client is named. One paragraph; a plan change, so it goes through the deliberate process (`AGENTS.md` rule 9) rather than through the task that noticed.
+
+---
+
 ### PG-31 — Nothing anywhere creates an API for assigning manager roles
 
 **Affects**: `P2-05` steps 6 and 7, `P2-13`'s organization switcher, the console's ability to show who administers anything, `PG-26`'s bootstrap problem, and every deployment after the first.
