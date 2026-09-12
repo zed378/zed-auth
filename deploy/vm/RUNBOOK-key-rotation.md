@@ -91,7 +91,7 @@ If `list` shows anything other than exactly one `current`, **stop** and work out
 
 ```bash
 kc generate
-sudo ~/auth/deploy/vm/secrets.sh fix     # ownership: the service reads it, you do not
+sudo AUTH_SECRETS_DIR="$AUTH_SECRETS_DIR" ~/auth/deploy/vm/secrets.sh fix  # ownership: the service reads it, you do not
 ```
 
 The new key is now in `next`: published in JWKS, not signing.
@@ -200,7 +200,7 @@ docker logs zedauth-authservice-1 2>&1 | tail -20
 | Message | Cause | Fix |
 |---|---|---|
 | `no current signing key` | The rotation did not commit | `keyctl list`, rotate again |
-| `resolving private key for ...` | The key file is missing or unreadable | `sudo secrets.sh fix` — usually ownership |
+| `resolving private key for ...` | The key file is missing or unreadable | `sudo AUTH_SECRETS_DIR=… secrets.sh fix` — usually ownership. If the file is genuinely **gone**, no repair helps: the private half exists only in that file, and `signing_keys.private_key_ref` is a reference to it. Generate and rotate, then retire the orphaned kid (`PG-29`) |
 | `resolving private key ... no such file` | `private_key_ref` records a path the service cannot see | See **Fixing a wrong key reference** |
 | `signing key is too short` | An RSA key below 2048 bits | Generate a new one; do not lower the bound |
 | `recorded as RS256 but is an ES256 key` | Row edited by hand | Correct the `algorithm` column |

@@ -29,6 +29,19 @@ readonly SERVICE_GID=65532
 
 SECRETS_DIR="${AUTH_SECRETS_DIR:-/etc/zed-auth/secrets}"
 
+# Whether the caller chose the path, or it defaulted.
+#
+# `sudo` strips the environment. So the runbook's `sudo secrets.sh fix`, on a
+# host whose secrets live anywhere but the default, silently operates on the
+# default — creating a directory nothing reads and, for `metrics-token`,
+# writing a real credential into it.
+#
+# That is not hypothetical: it happened on 2026-09-11 while rebuilding this
+# VM's secrets directory. The command reported success, the service kept
+# failing for the original reason, and a live token was left at a path no
+# inventory knows about.
+SECRETS_DIR_WAS_CHOSEN=${AUTH_SECRETS_DIR:+yes}
+
 usage() {
   cat >&2 <<USAGE
 usage: $(basename "$0") <command>
@@ -51,8 +64,31 @@ require_root() {
   fi
 }
 
+# refuse_to_guess stops before creating a secrets directory somewhere nobody
+# asked for. Repairing an existing directory is safe whatever the path; CREATING
+# one is the operation that silently succeeds in the wrong place.
+refuse_to_guess() {
+  if [[ -n "$SECRETS_DIR_WAS_CHOSEN" || -d "$SECRETS_DIR" ]]; then
+    return
+  fi
+  cat >&2 <<GUESS
+$(basename "$0"): refusing to create ${SECRETS_DIR}
+
+AUTH_SECRETS_DIR is not set and ${SECRETS_DIR} does not exist, so this would
+create a secrets directory at a path nothing was asked to use — and \`sudo\`
+strips the environment, which is the usual reason it is unset here.
+
+Pass it explicitly:
+
+  sudo AUTH_SECRETS_DIR=/home/infra/auth-state/secrets $0 $*
+
+GUESS
+  exit 2
+}
+
 cmd_fix() {
   require_root
+  refuse_to_guess "$@"
 
   mkdir -p "$SECRETS_DIR"
   chown "${SERVICE_UID}:${SERVICE_GID}" "$SECRETS_DIR"
@@ -70,6 +106,7 @@ cmd_fix() {
 
 cmd_metrics_token() {
   require_root
+  refuse_to_guess "$@"
 
   local token_file="${SECRETS_DIR}/metrics-token"
 

@@ -85,7 +85,9 @@ sudo git clone https://github.com/zed378/zed-auth.git /opt/zed-auth
 sudo /opt/zed-auth/deploy/vm/secrets.sh fix
 ```
 
-`secrets.sh fix` creates `/etc/zed-auth/secrets` owned by **uid 65532**, not by you. That ownership is load-bearing, and getting it wrong is not a subtle failure — the service will not boot.
+`secrets.sh fix` creates `/etc/zed-auth/secrets` owned by **uid 65532**, not by you.
+
+**Pass `AUTH_SECRETS_DIR` explicitly whenever the secrets are not at that default** — `sudo` strips the environment, so `sudo secrets.sh fix` on a host that keeps its secrets elsewhere would otherwise operate on the default path: reporting success, repairing nothing, and — for `metrics-token` — writing a live credential to a path no inventory knows about. It did exactly that on the staging VM on 2026-09-11, so the script now refuses to *create* a directory it was not explicitly told to use. That ownership is load-bearing, and getting it wrong is not a subtle failure — the service will not boot.
 
 The runtime image is distroless `:nonroot`, so the process runs as uid 65532. The secrets directory is a bind mount, so the host's ownership is what the container sees. A directory that is mode 700 and owned by the operator cannot even be *traversed* by the service, and the failure reads as `stat /etc/zed-auth/secrets/<file>: permission denied` on a file that plainly exists and plainly has the right mode.
 
@@ -124,7 +126,7 @@ Required whenever `AUTH_ADMIN_ADDR` is not loopback — which includes this comp
 The metrics port is **not published to the host**. The endpoint is reachable inside the compose network, so a Prometheus container joined to that network scrapes `authservice:9090` with nothing further to configure. See `docker-compose.metrics-port.yml` if you need it on the host.
 
 ```bash
-sudo /opt/zed-auth/deploy/vm/secrets.sh metrics-token
+sudo AUTH_SECRETS_DIR="$AUTH_SECRETS_DIR" /opt/zed-auth/deploy/vm/secrets.sh metrics-token
 echo 'AUTH_ADMIN_TOKEN_REF=file:/etc/zed-auth/secrets/metrics-token' \
   | sudo tee -a /etc/zed-auth/env
 ```

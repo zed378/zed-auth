@@ -377,6 +377,32 @@ The cost of the omission is smaller than it looks today, because both claims are
 
 ---
 
+### PG-29 — The backup cannot restore the one secret the recovery procedure depends on
+
+**Affects**: `docs/PLAN/15-DISASTER-RECOVERY.md`, `deploy/vm/backup.sh`, the nightly `zed-auth-backup.timer`, and any recovery of this service anywhere.
+
+`docs/PLAN/15` line 9 states it as a design decision:
+
+> Signing keys backed up separately from the database, with restricted access.
+
+**Nothing does this.** `backup.sh` runs `pg_dump`, restores it into a throwaway database and compares row counts — a genuinely good backup of the *database*. The signing key's private half is not in the database. `signing_keys.private_key_ref` is a **reference**; the key itself is a `0400` file in the secrets directory, which is not backed up by anything.
+
+So the plan's own recovery procedure cannot be followed. Step 3 of `docs/PLAN/15` § Recovery says "verify signing key consistency before resuming traffic", and § Restore Testing asks drills to confirm "that signing keys restored alongside the DB are the matching set" — a check that cannot pass, or fail, or be run, because one side of the pair is never captured.
+
+**Demonstrated, not theorised.** On 2026-09-11 the staging VM's `~/auth-state` was deleted. The database survived untouched and the nightly dump was hours old and perfectly good. The signing key was gone permanently: the only remaining copy was in the running process's memory, which is why the service went on answering `/healthz` and issuing tokens as though nothing had happened. Recovery required `keyctl generate` + `rotate` and retiring two orphaned key rows, and every token and session minted before that became unverifiable. On staging that cost nothing. In production it is every consumer application signed out at once, and an audit trail whose `events` rows reference key ids that no longer exist.
+
+The failure mode is also **quiet in the worst way**: a running instance keeps working, so the loss is invisible until a restart — which may be days later, during an unrelated deploy, with no obvious connection to the deletion.
+
+**Recommendation**, in order of value:
+
+1. **Back up the secrets directory** alongside the database, encrypted, with its own retention — the plan already says "separately, with restricted access", so this is implementation, not a new decision.
+2. **Make the drill real.** A restore drill that checks the restored `signing_keys` rows resolve to key files that exist and match — the check `docs/PLAN/15` already describes. It would have failed every night since the service was deployed.
+3. **Alert on a key that cannot be resolved**, rather than discovering it at the next restart. The service resolves keys at startup; nothing checks between startups.
+
+Until then, `deploy/vm/RUNBOOK-key-rotation.md` says plainly that a missing key file is unrecoverable and points at generate-rotate-retire.
+
+---
+
 ### PG-27 — No SBOM is produced, so a dependency can appear without anyone seeing it
 
 **Affects**: `docs/SECURITY/05`'s supply-chain row, which asks for "automated dependency scanning on every build, **SBOM diff review on every release**". The first half is done; the second does not exist.
