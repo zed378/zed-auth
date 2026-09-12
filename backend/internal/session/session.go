@@ -269,6 +269,25 @@ func (p Policy) Sanitize() (Policy, []Adjustment) {
 	return p, adjustments
 }
 
+// WithLifetimeHours returns the policy with its absolute lifetime replaced by
+// an organization's configured one (P2-10).
+//
+// The idle timeout is deliberately kept. It is a property of how this service
+// treats inactivity rather than something an organization configures — there is
+// no field for it in `settings`, and inventing one here would be a policy
+// nobody asked for and nobody can see.
+//
+// Out-of-range hours are clamped by Sanitize, the same as every other source.
+func (p Policy) WithLifetimeHours(hours int) Policy {
+	if hours <= 0 {
+		return p
+	}
+	out := p
+	out.AbsoluteLifetime = time.Duration(hours) * time.Hour
+	sanitized, _ := out.Sanitize()
+	return sanitized
+}
+
 // PolicyFromHours builds a Policy from organizations.settings'
 // session_lifetime_hours, keeping the default idle timeout.
 func PolicyFromHours(hours int) Policy {

@@ -87,6 +87,13 @@ type Users interface {
 // Policies reads the organization's password policy, for expiry.
 type Policies interface {
 	Policy(ctx context.Context, tx *postgres.Tx, orgID string) (authn.Policy, error)
+
+	// LoginPolicy is the session lifetime and the permitted methods (P2-10).
+	//
+	// Separate from Policy because they govern different things and are read at
+	// different moments — the password policy after verification, this one
+	// before it.
+	LoginPolicy(ctx context.Context, tx *postgres.Tx, orgID string) (authn.LoginPolicy, error)
 }
 
 // Auditor records what happened.
@@ -471,6 +478,15 @@ func (h *Handler) submit(w http.ResponseWriter, r *http.Request) {
 		h.count(OutcomeFailed)
 		h.renderPage(w, r, http.StatusOK, page)
 
+	case resultMethodNotAllowed:
+		// No rate-limit record: nothing about a credential was attempted, and
+		// counting it would let an organization's own policy lock out its
+		// users' addresses.
+		page.Email = email
+		page.Error = MsgMethodNotAllowed
+		h.count(OutcomeFailed)
+		h.renderPage(w, r, http.StatusOK, page)
+
 	case resultError:
 		h.serverError(w, r, "authenticating", outcome.err)
 
@@ -491,6 +507,23 @@ const (
 	resultRejected result = iota
 	resultAuthenticated
 	resultExpired
+
+	// resultMethodNotAllowed is the organization's `allowed_login_methods`
+	// excluding passwords (P2-10).
+	//
+	// Distinct from resultRejected, and deliberately so, even though this file
+	// otherwise works hard to make every refusal identical. The reason those
+	// are identical is that they differ only in facts about the USER — whether
+	// the address exists, whether the password matched — and telling them apart
+	// is an enumeration oracle.
+	//
+	// This is a fact about the ORGANIZATION, which the caller already knows:
+	// they reached this page through a client that belongs to it. Saying
+	// "password sign-in is not available here" reveals nothing they could not
+	// determine by reading the settings they are subject to, and hiding it
+	// behind "incorrect email or password" would send somebody to reset a
+	// password that was never going to work.
+	resultMethodNotAllowed
 	resultError
 )
 
@@ -521,6 +554,23 @@ func (h *Handler) authenticate(
 	agent := r.UserAgent()
 
 	err := h.DB.WithTenant(ctx, pending.App.OrgID, func(tx *postgres.Tx) error {
+		// The organization's login policy, BEFORE any credential work (P2-10).
+		//
+		// First because it is not about the user at all: an organization that
+		// does not permit password sign-in does not permit it for anybody, so
+		// verifying a password to then refuse the method would be work done to
+		// reach a conclusion already available — and it would put a failed
+		// attempt on the address's rate-limit counter for a policy the user
+		// cannot do anything about.
+		loginPolicy, err := h.Policies.LoginPolicy(ctx, tx, pending.App.OrgID)
+		if err != nil {
+			return err
+		}
+		if !loginPolicy.Allows(authn.MethodPassword) {
+			out.result = resultMethodNotAllowed
+			return nil
+		}
+
 		user, verified, err := h.Users.Authenticate(ctx, tx, email, password)
 		if err != nil {
 			// A broken stored hash, or a failed query. The browser still gets
@@ -584,7 +634,16 @@ func (h *Handler) authenticate(
 			AuthMethods: []string{"pwd"},
 			IP:          ip,
 			UserAgent:   r.UserAgent(),
-		}, h.Policy, now)
+			// The organization's own session lifetime (P2-10), not the
+			// handler's single default. `docs/PLAN/17`'s Phase 2 criterion is
+			// specific that settings must be enforced at login rather than
+			// merely stored, and until now every organization got the same
+			// twelve hours whatever its settings said.
+			//
+			// The idle timeout stays the handler's: it is a property of how
+			// this service treats inactivity, not something an organization
+			// configures — `settings` has no field for it.
+		}, h.Policy.WithLifetimeHours(loginPolicy.SessionLifetimeHours), now)
 		if err != nil {
 			return err
 		}

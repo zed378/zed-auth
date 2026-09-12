@@ -102,6 +102,18 @@ const (
 	MsgPasswordExpired = "Your password has expired and must be reset before you can sign in. " +
 		"Please ask your organization's administrator to reset it."
 
+	// MsgMethodNotAllowed is shown when an organization's
+	// `allowed_login_methods` excludes passwords (P2-10).
+	//
+	// It says what is actually wrong, unlike MsgCredentials, and may: this is a
+	// fact about the ORGANIZATION, which the person already knows they belong
+	// to — they arrived through one of its applications. Hiding it behind
+	// "incorrect email or password" would send somebody to reset a password
+	// that was never going to work, which is a worse outcome than the
+	// disclosure it avoids.
+	MsgMethodNotAllowed = "Password sign-in is not available for this organization. " +
+		"Please use the sign-in method your administrator has enabled."
+
 	// MsgSessionProblem covers a missing or mismatched CSRF token. Usually a
 	// tab left open overnight rather than an attack, and worded for the person
 	// who will actually see it.
