@@ -111,10 +111,25 @@ func (f *fakeUsers) RecordRehash(_ context.Context, _ *postgres.Tx, userID, _ st
 	return nil
 }
 
-type fakePolicies struct{ policy authn.Policy }
+type fakePolicies struct {
+	policy authn.Policy
+
+	// login is the organization's login policy (P2-10). The zero value would
+	// permit NOTHING — an empty AllowedMethods allows nothing, deliberately —
+	// so the fake substitutes the default, and a test that wants to exercise a
+	// restriction sets this explicitly.
+	login *authn.LoginPolicy
+}
 
 func (f fakePolicies) Policy(context.Context, *postgres.Tx, string) (authn.Policy, error) {
 	return f.policy, nil
+}
+
+func (f fakePolicies) LoginPolicy(context.Context, *postgres.Tx, string) (authn.LoginPolicy, error) {
+	if f.login != nil {
+		return *f.login, nil
+	}
+	return authn.DefaultLoginPolicy, nil
 }
 
 type fakeBrandings struct{ branding Branding }
