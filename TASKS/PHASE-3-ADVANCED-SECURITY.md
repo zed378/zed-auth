@@ -110,7 +110,7 @@
 
 | | |
 |---|---|
-| **Status** | TODO |
+| **Status** | DONE — 2026-09-12, [record](../MEMORY/records/2026-09-12-P3-03-totp-verification-at-login.md), [spec](../MEMORY/specs/P3-03-totp-verification-at-login.md). **Step 4 is met within the step and not across it — see `PG-38`**; step 6 is carried to `P3-11` |
 | **Depends on** | P3-02 |
 | **Plan refs** | `docs/PLAN/05-API-CONTRACT.md` § MFA, `docs/PLAN/11-TESTING.md` § E2E, `docs/PLAN/17-ACCEPTANCE-CRITERIA.md` § Phase 3 |
 | **Spec required** | Yes — authentication |
@@ -128,12 +128,16 @@
 7. Audit MFA verification success and failure separately from password success and failure.
 
 **Definition of Done**
-- [ ] Correct password with a wrong code is rejected — the literal `docs/PLAN/11` E2E case.
-- [ ] Code attempts are rate-limited per challenge and per user.
-- [ ] Challenges expire.
-- [ ] `auth_methods` and `amr` both reflect the factors used.
-- [ ] Password-versus-code failure is not distinguishable.
-- [ ] Any "remember this device" token is revocable and visible to the user.
+- [x] Correct password with a wrong code is rejected — asserted against the real chain, on what the browser is handed rather than on which branch ran: no session cookie, no authorization code. A positive control sits beside it, because a service that refuses every code would pass the negative alone.
+- [x] Code attempts are rate-limited per challenge and per user — and the second is the one that matters. Five per challenge bounds nothing when an attacker holding the password can restart for free, so the bound is on the user, across challenges, at ten per fifteen minutes. It **fails closed**, which costs no availability because the challenge lives in the same Redis.
+- [x] Challenges expire — `P3-01`'s five-minute TTL, and a wrong answer does not extend it (`Replace` with `KEEPTTL`, asserted by reading the TTL before and after).
+- [x] `auth_methods` and `amr` both reflect the factors used — `pwd`, `otp`, and `mfa` only because two categories were used. Read back from the **column**, not from the handler's own return.
+- [~] Password-versus-code failure is not distinguishable — **met within each step and not across them, and no sequential flow can do better.** Reaching the code page is itself the disclosure that the password was right. Every failure inside the step is identical (wrong code, unknown factor type, expired, spent); the step's existence is not, and closing that needs a decoy challenge whose cost falls on every user who mistypes a password. Recorded as **`PG-38`** rather than left implicit.
+- [~] Any "remember this device" token is revocable and visible to the user — **omitted, as step 6 instructs.** A device token is only as good as the screen that revokes it, and that screen is `P3-11`. Carried there rather than shipped weakly.
+
+**Also** — `Challenge.PendingID` existed to stop a challenge answered in one login completing a different one, and nothing compared it. Found by the first end-to-end run, not by any unit test: the fake framework had no opinion about which authorization request it belonged to. The check is now in `Framework.AnswerType`, before the verifier, so a mismatch does not spend the user's code.
+
+**Beyond the card**: `user.mfa.challenged` is audited as well as success and failure. An attacker with a *working* password who is stopped by the factor step otherwise leaves no trace unless they also guess wrong at least once — and that line is the one saying a credential is already lost.
 
 ---
 
@@ -370,6 +374,18 @@
 ---
 
 ## P3-11 — Console: Sessions Tab
+
+> **Carries one requirement from `P3-03`** (step 6): **"remember this device"**.
+>
+> It was omitted there on the card's own instruction — *"only if it is designed
+> properly ... If that cannot be delivered in this phase, omit it rather than
+> shipping a weak version"* — because a signed, bounded device token is only as
+> good as the screen that lists and revokes it, and that screen is this task.
+>
+> If it is built here it needs all four: signed, bounded lifetime, **listed**
+> beside the user's sessions, and revocable from that list. A device token that
+> cannot be seen is a second factor the user has silently stopped having.
+
 
 | | |
 |---|---|

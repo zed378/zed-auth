@@ -94,6 +94,16 @@ var (
 	// caller tells the user to start again — which is a real thing they can
 	// do, unlike a lockout.
 	ErrChallengeSpent = errors.New("mfa: too many attempts")
+
+	// ErrTooManyAttempts is the PER-USER bound, across challenges (P3-03).
+	//
+	// Distinct from ErrChallengeSpent because the two mean different things to
+	// the person reading the page: a spent challenge is restarted by signing in
+	// again, and an exhausted user has to wait. Telling them apart discloses
+	// nothing, for the reason `MsgRateLimited` gives — the counter is keyed on
+	// a user whose password the caller has already proven, so it describes only
+	// the caller's own behaviour.
+	ErrTooManyAttempts = errors.New("mfa: too many attempts for this user")
 )
 
 // ChallengeStore holds partially-authenticated state.

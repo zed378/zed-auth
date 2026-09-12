@@ -49,6 +49,10 @@ usage: $(basename "$0") <command>
   fix                Create the secrets directory if absent and correct the
                      ownership and mode of everything in it. Idempotent.
   metrics-token      Generate the metrics scrape token if it does not exist.
+  mfa-seal-key       Generate the key that encrypts stored MFA factor secrets,
+                     if it does not exist. Never replaces one: this key
+                     decrypts every enrolled factor, so regenerating it locks
+                     out every user who has one.
   show <name>        Print one secret to stdout.
 
 Environment:
@@ -124,6 +128,31 @@ cmd_metrics_token() {
   echo "secrets: written to ${token_file}"
 }
 
+cmd_mfa_seal_key() {
+  require_root
+  refuse_to_guess "$@"
+
+  local key_file="${SECRETS_DIR}/mfa-seal-key"
+
+  if [[ -s "$key_file" ]]; then
+    # Kept, and that is not politeness. This key decrypts every stored TOTP
+    # secret: replacing it does not rotate anything, it makes every enrolled
+    # factor in the estate undecryptable, and every user who relies on one is
+    # locked out with an error that reads to them as a broken app. Rotating it
+    # is a procedure with a re-encryption step, not a regeneration.
+    echo "secrets: mfa-seal-key already exists, kept (replacing it would invalidate every enrolled factor)"
+  else
+    # 64 bytes of machine randomness. NewSealer hashes whatever it is given
+    # into 32, so the length here is about entropy rather than about fitting
+    # the cipher — and it is generated on the host, never on a laptop.
+    openssl rand -base64 64 | tr -d '\n' > "$key_file"
+    echo "secrets: mfa-seal-key generated"
+  fi
+
+  cmd_fix >/dev/null
+  echo "secrets: written to ${key_file}"
+}
+
 cmd_show() {
   require_root
   local name="${1:?usage: show <name>}"
@@ -134,6 +163,7 @@ cmd_show() {
 case "${1:-}" in
   fix)           cmd_fix ;;
   metrics-token) cmd_metrics_token ;;
+  mfa-seal-key)  cmd_mfa_seal_key ;;
   show)          shift; cmd_show "$@" ;;
   *)             usage ;;
 esac

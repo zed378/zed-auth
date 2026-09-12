@@ -33,6 +33,7 @@ import (
 
 	"github.com/zed378/zed-auth/backend/internal/audit"
 	"github.com/zed378/zed-auth/backend/internal/authn"
+	"github.com/zed378/zed-auth/backend/internal/mfa"
 	"github.com/zed378/zed-auth/backend/internal/oauth/authorize"
 	"github.com/zed378/zed-auth/backend/internal/ratelimit"
 	"github.com/zed378/zed-auth/backend/internal/session"
@@ -82,6 +83,12 @@ type Sessions interface {
 type Users interface {
 	Authenticate(ctx context.Context, tx *postgres.Tx, email, password string) (authn.User, bool, error)
 	RecordRehash(ctx context.Context, tx *postgres.Tx, userID, password string) error
+
+	// ByID reloads a user whose password was proven before the factor step
+	// (P3-03). It verifies nothing — the identity came from server-side
+	// challenge state — and re-reads the account's status, so a user
+	// deactivated mid-challenge does not complete the login.
+	ByID(ctx context.Context, tx *postgres.Tx, userID string) (authn.User, error)
 }
 
 // Policies reads the organization's password policy, for expiry.
@@ -142,6 +149,28 @@ type Limiter interface {
 	Succeed(ctx context.Context, address string)
 }
 
+// Challenger is the MFA framework, as this handler needs it (P3-03).
+//
+// An interface for the reason every other seam in this file is one: the
+// handler's branch table — factor, no factor, wrong code, expired, spent — is
+// the part most worth asking about often, and a test that needs Redis and a
+// Postgres container to answer "does a wrong code create a session" is a test
+// that gets run less.
+//
+// The real implementation is *mfa.Framework.
+type Challenger interface {
+	// Required decides whether this login must present a factor.
+	Required(ctx context.Context, userID, orgID, pendingID string) (mfa.Decision, error)
+
+	// AnswerType verifies one attempt against the challenge's factor of a
+	// type, for the authorization request the challenge was issued for.
+	AnswerType(ctx context.Context, handle, pendingID string, t mfa.Type, code string) (mfa.Outcome, error)
+
+	// Peek reports what a live challenge may be answered with, consuming
+	// nothing — for re-rendering the page.
+	Peek(ctx context.Context, handle string) ([]mfa.Type, error)
+}
+
 // ClientIP resolves the address a request came from.
 //
 // An interface rather than a bare function so this handler cannot quietly go
@@ -172,6 +201,14 @@ const (
 	// mistyping or an attack getting through, a rise in "rate_limited" is the
 	// control working. Averaging them together would hide both.
 	OutcomeRateLimited = "rate_limited"
+
+	// OutcomeChallenged is a proven password awaiting a factor (P3-03).
+	//
+	// Its own value rather than folded into success or failure, because it is
+	// neither, and because the ratio of challenged-to-success is the number
+	// that says whether people are completing the factor step or giving up on
+	// it — which is the question an operator rolling MFA out actually has.
+	OutcomeChallenged = "challenged"
 )
 
 // Handler serves the login page.
@@ -189,6 +226,11 @@ type Handler struct {
 	// Limiter and IP are P1-13. Both optional; nil means no rate limiting.
 	Limiter Limiter
 	IP      ClientIP
+
+	// MFA is the second factor (P3-03). Nil means no factor step, which is
+	// what every deployment before P3-02 was and what the tests that are not
+	// about factors want.
+	MFA Challenger
 
 	// Policy is the session policy. P2-10 makes it per organization.
 	Policy session.Policy
@@ -472,6 +514,27 @@ func (h *Handler) submit(w http.ResponseWriter, r *http.Request) {
 		// was stored.
 		h.Authorization.Resume(w, r, id, current)
 
+	case resultChallenge:
+		// The password was right, so the address counter is cleared exactly as
+		// it is for a completed login (FR-9). The person proved who they are;
+		// the factor step is a second question, not a second doubt about the
+		// first answer.
+		if h.Limiter != nil {
+			h.Limiter.Succeed(r.Context(), email)
+		}
+
+		// The handle goes in a cookie, never into the page. A handle in the
+		// HTML is a handle in the browser's cache, in a "save page as", and in
+		// anything that scrapes a screenshot — and it is the one value that
+		// stands between a proven password and a session.
+		http.SetCookie(w, challengeCookie(outcome.handle))
+
+		// Not counted as a success: no session exists. Counted as its own
+		// outcome so that "logins that reached the factor step" is answerable
+		// without inferring it from the difference between two other numbers.
+		h.count(OutcomeChallenged)
+		h.showChallenge(w, r, http.StatusOK, page, outcome.offered, "")
+
 	case resultExpired:
 		page.Email = email
 		page.Error = MsgPasswordExpired
@@ -525,27 +588,91 @@ const (
 	// password that was never going to work.
 	resultMethodNotAllowed
 	resultError
+
+	// resultChallenge is a proven password and an unfinished login (P3-03).
+	//
+	// The name says what it is rather than what it is not: this is NOT a
+	// refusal. Nothing about the credential was wrong, and treating it as a
+	// failure would put it on the rate-limit counter and in the "failed" metric
+	// alongside wrong passwords — which would make a rise in MFA adoption look
+	// like a rise in attacks.
+	resultChallenge
 )
 
 type attempt struct {
 	result result
 	token  session.Token
 	err    error
+
+	// handle and offered are set only for resultChallenge.
+	//
+	// `handle` never reaches the HTML: it goes into a cookie. `offered` does,
+	// and carries no identity — a factor TYPE, which is a fact about what kind
+	// of thing to reach for, not about who this is.
+	handle  string
+	offered []mfa.Type
 }
 
-// authenticate does the whole database side of a submission in one transaction.
+// authenticate runs a submission through the two things that can stop it.
 //
-// One transaction for the verification, the policy read, the session and the
-// audit event, so that a session exists exactly when its audit record does
-// (ADR-012). The returned function invalidates the cache for a session this
-// login replaced, and must be called after the commit.
+// **Two transactions, not one**, and the seam between them is the reason: the
+// factor decision reads Redis and opens its own tenant-scoped read, and holding
+// a Postgres transaction open across a call to another service is how a pool
+// gets exhausted by something that is not the database's fault.
+//
+// What the split must not lose is ADR-012's property — a session exists exactly
+// when its audit record does. It does not: both still happen in `issue`, in one
+// transaction. What moves out is verification, which writes nothing but a
+// rehash, and which has no invariant with the session that follows it.
+//
+// The returned function invalidates the cache for a session this login
+// replaced, and must be called after the commit.
 func (h *Handler) authenticate(
 	r *http.Request, pending authorize.Pending, email, password string,
 ) (attempt, session.Session, func(context.Context) error) {
+	ctx := r.Context()
+
+	out, user, loginPolicy := h.verify(r, pending, email, password)
+	if out.result != resultAuthenticated {
+		return out, session.Session{}, nil
+	}
+
+	// The factor decision, between the two transactions (P3-03 step 1).
+	//
+	// A failure here REFUSES the login rather than completing it. That is the
+	// one mistake in this file that cannot be walked back: letting somebody in
+	// because the factor store was unreachable hands an attacker a way to skip
+	// the second factor by making one service unavailable, and the user never
+	// learns their factor was not asked for.
+	decision, err := h.challengeFor(ctx, user, pending)
+	if err != nil {
+		return attempt{result: resultError, err: err}, session.Session{}, nil
+	}
+	if decision.Challenge {
+		// No session, no cookie, no resumed authorization. The password is
+		// proven and that is all that has happened.
+		h.auditChallenged(ctx, user, pending)
+		return attempt{
+			result:  resultChallenge,
+			handle:  decision.Handle,
+			offered: decision.Offered,
+		}, session.Session{}, nil
+	}
+
+	return h.issue(r, pending, user, loginPolicy, nil)
+}
+
+// verify is everything up to and including "the password is correct and usable".
+//
+// It writes nothing except a rehash, so committing it before the factor
+// decision commits no authority — which is what makes the split safe.
+func (h *Handler) verify(
+	r *http.Request, pending authorize.Pending, email, password string,
+) (attempt, authn.User, authn.LoginPolicy) {
 	var (
-		out        attempt
-		created    session.Session
-		invalidate func(context.Context) error
+		out         attempt
+		user        authn.User
+		loginPolicy authn.LoginPolicy
 	)
 
 	ctx := r.Context()
@@ -562,7 +689,8 @@ func (h *Handler) authenticate(
 		// reach a conclusion already available — and it would put a failed
 		// attempt on the address's rate-limit counter for a policy the user
 		// cannot do anything about.
-		loginPolicy, err := h.Policies.LoginPolicy(ctx, tx, pending.App.OrgID)
+		var err error
+		loginPolicy, err = h.Policies.LoginPolicy(ctx, tx, pending.App.OrgID)
 		if err != nil {
 			return err
 		}
@@ -571,7 +699,8 @@ func (h *Handler) authenticate(
 			return nil
 		}
 
-		user, verified, err := h.Users.Authenticate(ctx, tx, email, password)
+		verified := false
+		user, verified, err = h.Users.Authenticate(ctx, tx, email, password)
 		if err != nil {
 			// A broken stored hash, or a failed query. The browser still gets
 			// the uniform answer; this is for the operator.
@@ -612,6 +741,50 @@ func (h *Handler) authenticate(
 			}
 		}
 
+		out.result = resultAuthenticated
+		return nil
+	})
+
+	if err != nil {
+		return attempt{result: resultError, err: err}, authn.User{}, authn.LoginPolicy{}
+	}
+	return out, user, loginPolicy
+}
+
+// challengeFor asks whether this login must present a factor.
+//
+// A nil MFA means no factor step at all, which is what `P1-12`'s own tests want
+// and what every deployment before `P3-02` was. It is not a hole a deployment
+// can fall into by accident: `TestTheLoginHandlerIsGivenAFactorFramework`
+// asserts the wiring sets it.
+func (h *Handler) challengeFor(
+	ctx context.Context, user authn.User, pending authorize.Pending,
+) (mfa.Decision, error) {
+	if h.MFA == nil {
+		return mfa.Decision{}, nil
+	}
+	return h.MFA.Required(ctx, user.ID, user.OrgID, pending.ID)
+}
+
+// issue creates the session and records it, in one transaction (ADR-012).
+//
+// `used` are the factor types proven beyond the password — empty for a login
+// that needed none, and the challenge's answer for one that did.
+func (h *Handler) issue(
+	r *http.Request, pending authorize.Pending, user authn.User,
+	loginPolicy authn.LoginPolicy, used []mfa.Type,
+) (attempt, session.Session, func(context.Context) error) {
+	var (
+		out        attempt
+		created    session.Session
+		invalidate func(context.Context) error
+	)
+
+	ctx := r.Context()
+	now := h.now()
+	ip := h.clientIP(r)
+
+	err := h.DB.WithTenant(ctx, pending.App.OrgID, func(tx *postgres.Tx) error {
 		// Replace the session this browser already had, if any.
 		//
 		// The cookie is about to be overwritten, so whatever it pointed at
@@ -619,6 +792,7 @@ func (h *Handler) authenticate(
 		// still appears on the sessions screen and still authorises a refresh
 		// token. session.ReasonReauth exists for exactly this.
 		if previous, ok := h.currentSession(ctx, r, now); ok && previous.UserID == user.ID {
+			var err error
 			invalidate, err = h.Sessions.Revoke(ctx, tx, previous.ID, session.ReasonReauth, user.ID, now)
 			if err != nil {
 				return err
@@ -628,10 +802,14 @@ func (h *Handler) authenticate(
 		newSession, token, err := h.Sessions.Create(ctx, tx, session.New{
 			UserID: user.ID,
 			OrgID:  user.OrgID,
-			// The factor actually used. P1-11 requires this to be true from
+			// The factors actually used. P1-11 requires this to be true from
 			// the first release because P1-07's `amr` claim is built from it
-			// and Phase 3's step-up authentication reads that claim.
-			AuthMethods: []string{"pwd"},
+			// and P3-03's step-up authentication reads that claim.
+			//
+			// `mfa.AuthMethods` rather than a literal, so the RFC 8176 names
+			// and the "`mfa` only for two distinct categories" rule live in one
+			// place — P3-01 § 7.
+			AuthMethods: mfa.AuthMethods(true, used...),
 			IP:          ip,
 			UserAgent:   r.UserAgent(),
 			// The organization's own session lifetime (P2-10), not the
