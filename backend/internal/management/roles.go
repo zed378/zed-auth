@@ -273,10 +273,49 @@ func Authorize(c Caller, req Requirement, target Target) Decision {
 	// Refused. Which refusal depends on whether the caller can see the target
 	// at all: see Decision.Invisible.
 	return Decision{
-		Reason: fmt.Sprintf("no grant of %s over %s", req.Role, describe(target)),
-		Invisible: !holdsAnythingOver(c, target.OrgID) &&
-			(target.ProjectID == "" || !holdsAnythingOver(c, target.ProjectID)),
+		Reason:    fmt.Sprintf("no grant of %s over %s", req.Role, describe(target)),
+		Invisible: invisible(c, req, target),
 	}
+}
+
+// invisible decides between 404 and 403 — whether the caller may learn that
+// the thing they were refused exists at all.
+//
+// The organization rule is `P1-16`'s: a caller who holds nothing over an
+// organization is told 404, and one who holds something is told 403, because
+// they already know it exists and hiding it buys nothing.
+//
+// **A project needs a different question**, and getting this wrong is how a
+// narrow role becomes an enumeration oracle. A PROJECT_OWNER's token belongs
+// to the organization, so "is a member of" is true for every project in it —
+// and `GET /projects` requires ORG_ADMIN, so that same caller cannot list
+// them. A 403 on one project id would therefore answer "does this project
+// exist?" for anybody willing to send a request per guess, which is exactly
+// the disclosure `docs/SECURITY/02` §12 is about.
+//
+// So on a project-scoped route, visibility follows GRANTS rather than
+// membership: over the project, or over the organization containing it.
+// Found by `P2-02`'s endpoint tests; the pure-function tests in `P2-05` could
+// not see it, because the difference only appears once a route has a project.
+func invisible(c Caller, req Requirement, target Target) bool {
+	if req.Scope == ScopeProject {
+		return !holdsGrantOver(c, target.ProjectID) && !holdsGrantOver(c, target.OrgID)
+	}
+	return !holdsAnythingOver(c, target.OrgID)
+}
+
+// holdsGrantOver is holdsAnythingOver without the membership shortcut: an
+// actual row in manager_roles, scoped to this id.
+func holdsGrantOver(c Caller, id string) bool {
+	if id == "" {
+		return false
+	}
+	for _, g := range c.Grants {
+		if g.ScopeID == id {
+			return true
+		}
+	}
+	return false
 }
 
 func describe(t Target) string {

@@ -94,7 +94,7 @@ func (s *Store) GetByKey(ctx context.Context, tx *postgres.Tx, projectID, key st
 // `billing-admin` should not have to know when somebody created it. The cursor
 // is still (sort column, id), so the pagination contract is unchanged.
 func (s *Store) List(
-	ctx context.Context, tx *postgres.Tx, projectID string, after string, size int,
+	ctx context.Context, tx *postgres.Tx, projectID string, afterKey string, size int,
 ) ([]Role, error) {
 	rows, err := tx.Query(ctx, `
 		SELECT `+columns+`
@@ -103,7 +103,7 @@ func (s *Store) List(
 		   AND ($2::text IS NULL OR key > $2)
 		 ORDER BY key
 		 LIMIT $3`,
-		projectID, nullString(after), size+1)
+		projectID, nullString(afterKey), size+1)
 	if err != nil {
 		return nil, fmt.Errorf("role: listing: %w", err)
 	}

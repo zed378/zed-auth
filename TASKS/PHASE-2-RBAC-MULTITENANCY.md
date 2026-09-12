@@ -71,7 +71,7 @@
 
 | | |
 |---|---|
-| **Status** | TODO |
+| **Status** | DONE — [record](../MEMORY/records/2026-09-12-P2-02-roles-api.md). Taken after `P2-05`, which had to make `PROJECT_OWNER` real first. Not yet on staging |
 | **Depends on** | P2-01 |
 | **Plan refs** | `docs/PLAN/05-API-CONTRACT.md` § Endpoint Structure, `docs/UI-UX/08-PAGE-SPECIFICATIONS.md` (Roles tab) |
 | **Spec required** | No |
@@ -87,10 +87,13 @@
 5. Register in the OpenAPI spec; the public API reference regenerates automatically (`docs/PLAN/20`).
 
 **Definition of Done**
-- [ ] All five operations work and enforce `PROJECT_OWNER` or higher.
-- [ ] Invalid permission keys are rejected with field-level errors.
-- [ ] Grant counts are accurate.
-- [ ] The generated console client and public API reference both build.
+- [x] All five operations work and enforce `PROJECT_OWNER` or higher. Tested through the whole `/v1` chain rather than against the handler — a test calling the handler directly passes with no policy entry at all, which is the bug it should fail on.
+- [x] Invalid permission keys are rejected with field-level errors, naming the **index** so a form can point at the offending row rather than the whole field.
+- [x] Grant counts are accurate, and are one query for the page: a count per row is an N+1 against a table that grows with every user.
+- [x] The generated console client and public API reference both build, and the shipped-paths allowlist was updated in the same commit that added the paths.
+
+**Found while doing it**
+- A `PROJECT_OWNER` asking about another project in the same organization was answered **403**, which confirms that project exists — and listing projects requires `ORG_ADMIN`, so it was an enumeration oracle in the narrowest role in the system. Visibility on a project-scoped route now follows grants rather than organization membership.
 
 ---
 

@@ -58,6 +58,10 @@ SHIPPED = {
     "/v1/organizations/{org_id}/projects/{project_id}/applications",
     "/v1/organizations/{org_id}/projects/{project_id}/applications/{application_id}",
     "/v1/organizations/{org_id}/projects/{project_id}/applications/{application_id}/rotate-secret",
+    # P2-02. The first project-scoped routes: PROJECT_OWNER over the project in
+    # the path, which an organization-scoped role also satisfies (P2-05).
+    "/v1/organizations/{org_id}/projects/{project_id}/roles",
+    "/v1/organizations/{org_id}/projects/{project_id}/roles/{role_id}",
     # P1-19. Users, and the two verb sub-resources the card asks for instead
     # of a delete.
     "/v1/organizations/{org_id}/users",

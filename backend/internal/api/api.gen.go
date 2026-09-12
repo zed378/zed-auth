@@ -871,6 +871,105 @@ type ResetRequested struct {
 // arrive everywhere at once or not at all.
 type ResourceId = openapi_types.UUID
 
+// Role A named bundle of permission keys, belonging to exactly one project.
+//
+// Roles are scoped per project so that `admin` in one project cannot
+// imply `admin` in another (`docs/PLAN/08` Part A) — the failure that
+// prevents is the one nobody notices until it is an incident.
+type Role struct {
+	CreatedAt   time.Time `json:"created_at"`
+	DisplayName string    `json:"display_name"`
+
+	// GrantCount How many user grants reference this role. It is what a delete would
+	// have to refuse, so a console can warn first.
+	GrantCount int `json:"grant_count"`
+
+	// Id A resource's stable identifier. Not sequential and not guessable.
+	//
+	// **This was specified as a prefixed, sortable identifier** — `usr_`,
+	// `org_`, `prj_` — and is a UUID instead. The change is deliberate and is
+	// recorded as `PG-23`.
+	//
+	// The prefix has a real benefit: an id pasted into a support ticket is
+	// self-describing, and passing a project id where a user id belongs is
+	// visible on sight rather than at the database. What it cannot survive is
+	// being applied to only part of the surface. `docs/PLAN/04` makes every
+	// primary key a UUID, the access token's `org_id` claim is a UUID, and
+	// OpenID Connect's `sub` — already shipped by `P1-08` — is a UUID that
+	// callers store as a user's permanent key.
+	//
+	// Prefixing only the Management API would give the same user two
+	// identifiers and make every consumer convert between them, which is a
+	// larger and more permanent papercut than the one the prefix removes.
+	// Prefixing everything means changing `sub`, which is a protocol field
+	// with its own conventions and a value integrators have already stored.
+	//
+	// So: UUIDs everywhere, and if prefixed identifiers are wanted later they
+	// arrive everywhere at once or not at all.
+	Id ResourceId `json:"id"`
+
+	// IsBuiltin A role the service owns. It cannot be deleted or re-keyed, by any
+	// caller. No built-in roles are seeded today — see `PG-30`.
+	IsBuiltin bool `json:"is_builtin"`
+
+	// Key A role's stable identifier, unique within its project. `admin` in one
+	// project is unrelated to `admin` in another (`docs/PLAN/08` Part A).
+	//
+	// The character set is bounded because a role key appears inside a JWT
+	// claim key (`docs/PLAN/08` Part A § How Role Claims Get Into the Token),
+	// so it must not be able to change the shape of a token claim. The same
+	// pattern is the `roles_key_shape` constraint in the database.
+	Key RoleKey `json:"key"`
+
+	// PermissionKeys What the role carries. May be empty: a role with no permissions is
+	// a label, and labels are useful before the permissions exist.
+	PermissionKeys []PermissionKey `json:"permission_keys"`
+
+	// ProjectId A resource's stable identifier. Not sequential and not guessable.
+	//
+	// **This was specified as a prefixed, sortable identifier** — `usr_`,
+	// `org_`, `prj_` — and is a UUID instead. The change is deliberate and is
+	// recorded as `PG-23`.
+	//
+	// The prefix has a real benefit: an id pasted into a support ticket is
+	// self-describing, and passing a project id where a user id belongs is
+	// visible on sight rather than at the database. What it cannot survive is
+	// being applied to only part of the surface. `docs/PLAN/04` makes every
+	// primary key a UUID, the access token's `org_id` claim is a UUID, and
+	// OpenID Connect's `sub` — already shipped by `P1-08` — is a UUID that
+	// callers store as a user's permanent key.
+	//
+	// Prefixing only the Management API would give the same user two
+	// identifiers and make every consumer convert between them, which is a
+	// larger and more permanent papercut than the one the prefix removes.
+	// Prefixing everything means changing `sub`, which is a protocol field
+	// with its own conventions and a value integrators have already stored.
+	//
+	// So: UUIDs everywhere, and if prefixed identifiers are wanted later they
+	// arrive everywhere at once or not at all.
+	ProjectId ResourceId `json:"project_id"`
+	UpdatedAt time.Time  `json:"updated_at"`
+}
+
+// RoleCreate defines model for RoleCreate.
+type RoleCreate struct {
+	DisplayName string `json:"display_name"`
+
+	// Key A role's stable identifier, unique within its project. `admin` in one
+	// project is unrelated to `admin` in another (`docs/PLAN/08` Part A).
+	//
+	// The character set is bounded because a role key appears inside a JWT
+	// claim key (`docs/PLAN/08` Part A § How Role Claims Get Into the Token),
+	// so it must not be able to change the shape of a token claim. The same
+	// pattern is the `roles_key_shape` constraint in the database.
+	Key RoleKey `json:"key"`
+
+	// PermissionKeys Optional. Duplicates are **refused**, not folded: silently changing
+	// what was sent means the stored row does not match the request, and
+	// the caller finds out from a later read.
+	PermissionKeys *[]PermissionKey `json:"permission_keys,omitempty"`
+}
+
 // RoleKey A role's stable identifier, unique within its project. `admin` in one
 // project is unrelated to `admin` in another (`docs/PLAN/08` Part A).
 //
@@ -879,6 +978,28 @@ type ResourceId = openapi_types.UUID
 // so it must not be able to change the shape of a token claim. The same
 // pattern is the `roles_key_shape` constraint in the database.
 type RoleKey = string
+
+// RoleList defines model for RoleList.
+type RoleList struct {
+	// PageInfo The pagination envelope every collection response embeds.
+	//
+	// Token-based rather than offset-based: an offset re-reads rows that
+	// shifted under concurrent writes, silently skipping or duplicating
+	// entries. For an audit log or a user list that is a correctness bug that
+	// nobody notices.
+	PageInfo *PageInfo `json:"page_info,omitempty"`
+	Roles    []Role    `json:"roles"`
+}
+
+// RoleUpdate `key` is absent deliberately and is not editable. See the endpoint.
+type RoleUpdate struct {
+	DisplayName string `json:"display_name"`
+
+	// PermissionKeys Replaces the set entirely. A partial update of an array is
+	// ambiguous — add, remove, or replace — and the audit event records
+	// what was added and removed, which needs a complete before and after.
+	PermissionKeys []PermissionKey `json:"permission_keys"`
+}
 
 // RotatedSecret defines model for RotatedSecret.
 type RotatedSecret struct {
@@ -1203,6 +1324,30 @@ type PageToken = string
 // arrive everywhere at once or not at all.
 type ProjectId = ResourceId
 
+// RoleId A resource's stable identifier. Not sequential and not guessable.
+//
+// **This was specified as a prefixed, sortable identifier** — `usr_`,
+// `org_`, `prj_` — and is a UUID instead. The change is deliberate and is
+// recorded as `PG-23`.
+//
+// The prefix has a real benefit: an id pasted into a support ticket is
+// self-describing, and passing a project id where a user id belongs is
+// visible on sight rather than at the database. What it cannot survive is
+// being applied to only part of the surface. `docs/PLAN/04` makes every
+// primary key a UUID, the access token's `org_id` claim is a UUID, and
+// OpenID Connect's `sub` — already shipped by `P1-08` — is a UUID that
+// callers store as a user's permanent key.
+//
+// Prefixing only the Management API would give the same user two
+// identifiers and make every consumer convert between them, which is a
+// larger and more permanent papercut than the one the prefix removes.
+// Prefixing everything means changing `sub`, which is a protocol field
+// with its own conventions and a value integrators have already stored.
+//
+// So: UUIDs everywhere, and if prefixed identifiers are wanted later they
+// arrive everywhere at once or not at all.
+type RoleId = ResourceId
+
 // UserId A resource's stable identifier. Not sequential and not guessable.
 //
 // **This was specified as a prefixed, sortable identifier** — `usr_`,
@@ -1415,6 +1560,29 @@ type RotateApplicationSecretParams struct {
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
+// ListRolesParams defines parameters for ListRoles.
+type ListRolesParams struct {
+	// PageSize Maximum items to return. The server may return fewer, and returning
+	// fewer never means the collection is exhausted — only an absent
+	// `next_page_token` means that.
+	PageSize *PageSize `form:"page_size,omitempty" json:"page_size,omitempty"`
+
+	// PageToken The `next_page_token` from the previous response. Opaque: its contents
+	// are not part of the contract and must not be constructed, parsed, or
+	// persisted by a client.
+	PageToken *PageToken `form:"page_token,omitempty" json:"page_token,omitempty"`
+}
+
+// CreateRoleParams defines parameters for CreateRole.
+type CreateRoleParams struct {
+	// IdempotencyKey A client-generated key making a retried `POST` safe. Replaying a
+	// request with the same key returns the original result rather than
+	// creating a second resource — which matters most for automated
+	// provisioning, where a network timeout is indistinguishable from a
+	// failure (`docs/PLAN/05` Part B).
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+}
+
 // ListUsersParams defines parameters for ListUsers.
 type ListUsersParams struct {
 	// PageSize Maximum items to return. The server may return fewer, and returning
@@ -1489,6 +1657,12 @@ type CreateApplicationJSONRequestBody = ApplicationCreate
 // UpdateApplicationJSONRequestBody defines body for UpdateApplication for application/json ContentType.
 type UpdateApplicationJSONRequestBody = ApplicationUpdate
 
+// CreateRoleJSONRequestBody defines body for CreateRole for application/json ContentType.
+type CreateRoleJSONRequestBody = RoleCreate
+
+// UpdateRoleJSONRequestBody defines body for UpdateRole for application/json ContentType.
+type UpdateRoleJSONRequestBody = RoleUpdate
+
 // CreateUserJSONRequestBody defines body for CreateUser for application/json ContentType.
 type CreateUserJSONRequestBody = UserCreate
 
@@ -1560,6 +1734,21 @@ type ServerInterface interface {
 	// Issue a new client secret
 	// (POST /v1/organizations/{org_id}/projects/{project_id}/applications/{application_id}/rotate-secret)
 	RotateApplicationSecret(w http.ResponseWriter, r *http.Request, orgId OrganizationId, projectId ProjectId, applicationId ApplicationId, params RotateApplicationSecretParams)
+	// List a project's roles
+	// (GET /v1/organizations/{org_id}/projects/{project_id}/roles)
+	ListRoles(w http.ResponseWriter, r *http.Request, orgId OrganizationId, projectId ProjectId, params ListRolesParams)
+	// Define a role
+	// (POST /v1/organizations/{org_id}/projects/{project_id}/roles)
+	CreateRole(w http.ResponseWriter, r *http.Request, orgId OrganizationId, projectId ProjectId, params CreateRoleParams)
+	// Delete a role
+	// (DELETE /v1/organizations/{org_id}/projects/{project_id}/roles/{role_id})
+	DeleteRole(w http.ResponseWriter, r *http.Request, orgId OrganizationId, projectId ProjectId, roleId RoleId)
+	// Read a role
+	// (GET /v1/organizations/{org_id}/projects/{project_id}/roles/{role_id})
+	GetRole(w http.ResponseWriter, r *http.Request, orgId OrganizationId, projectId ProjectId, roleId RoleId)
+	// Change a role's label or permissions
+	// (PATCH /v1/organizations/{org_id}/projects/{project_id}/roles/{role_id})
+	UpdateRole(w http.ResponseWriter, r *http.Request, orgId OrganizationId, projectId ProjectId, roleId RoleId)
 	// List an organization's users
 	// (GET /v1/organizations/{org_id}/users)
 	ListUsers(w http.ResponseWriter, r *http.Request, orgId OrganizationId, params ListUsersParams)
@@ -1710,6 +1899,36 @@ func (_ Unimplemented) UpdateApplication(w http.ResponseWriter, r *http.Request,
 // Issue a new client secret
 // (POST /v1/organizations/{org_id}/projects/{project_id}/applications/{application_id}/rotate-secret)
 func (_ Unimplemented) RotateApplicationSecret(w http.ResponseWriter, r *http.Request, orgId OrganizationId, projectId ProjectId, applicationId ApplicationId, params RotateApplicationSecretParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// List a project's roles
+// (GET /v1/organizations/{org_id}/projects/{project_id}/roles)
+func (_ Unimplemented) ListRoles(w http.ResponseWriter, r *http.Request, orgId OrganizationId, projectId ProjectId, params ListRolesParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Define a role
+// (POST /v1/organizations/{org_id}/projects/{project_id}/roles)
+func (_ Unimplemented) CreateRole(w http.ResponseWriter, r *http.Request, orgId OrganizationId, projectId ProjectId, params CreateRoleParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Delete a role
+// (DELETE /v1/organizations/{org_id}/projects/{project_id}/roles/{role_id})
+func (_ Unimplemented) DeleteRole(w http.ResponseWriter, r *http.Request, orgId OrganizationId, projectId ProjectId, roleId RoleId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Read a role
+// (GET /v1/organizations/{org_id}/projects/{project_id}/roles/{role_id})
+func (_ Unimplemented) GetRole(w http.ResponseWriter, r *http.Request, orgId OrganizationId, projectId ProjectId, roleId RoleId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Change a role's label or permissions
+// (PATCH /v1/organizations/{org_id}/projects/{project_id}/roles/{role_id})
+func (_ Unimplemented) UpdateRole(w http.ResponseWriter, r *http.Request, orgId OrganizationId, projectId ProjectId, roleId RoleId) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -2745,6 +2964,276 @@ func (siw *ServerInterfaceWrapper) RotateApplicationSecret(w http.ResponseWriter
 	handler.ServeHTTP(w, r)
 }
 
+// ListRoles operation middleware
+func (siw *ServerInterfaceWrapper) ListRoles(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "org_id" -------------
+	var orgId OrganizationId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "org_id", chi.URLParam(r, "org_id"), &orgId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "org_id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "project_id" -------------
+	var projectId ProjectId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project_id", chi.URLParam(r, "project_id"), &projectId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "project_id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, Oauth2Scopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListRolesParams
+
+	// ------------- Optional query parameter "page_size" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "page_size", r.URL.Query(), &params.PageSize)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "page_size", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "page_token" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "page_token", r.URL.Query(), &params.PageToken)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "page_token", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListRoles(w, r, orgId, projectId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateRole operation middleware
+func (siw *ServerInterfaceWrapper) CreateRole(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "org_id" -------------
+	var orgId OrganizationId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "org_id", chi.URLParam(r, "org_id"), &orgId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "org_id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "project_id" -------------
+	var projectId ProjectId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project_id", chi.URLParam(r, "project_id"), &projectId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "project_id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, Oauth2Scopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateRoleParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateRole(w, r, orgId, projectId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteRole operation middleware
+func (siw *ServerInterfaceWrapper) DeleteRole(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "org_id" -------------
+	var orgId OrganizationId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "org_id", chi.URLParam(r, "org_id"), &orgId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "org_id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "project_id" -------------
+	var projectId ProjectId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project_id", chi.URLParam(r, "project_id"), &projectId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "project_id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "role_id" -------------
+	var roleId RoleId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "role_id", chi.URLParam(r, "role_id"), &roleId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "role_id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, Oauth2Scopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteRole(w, r, orgId, projectId, roleId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetRole operation middleware
+func (siw *ServerInterfaceWrapper) GetRole(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "org_id" -------------
+	var orgId OrganizationId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "org_id", chi.URLParam(r, "org_id"), &orgId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "org_id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "project_id" -------------
+	var projectId ProjectId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project_id", chi.URLParam(r, "project_id"), &projectId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "project_id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "role_id" -------------
+	var roleId RoleId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "role_id", chi.URLParam(r, "role_id"), &roleId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "role_id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, Oauth2Scopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetRole(w, r, orgId, projectId, roleId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateRole operation middleware
+func (siw *ServerInterfaceWrapper) UpdateRole(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "org_id" -------------
+	var orgId OrganizationId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "org_id", chi.URLParam(r, "org_id"), &orgId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "org_id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "project_id" -------------
+	var projectId ProjectId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project_id", chi.URLParam(r, "project_id"), &projectId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "project_id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "role_id" -------------
+	var roleId RoleId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "role_id", chi.URLParam(r, "role_id"), &roleId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "role_id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, Oauth2Scopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateRole(w, r, orgId, projectId, roleId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListUsers operation middleware
 func (siw *ServerInterfaceWrapper) ListUsers(w http.ResponseWriter, r *http.Request) {
 
@@ -3305,6 +3794,21 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/v1/organizations/{org_id}/projects/{project_id}/applications/{application_id}/rotate-secret", wrapper.RotateApplicationSecret)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/v1/organizations/{org_id}/projects/{project_id}/roles", wrapper.ListRoles)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/organizations/{org_id}/projects/{project_id}/roles", wrapper.CreateRole)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/v1/organizations/{org_id}/projects/{project_id}/roles/{role_id}", wrapper.DeleteRole)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/v1/organizations/{org_id}/projects/{project_id}/roles/{role_id}", wrapper.GetRole)
+	})
+	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/v1/organizations/{org_id}/projects/{project_id}/roles/{role_id}", wrapper.UpdateRole)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/v1/organizations/{org_id}/users", wrapper.ListUsers)
@@ -4753,6 +5257,392 @@ func (response RotateApplicationSecret500JSONResponse) VisitRotateApplicationSec
 	return json.NewEncoder(w).Encode(response)
 }
 
+type ListRolesRequestObject struct {
+	OrgId     OrganizationId `json:"org_id"`
+	ProjectId ProjectId      `json:"project_id"`
+	Params    ListRolesParams
+}
+
+type ListRolesResponseObject interface {
+	VisitListRolesResponse(w http.ResponseWriter) error
+}
+
+type ListRoles200JSONResponse RoleList
+
+func (response ListRoles200JSONResponse) VisitListRolesResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListRoles400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response ListRoles400JSONResponse) VisitListRolesResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListRoles401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ListRoles401JSONResponse) VisitListRolesResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListRoles403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response ListRoles403JSONResponse) VisitListRolesResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListRoles404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response ListRoles404JSONResponse) VisitListRolesResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListRoles429JSONResponse struct{ RateLimitedJSONResponse }
+
+func (response ListRoles429JSONResponse) VisitListRolesResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Retry-After", fmt.Sprint(response.Headers.RetryAfter))
+	w.Header().Set("X-RateLimit-Limit", fmt.Sprint(response.Headers.XRateLimitLimit))
+	w.Header().Set("X-RateLimit-Remaining", fmt.Sprint(response.Headers.XRateLimitRemaining))
+	w.Header().Set("X-RateLimit-Reset", fmt.Sprint(response.Headers.XRateLimitReset))
+	w.WriteHeader(429)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type ListRoles500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response ListRoles500JSONResponse) VisitListRolesResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type CreateRoleRequestObject struct {
+	OrgId     OrganizationId `json:"org_id"`
+	ProjectId ProjectId      `json:"project_id"`
+	Params    CreateRoleParams
+	Body      *CreateRoleJSONRequestBody
+}
+
+type CreateRoleResponseObject interface {
+	VisitCreateRoleResponse(w http.ResponseWriter) error
+}
+
+type CreateRole201JSONResponse Role
+
+func (response CreateRole201JSONResponse) VisitCreateRoleResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type CreateRole400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response CreateRole400JSONResponse) VisitCreateRoleResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type CreateRole401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response CreateRole401JSONResponse) VisitCreateRoleResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type CreateRole403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response CreateRole403JSONResponse) VisitCreateRoleResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type CreateRole404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response CreateRole404JSONResponse) VisitCreateRoleResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type CreateRole409JSONResponse struct{ ConflictJSONResponse }
+
+func (response CreateRole409JSONResponse) VisitCreateRoleResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type CreateRole429JSONResponse struct{ RateLimitedJSONResponse }
+
+func (response CreateRole429JSONResponse) VisitCreateRoleResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Retry-After", fmt.Sprint(response.Headers.RetryAfter))
+	w.Header().Set("X-RateLimit-Limit", fmt.Sprint(response.Headers.XRateLimitLimit))
+	w.Header().Set("X-RateLimit-Remaining", fmt.Sprint(response.Headers.XRateLimitRemaining))
+	w.Header().Set("X-RateLimit-Reset", fmt.Sprint(response.Headers.XRateLimitReset))
+	w.WriteHeader(429)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type CreateRole500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response CreateRole500JSONResponse) VisitCreateRoleResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type DeleteRoleRequestObject struct {
+	OrgId     OrganizationId `json:"org_id"`
+	ProjectId ProjectId      `json:"project_id"`
+	RoleId    RoleId         `json:"role_id"`
+}
+
+type DeleteRoleResponseObject interface {
+	VisitDeleteRoleResponse(w http.ResponseWriter) error
+}
+
+type DeleteRole204Response struct {
+}
+
+func (response DeleteRole204Response) VisitDeleteRoleResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteRole401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response DeleteRole401JSONResponse) VisitDeleteRoleResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type DeleteRole403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response DeleteRole403JSONResponse) VisitDeleteRoleResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type DeleteRole404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response DeleteRole404JSONResponse) VisitDeleteRoleResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type DeleteRole409JSONResponse struct{ ConflictJSONResponse }
+
+func (response DeleteRole409JSONResponse) VisitDeleteRoleResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type DeleteRole429JSONResponse struct{ RateLimitedJSONResponse }
+
+func (response DeleteRole429JSONResponse) VisitDeleteRoleResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Retry-After", fmt.Sprint(response.Headers.RetryAfter))
+	w.Header().Set("X-RateLimit-Limit", fmt.Sprint(response.Headers.XRateLimitLimit))
+	w.Header().Set("X-RateLimit-Remaining", fmt.Sprint(response.Headers.XRateLimitRemaining))
+	w.Header().Set("X-RateLimit-Reset", fmt.Sprint(response.Headers.XRateLimitReset))
+	w.WriteHeader(429)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type DeleteRole500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response DeleteRole500JSONResponse) VisitDeleteRoleResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetRoleRequestObject struct {
+	OrgId     OrganizationId `json:"org_id"`
+	ProjectId ProjectId      `json:"project_id"`
+	RoleId    RoleId         `json:"role_id"`
+}
+
+type GetRoleResponseObject interface {
+	VisitGetRoleResponse(w http.ResponseWriter) error
+}
+
+type GetRole200JSONResponse Role
+
+func (response GetRole200JSONResponse) VisitGetRoleResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetRole401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response GetRole401JSONResponse) VisitGetRoleResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetRole403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response GetRole403JSONResponse) VisitGetRoleResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetRole404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response GetRole404JSONResponse) VisitGetRoleResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetRole429JSONResponse struct{ RateLimitedJSONResponse }
+
+func (response GetRole429JSONResponse) VisitGetRoleResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Retry-After", fmt.Sprint(response.Headers.RetryAfter))
+	w.Header().Set("X-RateLimit-Limit", fmt.Sprint(response.Headers.XRateLimitLimit))
+	w.Header().Set("X-RateLimit-Remaining", fmt.Sprint(response.Headers.XRateLimitRemaining))
+	w.Header().Set("X-RateLimit-Reset", fmt.Sprint(response.Headers.XRateLimitReset))
+	w.WriteHeader(429)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type GetRole500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response GetRole500JSONResponse) VisitGetRoleResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type UpdateRoleRequestObject struct {
+	OrgId     OrganizationId `json:"org_id"`
+	ProjectId ProjectId      `json:"project_id"`
+	RoleId    RoleId         `json:"role_id"`
+	Body      *UpdateRoleJSONRequestBody
+}
+
+type UpdateRoleResponseObject interface {
+	VisitUpdateRoleResponse(w http.ResponseWriter) error
+}
+
+type UpdateRole200JSONResponse Role
+
+func (response UpdateRole200JSONResponse) VisitUpdateRoleResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type UpdateRole400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response UpdateRole400JSONResponse) VisitUpdateRoleResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type UpdateRole401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response UpdateRole401JSONResponse) VisitUpdateRoleResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type UpdateRole403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response UpdateRole403JSONResponse) VisitUpdateRoleResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type UpdateRole404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response UpdateRole404JSONResponse) VisitUpdateRoleResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type UpdateRole429JSONResponse struct{ RateLimitedJSONResponse }
+
+func (response UpdateRole429JSONResponse) VisitUpdateRoleResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Retry-After", fmt.Sprint(response.Headers.RetryAfter))
+	w.Header().Set("X-RateLimit-Limit", fmt.Sprint(response.Headers.XRateLimitLimit))
+	w.Header().Set("X-RateLimit-Remaining", fmt.Sprint(response.Headers.XRateLimitRemaining))
+	w.Header().Set("X-RateLimit-Reset", fmt.Sprint(response.Headers.XRateLimitReset))
+	w.WriteHeader(429)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type UpdateRole500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response UpdateRole500JSONResponse) VisitUpdateRoleResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
 type ListUsersRequestObject struct {
 	OrgId  OrganizationId `json:"org_id"`
 	Params ListUsersParams
@@ -5344,6 +6234,21 @@ type StrictServerInterface interface {
 	// Issue a new client secret
 	// (POST /v1/organizations/{org_id}/projects/{project_id}/applications/{application_id}/rotate-secret)
 	RotateApplicationSecret(ctx context.Context, request RotateApplicationSecretRequestObject) (RotateApplicationSecretResponseObject, error)
+	// List a project's roles
+	// (GET /v1/organizations/{org_id}/projects/{project_id}/roles)
+	ListRoles(ctx context.Context, request ListRolesRequestObject) (ListRolesResponseObject, error)
+	// Define a role
+	// (POST /v1/organizations/{org_id}/projects/{project_id}/roles)
+	CreateRole(ctx context.Context, request CreateRoleRequestObject) (CreateRoleResponseObject, error)
+	// Delete a role
+	// (DELETE /v1/organizations/{org_id}/projects/{project_id}/roles/{role_id})
+	DeleteRole(ctx context.Context, request DeleteRoleRequestObject) (DeleteRoleResponseObject, error)
+	// Read a role
+	// (GET /v1/organizations/{org_id}/projects/{project_id}/roles/{role_id})
+	GetRole(ctx context.Context, request GetRoleRequestObject) (GetRoleResponseObject, error)
+	// Change a role's label or permissions
+	// (PATCH /v1/organizations/{org_id}/projects/{project_id}/roles/{role_id})
+	UpdateRole(ctx context.Context, request UpdateRoleRequestObject) (UpdateRoleResponseObject, error)
 	// List an organization's users
 	// (GET /v1/organizations/{org_id}/users)
 	ListUsers(ctx context.Context, request ListUsersRequestObject) (ListUsersResponseObject, error)
@@ -5991,6 +6896,160 @@ func (sh *strictHandler) RotateApplicationSecret(w http.ResponseWriter, r *http.
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(RotateApplicationSecretResponseObject); ok {
 		if err := validResponse.VisitRotateApplicationSecretResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListRoles operation middleware
+func (sh *strictHandler) ListRoles(w http.ResponseWriter, r *http.Request, orgId OrganizationId, projectId ProjectId, params ListRolesParams) {
+	var request ListRolesRequestObject
+
+	request.OrgId = orgId
+	request.ProjectId = projectId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListRoles(ctx, request.(ListRolesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListRoles")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListRolesResponseObject); ok {
+		if err := validResponse.VisitListRolesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateRole operation middleware
+func (sh *strictHandler) CreateRole(w http.ResponseWriter, r *http.Request, orgId OrganizationId, projectId ProjectId, params CreateRoleParams) {
+	var request CreateRoleRequestObject
+
+	request.OrgId = orgId
+	request.ProjectId = projectId
+	request.Params = params
+
+	var body CreateRoleJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateRole(ctx, request.(CreateRoleRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateRole")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateRoleResponseObject); ok {
+		if err := validResponse.VisitCreateRoleResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteRole operation middleware
+func (sh *strictHandler) DeleteRole(w http.ResponseWriter, r *http.Request, orgId OrganizationId, projectId ProjectId, roleId RoleId) {
+	var request DeleteRoleRequestObject
+
+	request.OrgId = orgId
+	request.ProjectId = projectId
+	request.RoleId = roleId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteRole(ctx, request.(DeleteRoleRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteRole")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteRoleResponseObject); ok {
+		if err := validResponse.VisitDeleteRoleResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetRole operation middleware
+func (sh *strictHandler) GetRole(w http.ResponseWriter, r *http.Request, orgId OrganizationId, projectId ProjectId, roleId RoleId) {
+	var request GetRoleRequestObject
+
+	request.OrgId = orgId
+	request.ProjectId = projectId
+	request.RoleId = roleId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetRole(ctx, request.(GetRoleRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetRole")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetRoleResponseObject); ok {
+		if err := validResponse.VisitGetRoleResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UpdateRole operation middleware
+func (sh *strictHandler) UpdateRole(w http.ResponseWriter, r *http.Request, orgId OrganizationId, projectId ProjectId, roleId RoleId) {
+	var request UpdateRoleRequestObject
+
+	request.OrgId = orgId
+	request.ProjectId = projectId
+	request.RoleId = roleId
+
+	var body UpdateRoleJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdateRole(ctx, request.(UpdateRoleRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdateRole")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UpdateRoleResponseObject); ok {
+		if err := validResponse.VisitUpdateRoleResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

@@ -42,6 +42,7 @@ import (
 	"github.com/zed378/zed-auth/backend/internal/oauth/token"
 	"github.com/zed378/zed-auth/backend/internal/organization"
 	"github.com/zed378/zed-auth/backend/internal/ratelimit"
+	"github.com/zed378/zed-auth/backend/internal/role"
 	"github.com/zed378/zed-auth/backend/internal/signing"
 	"github.com/zed378/zed-auth/backend/internal/storage/postgres"
 	"github.com/zed378/zed-auth/backend/internal/testsupport"
@@ -132,6 +133,7 @@ func setup(t *testing.T) *fixture {
 		// because a nil handler behind a registered route is a panic on the
 		// first request rather than a boot failure.
 		ApplicationAPI: application.New(db, auditor, discard()),
+		RoleAPI:        role.New(db, auditor, discard()),
 		// Fourth of four. Nothing here calls it; httpserver.New refuses a /v1
 		// chain with any half of the Management API missing, and the handler
 		// refuses a deactivation it cannot make real rather than panicking on
