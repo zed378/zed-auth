@@ -10,6 +10,33 @@ Format follows Keep a Changelog conventions, grouped by release once releases ex
 
 ## Unreleased
 
+### 2026-09-12 — Phase 2 begins: roles, and who may define them
+
+**Added** — the role model ([`P2-01`](./records/2026-09-12-P2-01-role-model.md), [spec](./specs/P2-01-role-model.md))
+- The `roles` table has existed since `P0-07`. What it never had was any statement about what may go in it: a role could carry an empty permission key, the same one twice, or four thousand of them, and could be filed into another organization's project where row-level security would then hide it from the organization that owns the project.
+- Permission keys are `resource:action`, optionally dotted, with **no wildcard** — a `*` in stored data is an authorization decision every consumer would have to reimplement and would not agree on. Widening the pattern later is harmless; narrowing it breaks deployed code nobody here can see, so it starts narrow.
+- One definition of each pattern, in `openapi.yaml`, generated into Go and TypeScript and gated against drift.
+
+**Added** — the manager role hierarchy, in full ([`P2-05`](./records/2026-09-12-P2-05-manager-hierarchy.md), [spec](./specs/P2-05-manager-hierarchy.md))
+- Taken **before** `P2-02`, which needs a `PROJECT_OWNER` that satisfies something. `Authorize` now takes both ids and refuses an empty project on a project-scoped route rather than treating it as a wildcard.
+- An architecture test reads the source for permission decisions made outside `internal/management`. A behavioural test can show the endpoints we thought of are right; it cannot show that no other file decides. It refuses to pass if it scanned too few files to have searched anything.
+
+**Added** — the roles API ([`P2-02`](./records/2026-09-12-P2-02-roles-api.md))
+- Five operations under `/v1/organizations/{org_id}/projects/{project_id}/roles`, the first project-scoped routes in the API. Delete is refused while any grant references the role, with the count, rather than cascaded — a cascade removes access from everyone holding it in response to a request that looks like tidying up.
+- The update event records what was **added and removed**, so "who gave this role billing access" is one row to read. The delete event keeps the permissions the role carried, because afterwards the audit log is the only record of what it could do.
+
+**Fixed**
+- **A `PROJECT_OWNER` refused on another project was told `403`**, which confirms that project exists — and listing projects requires `ORG_ADMIN`, so the narrowest role in the system was an enumeration oracle. Visibility on a project-scoped route now follows grants rather than organization membership. Only visible once a route had a project in it; `P2-05`'s pure-function tests could not have seen it.
+
+**Found**
+- `PG-30` — `docs/PLAN/08` Part A names `org_owner` and `org_admin` as built-in **project** roles. Part C and `docs/PLAN/04` say those are `manager_roles`: a different table, a different scope, implemented that way since `P1-15`. `is_builtin` ships as a mechanism with nothing built in.
+- `PG-31` — **nothing anywhere writes `manager_roles`.** No endpoint, in any phase file; the word "manager" does not appear in `openapi.yaml`. So the service has an administrative role model with no way to administer it: an administrator cannot be added or removed through any published surface, and the console cannot answer "who can administer this organization". Two of `P2-05`'s own steps are blocked on it and are left unticked.
+- `PG-32` — the hierarchy diagram draws `ORG_ADMIN` and `PROJECT_OWNER` as siblings, which read strictly would make every project endpoint shipped in `P1-17` and `P1-18` wrong. Resolved as "an organization-scoped role covers every project in its organization", with downward-only still holding.
+- A mutation test caught a control with **no test behind it**: removing the handler's project check broke nothing, because the case the test used is refused by the policy layer first. What that check actually prevents is a `200` with an empty list for a project that does not exist.
+
+---
+
+
 ### 2026-09-12 — Phase 1 complete, tagged `v0.1.0-phase1`
 
 **Verified** — the eight Phase 1 acceptance criteria, against the deployed service ([phase summary](./records/2026-09-12-P1-phase-1-summary.md), [threat-model review](./records/2026-09-11-P1-28-threat-model-review.md))

@@ -72,6 +72,24 @@ var Policy = map[string]Requirement{
 	"POST /v1/organizations/{org_id}/projects/{project_id}/applications/{application_id}/rotate-secret": {Role: OrgAdmin, Scope: ScopeOrganization},
 	"DELETE /v1/organizations/{org_id}/projects/{project_id}/applications/{application_id}":             {Role: OrgOwner, Scope: ScopeOrganization},
 
+	// --- Roles (P2-02) ---
+	//
+	// The first project-scoped routes in the API. `PROJECT_OWNER` over the
+	// project in the path — which an ORG_ADMIN or ORG_OWNER of the containing
+	// organization also satisfies (`P2-05`, `PG-32`), so this does not take
+	// anything away from an administrator who has it today.
+	//
+	// DELETE is NOT raised to ORG_OWNER, unlike projects and applications.
+	// Those raised it because deleting one is irreversible and silently breaks
+	// consumers; a role delete is already refused while any grant references
+	// it, so the destructive case cannot be reached by surprise — and an
+	// operator who cannot tidy up an unused role will leave it there instead.
+	"GET /v1/organizations/{org_id}/projects/{project_id}/roles":              {Role: ProjectOwner, Scope: ScopeProject},
+	"POST /v1/organizations/{org_id}/projects/{project_id}/roles":             {Role: ProjectOwner, Scope: ScopeProject},
+	"GET /v1/organizations/{org_id}/projects/{project_id}/roles/{role_id}":    {Role: ProjectOwner, Scope: ScopeProject},
+	"PATCH /v1/organizations/{org_id}/projects/{project_id}/roles/{role_id}":  {Role: ProjectOwner, Scope: ScopeProject},
+	"DELETE /v1/organizations/{org_id}/projects/{project_id}/roles/{role_id}": {Role: ProjectOwner, Scope: ScopeProject},
+
 	// --- Users (P1-19) ---
 	//
 	// Every one is ORG_ADMIN, and nothing is raised to ORG_OWNER. That is a

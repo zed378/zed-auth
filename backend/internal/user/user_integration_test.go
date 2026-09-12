@@ -179,6 +179,7 @@ func setup(t *testing.T) *fixture {
 		},
 		ProjectAPI:     stubProjects{},
 		ApplicationAPI: stubApplications{},
+		RoleAPI:        stubRoles{},
 		UserAPI:        users,
 		AuditAPI:       &auditlog.Handler{DB: db, Log: discard()},
 	})
@@ -1296,4 +1297,30 @@ func TestATokenCannotBeConsumedByAnOverlappingTransaction(t *testing.T) {
 	if used != 1 {
 		t.Errorf("%d rows marked used, want 1", used)
 	}
+}
+
+// stubRoles is the role half of the Management API, which this suite does not
+// exercise. Present because httpserver.New refuses a /v1 chain with any half
+// missing — a nil handler behind a registered route is a panic on the first
+// request rather than a boot failure (P1-18's reasoning, P2-02's addition).
+type stubRoles struct{}
+
+func (stubRoles) ListRoles(context.Context, api.ListRolesRequestObject) (api.ListRolesResponseObject, error) {
+	return nil, errNotWired
+}
+
+func (stubRoles) CreateRole(context.Context, api.CreateRoleRequestObject) (api.CreateRoleResponseObject, error) {
+	return nil, errNotWired
+}
+
+func (stubRoles) GetRole(context.Context, api.GetRoleRequestObject) (api.GetRoleResponseObject, error) {
+	return nil, errNotWired
+}
+
+func (stubRoles) UpdateRole(context.Context, api.UpdateRoleRequestObject) (api.UpdateRoleResponseObject, error) {
+	return nil, errNotWired
+}
+
+func (stubRoles) DeleteRole(context.Context, api.DeleteRoleRequestObject) (api.DeleteRoleResponseObject, error) {
+	return nil, errNotWired
 }
