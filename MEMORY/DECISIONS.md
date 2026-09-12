@@ -889,6 +889,48 @@ None contradicted. `docs/PLAN/06` names the dogfooding constraint and does not s
 
 ---
 
+### ADR-023 — The tenant is resolved from the client, not from the request
+
+**Status**: accepted, 2026-09-12 (`P2-09`)
+
+**Context**
+
+`docs/PLAN/08` Part B lists four combinable options for deciding which organization a request belongs to: a subdomain (`acme.auth.company.com`), a path segment, the user's email domain at login, or a single default organization. It names the last as the MVP choice, with the schema kept multi-tenant-ready.
+
+`P2-09` step 1 asks for the strategy to be chosen and recorded with its trade-offs. Writing that down surfaced something: **the service already resolves tenants, and by none of those four methods.**
+
+**Decision**
+
+**The organization is the one that owns the OIDC client the request is authenticating to.** Every authentication request names a `client_id`; that client belongs to a project; the project belongs to exactly one organization. So the tenant is determined before a password is typed, by a value the caller must already supply for the protocol to work at all.
+
+For the Management API, it is the organization in the path, checked against what the caller's manager roles permit (`P1-15`), or the caller's own organization when the path names none.
+
+**Why this rather than the four**
+
+Each of the plan's options resolves the tenant from something the **request** carries. This resolves it from something the **service already knows**, and the difference is where the trust boundary sits.
+
+*A subdomain* needs wildcard TLS and DNS for every tenant, and makes the organization's name public in a hostname. It is also a header: `Host` is client-supplied, so trusting it means trusting a proxy chain to rewrite it honestly.
+
+*A path segment* is the simplest to build and leaks the organization name into every URL, every log, every referrer.
+
+*Email domain at login* fails for the users most likely to need it — shared domains, personal addresses, contractors — and it resolves the tenant *after* the user has typed an address, which means the login page has to be rendered before the organization (and therefore its branding and password policy) is known.
+
+*A single default organization* is where Phase 1 shipped, and it does not survive the second tenant.
+
+The client-based rule has a property none of them has: **there is nothing for a caller to supply and therefore nothing to forge.** A request carrying `X-Org-Id: other-tenant` changes nothing, because nothing reads it. A request for an unknown client is refused before any organization is chosen, so there is no fallback to be tricked into.
+
+**Consequences**
+
+- Branding and password policy are known at the moment the login page is rendered, because the client resolved the organization first. `P1-12`'s branding lookup already depends on this.
+- A session belonging to organization A cannot be reused against a client in organization B — `authorize` compares them and refuses, which is only possible because both are known.
+- An unresolvable tenant is an unknown `client_id`, which `P1-06` already answers as a `400` that never redirects. There is no default to fall back to, and adding one would be the cross-tenant leak step 3 warns about.
+- Single-organization deployments are unchanged: one organization owns every client, so every request resolves to it without any special case. That is the property that makes this strategy cover the MVP mode the plan wanted, rather than replacing it.
+- The plan's four options remain available as *additions* rather than alternatives, if a deployment ever needs a tenant chosen before a client is named. None is needed today.
+
+**`docs/PLAN/08` Part B should say this**, since it currently lists four options and the service uses a fifth. A plan change, through the deliberate process — recorded as `PG-33`.
+
+---
+
 ### ADR-022 — The authorization cache holds inputs for 30 seconds, and invalidation is the mechanism rather than the TTL
 
 **Status**: accepted, 2026-09-12 (`P2-07`)
