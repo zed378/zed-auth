@@ -63,6 +63,10 @@ type Config struct {
 	Password PasswordConfig
 	Tracing  TracingConfig
 
+	// MFA is the second factor (P3-02, P3-03). Unset means no factor step at
+	// all, which is a valid deployment and says so at startup.
+	MFA MFAConfig
+
 	// Mail is ADR-018: plain SMTP by URL, no provider SDK. Unset means no
 	// outbound mail, which is a valid deployment — it says so once at startup
 	// rather than failing silently at the first invitation.
@@ -196,6 +200,28 @@ type AdminConfig struct {
 	TokenRef string
 }
 
+// MFAConfig is what multi-factor authentication needs from the deployment.
+type MFAConfig struct {
+	// SealKeyRef points at the key that encrypts stored factor secrets
+	// (P3-02's Sealer).
+	//
+	// **Empty disables MFA entirely** rather than storing secrets in the clear
+	// or verifying against secrets that cannot be opened. That is the whole
+	// argument for ErrNoSealKey restated as a deployment decision: a service
+	// that fell back to plaintext because a key was missing would have its
+	// security depend on nobody having made a configuration mistake, and the
+	// mistake would be invisible because everything would keep working.
+	//
+	// Disabling it is safe in a way that half-enabling it is not. With no
+	// framework, no challenge is issued, no factor can be enrolled, and
+	// `users.mfa_enabled` stays false for everybody — so nobody believes they
+	// have a protection they do not have.
+	SealKeyRef string
+}
+
+// Enabled reports whether the factor framework should be built.
+func (c MFAConfig) Enabled() bool { return c.SealKeyRef != "" }
+
 // TracingConfig configures OTLP export. Empty endpoint disables tracing.
 type TracingConfig struct {
 	Endpoint    string
@@ -303,6 +329,9 @@ func LoadFrom(getenv Getenv) (*Config, error) {
 			Addr:     l.optional("AUTH_ADMIN_ADDR", "127.0.0.1:9090"),
 			Enabled:  l.boolean("AUTH_ADMIN_ENABLED", true),
 			TokenRef: l.optional("AUTH_ADMIN_TOKEN_REF", ""),
+		},
+		MFA: MFAConfig{
+			SealKeyRef: l.optional("AUTH_MFA_SEAL_KEY_REF", ""),
 		},
 		Tracing: TracingConfig{
 			Endpoint:    l.optional("AUTH_OTLP_ENDPOINT", ""),

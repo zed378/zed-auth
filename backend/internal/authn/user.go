@@ -172,6 +172,44 @@ func (s *UserStore) byEmail(
 	return user, hash.String, nil
 }
 
+// ByID reads a user whose identity has already been established (P3-03).
+//
+// It returns no password hash and takes no password, which is the point: the
+// caller is the MFA challenge step, where the password was proven five minutes
+// ago and the only remaining question is whether this account may still sign
+// in. A function that could verify a password here would be a second place a
+// password could be verified, and this package works hard to have exactly one.
+//
+// There is deliberately no equal-cost path and no uniform not-found: the caller
+// holds a user id that came from server-side challenge state, not from a
+// request, so "no such user" is an internal inconsistency rather than an answer
+// anybody can probe for.
+func (s *UserStore) ByID(ctx context.Context, tx *postgres.Tx, userID string) (User, error) {
+	var (
+		user      User
+		display   sql.NullString
+		changedAt sql.NullTime
+	)
+
+	err := tx.QueryRow(ctx, `
+		SELECT id, org_id, email, display_name, status, mfa_enabled,
+		       password_changed_at
+		  FROM users
+		 WHERE id = $1`, userID,
+	).Scan(&user.ID, &user.OrgID, &user.Email, &display, &user.Status, &user.MFAEnabled,
+		&changedAt)
+	if err != nil {
+		return User{}, fmt.Errorf("authn: reading a user by id: %w", err)
+	}
+
+	user.DisplayName = display.String
+	if changedAt.Valid {
+		at := changedAt.Time
+		user.PasswordChangedAt = &at
+	}
+	return user, nil
+}
+
 // RecordRehash stores an upgraded password hash.
 //
 // Called only after a successful verification with NeedsRehash set. It does

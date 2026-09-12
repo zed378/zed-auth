@@ -25,7 +25,15 @@ import (
 type EnrolledFactors interface {
 	// Confirmed returns the factors a user may be challenged with: enrolled,
 	// confirmed, and of a type this build implements.
-	Confirmed(ctx context.Context, userID string) ([]Factor, error)
+	//
+	// The ORGANIZATION is a parameter, not something the implementation looks
+	// up. Every caller in this package already holds it — `Required` is given
+	// it, and every other path reads it from the challenge — so passing it
+	// removes the need for a cross-tenant user lookup, which would mean a
+	// SECURITY DEFINER function answering "which organization is this user in"
+	// for any user id. A privilege that is never needed is the cheapest kind
+	// to not have.
+	Confirmed(ctx context.Context, orgID, userID string) ([]Factor, error)
 }
 
 // Framework decides and completes challenges.
@@ -34,6 +42,14 @@ type Framework struct {
 	Store      EnrolledFactors
 	Challenges ChallengeStore
 	Log        *slog.Logger
+
+	// Attempts bounds a user's failed guesses across challenges (P3-03).
+	//
+	// Nil means unbounded, which is what a unit test about something else
+	// wants and what no deployment may have — `TestTheLoginFlowBoundsFactorGuesses`
+	// in architecture_test.go is what makes the wiring set it, because a
+	// comment here would not.
+	Attempts AttemptBound
 
 	Now func() time.Time
 }
@@ -87,7 +103,7 @@ func (f *Framework) Required(ctx context.Context, userID, orgID, pendingID strin
 		return Decision{}, nil
 	}
 
-	factors, err := f.Store.Confirmed(ctx, userID)
+	factors, err := f.Store.Confirmed(ctx, orgID, userID)
 	if err != nil {
 		return Decision{}, fmt.Errorf("mfa: reading enrolled factors: %w", err)
 	}
@@ -176,7 +192,30 @@ func (f *Framework) Answer(ctx context.Context, handle, factorID, code string) (
 		return nil, ErrNoSuchFactor
 	}
 
-	factor, err := f.factorType(ctx, challenge.UserID, factorID)
+	// The per-user bound, BEFORE the verifier runs (P3-03 step 2).
+	//
+	// Before, for the reason `P1-13` checks the login limiter before Argon2: a
+	// refused attempt must not cost the verification work, or the bound becomes
+	// a way to ask for that work rather than a way to stop asking.
+	//
+	// It lives here rather than in the handler so that no caller can answer a
+	// challenge without it — including `P3-12`'s enrolment confirmation and
+	// whatever `P3-05` adds. A control the callers have to remember is a
+	// control one of them will not.
+	if f.Attempts != nil {
+		allowed, err := f.Attempts.Allowed(ctx, challenge.UserID, f.now())
+		if err != nil {
+			// Fails CLOSED. See RedisAttempts: the challenge store is the same
+			// Redis, so this cannot refuse a login that would otherwise have
+			// worked — it can only stop an outage from removing the bound.
+			return nil, fmt.Errorf("mfa: reading the attempt bound: %w", err)
+		}
+		if !allowed {
+			return nil, ErrTooManyAttempts
+		}
+	}
+
+	factor, err := f.factorType(ctx, challenge.OrgID, challenge.UserID, factorID)
 	if err != nil {
 		return nil, err
 	}
@@ -195,6 +234,18 @@ func (f *Framework) Answer(ctx context.Context, handle, factorID, code string) (
 		return append(challenge.Methods, factor), nil
 
 	case errors.Is(err, ErrWrongCode):
+		// Counted against the user before the challenge, so that abandoning a
+		// challenge and starting another does not shed the count. That is the
+		// whole difference between this bound and `MaxAttempts`.
+		if f.Attempts != nil {
+			if _, failErr := f.Attempts.Fail(ctx, challenge.UserID, f.now()); failErr != nil {
+				// Recorded as a warning and the attempt still refused. The
+				// alternative — returning the error — would convert a counter
+				// failure into a 500 on a guess that was wrong anyway, which
+				// tells the caller their code was wrong by a different route.
+				f.log().Warn("counting a failed factor attempt failed", "error", failErr.Error())
+			}
+		}
 		challenge.Attempts++
 		// Replace rather than re-put: the TTL must not be extended by a wrong
 		// answer, or an attacker refreshes the clock by using the thing it
@@ -215,9 +266,171 @@ func (f *Framework) Answer(ctx context.Context, handle, factorID, code string) (
 	}
 }
 
+// --- answering, as the login flow needs it ----------------------------------
+
+// Outcome is what one answered attempt yields.
+//
+// It carries the identity fields so the caller never has to read them from
+// anything the browser holds. That is the same property `Challenge` has and
+// the reason it has it: a login completing on the strength of a user id the
+// client supplied would be a login the client chose.
+type Outcome struct {
+	// Complete is true when the challenge is satisfied and a session may be
+	// created.
+	Complete bool
+
+	// UserID, OrgID and PendingID are set whenever the challenge was READ —
+	// including for a wrong code, so the failure can be audited against the
+	// account it was aimed at without a second lookup.
+	//
+	// None of them reaches the browser on any path. They exist so that every
+	// decision downstream is taken against server-side state rather than
+	// against something a form could name.
+	UserID    string
+	OrgID     string
+	PendingID string
+
+	// Methods are the factor types proven, for the session's `auth_methods`.
+	Methods []Type
+
+	// Offered are the types the user may still answer with — set when the
+	// attempt was wrong and the challenge is still live, so the page can be
+	// re-rendered without the caller holding state of its own.
+	Offered []Type
+}
+
+// AnswerType verifies an attempt against the challenge's factor OF ONE TYPE.
+//
+// The login form names a factor TYPE, never a factor id, and this is why: an
+// id in a form is an id a caller can edit, and abuse case A-2 is somebody
+// answering with an id belonging to another user. `Answer` refuses that by
+// checking membership, which is a control that has to be right; naming a type
+// instead means the request cannot express the attack in the first place.
+//
+// A user holds at most one TOTP factor (`ErrAlreadyEnrolled`), so a type
+// resolves to one factor. When `P3-05` allows several passkeys, the first of
+// that type the challenge named is used and the verifier decides — which is
+// how WebAuthn works anyway, since the authenticator picks the credential.
+//
+// `pendingID` is the authorization request the caller believes it is
+// finishing, and it is checked against the one the challenge was ISSUED for
+// before anything is verified. Without it a challenge handle completes
+// whichever request the form names — so somebody who obtained a handle could
+// attach a legitimate second factor to an authorization they started
+// themselves, which is the whole of `Challenge.PendingID`'s purpose and was
+// the bug the end-to-end test found.
+//
+// Checked BEFORE the verifier, so a mismatched request does not spend the
+// user's code: a correct answer refused after the fact would still have
+// recorded its counter, and the user's next real code would be the one after
+// a step they never used.
+func (f *Framework) AnswerType(
+	ctx context.Context, handle, pendingID string, t Type, code string,
+) (Outcome, error) {
+	challenge, err := f.Challenges.Get(ctx, handle)
+	if err != nil {
+		return Outcome{}, err
+	}
+
+	if challenge.PendingID != pendingID {
+		// ErrNoChallenge, not a distinct error: for THIS login there is no
+		// challenge, and saying anything more precise would confirm that the
+		// handle names a real one somewhere else.
+		return Outcome{}, ErrNoChallenge
+	}
+
+	// Identity from the challenge, carried on every return below — including
+	// the failures, so a caller can audit against the right account without
+	// asking a second question whose answer it would then have to trust.
+	who := Outcome{
+		UserID:    challenge.UserID,
+		OrgID:     challenge.OrgID,
+		PendingID: challenge.PendingID,
+	}
+
+	factorID, err := f.idOfType(ctx, challenge, t)
+	if err != nil {
+		return who, err
+	}
+
+	methods, err := f.Answer(ctx, handle, factorID, code)
+	if err != nil {
+		if errors.Is(err, ErrWrongCode) {
+			// Still live. Re-read what may be offered rather than trusting the
+			// copy taken before the attempt — a factor removed in between must
+			// not be offered again.
+			offered, offerErr := f.Peek(ctx, handle)
+			if offerErr != nil {
+				return who, err
+			}
+			who.Offered = offered
+			return who, err
+		}
+		return who, err
+	}
+
+	who.Complete = true
+	who.Methods = methods
+	return who, nil
+}
+
+// Peek reports what a live challenge may be answered with, consuming nothing.
+//
+// For re-rendering the page — a refresh, or a wrong code. It reads the factors
+// fresh rather than returning what the challenge recorded, so a factor removed
+// mid-challenge stops being offered at once. The challenge's id list is still
+// the authority on what may be ANSWERED; this only governs what is shown.
+func (f *Framework) Peek(ctx context.Context, handle string) ([]Type, error) {
+	challenge, err := f.Challenges.Get(ctx, handle)
+	if err != nil {
+		return nil, err
+	}
+	if challenge.Spent() {
+		return nil, ErrChallengeSpent
+	}
+
+	factors, err := f.Store.Confirmed(ctx, challenge.OrgID, challenge.UserID)
+	if err != nil {
+		return nil, fmt.Errorf("mfa: reading enrolled factors: %w", err)
+	}
+
+	offered := make([]Type, 0, len(factors))
+	seen := map[Type]bool{}
+	for _, factor := range factors {
+		if !factor.Active() || !contains(challenge.FactorIDs, factor.ID) {
+			continue
+		}
+		if _, err := f.Registry.For(factor.Type); err != nil {
+			continue
+		}
+		if !seen[factor.Type] {
+			seen[factor.Type] = true
+			offered = append(offered, factor.Type)
+		}
+	}
+	return offered, nil
+}
+
+// idOfType resolves a type to one of the factors THIS challenge named.
+func (f *Framework) idOfType(ctx context.Context, challenge Challenge, t Type) (string, error) {
+	factors, err := f.Store.Confirmed(ctx, challenge.OrgID, challenge.UserID)
+	if err != nil {
+		return "", fmt.Errorf("mfa: reading enrolled factors: %w", err)
+	}
+	for _, factor := range factors {
+		if factor.Type == t && factor.Active() && contains(challenge.FactorIDs, factor.ID) {
+			return factor.ID, nil
+		}
+	}
+	// A type the challenge has no factor for. Refused as ErrNoSuchFactor, the
+	// same answer a guessed id gets, because the difference is a fact about
+	// what this user has enrolled.
+	return "", ErrNoSuchFactor
+}
+
 // factorType finds the type of one of a user's factors.
-func (f *Framework) factorType(ctx context.Context, userID, factorID string) (Type, error) {
-	factors, err := f.Store.Confirmed(ctx, userID)
+func (f *Framework) factorType(ctx context.Context, orgID, userID, factorID string) (Type, error) {
+	factors, err := f.Store.Confirmed(ctx, orgID, userID)
 	if err != nil {
 		return "", fmt.Errorf("mfa: reading enrolled factors: %w", err)
 	}
