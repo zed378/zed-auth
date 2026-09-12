@@ -350,7 +350,7 @@
 
 | | |
 |---|---|
-| **Status** | TODO |
+| **Status** | DONE — [record](../MEMORY/records/2026-09-12-P2-10-org-policy.md). Not yet on staging |
 | **Depends on** | P2-08, P1-02 |
 | **Plan refs** | `docs/PLAN/08-AUTHORIZATION.md` Part B § Policies per Organization, `docs/PLAN/02-REQUIREMENTS.md` FR-12, `docs/PLAN/17-ACCEPTANCE-CRITERIA.md` § Phase 2 |
 | **Spec required** | Yes — security policy |
@@ -368,11 +368,14 @@
 7. Audit every policy change with before and after values.
 
 **Definition of Done**
-- [ ] Password policy and session lifetime are enforced per organization at login, verified by test with two organizations holding different settings.
-- [ ] A login method excluded by policy is refused.
-- [ ] `mfa_required` is stored and validated, with enforcement explicitly deferred to Phase 3 and not claimed anywhere in the UI.
-- [ ] Policy changes are audited with before/after values.
-- [ ] Tightening a policy does not lock out existing users unexpectedly.
+- [x] Password policy and session lifetime are enforced per organization at login, verified with **two organizations holding different settings** — a single-organization test cannot tell enforcement from a constant that happens to match. Password policy was already enforced (`P1-02`); **session lifetime was not**. Every organization got the handler's twelve hours whatever its settings said.
+- [x] A login method excluded by policy is refused — checked **before** any credential work, so the refusal costs nothing and, more importantly, never lands on the address's rate-limit counter. Counting it would let an organization's own configuration lock out its users.
+- [x] `mfa_required` is stored and validated, enforcement deferred to Phase 3, and claimed nowhere: the console marks its Multi-factor tab unavailable rather than describing it.
+- [x] Policy changes are audited with before/after values — `P1-16` already did this, and it was re-read rather than assumed.
+- [x] Tightening a policy does not lock out existing users. The design, stated rather than emergent: `password_policy` governs what a **new** password must satisfy, and the only thing acting on an existing one is `max_age_days`, which `P1-02` enforces at the next login deliberately.
+
+**Left undone, named**
+- The login **page** still renders a password form for an organization that does not permit passwords; the refusal happens on submission. Correct as a security boundary, poor as an interface — and a template change rather than a policy one.
 
 ---
 
