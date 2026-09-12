@@ -440,7 +440,7 @@ func setup(t *testing.T) *fixture {
 		},
 		RateLimit: &management.RateLimit{
 			Counter: ratelimit.NewQuotas(rdb, nil, discard()).
-				WithQuota(ratelimit.Quota{Limit: 3000, Window: time.Minute}),
+				WithQuota(ratelimit.Quota{Limit: 3000, Window: time.Minute}, ""),
 		},
 		Idempotency: &management.Idempotency{Claims: management.NewDBClaims(db), Log: discard()},
 		Audit:       &management.AuditGuard{Log: discard()},
