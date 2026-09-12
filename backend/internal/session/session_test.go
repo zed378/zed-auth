@@ -391,3 +391,58 @@ func TestTokenZeroValue(t *testing.T) {
 		t.Errorf("GoString() = %q", zero.GoString())
 	}
 }
+
+// --- P2-10: an organization's own lifetime ----------------------------------
+
+// WithLifetimeHours replaces the absolute lifetime and KEEPS the idle timeout.
+//
+// The distinction is the whole design: how long a session may live is something
+// an organization configures (`session_lifetime_hours` in its settings), and how
+// this service treats inactivity is not — there is no field for it, and
+// inventing one here would be a policy nobody asked for and nobody can see.
+func TestWithLifetimeHoursReplacesOnlyTheAbsoluteBound(t *testing.T) {
+	base := Policy{AbsoluteLifetime: 12 * time.Hour, IdleTimeout: 30 * time.Minute}
+
+	got := base.WithLifetimeHours(48)
+
+	if got.AbsoluteLifetime != 48*time.Hour {
+		t.Errorf("absolute lifetime is %s, want 48h", got.AbsoluteLifetime)
+	}
+	if got.IdleTimeout != base.IdleTimeout {
+		t.Errorf("the idle timeout changed to %s; it is not an organization's to configure", got.IdleTimeout)
+	}
+}
+
+// Out of range is clamped, not honoured and not refused.
+//
+// Refusing would mean one bad settings value stops every login in the
+// organization — a typo in a form becoming an outage. Honouring it would mean a
+// session outliving any policy anybody intended.
+func TestWithLifetimeHoursClampsRatherThanRefusing(t *testing.T) {
+	base := Policy{AbsoluteLifetime: 12 * time.Hour, IdleTimeout: 30 * time.Minute}
+
+	if got := base.WithLifetimeHours(100000); got.AbsoluteLifetime > MaxAbsoluteLifetime {
+		t.Errorf("100000 hours produced %s, past the ceiling of %s", got.AbsoluteLifetime, MaxAbsoluteLifetime)
+	}
+	if got := base.WithLifetimeHours(0); got.AbsoluteLifetime != base.AbsoluteLifetime {
+		t.Errorf("zero hours changed the lifetime to %s; absent configuration must leave it alone", got.AbsoluteLifetime)
+	}
+	if got := base.WithLifetimeHours(-5); got.AbsoluteLifetime != base.AbsoluteLifetime {
+		t.Errorf("a negative lifetime changed it to %s", got.AbsoluteLifetime)
+	}
+}
+
+// The hour bounds `internal/authn` duplicates must match the durations here.
+//
+// They are duplicated rather than imported because importing `internal/session`
+// from `internal/authn` would be a cycle — sessions already depend on the
+// password policy. This is what keeps the two honest.
+func TestTheHourBoundsMatchTheDurationBounds(t *testing.T) {
+	if MinAbsoluteLifetime > time.Hour {
+		t.Errorf("authn.MinSessionLifetimeHours is 1, but the floor here is %s — a 1-hour setting would be clamped upward",
+			MinAbsoluteLifetime)
+	}
+	if MaxAbsoluteLifetime != 720*time.Hour {
+		t.Errorf("the ceiling here is %s; authn.MaxSessionLifetimeHours says 720", MaxAbsoluteLifetime)
+	}
+}

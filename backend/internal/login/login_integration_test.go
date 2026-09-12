@@ -183,9 +183,16 @@ func setup(t *testing.T) *stack {
 // service redirected the browser to.
 func (s *stack) begin(t *testing.T) string {
 	t.Helper()
+	return s.beginFor(t, s.appID)
+}
+
+// beginFor is begin for a named application, so a test can drive a second
+// organization's client through the same flow (P2-10).
+func (s *stack) beginFor(t *testing.T, appID string) string {
+	t.Helper()
 
 	query := url.Values{
-		"client_id":             {s.appID},
+		"client_id":             {appID},
 		"redirect_uri":          {"https://app.example.com/cb"},
 		"response_type":         {"code"},
 		"scope":                 {"openid profile"},
