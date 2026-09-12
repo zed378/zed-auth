@@ -585,6 +585,108 @@ export interface paths {
         patch: operations["updateProject"];
         trace?: never;
     };
+    "/v1/organizations/{org_id}/projects/{project_id}/roles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The organization that owns the resource. Every request is scoped to exactly one. */
+                org_id: components["parameters"]["OrganizationId"];
+                /** @description The project the resource belongs to. */
+                project_id: components["parameters"]["ProjectId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * List a project's roles
+         * @description Requires `PROJECT_OWNER` over this project, or any organization-scoped
+         *     role over the organization containing it.
+         *
+         *     Ordered by `key` rather than by creation time. A role list is read as a
+         *     reference table, and somebody looking for `billing-admin` should not
+         *     have to know when it was created.
+         *
+         *     Each role carries `grant_count`, so a console can warn before a delete
+         *     instead of discovering the refusal afterwards.
+         */
+        get: operations["listRoles"];
+        put?: never;
+        /**
+         * Define a role
+         * @description Requires `PROJECT_OWNER` over this project, or any organization-scoped
+         *     role over the organization containing it.
+         *
+         *     A role's `key` is unique within its project and may repeat freely
+         *     across projects: `admin` in one project is unrelated to `admin` in
+         *     another (`docs/PLAN/08` Part A). The five administrative role names are
+         *     reserved, because a project role called `org_admin` would arrive in a
+         *     token beside a manager role of the same name meaning something else.
+         */
+        post: operations["createRole"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/organizations/{org_id}/projects/{project_id}/roles/{role_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The organization that owns the resource. Every request is scoped to exactly one. */
+                org_id: components["parameters"]["OrganizationId"];
+                /** @description The project the resource belongs to. */
+                project_id: components["parameters"]["ProjectId"];
+                /**
+                 * @description The role. Note that a **grant** references a role by its `key` within a
+                 *     project, not by this id (`docs/PLAN/04` § user_grants) — the id
+                 *     addresses the row, the key is what a token carries.
+                 */
+                role_id: components["parameters"]["RoleId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Read a role
+         * @description Requires `PROJECT_OWNER` over this project, or any organization-scoped
+         *     role over the organization containing it.
+         */
+        get: operations["getRole"];
+        put?: never;
+        post?: never;
+        /**
+         * Delete a role
+         * @description Requires `PROJECT_OWNER` over this project, or any organization-scoped
+         *     role over the organization containing it.
+         *
+         *     **Refused while any grant still references the role**, with the count,
+         *     rather than cascaded. A cascade removes access from every user holding
+         *     the role across every application reading it, in response to a request
+         *     that looks like tidying up — and nothing afterwards explains why those
+         *     people lost access.
+         *
+         *     A built-in role cannot be deleted at all.
+         */
+        delete: operations["deleteRole"];
+        options?: never;
+        head?: never;
+        /**
+         * Change a role's label or permissions
+         * @description Requires `PROJECT_OWNER` over this project, or any organization-scoped
+         *     role over the organization containing it.
+         *
+         *     **The `key` cannot be changed, by anyone.** A grant references a role by
+         *     key with no foreign key to cascade, so re-keying would silently orphan
+         *     every grant holding the old one — a rename that removes access. A
+         *     different key means a different role.
+         *
+         *     A built-in role's `display_name` and permissions may still be edited;
+         *     only its identity is frozen.
+         */
+        patch: operations["updateRole"];
+        trace?: never;
+    };
     "/v1/organizations/{org_id}/projects/{project_id}/applications": {
         parameters: {
             query?: never;
@@ -973,6 +1075,67 @@ export interface components {
          * @example read-only
          */
         RoleKey: string;
+        /**
+         * @description A named bundle of permission keys, belonging to exactly one project.
+         *
+         *     Roles are scoped per project so that `admin` in one project cannot
+         *     imply `admin` in another (`docs/PLAN/08` Part A) — the failure that
+         *     prevents is the one nobody notices until it is an incident.
+         */
+        Role: {
+            id: components["schemas"]["ResourceId"];
+            project_id: components["schemas"]["ResourceId"];
+            key: components["schemas"]["RoleKey"];
+            /** @example Billing Administrator */
+            display_name: string;
+            /**
+             * @description What the role carries. May be empty: a role with no permissions is
+             *     a label, and labels are useful before the permissions exist.
+             * @example [
+             *       "billing:read",
+             *       "billing.invoice:write"
+             *     ]
+             */
+            permission_keys: components["schemas"]["PermissionKey"][];
+            /**
+             * @description A role the service owns. It cannot be deleted or re-keyed, by any
+             *     caller. No built-in roles are seeded today — see `PG-30`.
+             */
+            is_builtin: boolean;
+            /**
+             * @description How many user grants reference this role. It is what a delete would
+             *     have to refuse, so a console can warn first.
+             */
+            grant_count: number;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        RoleList: {
+            roles: components["schemas"]["Role"][];
+            page_info?: components["schemas"]["PageInfo"];
+        };
+        RoleCreate: {
+            key: components["schemas"]["RoleKey"];
+            display_name: string;
+            /**
+             * @description Optional. Duplicates are **refused**, not folded: silently changing
+             *     what was sent means the stored row does not match the request, and
+             *     the caller finds out from a later read.
+             */
+            permission_keys?: components["schemas"]["PermissionKey"][];
+        };
+        /** @description `key` is absent deliberately and is not editable. See the endpoint. */
+        RoleUpdate: {
+            display_name: string;
+            /**
+             * @description Replaces the set entirely. A partial update of an array is
+             *     ambiguous — add, remove, or replace — and the audit event records
+             *     what was added and removed, which needs a complete before and after.
+             */
+            permission_keys: components["schemas"]["PermissionKey"][];
+        };
         /**
          * @description A tenant.
          *
@@ -1818,6 +1981,12 @@ export interface components {
         ApplicationId: components["schemas"]["ResourceId"];
         /** @description The project the resource belongs to. */
         ProjectId: components["schemas"]["ResourceId"];
+        /**
+         * @description The role. Note that a **grant** references a role by its `key` within a
+         *     project, not by this id (`docs/PLAN/04` § user_grants) — the id
+         *     addresses the row, the key is what a token carries.
+         */
+        RoleId: components["schemas"]["ResourceId"];
         /**
          * @description A client-generated key making a retried `POST` safe. Replaying a
          *     request with the same key returns the original result rather than
@@ -2738,6 +2907,207 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
+            429: components["responses"]["RateLimited"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    listRoles: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Maximum items to return. The server may return fewer, and returning
+                 *     fewer never means the collection is exhausted — only an absent
+                 *     `next_page_token` means that.
+                 */
+                page_size?: components["parameters"]["PageSize"];
+                /**
+                 * @description The `next_page_token` from the previous response. Opaque: its contents
+                 *     are not part of the contract and must not be constructed, parsed, or
+                 *     persisted by a client.
+                 */
+                page_token?: components["parameters"]["PageToken"];
+            };
+            header?: never;
+            path: {
+                /** @description The organization that owns the resource. Every request is scoped to exactly one. */
+                org_id: components["parameters"]["OrganizationId"];
+                /** @description The project the resource belongs to. */
+                project_id: components["parameters"]["ProjectId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of roles. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoleList"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["RateLimited"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    createRole: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description A client-generated key making a retried `POST` safe. Replaying a
+                 *     request with the same key returns the original result rather than
+                 *     creating a second resource — which matters most for automated
+                 *     provisioning, where a network timeout is indistinguishable from a
+                 *     failure (`docs/PLAN/05` Part B).
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                /** @description The organization that owns the resource. Every request is scoped to exactly one. */
+                org_id: components["parameters"]["OrganizationId"];
+                /** @description The project the resource belongs to. */
+                project_id: components["parameters"]["ProjectId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RoleCreate"];
+            };
+        };
+        responses: {
+            /** @description The role was defined. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Role"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["RateLimited"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    getRole: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The organization that owns the resource. Every request is scoped to exactly one. */
+                org_id: components["parameters"]["OrganizationId"];
+                /** @description The project the resource belongs to. */
+                project_id: components["parameters"]["ProjectId"];
+                /**
+                 * @description The role. Note that a **grant** references a role by its `key` within a
+                 *     project, not by this id (`docs/PLAN/04` § user_grants) — the id
+                 *     addresses the row, the key is what a token carries.
+                 */
+                role_id: components["parameters"]["RoleId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The role. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Role"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["RateLimited"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    deleteRole: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The organization that owns the resource. Every request is scoped to exactly one. */
+                org_id: components["parameters"]["OrganizationId"];
+                /** @description The project the resource belongs to. */
+                project_id: components["parameters"]["ProjectId"];
+                /**
+                 * @description The role. Note that a **grant** references a role by its `key` within a
+                 *     project, not by this id (`docs/PLAN/04` § user_grants) — the id
+                 *     addresses the row, the key is what a token carries.
+                 */
+                role_id: components["parameters"]["RoleId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The role was deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["RateLimited"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    updateRole: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The organization that owns the resource. Every request is scoped to exactly one. */
+                org_id: components["parameters"]["OrganizationId"];
+                /** @description The project the resource belongs to. */
+                project_id: components["parameters"]["ProjectId"];
+                /**
+                 * @description The role. Note that a **grant** references a role by its `key` within a
+                 *     project, not by this id (`docs/PLAN/04` § user_grants) — the id
+                 *     addresses the row, the key is what a token carries.
+                 */
+                role_id: components["parameters"]["RoleId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RoleUpdate"];
+            };
+        };
+        responses: {
+            /** @description The updated role. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Role"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
             429: components["responses"]["RateLimited"];
             500: components["responses"]["InternalError"];
         };

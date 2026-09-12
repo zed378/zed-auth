@@ -115,6 +115,9 @@ type Deps struct {
 	// ApplicationAPI implements the application operations (P1-18).
 	ApplicationAPI Applications
 
+	// RoleAPI implements the role operations (P2-02).
+	RoleAPI Roles
+
 	// UserAPI implements the user operations (P1-19).
 	UserAPI Users
 
@@ -163,6 +166,9 @@ func New(cfg config.HTTPConfig, deps Deps) *Server {
 	}
 	if deps.V1 != nil && deps.ApplicationAPI == nil {
 		panic("httpserver.New: ApplicationAPI is required when V1 is configured")
+	}
+	if deps.V1 != nil && deps.RoleAPI == nil {
+		panic("httpserver.New: RoleAPI is required when V1 is configured")
 	}
 	if deps.V1 != nil && deps.UserAPI == nil {
 		panic("httpserver.New: UserAPI is required when V1 is configured")
@@ -327,6 +333,7 @@ func New(cfg config.HTTPConfig, deps Deps) *Server {
 		Manager:      deps.Organizations,
 		Projects:     deps.ProjectAPI,
 		Applications: deps.ApplicationAPI,
+		Roles:        deps.RoleAPI,
 		Users:        deps.UserAPI,
 		AuditLog:     deps.AuditAPI,
 	}
@@ -473,6 +480,7 @@ type apiRoutes struct {
 	Manager
 	Projects
 	Applications
+	Roles
 	Users
 	AuditLog
 }
@@ -518,6 +526,19 @@ type Applications interface {
 	UpdateApplication(ctx context.Context, request api.UpdateApplicationRequestObject) (api.UpdateApplicationResponseObject, error)
 	DeleteApplication(ctx context.Context, request api.DeleteApplicationRequestObject) (api.DeleteApplicationResponseObject, error)
 	RotateApplicationSecret(ctx context.Context, request api.RotateApplicationSecretRequestObject) (api.RotateApplicationSecretResponseObject, error)
+}
+
+// Roles is the role half of the Management API (P2-02).
+//
+// Project-scoped rather than organization-scoped, and it is the first part of
+// /v1 that is: every operation here requires PROJECT_OWNER over the project in
+// the path, which an organization-scoped role also satisfies (`P2-05`).
+type Roles interface {
+	ListRoles(ctx context.Context, request api.ListRolesRequestObject) (api.ListRolesResponseObject, error)
+	CreateRole(ctx context.Context, request api.CreateRoleRequestObject) (api.CreateRoleResponseObject, error)
+	GetRole(ctx context.Context, request api.GetRoleRequestObject) (api.GetRoleResponseObject, error)
+	UpdateRole(ctx context.Context, request api.UpdateRoleRequestObject) (api.UpdateRoleResponseObject, error)
+	DeleteRole(ctx context.Context, request api.DeleteRoleRequestObject) (api.DeleteRoleResponseObject, error)
 }
 
 // Users is the user half of the Management API (P1-19).

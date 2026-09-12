@@ -264,3 +264,50 @@ func TestWalkingEveryPageSeesEveryRowOnce(t *testing.T) {
 		}
 	}
 }
+
+// --- the key form (P2-02) ---------------------------------------------------
+
+// Roles are ordered by name rather than by time, so their cursor carries a key.
+// Both forms round-trip, and a token carrying BOTH is refused: which one the
+// reader honours would decide where the page starts, and a token whose meaning
+// depends on that pages differently depending on the list it is handed to.
+func TestACursorCarriesExactlyOnePosition(t *testing.T) {
+	keyToken, err := KeyCursor("billing-admin").Encode()
+	if err != nil {
+		t.Fatalf("encoding a key cursor: %v", err)
+	}
+	back, err := DecodeCursor(keyToken)
+	if err != nil {
+		t.Fatalf("a key cursor was refused: %v", err)
+	}
+	if back.Key != "billing-admin" {
+		t.Errorf("key round-tripped as %q", back.Key)
+	}
+	if back.ID != "" || !back.After.IsZero() {
+		t.Errorf("a key cursor came back carrying a time position too: %+v", back)
+	}
+
+	timeToken, err := Cursor{After: time.Unix(1, 0).UTC(), ID: "an-id"}.Encode()
+	if err != nil {
+		t.Fatalf("encoding a time cursor: %v", err)
+	}
+	if _, err := DecodeCursor(timeToken); err != nil {
+		t.Errorf("a time cursor was refused: %v", err)
+	}
+
+	bothToken, err := Cursor{After: time.Unix(1, 0).UTC(), ID: "an-id", Key: "a-key"}.Encode()
+	if err != nil {
+		t.Fatalf("encoding: %v", err)
+	}
+	if _, err := DecodeCursor(bothToken); err == nil {
+		t.Error("a token carrying two positions was accepted")
+	}
+
+	neither, err := Cursor{}.Encode()
+	if err != nil {
+		t.Fatalf("encoding: %v", err)
+	}
+	if _, err := DecodeCursor(neither); err == nil {
+		t.Error("a token carrying no position was accepted")
+	}
+}

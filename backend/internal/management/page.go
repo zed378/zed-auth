@@ -45,7 +45,23 @@ const (
 type Cursor struct {
 	After time.Time `json:"a"`
 	ID    string    `json:"i"`
+
+	// Key positions a list sorted by a NAME rather than by a time.
+	//
+	// Roles are the one such list (`P2-02`): they are read as a reference
+	// table, and somebody looking for `billing-admin` should not have to know
+	// when it was created. A name is already unique within its parent — the
+	// schema says so — so it needs no tiebreak, which is why this is one field
+	// where the time-ordered form needs two.
+	//
+	// Exactly one form is set. A cursor with both would be a cursor whose
+	// meaning depends on which the reader looks at first, and `DecodeCursor`
+	// refuses it.
+	Key string `json:"k,omitempty"`
 }
+
+// KeyCursor is a position in a list sorted by name.
+func KeyCursor(key string) Cursor { return Cursor{Key: key} }
 
 // Encode renders a cursor as an opaque page token.
 //
@@ -87,7 +103,20 @@ func DecodeCursor(token string) (Cursor, error) {
 			Reason: "page_token is not a cursor",
 		}
 	}
-	if c.ID == "" || c.After.IsZero() {
+	timeOrdered := c.ID != "" && !c.After.IsZero()
+	keyOrdered := c.Key != ""
+
+	switch {
+	case timeOrdered && keyOrdered:
+		// Both forms in one token. Which the reader honours would decide where
+		// the page starts, and a token whose meaning depends on that is a
+		// token that pages differently depending on which list it is handed
+		// to.
+		return Cursor{}, Fault{
+			Class: Invalid, Message: "The page token is not valid.",
+			Reason: "page_token carries two positions",
+		}
+	case !timeOrdered && !keyOrdered:
 		return Cursor{}, Fault{
 			Class: Invalid, Message: "The page token is not valid.",
 			Reason: "page_token is missing a position",

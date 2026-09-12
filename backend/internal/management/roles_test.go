@@ -331,6 +331,38 @@ func TestAStrangerCannotTellAProjectExists(t *testing.T) {
 	}
 }
 
+// Visibility on a project-scoped route follows GRANTS, not membership.
+//
+// A PROJECT_OWNER's token belongs to the organization, so "is a member of" is
+// true for every project in it — and listing projects requires ORG_ADMIN, so
+// that same caller cannot enumerate them. A 403 on one project id would
+// therefore answer "does this project exist?" one request at a time.
+//
+// Found by `P2-02`'s endpoint tests. This unit test exists so the rule is
+// pinned where it is implemented as well as where it was noticed.
+func TestAProjectIsInvisibleToSomebodyWithNoGrantOverIt(t *testing.T) {
+	// A member of orgA who owns project A, asking about project B.
+	owner := caller(Grant{Role: ProjectOwner, ScopeID: projectA})
+
+	d := Authorize(owner, Requirement{Role: ProjectOwner, Scope: ScopeProject},
+		Target{OrgID: orgA, ProjectID: projectB})
+	if d.Allowed {
+		t.Fatal("allowed")
+	}
+	if !d.Invisible {
+		t.Error("a project the caller holds nothing over was answered 403, which confirms it exists")
+	}
+
+	// An ORG_ADMIN of the same organization gets 403 instead: they can list
+	// the projects, so concealing one buys nothing and costs clarity.
+	admin := caller(Grant{Role: OrgAdmin, ScopeID: orgA})
+	d = Authorize(admin, Requirement{Role: InstanceOwner, Scope: ScopeOrganization},
+		Target{OrgID: orgA, ProjectID: projectB})
+	if d.Invisible {
+		t.Error("an ORG_ADMIN was told 404 for a project in their own organization")
+	}
+}
+
 // The whole hierarchy, exhaustively: every (held role, required role) pair,
 // against the table docs/PLAN/08 Part C draws. A table-driven test over every
 // combination is what the card asks for, and it is the only way to notice that
