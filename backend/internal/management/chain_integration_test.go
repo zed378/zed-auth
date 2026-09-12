@@ -116,7 +116,7 @@ func setupV1(t *testing.T) *v1 {
 		},
 		RateLimit: &RateLimit{
 			Counter: ratelimit.NewQuotas(rdb, nil, discard()).
-				WithQuota(ratelimit.Quota{Limit: 5, Window: time.Minute}),
+				WithQuota(ratelimit.Quota{Limit: 5, Window: time.Minute}, ""),
 		},
 		Idempotency: &Idempotency{Claims: NewDBClaims(db), Log: discard()},
 		Audit:       &AuditGuard{Log: discard(), Observer: s.guard},

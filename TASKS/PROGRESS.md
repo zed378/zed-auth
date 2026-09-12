@@ -2,9 +2,15 @@
 
 Single source of truth for where the project stands. Updated in the same commit as the work it describes (`00-TASK-CONVENTIONS.md` global DoD item 8).
 
-**Last updated**: 2026-09-11
-**Current phase**: Phase 1 — MVP Core Auth (28 / 29 done — `P1-29` was added mid-phase; see its card). Only `P1-28`, the acceptance walk, remains. Phase 0 is 20 / 21; `P0-20` stays WIP pending the pull-based deployment re-read
-**Overall**: 42 / 178 tasks done
+**Last updated**: 2026-09-12
+**Current phase**: Phase 2 complete (17 / 17), tagged `v0.2.0-phase2` — [summary](../MEMORY/records/2026-09-12-P2-phase-2-summary.md). Phase 3 is gated on its threat-model review, which is [done](../MEMORY/records/2026-09-12-P2-17-phase-3-threat-review.md). Phase 0 is 20 / 21; `P0-20` stays WIP pending the pull-based deployment re-read
+**Overall**: 66 / 178 tasks done
+
+> **Phase 2 has not run on staging.** The VM has been unreachable since its deploy key
+> was lost with a session scratchpad. Verification moved to a local Docker stack
+> (`scripts/e2e-up.sh`), which is a real service, database, Redis and browser — the
+> E2E suite, the acceptance script and the load test all ran against it. That is not
+> staging, and restoring VM access should be the first thing Phase 3 does.
 
 Status values: `TODO` · `BLOCKED` · `SPEC` · `WIP` · `REVIEW` · `DONE` · `DROPPED`
 Sizes: `S` under half a day · `M` one to two days · `L` several days · `XL` must be split
@@ -17,8 +23,8 @@ Sizes: `S` under half a day · `M` one to two days · `L` several days · `XL` m
 |---|---|---|---|---|
 | [Phase 0 — Foundation](./PHASE-0-FOUNDATION.md) | 21 | 20 | **ACTIVE** — `P0-20` only | — |
 | [Phase 1 — MVP: Core Auth + SSO](./PHASE-1-MVP-CORE-AUTH-SSO.md) | 29 | 29 | **COMPLETE** — [summary](../MEMORY/records/2026-09-12-P1-phase-1-summary.md), tagged `v0.1.0-phase1` | Phase 0 exit checklist |
-| [Phase 2 — RBAC & Multi-Tenancy](./PHASE-2-RBAC-MULTITENANCY.md) | 17 | 10 | **ACTIVE** | Phase 1 exit + `P1-28` — **met** 2026-09-12 |
-| [Phase 3 — Advanced Security](./PHASE-3-ADVANCED-SECURITY.md) | 15 | 0 | Not started | Phase 2 exit + threat model review |
+| [Phase 2 — RBAC & Multi-Tenancy](./PHASE-2-RBAC-MULTITENANCY.md) | 17 | 17 | **COMPLETE** — [summary](../MEMORY/records/2026-09-12-P2-phase-2-summary.md), tagged `v0.2.0-phase2`. Not yet on staging | Phase 1 exit + `P1-28` — **met** 2026-09-12 |
+| [Phase 3 — Advanced Security](./PHASE-3-ADVANCED-SECURITY.md) | 15 | 0 | **READY** — gate met: Phase 2 exit checklist verified, [threat review](../MEMORY/records/2026-09-12-P2-17-phase-3-threat-review.md) done | Phase 2 exit + threat model review |
 | [Phase 4 — Enterprise Interop](./PHASE-4-ENTERPRISE-INTEROP.md) | 16 | 0 | Not started | Phase 3 exit + threat model review |
 | [Phase 4b — ABAC](./PHASE-4B-ABAC.md) | 11 | 0 | **CONDITIONAL** | A concrete requirement RBAC cannot express (`P4B-00`) |
 | [Phase 5 — Hardening](./PHASE-5-HARDENING.md) | 16 | 0 | Not started | Phase 4 exit; 4b done or declined |
@@ -112,13 +118,13 @@ Sizes: `S` under half a day · `M` one to two days · `L` several days · `XL` m
 | P2-08 | Multi-organization activation | L | **DONE** (load unmeasured — needs the VM) — mostly verification, and it found a real hole: `applications` had no rule that its organization owns its project, so a client could be filed under the wrong tenant and then hidden by RLS from the organization that owns it. Writable that way since Phase 0. One trigger function now serves all four tables — and **raises** rather than silently passing on a table whose organization column it does not recognise, which the first version would have done to `project_grants`. An architecture test pins the six reads that legitimately run unscoped. **Not yet on staging** | P0-08, P1-16 |
 | P2-09 | Tenant resolution strategy | M | **DONE** — writing the decision down revealed one had already been made: the tenant is resolved from the **OIDC client**, which is none of the four options `docs/PLAN/08` Part B lists (`PG-33`, [ADR-023](../MEMORY/DECISIONS.md)). Better than all four for one reason — there is nothing for a caller to supply and therefore nothing to forge. Step 4 is tested by reading the source, because "no header can change it" is a claim about every header. **Not yet on staging** | P2-08 |
 | P2-10 | Per-organization policy enforcement | M | **DONE** — `docs/PLAN/17`'s wording is load-bearing: settings must be **enforced at login, not merely stored**. `session_lifetime_hours` and `allowed_login_methods` were accepted, validated, returned by the API, shown in the console, and **read by nothing** — every organization got the same twelve hours. The method check runs before any credential work, so a policy refusal never lands on the address's rate-limit counter. **Not yet on staging** | P2-08, P1-02 |
-| P2-11 | Console — Roles tab | M | TODO | P2-02 |
-| P2-12 | Console — Authorizations tab | L | TODO | P2-03 |
-| P2-13 | Console — organization switcher | M | TODO | P2-08 |
-| P2-14 | Console — Policies (Access) screen | M | TODO | P2-10 |
-| P2-15 | Docs — RBAC and multi-tenancy guides | M | TODO | P2-06, P2-08 |
-| P2-16 | Phase 2 test suite | L | TODO | all above |
-| P2-17 | Phase 2 acceptance validation | M | TODO | P2-16 |
+| P2-11 | Console — Roles tab | M | **DONE** — client validation is the **server's**, generated from the same OpenAPI schema; replacing it with a rule anybody would write from the field's own help text turns a test red. Deletion states the affected-grant count before the request, because the service refuses a referenced role and an administrator who cannot see the count discovers that by trying. Found a `Modal` bug: its focus effect re-ran on every keystroke, so typing in any dialog was limited to one character per field — two existing callers were safe by accident. **Not yet on staging** | P2-02 |
+| P2-12 | Console — Authorizations tab | L | **DONE** — search-then-act, because that is the API's shape: grants are exposed per user and nothing lists a project's roster (`PG-36`). The role-source badge is built for a case that cannot happen yet, so Phase 4 turns it on rather than auditing every screen. Verified end-to-end against a real service, each assertion made twice — once against the screen, once against the API. A mutation caught a vacuous test whose fixture ordering made a project filter irrelevant. **Not yet on staging** | P2-03 |
+| P2-13 | Console — organization switcher | M | **DONE** — and it needed an endpoint that did not exist (`PG-37`): the DoD asks for server-side truth, and the token's manager-role claim carries role names **without their scopes**. Added `GET /v1/me/organizations` with a `ScopeSelf` authorization scope. A `text[]` scanned as a string made it answer 500 for every caller who administered anything — two tests failed and **four passed**, because a 500 renders as an empty list. **Not yet on staging** | P2-08 |
+| P2-14 | Console — Policies (Access) screen | M | **DONE** — and it found the API breaking a promise it had made since `P1-16`: `settings` was documented as merged "key by key" and `jsonb \|\| jsonb` merges one level, so raising a minimum password length silently reset a deliberate "uppercase not required". Fixed with a general recursive merge. `mfa_required` is shown and is not allowed to lie about being enforced. **Not yet on staging** | P2-10 |
+| P2-15 | Docs — RBAC and multi-tenancy guides | M | **DONE** — "the claim format matches the emitted tokens byte for byte" is a claim about two files agreeing, so it is **tested**: the expected key is built from `RoleClaimNamespace` and asserted to appear in the published pages. Verified by introducing the typo a reader would copy. The audit found the reverse problem too — a page still saying roles "arrive in Phase 2" after they had shipped | P2-06, P2-08 |
+| P2-16 | Phase 2 test suite | L | **DONE** — 6,300 hierarchy combinations against an expectation derived from `docs/PLAN/08`'s **prose**, not from `satisfies`; claim tampering with validly-signed tokens whose claims contradict the database; and RLS **query-plan** assertions at 400 tenants, because a predicate the planner cannot push into an index breaks nothing and makes the service unusable at scale | all above |
+| P2-17 | Phase 2 acceptance validation | M | **DONE** — 19 acceptance checks against a running service, 0 failures; `/v1/authz/check` at p50 6.3ms / p95 22.0ms / p99 30.4ms against 20/80/150ms targets. The load test found the endpoint sharing the Management API's 600/minute bound — ten a second for something called on every protected request — and refusing 19,658 of 40,515 requests. Fixed with its own quota and counter namespace. **Not yet on staging** | P2-16 |
 
 **Highest-risk task**: `P2-04`. The token claim format is the hardest thing in the project to change later, because every consumer application reads it.
 

@@ -451,7 +451,7 @@ func run() error {
 	// five messages an hour to one address is generous for onboarding and
 	// useless for flooding somebody.
 	mailQuotas := ratelimit.NewQuotas(rdb, rateLimitObserver{metrics}, log).
-		WithQuota(ratelimit.Quota{Limit: 5, Window: time.Hour})
+		WithQuota(ratelimit.Quota{Limit: 5, Window: time.Hour}, "")
 
 	userStore := user.NewStore()
 	users := &user.Handler{
@@ -479,6 +479,13 @@ func run() error {
 		},
 		RateLimit: &management.RateLimit{
 			Counter: ratelimit.NewQuotas(rdb, rateLimitObserver{metrics}, log),
+
+			// A separate, looser bound for the routes a consumer calls on
+			// every protected request (P2-17). Its own namespace, or the two
+			// allowances would share a counter and the looser one would be
+			// spent by traffic the tighter one governs.
+			HotCounter: ratelimit.NewQuotas(rdb, rateLimitObserver{metrics}, log).
+				WithQuota(ratelimit.PerClientAuthz, "authz"),
 		},
 		Idempotency: &management.Idempotency{
 			Claims: management.NewDBClaims(db),

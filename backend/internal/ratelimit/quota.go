@@ -38,6 +38,29 @@ type Quota struct {
 // part that does not change when a secret does.
 var PerClient = Quota{Limit: 600, Window: time.Minute}
 
+// PerClientAuthz bounds `/v1/authz/check`, which is a different kind of traffic
+// (P2-17).
+//
+// PerClient is sized for a console session and a provisioning script. A
+// consumer calls THIS endpoint on every protected request — `docs/PLAN/12`
+// calls it "called frequently at runtime by resource servers" — so ten a second
+// is a ceiling one busy application reaches with a handful of users, and the
+// 429 lands on its hot path rather than on an administrator's tooling.
+//
+// `P2-17`'s load test found exactly that: 19,658 of 40,515 requests refused at
+// 20 concurrent workers, against an endpoint whose own latency targets are the
+// tightest in the plan.
+//
+// 6,000 a minute — a hundred a second sustained per client. Still a real bound
+// on a stolen credential, and the thing a stolen credential would do here is
+// worth naming: this endpoint answers allow/deny for one action at a time,
+// within the caller's own project, and is deliberately unhelpful as an oracle
+// (a nonexistent subject and an unauthorized one are byte-identical). So the
+// enumeration value of the volume between 600 and 6,000 is close to nothing,
+// while the availability cost of the lower bound is a consumer's users seeing
+// failures.
+var PerClientAuthz = Quota{Limit: 6000, Window: time.Minute}
+
 // Verdict is what a quota check answers, and it is shaped to be the headers.
 //
 // Every field is reported on EVERY response, not only on a refusal. A client
