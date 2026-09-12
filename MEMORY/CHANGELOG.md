@@ -10,6 +10,29 @@ Format follows Keep a Changelog conventions, grouped by release once releases ex
 
 ## Unreleased
 
+### 2026-09-12 — Phase 1 complete, tagged `v0.1.0-phase1`
+
+**Verified** — the eight Phase 1 acceptance criteria, against the deployed service ([phase summary](./records/2026-09-12-P1-phase-1-summary.md), [threat-model review](./records/2026-09-11-P1-28-threat-model-review.md))
+- 35 assertions through the public hostnames, 0 failures, re-run green after the staging restore. Walked deliberately rather than declared done because the tickets were closed, which is the whole point of `P1-28`.
+- The Phase 2 threat-model review covers all nineteen categories in `docs/SECURITY/05` — sixteen verified against a named test, three with no surface to attack yet, two gaps logged rather than glossed (`PG-27` no SBOM, `PG-28` no image scan).
+
+**Added** — the first load test ([`scripts/loadtest/`](../scripts/loadtest/))
+- Runs on the staging VM against the service's own port; through the tunnel it would have measured Cloudflare. Standard library only, and mutation-tested: `LOAD_STRICT` divides every target so the harness must prove it can report `OVER`, and a deliberately wrong org id proves failures are counted rather than averaged into the percentiles.
+- **Every endpoint is within its `docs/PLAN/12` target in isolation; `/oauth/token` misses p50 and p95 in the mixed workload** — 72.7ms and 209ms against 50 and 200. Exactly what the plan's "production never sees one traffic type" clause exists to catch. Accepted rather than fixed, with the capacity curve recorded: token throughput flattens at ~385 rps from four workers on, authorize peaks at 1774, and in both the ceiling is **Postgres CPU** rather than the Go service.
+
+**Fixed**
+- **The console had no Client ID column**, which `docs/UI-UX/08` has specified since it was written. It could register an application and then never tell anyone what it was called. Found by walking the acceptance criteria, not by reading the code.
+- **A test suite expired at noon.** `internal/management`'s integration tests pin their clock to 2026-09-10 and write records with a 24-hour TTL, while `created_at` came from the column DEFAULT — the *database's* clock — and `expires_at` from the caller's. The CHECK constraint was comparing two clocks, so in production it asserted "the caller's clock is less than a day behind the database's". `sessions` and `user_tokens` already wrote both from one clock; idempotency was the odd one out. `check.sh` gains the gate, whose first version passed while the bug was in the tree.
+- **A security gate that passed without reading its input.** The owner-credential check used `echo | grep -q` under `pipefail`, where grep exits at its first match and the writer's remaining bytes fail — a non-zero pipeline indistinguishable from "no match", and "no match" was wired to `pass`.
+
+**Found**
+- `PG-29` — **the backup cannot restore the signing key.** `docs/PLAN/15` line 9 says keys are backed up separately from the database; nothing does it, and `signing_keys.private_key_ref` is a reference to a file no backup captures. Demonstrated when `~/auth-state` was deleted on staging: the database was fine and hours-old dumps were perfectly good, and the key was gone permanently while the service kept answering `/healthz` from the copy in its memory ([record](./records/2026-09-11-staging-auth-state-deleted.md)).
+- `secrets.sh` guessed a path under `sudo`, which strips the environment — creating a secrets directory at the *container's* default path on the host, reporting success, and writing a live metrics token where no inventory would find it. It now refuses to create a directory it was not explicitly told to use.
+- Behind the tunnel, per-IP rate limiting shares one bucket across every user, because `AUTH_CLIENT_IP_HEADER` was never passed. The control works; what it protects today is the deployment rather than the account (`PG-19`).
+
+---
+
+
 ### 2026-09-08
 
 **Added**

@@ -649,6 +649,7 @@ Both audits were verified by breaking them rather than by passing: a sentence fr
 - [ ] Staging signing keys and database are provably distinct from production. **Vacuously true — no production environment exists.** Deliberately left unticked: marking it done now means nobody checks it when production is real.
 - [ ] A merge to `main` deploys to staging automatically and runs a smoke test. Blocked on `OQ-11` — CD needs a credential to a machine on a private subnet, held by a system that runs code from pull requests. A trust decision, not a configuration task.
 - [x] A backup restore has been executed successfully at least once, with the result recorded in MEMORY. 19 tables, every row count matching the source, into a throwaway database. Now automated daily.
+- [ ] **The backup covers the database and not the signing key** — `PG-29`, found by `P1-28` when `~/auth-state` was deleted on staging and the key proved unrecoverable while the service went on answering `/healthz`. `docs/PLAN/15` line 9 says keys are backed up separately from the database; nothing does it, so the plan's own recovery step 3 cannot be performed. Added here rather than closed silently, because this card is what somebody reads when they resume staging work.
 - [ ] Production promotion requires an explicit human action. **Vacuously true — no production environment exists.** Left unticked for the same reason as above.
 
 **Also outstanding**: `OQ-12` — backups are written to the same disk as the database they protect, which `docs/PLAN/15` requires them not to be.
