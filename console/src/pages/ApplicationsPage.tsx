@@ -6,6 +6,7 @@ import { Badge } from "../components/Badge";
 import { Button } from "../components/Button";
 import { ClientSecretModal } from "../components/ClientSecretModal";
 import { Modal } from "../components/Modal";
+import { ProjectNav } from "../components/ProjectNav";
 import { Table } from "../components/Table";
 import type { Column } from "../components/Table";
 import { api, queryKeys } from "../lib/api/client";
@@ -100,7 +101,9 @@ export function ApplicationsPage() {
         / <span aria-current="page">{project?.name ?? "…"}</span>
       </nav>
 
-      <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
+      <ProjectNav projectId={projectId ?? ""} />
+
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-heading-1 font-medium text-text-primary">Applications</h1>
         {hasRole("ORG_ADMIN", "ORG_OWNER", "INSTANCE_OWNER") ? (
           <Button variant="primary" onClick={() => setCreating(true)}>

@@ -383,7 +383,7 @@
 
 | | |
 |---|---|
-| **Status** | TODO |
+| **Status** | DONE — 2026-09-12, [record](../MEMORY/records/2026-09-12-P2-11-console-roles.md). Not yet on staging: the VM is unreachable |
 | **Depends on** | P2-02 |
 | **Plan refs** | `docs/UI-UX/08-PAGE-SPECIFICATIONS.md` (Roles tab), `docs/UI-UX/19-FRONTEND-IMPLEMENTATION-CHAIN.md`, `docs/UI-UX/15-FORM-UX.md` |
 | **Spec required** | No — implementation chain mandatory |
@@ -400,11 +400,11 @@
 6. Empty state distinguishes "no roles defined yet" (with a create affordance) from "no roles match the filter."
 
 **Definition of Done**
-- [ ] The implementation chain table is committed with the code.
-- [ ] Client and server validation rules are identical, sharing one source of truth.
-- [ ] Deletion warns with an accurate affected-grant count.
-- [ ] Built-in roles are visibly and explicably non-editable.
-- [ ] Accessibility and responsive requirements are met.
+- [x] The implementation chain table is committed with the code — `console/docs/implementation-chain-P2-11.md`, covering the screen and the one new component.
+- [x] Client and server validation rules are identical, sharing one source of truth — both generated from `openapi/openapi.yaml` by `console/scripts/gen-patterns.mjs`, with `scripts/check.sh` failing on drift. Reverting the console to a hand-written rule turns its own test red.
+- [x] Deletion warns with an accurate affected-grant count — from `grant_count` on the list response, in both its forms ("3 users currently hold this role" and "Nobody currently holds this role").
+- [~] Built-in roles are visibly and explicably non-editable — **partly, and deliberately**. They cannot be deleted or re-keyed, and both refusals are stated in text rather than shown as a disabled control. Their display name and permissions **are** editable, because `updateRole` says only their identity is frozen and a console stricter than its own API is a capability reachable only by `curl`. The card and the API disagree; recorded as `PG-34`, and nothing is live behind it because no built-in roles are seeded (`PG-30`).
+- [x] Accessibility and responsive requirements are met — axe over the table and the open form; the read-only key field stays focusable so its explanation is announced; errors replace helper text rather than stacking; the `Origin` column drops below 1024px.
 
 ---
 
