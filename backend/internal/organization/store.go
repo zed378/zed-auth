@@ -243,7 +243,14 @@ func (s *Store) Update(ctx context.Context, tx *postgres.Tx, c Changes) (Organiz
 		   SET name     = COALESCE($1, name),
 		       domain   = CASE WHEN $2 THEN $3::text ELSE domain END,
 		       status   = COALESCE($4, status),
-		       settings = CASE WHEN $5::jsonb IS NULL THEN settings ELSE settings || $5::jsonb END
+		       -- A DEEP merge (P2-14). The jsonb concatenation operator is
+		       -- shallow, so an update naming one password rule replaced the
+		       -- whole password_policy object
+		       -- and discarded the other two — silently, and specifically for
+		       -- the settings whose absence weakens a policy rather than
+		       -- breaking it. The contract has always promised key-by-key.
+		       settings = CASE WHEN $5::jsonb IS NULL THEN settings
+		                       ELSE jsonb_deep_merge(settings, $5::jsonb) END
 		 WHERE deleted_at IS NULL
 		RETURNING id, name, domain, status, settings, created_at, updated_at`,
 		trimmed(c.Name), setDomain, domain, c.Status, nullableJSON(c.Settings),

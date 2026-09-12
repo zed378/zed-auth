@@ -14,7 +14,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "api:generate": "openapi-typescript ../openapi/openapi.yaml -o src/lib/api/schema.gen.ts",
+    "api:generate": "openapi-typescript ../openapi/openapi.yaml --default-non-nullable false -o src/lib/api/schema.gen.ts",
     "patterns:generate": "node scripts/gen-patterns.mjs",
     "check": "npm run lint && npm run typecheck && npm run test",
     "e2e": "playwright test",
