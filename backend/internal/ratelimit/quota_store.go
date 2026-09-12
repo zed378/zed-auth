@@ -43,17 +43,28 @@ type Quotas struct {
 	log      *slog.Logger
 
 	quota Quota
+
+	// namespace separates one bound's counter from another's. Two quotas
+	// sharing a key would share an allowance, so the higher one would be
+	// spent by traffic the lower one was meant to bound — which is the
+	// opposite of having two.
+	namespace string
 }
 
 func NewQuotas(client redis.UniversalClient, observer Observer, log *slog.Logger) *Quotas {
 	return &Quotas{client: client, observer: observer, log: log, quota: PerClient}
 }
 
-// WithQuota returns a copy bounded by q. For tests and for a future
-// per-client override.
-func (q *Quotas) WithQuota(quota Quota) *Quotas {
+// WithQuota returns a copy bounded by q, counting under its own namespace.
+//
+// The namespace is not optional for a second bound: without it the two share a
+// counter and the higher allowance is consumed by the traffic the lower one
+// governs. Passing an empty namespace keeps the original key, which is what
+// the default bound uses.
+func (q *Quotas) WithQuota(quota Quota, namespace string) *Quotas {
 	copied := *q
 	copied.quota = quota
+	copied.namespace = namespace
 	return &copied
 }
 
@@ -71,6 +82,9 @@ const BoundClient = "client"
 // proceed unbounded, and that is precisely the shape a stolen credential takes.
 func (q *Quotas) Consume(ctx context.Context, clientID string, now time.Time) Verdict {
 	key := ClientKey(clientID, q.quota.WindowStart(now))
+	if key != "" && q.namespace != "" {
+		key += ":" + q.namespace
+	}
 	if key == "" || q.client == nil {
 		// No client id: the caller has already decided what to do about that.
 		// Reporting the full allowance here rather than refusing keeps this

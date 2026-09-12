@@ -154,7 +154,7 @@ func setup(t *testing.T) *fixture {
 		},
 		RateLimit: &management.RateLimit{
 			Counter: ratelimit.NewQuotas(rdb, nil, discard()).
-				WithQuota(ratelimit.Quota{Limit: 500, Window: time.Minute}),
+				WithQuota(ratelimit.Quota{Limit: 500, Window: time.Minute}, ""),
 		},
 		Idempotency: &management.Idempotency{Claims: management.NewDBClaims(db), Log: discard()},
 		Audit:       &management.AuditGuard{Log: discard()},
@@ -1226,7 +1226,7 @@ func TestMessagesToOneAddressAreBounded(t *testing.T) {
 func (f *fixture) limitMail(t *testing.T, limit int, window time.Duration) {
 	t.Helper()
 	f.api.MailLimit = ratelimit.NewQuotas(f.rdb, nil, discard()).
-		WithQuota(ratelimit.Quota{Limit: limit, Window: window})
+		WithQuota(ratelimit.Quota{Limit: limit, Window: window}, "")
 }
 
 // **The race, made deterministic.**

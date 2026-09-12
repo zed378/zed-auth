@@ -153,6 +153,31 @@ func (c *client) do(method, path string, form url.Values, bearer string, sendCoo
 	}
 }
 
+// doJSON posts a JSON body. The four Phase 1 workloads are all form-encoded
+// or GETs; `/v1/authz/check` is the first that is neither.
+func (c *client) doJSON(method, path, body, bearer string) result {
+	req, err := http.NewRequest(method, c.base+path, strings.NewReader(body))
+	if err != nil {
+		return result{err: err}
+	}
+	req.Host = c.host
+	req.Header.Set("X-Forwarded-Proto", "https")
+	req.Header.Set("Content-Type", "application/json")
+	if bearer != "" {
+		req.Header.Set("Authorization", "Bearer "+bearer)
+	}
+
+	start := time.Now()
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return result{took: time.Since(start), err: err}
+	}
+	raw, _ := io.ReadAll(resp.Body)
+	took := time.Since(start)
+	resp.Body.Close()
+	return result{status: resp.StatusCode, body: string(raw), took: took}
+}
+
 // ---------------------------------------------------------------------------
 // PKCE and the sign-in dance
 // ---------------------------------------------------------------------------
@@ -331,6 +356,16 @@ type env struct {
 	orgID    string
 	workers  int
 	dur      time.Duration
+
+	// The authorization-check phase (P2-17). A check takes its organization
+	// and project from the CALLER's token, so it needs a caller that lives in
+	// the project the subject holds a grant in — which is a service client,
+	// not the administrator the other phases use.
+	authzToken   string
+	authzSubject string
+	authzRPS     int
+	authzAction  string
+	authzType    string
 }
 
 func main() {
@@ -342,8 +377,17 @@ func main() {
 		email:    os.Getenv("LOAD_EMAIL"),
 		password: os.Getenv("LOAD_PASSWORD"),
 		orgID:    os.Getenv("LOAD_ORG"),
-		workers:  atoi(getenv("LOAD_WORKERS", "20")),
-		dur:      time.Duration(atoi(getenv("LOAD_SECONDS", "30"))) * time.Second,
+
+		authzToken:   os.Getenv("LOAD_AUTHZ_TOKEN"),
+		authzSubject: os.Getenv("LOAD_AUTHZ_SUBJECT"),
+		// The endpoint's documented per-client bound, in requests a second.
+		// `run-authz.sh` reads it out of `ratelimit.PerClientAuthz` so the two
+		// cannot drift; the default matches it for a run driven by hand.
+		authzRPS:    atoi(getenv("LOAD_AUTHZ_RPS", "100")),
+		authzAction: getenv("LOAD_AUTHZ_ACTION", "create"),
+		authzType:   getenv("LOAD_AUTHZ_RESOURCE", "sale"),
+		workers:     atoi(getenv("LOAD_WORKERS", "20")),
+		dur:         time.Duration(atoi(getenv("LOAD_SECONDS", "30"))) * time.Second,
 	}
 	// A load test that has only ever printed "within targets" has not been
 	// shown to be capable of printing anything else. LOAD_STRICT divides every
@@ -354,7 +398,13 @@ func main() {
 		strict = 1
 	}
 
-	if e.clientID == "" || e.email == "" || e.orgID == "" {
+	// LOAD_ONLY narrows the run to one phase. Read here rather than further
+	// down, because the authorization check needs neither a sign-in nor a
+	// refresh chain and should not pay for either.
+	only := os.Getenv("LOAD_ONLY")
+	authzAlone := only == "authz"
+
+	if !authzAlone && (e.clientID == "" || e.email == "" || e.orgID == "") {
 		fmt.Fprintln(os.Stderr, "LOAD_CLIENT_ID, LOAD_EMAIL and LOAD_ORG are required")
 		os.Exit(2)
 	}
@@ -364,29 +414,36 @@ func main() {
 
 	// --- bootstrap ---------------------------------------------------------
 	session := newClient(e.base, e.host)
-	if err := e.signIn(session); err != nil {
-		fmt.Fprintln(os.Stderr, "bootstrap sign-in:", err)
-		os.Exit(1)
-	}
-	bearer, err := e.silentToken(session)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "bootstrap token:", err)
-		os.Exit(1)
-	}
+	var bearer tokens
 	chains := make([]tokens, e.workers)
-	for i := range chains {
-		t, err := e.silentToken(session)
+
+	if !authzAlone {
+		if err := e.signIn(session); err != nil {
+			fmt.Fprintln(os.Stderr, "bootstrap sign-in:", err)
+			os.Exit(1)
+		}
+		var err error
+		bearer, err = e.silentToken(session)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "bootstrap chain %d: %v\n", i, err)
+			fmt.Fprintln(os.Stderr, "bootstrap token:", err)
 			os.Exit(1)
 		}
-		if t.Refresh == "" {
-			fmt.Fprintln(os.Stderr, "bootstrap: no refresh token issued — is offline_access granted?")
-			os.Exit(1)
+		for i := range chains {
+			t, err := e.silentToken(session)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "bootstrap chain %d: %v\n", i, err)
+				os.Exit(1)
+			}
+			if t.Refresh == "" {
+				fmt.Fprintln(os.Stderr, "bootstrap: no refresh token issued — is offline_access granted?")
+				os.Exit(1)
+			}
+			chains[i] = t
 		}
-		chains[i] = t
+		fmt.Printf("bootstrap   1 session, %d refresh chains, 1 access token\n\n", len(chains))
+	} else {
+		fmt.Printf("bootstrap   none needed — the authorization check runs as a service client\n\n")
 	}
-	fmt.Printf("bootstrap   1 session, %d refresh chains, 1 access token\n\n", len(chains))
 
 	// --- the four workloads ------------------------------------------------
 	target := func(p50, p95, p99 time.Duration) [3]time.Duration {
@@ -396,6 +453,19 @@ func main() {
 	token := &phase{name: "/oauth/token (refresh)", target: target(50*time.Millisecond, 200*time.Millisecond, 400*time.Millisecond)}
 	userinfo := &phase{name: "/oauth/userinfo", target: target(30*time.Millisecond, 100*time.Millisecond, 200*time.Millisecond)}
 	mgmt := &phase{name: "/v1 management (CRUD read)", target: target(100*time.Millisecond, 300*time.Millisecond, 600*time.Millisecond)}
+
+	// docs/PLAN/12's RBAC-only row: p50 < 20ms, p95 < 80ms, p99 < 150ms.
+	//
+	// The tightest targets in the table, and rightly so — this is the endpoint
+	// a consumer calls on every protected request, so its latency is added to
+	// every page of every application reading it.
+	authz := &phase{name: "/v1/authz/check (RBAC)", target: target(20*time.Millisecond, 80*time.Millisecond, 150*time.Millisecond)}
+	authzReady := e.authzToken != "" && e.authzSubject != ""
+	if !authzReady {
+		fmt.Println("authz       SKIPPED — set LOAD_AUTHZ_TOKEN and LOAD_AUTHZ_SUBJECT")
+		fmt.Println("            (scripts/loadtest/run-authz.sh seeds both through the API)")
+		fmt.Println()
+	}
 	if strict > 1 {
 		fmt.Printf("strict      targets divided by %d (harness self-test)\n\n", strict)
 	}
@@ -437,6 +507,20 @@ func main() {
 		p.record(r.took, r.err == nil && r.status == 200, fmt.Sprintf("%d %s", r.status, trim(r.body)))
 	}
 
+	authzBody := fmt.Sprintf(
+		`{"subject":{"user_id":%q},"action":%q,"resource":{"type":%q}}`,
+		e.authzSubject, e.authzAction, e.authzType)
+
+	authzWork := func(c *client, p *phase) {
+		r := c.doJSON("POST", "/v1/authz/check", authzBody, e.authzToken)
+		// A 200 saying `allowed:false` is a successful REQUEST and a failed
+		// FIXTURE — the subject is supposed to hold the role. Counting it as a
+		// success would let the phase measure the path through a denial, which
+		// is shorter than the one being sized.
+		good := r.err == nil && r.status == 200 && strings.Contains(r.body, `"allowed":true`)
+		p.record(r.took, good, fmt.Sprintf("%d %s", r.status, trim(r.body)))
+	}
+
 	run := func(p *phase, work func(*client, *phase), workers int, pace time.Duration) {
 		deadline := time.Now().Add(e.dur)
 		var wg sync.WaitGroup
@@ -467,9 +551,8 @@ func main() {
 		p.sortTimes()
 	}
 
-	// LOAD_ONLY narrows the run to one phase, for sweeping concurrency against
-	// a single endpoint without paying for the other three each time.
-	only := os.Getenv("LOAD_ONLY")
+	// Narrowing to one phase, for sweeping concurrency against a single
+	// endpoint without paying for the others each time.
 	want := func(name string) bool { return only == "" || only == name }
 
 	started := time.Now()
@@ -504,15 +587,27 @@ func main() {
 		run(mgmt, mgmtWork, 4, 500*time.Millisecond)
 	}
 
+	if want("authz") && authzReady {
+		// Paced under the endpoint's own documented bound, for the reason the
+		// management phase is: measuring an endpoint past its bound measures
+		// the limiter, and a percentile blended from served requests and fast
+		// 429 rejections describes neither.
+		run(authz, authzWork, e.workers, pacing(e.workers, e.authzRPS))
+	}
+
 	// docs/PLAN/12: "Include a mixed workload test: simultaneous token
 	// issuance + management API traffic + authz checks, since production will
-	// never see just one traffic type in isolation." Authz checks are Phase 2,
-	// so this is the three shipped workloads at once — the same endpoints, now
-	// competing for the same connections, pool and CPU.
+	// never see just one traffic type in isolation."
+	//
+	// All four shipped workloads at once, plus the authorization check now
+	// that Phase 2 has one. The authz row is the one to watch: it has the
+	// tightest targets and the highest expected volume, so it is the phase
+	// most likely to be squeezed by everything else.
 	mixAuthorize := &phase{name: "mixed: authorize (silent)", target: authorize.target}
 	mixToken := &phase{name: "mixed: token (refresh)", target: token.target}
 	mixUserinfo := &phase{name: "mixed: userinfo", target: userinfo.target}
 	mixMgmt := &phase{name: "mixed: management", target: mgmt.target}
+	mixAuthz := &phase{name: "mixed: authz check", target: authz.target}
 	mixDeadline := time.Now().Add(e.dur)
 	if only != "" {
 		mixDeadline = time.Now()
@@ -555,8 +650,24 @@ func main() {
 			time.Sleep(500 * time.Millisecond)
 		}
 	})
+	if authzReady {
+		// The largest share of the mix, because it is the largest share of
+		// real traffic: a consumer calls this on every protected request,
+		// while a login happens once a session. Paced under the same bound as
+		// the isolated phase, so the difference between the two numbers is
+		// contention rather than throttling.
+		mixWorkers := e.workers / 2
+		mixPace := pacing(mixWorkers, e.authzRPS)
+		spawn(mixWorkers, func() {
+			c := newClient(e.base, e.host)
+			for time.Now().Before(mixDeadline) {
+				authzWork(c, mixAuthz)
+				time.Sleep(mixPace)
+			}
+		})
+	}
 	mwg.Wait()
-	for _, p := range []*phase{mixAuthorize, mixToken, mixUserinfo, mixMgmt} {
+	for _, p := range []*phase{mixAuthorize, mixToken, mixUserinfo, mixMgmt, mixAuthz} {
 		p.sortTimes()
 	}
 	elapsed := time.Since(started)
@@ -564,8 +675,21 @@ func main() {
 	// --- report ------------------------------------------------------------
 	fmt.Printf("%-28s %8s %8s %8s %8s %9s %7s  %s\n", "phase", "n", "p50", "p95", "p99", "max", "rps", "vs docs/PLAN/12")
 	failures := 0
-	for _, p := range []*phase{authorize, token, userinfo, mgmt, mixAuthorize, mixToken, mixUserinfo, mixMgmt} {
+	for _, p := range []*phase{authorize, token, userinfo, mgmt, authz, mixAuthorize, mixToken, mixUserinfo, mixMgmt, mixAuthz} {
 		if len(p.took) == 0 {
+			// A phase deliberately not run is not a failure. A phase that ran
+			// and produced nothing is.
+			//
+			// LOAD_ONLY narrows the run to one phase, and every other phase
+			// then has no samples by design — reporting those as failures made
+			// a successful single-phase run exit non-zero with eleven
+			// complaints about work nobody asked for.
+			if (p == authz || p == mixAuthz) && !authzReady {
+				continue
+			}
+			if only != "" {
+				continue
+			}
 			fmt.Printf("%-28s  no samples\n", p.name)
 			failures++
 			continue
@@ -620,6 +744,16 @@ func msf(d time.Duration) float64 { return float64(d.Microseconds()) / 1000 }
 
 func ms(d time.Duration) string {
 	return fmt.Sprintf("%.1fms", float64(d.Microseconds())/1000)
+}
+
+// pacing is how long each worker waits so N of them together stay under a
+// rate. Zero means unpaced, which is right for an endpoint with no
+// documented per-client bound and wrong for one that has one.
+func pacing(workers, perSecond int) time.Duration {
+	if workers <= 0 || perSecond <= 0 {
+		return 0
+	}
+	return time.Duration(float64(workers) / float64(perSecond) * float64(time.Second))
 }
 
 func getenv(k, def string) string {
