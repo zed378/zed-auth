@@ -240,19 +240,17 @@ func (t *TOTP) Remove(ctx context.Context, factorID string) error {
 type PostgresFactors struct {
 	Store FactorStore
 	DB    Tenant
-
-	// OrgOf resolves the user's tenant.
-	OrgOf func(ctx context.Context, userID string) (orgID string, err error)
 }
 
-func (p *PostgresFactors) Confirmed(ctx context.Context, userID string) ([]Factor, error) {
-	orgID, err := p.OrgOf(ctx, userID)
-	if err != nil {
-		return nil, fmt.Errorf("mfa: resolving a user's organization: %w", err)
-	}
-
+// Confirmed reads a user's answerable factors within a tenant.
+//
+// The organization is given rather than resolved (P3-03). It used to be looked
+// up from the user id, which would have needed a SECURITY DEFINER function
+// answering "which organization is this user in" for any id — a privilege the
+// callers never needed, because every one of them already holds the org.
+func (p *PostgresFactors) Confirmed(ctx context.Context, orgID, userID string) ([]Factor, error) {
 	var out []Factor
-	err = p.DB.WithTenant(ctx, orgID, func(tx *postgres.Tx) error {
+	err := p.DB.WithTenant(ctx, orgID, func(tx *postgres.Tx) error {
 		factors, err := p.Store.ForUser(ctx, tx, userID)
 		if err != nil {
 			return err

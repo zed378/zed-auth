@@ -109,7 +109,7 @@ type countingStore struct {
 	reads   int
 }
 
-func (c *countingStore) Confirmed(context.Context, string) ([]Factor, error) {
+func (c *countingStore) Confirmed(context.Context, string, string) ([]Factor, error) {
 	c.reads++
 	return c.factors, nil
 }
@@ -119,11 +119,11 @@ type growingStore struct {
 	factors []Factor
 }
 
-func (g *growingStore) Confirmed(context.Context, string) ([]Factor, error) {
+func (g *growingStore) Confirmed(context.Context, string, string) ([]Factor, error) {
 	return g.factors, nil
 }
 
-func (m *memoryStore) Confirmed(context.Context, string) ([]Factor, error) {
+func (m *memoryStore) Confirmed(context.Context, string, string) ([]Factor, error) {
 	if m.err != nil {
 		return nil, m.err
 	}

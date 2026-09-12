@@ -102,6 +102,15 @@ type Deps struct {
 	Login  http.Handler
 	Forgot http.Handler
 
+	// MFA serves GET and POST /login/mfa — the second step (P3-03).
+	//
+	// Nil means the deployment has no factor framework, and the route is then
+	// not registered at all. That is the honest shape: a challenge page with
+	// nothing behind it would be a form where every answer is refused, which
+	// reads to a user as "my authenticator is broken" rather than as "this
+	// service does not do that".
+	MFA http.Handler
+
 	// Organizations implements the Management API's organization operations
 	// (P1-16). Required whenever the spec documents them, which it now does —
 	// a nil here is a nil method call rather than a 404, so the constructor
@@ -314,6 +323,13 @@ func New(cfg config.HTTPConfig, deps Deps) *Server {
 		// across two registrations would be two places to keep those in step.
 		mux.Method(http.MethodGet, "/login", deps.Login)
 		mux.Method(http.MethodPost, "/login", deps.Login)
+	}
+	if deps.MFA != nil {
+		// One handler for both methods, for the reason /login gives: the page
+		// and its submission share the pending request, the branding, the CSRF
+		// token and the challenge handle.
+		mux.Method(http.MethodGet, "/login/mfa", deps.MFA)
+		mux.Method(http.MethodPost, "/login/mfa", deps.MFA)
 	}
 	if deps.Forgot != nil {
 		// Both methods now (P1-19). It was GET-only while the page was a

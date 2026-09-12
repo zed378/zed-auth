@@ -8,6 +8,8 @@ import (
 	"html/template"
 	"net/url"
 	"strings"
+
+	"github.com/zed378/zed-auth/backend/internal/mfa"
 )
 
 // The page itself.
@@ -136,6 +138,37 @@ const (
 	// password is incorrect" while actually in a cooldown will keep retrying,
 	// which is both a worse experience and more load.
 	MsgRateLimited = "Too many sign-in attempts. Please wait a few minutes and try again."
+
+	// MsgWrongCode answers a wrong code AND a factor type the challenge has no
+	// factor for (P3-03).
+	//
+	// Both, for the reason MsgCredentials covers five cases: the second is a
+	// fact about what this user has ENROLLED, and a form that answered it
+	// differently would let somebody probe the shape of an account they have a
+	// password for but no code.
+	//
+	// It is more specific than MsgCredentials, and may be. By the time it is
+	// read a password has been proven, so the person seeing it has already
+	// demonstrated they are the account holder — telling them their code was
+	// wrong discloses nothing they did not just establish, and telling them
+	// anything vaguer would leave them retrying the password that was correct.
+	MsgWrongCode = "That code is not correct. Check your authenticator app and try again."
+
+	// MsgCodeRateLimited is the PER-USER bound (P3-03 step 2).
+	//
+	// Truthful and specific, on MsgRateLimited's reasoning: the counter is
+	// keyed on a user whose password the reader has already proven, so it
+	// describes only their own behaviour. A vague message here would be
+	// actively harmful — somebody in a cooldown who is told "wrong code" will
+	// keep typing correct codes and watching them fail.
+	MsgCodeRateLimited = "Too many incorrect codes. Please wait a few minutes and try again."
+
+	// MsgChallengeGone covers expired, spent, missing and never-was.
+	//
+	// One message for all four: the difference between them is a fact about a
+	// login the reader may not own, and there is one way onward from every one
+	// of them.
+	MsgChallengeGone = "This sign-in step has expired or is no longer valid. Please sign in again."
 )
 
 // styleTemplate is the page's CSS.
@@ -346,6 +379,111 @@ var noticeTemplate = template.Must(template.New("notice").Parse(`<!DOCTYPE html>
 <h1>{{.Title}}</h1>
 <p class="note">{{.Body}}</p>
 {{if .BackPath}}<p class="foot"><a href="{{.BackPath}}">Back to sign in</a></p>{{end}}
+</div>
+</main>
+</body>
+</html>
+`))
+
+// ChallengePage is the second step (P3-03).
+//
+// It EMBEDS Page rather than copying its fields, so the stylesheet, the CSP,
+// the branding and the CSRF token cannot drift between the two screens — the
+// failure that would produce is a challenge page with a weaker policy than the
+// page that asks for the password, which is the wrong way round.
+type ChallengePage struct {
+	Page
+
+	// Offered are the factor kinds this user may answer with, already reduced
+	// to what a person should read. Never a factor id and never a count of
+	// anything: a page that said "you have 2 factors" would be answering a
+	// question about the account to whoever reached it.
+	Offered []OfferedFactor
+
+	// Problem is the form-level message, one of the constants above.
+	Problem string
+}
+
+// OfferedFactor is one kind of factor, as the page shows it.
+type OfferedFactor struct {
+	// Type is the value posted back — the mfa.Type string.
+	Type string
+
+	// Label and Hint are what a person reads.
+	Label string
+	Hint  string
+}
+
+// offeredLabels turns factor types into what the page renders.
+//
+// A type this does not recognise is DROPPED rather than shown with its raw
+// name. A build that offered "webauthn" as a bare string before P3-05 has a
+// verifier for it would be offering something nobody can complete, and a dead
+// option on this page is a user who cannot sign in.
+func offeredLabels(types []mfa.Type) []OfferedFactor {
+	out := make([]OfferedFactor, 0, len(types))
+	for _, t := range types {
+		switch t {
+		case mfa.TypeTOTP:
+			out = append(out, OfferedFactor{
+				Type:  string(mfa.TypeTOTP),
+				Label: "Authenticator app",
+				Hint:  "Enter the 6-digit code from your authenticator app.",
+			})
+		case mfa.TypeWebAuthn:
+			// P3-05. Listed so the switch is exhaustive and the omission is
+			// visible, not so it renders: WebAuthn needs script, and this page
+			// has none. It will need its own step.
+			continue
+		}
+	}
+	return out
+}
+
+// challengeTemplate is the code form.
+//
+// The same shape as the login form and the same absences: no script, no event
+// handler, no style attribute, and no value from the query string. The only
+// interpolations are the application's registered name, the validated logo, the
+// two opaque tokens, and the factor labels above — all of which are constants
+// in this file.
+//
+// `autocomplete="one-time-code"` is what lets a phone offer the code from a
+// notification. `inputmode="numeric"` gets the numeric keypad. Neither is
+// decoration: a six-digit code typed on a full keyboard on a phone is the step
+// people abandon.
+var challengeTemplate = template.Must(template.New("challenge").Parse(`<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Two-step verification</title>
+<style>{{.Style}}</style>
+</head>
+<body>
+<main>
+<div class="card">
+{{if .Branding.LogoURL}}<img class="mark" src="{{.Branding.LogoURL}}" alt="">{{end}}
+<h1>Two-step verification</h1>
+{{if .Problem}}
+<div class="alert" role="alert" tabindex="-1" autofocus><p>{{.Problem}}</p></div>
+{{end}}
+{{range $index, $factor := .Offered}}
+<form method="post" action="/login/mfa">
+<input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+<input type="hidden" name="request" value="{{$.RequestID}}">
+<input type="hidden" name="factor" value="{{$factor.Type}}">
+<div class="field">
+<label for="code-{{$index}}">{{$factor.Label}}</label>
+<p class="note">{{$factor.Hint}}</p>
+<input id="code-{{$index}}" name="code" type="text" inputmode="numeric"
+ autocomplete="one-time-code" autocapitalize="none" spellcheck="false" required
+ {{if and (eq $index 0) (not $.Problem)}}autofocus{{end}}>
+</div>
+<button type="submit">Verify</button>
+</form>
+{{end}}
+<p class="foot"><a href="{{.ForgotPath}}">Having trouble?</a></p>
 </div>
 </main>
 </body>

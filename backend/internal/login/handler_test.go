@@ -111,6 +111,15 @@ func (f *fakeUsers) RecordRehash(_ context.Context, _ *postgres.Tx, userID, _ st
 	return nil
 }
 
+// ByID is the P3-03 reload after a challenge. It returns the same user the
+// fake was built with, ignoring the id, because every test that reaches it has
+// exactly one user — a fake that could return a DIFFERENT user would let a
+// test pass while the handler loaded the wrong account, which is the bug this
+// method exists to make impossible.
+func (f *fakeUsers) ByID(context.Context, *postgres.Tx, string) (authn.User, error) {
+	return f.user, f.err
+}
+
 type fakePolicies struct {
 	policy authn.Policy
 

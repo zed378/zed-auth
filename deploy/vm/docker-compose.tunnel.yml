@@ -108,6 +108,21 @@ services:
       # the port to 127.0.0.1 only, so the bind is safe, but the service cannot
       # see the host's port mapping and correctly will not assume it.
       AUTH_ADMIN_TOKEN_REF: ${AUTH_ADMIN_TOKEN_REF:?required when the metrics listener binds beyond loopback}
+      # The key that encrypts stored MFA factor secrets (P3-02, P3-03).
+      #
+      # OPTIONAL, and its absence is a real deployment rather than a broken
+      # one: unset means no factor framework at all — no challenge is issued,
+      # nothing can be enrolled, and `users.mfa_enabled` stays false for
+      # everybody, so nobody believes they hold a protection they do not have.
+      # The service says so once at startup.
+      #
+      # SET and unreadable is fatal, deliberately: that is the configuration
+      # where every enrolled user would sign in on a password alone and nobody
+      # would be told.
+      #
+      #   sudo ./secrets.sh mfa-seal-key
+      #   AUTH_MFA_SEAL_KEY_REF=file:/run/secrets/mfa-seal-key
+      AUTH_MFA_SEAL_KEY_REF: ${AUTH_MFA_SEAL_KEY_REF:-}
       AUTH_OTLP_ENDPOINT: ${AUTH_OTLP_ENDPOINT:-}
       AUTH_TRACE_SAMPLE_RATIO: ${AUTH_TRACE_SAMPLE_RATIO:-0.05}
 
