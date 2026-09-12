@@ -504,6 +504,101 @@ export interface paths {
         patch: operations["updateOrganization"];
         trace?: never;
     };
+    "/v1/organizations/{org_id}/users/{user_id}/grants": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The organization that owns the resource. Every request is scoped to exactly one. */
+                org_id: components["parameters"]["OrganizationId"];
+                /** @description The user this operation acts on. */
+                user_id: components["parameters"]["UserId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * List a user's roles, per project
+         * @description Requires `ORG_ADMIN` over this organization.
+         *
+         *     A user with no grants has **no access at all** — `docs/PLAN/08`
+         *     § Least Privilege: there is no implicit or default role. An empty list
+         *     here is the normal state for a new account, not an error.
+         */
+        get: operations["listUserGrants"];
+        put?: never;
+        /**
+         * Grant roles in a project
+         * @description Requires `ORG_ADMIN` over this organization.
+         *
+         *     Every role key must name a role that exists **in that project**. A
+         *     grant referencing a role that does not exist would look like access,
+         *     carry a key nothing defines, and be denied by every consumer without
+         *     anything explaining why.
+         *
+         *     **A caller cannot grant to themselves.** An `ORG_ADMIN` administers
+         *     every user in the organization and is one of them, so no scope
+         *     expresses this — it is refused explicitly.
+         *
+         *     One grant per user per project: granting twice is a conflict, and the
+         *     operation wanted is `PATCH`.
+         */
+        post: operations["grantRolesToUser"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/organizations/{org_id}/users/{user_id}/grants/{project_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The organization that owns the resource. Every request is scoped to exactly one. */
+                org_id: components["parameters"]["OrganizationId"];
+                /** @description The user this operation acts on. */
+                user_id: components["parameters"]["UserId"];
+                /** @description The project the resource belongs to. */
+                project_id: components["parameters"]["ProjectId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Revoke a user's access to a project
+         * @description Requires `ORG_ADMIN` over this organization.
+         *
+         *     **Immediate.** The row is deleted rather than flagged, so nothing can
+         *     read it afterwards — revocation does not wait for an access token to
+         *     expire, which is what real-time authorization checks exist for.
+         *
+         *     An already-issued access token continues to carry the claims it was
+         *     minted with until it expires; a consumer that needs certainty asks.
+         */
+        delete: operations["revokeUserGrant"];
+        options?: never;
+        head?: never;
+        /**
+         * Replace a user's roles in a project
+         * @description Requires `ORG_ADMIN` over this organization.
+         *
+         *     **Replaces the set entirely.** A partial update of an array is
+         *     ambiguous — add, remove, or replace — and the audit event records what
+         *     was added and removed, which needs a complete before and after.
+         *
+         *     An empty `role_keys` is refused: a grant with no roles grants nothing
+         *     and should not exist (`docs/PLAN/08` § Least Privilege). To remove
+         *     access, delete the grant.
+         *
+         *     Addressed by **project** rather than by a grant id: there is exactly one
+         *     grant per user per project, so a separate id would be a second way to
+         *     name the same row.
+         */
+        patch: operations["replaceUserGrant"];
+        trace?: never;
+    };
     "/v1/organizations/{org_id}/projects": {
         parameters: {
             query?: never;
@@ -1135,6 +1230,42 @@ export interface components {
              *     what was added and removed, which needs a complete before and after.
              */
             permission_keys: components["schemas"]["PermissionKey"][];
+        };
+        /**
+         * @description One user's roles in one project — the row that actually grants access.
+         *
+         *     `project_grant_id` is absent in this phase. It distinguishes a
+         *     delegated grant from a direct one, and delegation requires the role
+         *     keys to be a subset of what was delegated, revalidated on every
+         *     request (`docs/PLAN/08` Part C). That check arrives with Project
+         *     Grants; until then a non-null value is refused at the database.
+         */
+        Grant: {
+            user_id: components["schemas"]["ResourceId"];
+            project_id: components["schemas"]["ResourceId"];
+            /**
+             * @description Every key names a role that exists in this project. Never empty: a
+             *     grant with no roles grants nothing and is deleted instead.
+             * @example [
+             *       "billing-admin",
+             *       "read-only"
+             *     ]
+             */
+            role_keys: components["schemas"]["RoleKey"][];
+            /** Format: date-time */
+            created_at?: string;
+            /** Format: date-time */
+            updated_at?: string;
+        };
+        GrantList: {
+            grants: components["schemas"]["Grant"][];
+        };
+        GrantCreate: {
+            project_id: components["schemas"]["ResourceId"];
+            role_keys: components["schemas"]["RoleKey"][];
+        };
+        GrantUpdate: {
+            role_keys: components["schemas"]["RoleKey"][];
         };
         /**
          * @description A tenant.
@@ -2718,6 +2849,148 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
+            429: components["responses"]["RateLimited"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    listUserGrants: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The organization that owns the resource. Every request is scoped to exactly one. */
+                org_id: components["parameters"]["OrganizationId"];
+                /** @description The user this operation acts on. */
+                user_id: components["parameters"]["UserId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Every grant this user holds. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GrantList"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["RateLimited"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    grantRolesToUser: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description A client-generated key making a retried `POST` safe. Replaying a
+                 *     request with the same key returns the original result rather than
+                 *     creating a second resource — which matters most for automated
+                 *     provisioning, where a network timeout is indistinguishable from a
+                 *     failure (`docs/PLAN/05` Part B).
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                /** @description The organization that owns the resource. Every request is scoped to exactly one. */
+                org_id: components["parameters"]["OrganizationId"];
+                /** @description The user this operation acts on. */
+                user_id: components["parameters"]["UserId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GrantCreate"];
+            };
+        };
+        responses: {
+            /** @description The grant was created. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Grant"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["RateLimited"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    revokeUserGrant: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The organization that owns the resource. Every request is scoped to exactly one. */
+                org_id: components["parameters"]["OrganizationId"];
+                /** @description The user this operation acts on. */
+                user_id: components["parameters"]["UserId"];
+                /** @description The project the resource belongs to. */
+                project_id: components["parameters"]["ProjectId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The grant was revoked. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["RateLimited"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    replaceUserGrant: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The organization that owns the resource. Every request is scoped to exactly one. */
+                org_id: components["parameters"]["OrganizationId"];
+                /** @description The user this operation acts on. */
+                user_id: components["parameters"]["UserId"];
+                /** @description The project the resource belongs to. */
+                project_id: components["parameters"]["ProjectId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GrantUpdate"];
+            };
+        };
+        responses: {
+            /** @description The updated grant. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Grant"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
             429: components["responses"]["RateLimited"];
             500: components["responses"]["InternalError"];
         };

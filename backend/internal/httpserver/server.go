@@ -118,6 +118,9 @@ type Deps struct {
 	// RoleAPI implements the role operations (P2-02).
 	RoleAPI Roles
 
+	// GrantAPI implements the user-grant operations (P2-03).
+	GrantAPI Grants
+
 	// UserAPI implements the user operations (P1-19).
 	UserAPI Users
 
@@ -169,6 +172,9 @@ func New(cfg config.HTTPConfig, deps Deps) *Server {
 	}
 	if deps.V1 != nil && deps.RoleAPI == nil {
 		panic("httpserver.New: RoleAPI is required when V1 is configured")
+	}
+	if deps.V1 != nil && deps.GrantAPI == nil {
+		panic("httpserver.New: GrantAPI is required when V1 is configured")
 	}
 	if deps.V1 != nil && deps.UserAPI == nil {
 		panic("httpserver.New: UserAPI is required when V1 is configured")
@@ -334,6 +340,7 @@ func New(cfg config.HTTPConfig, deps Deps) *Server {
 		Projects:     deps.ProjectAPI,
 		Applications: deps.ApplicationAPI,
 		Roles:        deps.RoleAPI,
+		Grants:       deps.GrantAPI,
 		Users:        deps.UserAPI,
 		AuditLog:     deps.AuditAPI,
 	}
@@ -481,6 +488,7 @@ type apiRoutes struct {
 	Projects
 	Applications
 	Roles
+	Grants
 	Users
 	AuditLog
 }
@@ -539,6 +547,18 @@ type Roles interface {
 	GetRole(ctx context.Context, request api.GetRoleRequestObject) (api.GetRoleResponseObject, error)
 	UpdateRole(ctx context.Context, request api.UpdateRoleRequestObject) (api.UpdateRoleResponseObject, error)
 	DeleteRole(ctx context.Context, request api.DeleteRoleRequestObject) (api.DeleteRoleResponseObject, error)
+}
+
+// Grants is the user-grant half of the Management API (P2-03).
+//
+// Organization-scoped rather than project-scoped, unlike Roles: the path is
+// about a USER, and a project-scoped caller who could reach it would be able
+// to enumerate the organization's users by asking for each one's grants.
+type Grants interface {
+	ListUserGrants(ctx context.Context, request api.ListUserGrantsRequestObject) (api.ListUserGrantsResponseObject, error)
+	GrantRolesToUser(ctx context.Context, request api.GrantRolesToUserRequestObject) (api.GrantRolesToUserResponseObject, error)
+	ReplaceUserGrant(ctx context.Context, request api.ReplaceUserGrantRequestObject) (api.ReplaceUserGrantResponseObject, error)
+	RevokeUserGrant(ctx context.Context, request api.RevokeUserGrantRequestObject) (api.RevokeUserGrantResponseObject, error)
 }
 
 // Users is the user half of the Management API (P1-19).

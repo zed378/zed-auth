@@ -17,6 +17,7 @@ import (
 	"github.com/zed378/zed-auth/backend/internal/audit"
 	"github.com/zed378/zed-auth/backend/internal/auditlog"
 	"github.com/zed378/zed-auth/backend/internal/config"
+	"github.com/zed378/zed-auth/backend/internal/grant"
 	"github.com/zed378/zed-auth/backend/internal/httpserver"
 	"github.com/zed378/zed-auth/backend/internal/management"
 	"github.com/zed378/zed-auth/backend/internal/oauth/token"
@@ -103,6 +104,7 @@ func setupAPI(t *testing.T) *apiFixture {
 		ProjectAPI:     &project.Handler{Store: project.NewStore(), DB: base.db, Audit: auditor, Log: discard()},
 		ApplicationAPI: application.New(base.db, auditor, discard()),
 		RoleAPI:        New(base.db, auditor, discard()),
+		GrantAPI:       grant.New(base.db, auditor, discard()),
 		UserAPI:        &user.Handler{Store: user.NewStore(), DB: base.db, Audit: auditor, Log: discard()},
 		AuditAPI:       &auditlog.Handler{DB: base.db, Log: discard()},
 	})
