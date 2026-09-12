@@ -6,6 +6,7 @@ import { NotFoundPage } from "../pages/NotFoundPage";
 import { OverviewPage } from "../pages/OverviewPage";
 import { ApplicationsPage } from "../pages/ApplicationsPage";
 import { AuditLogPage } from "../pages/AuditLogPage";
+import { AuthorizationsPage } from "../pages/AuthorizationsPage";
 import { PlaceholderPage } from "../pages/PlaceholderPage";
 import { ProjectsPage } from "../pages/ProjectsPage";
 import { RolesPage } from "../pages/RolesPage";
@@ -63,6 +64,14 @@ export function AppRoutes() {
         element={
           <RequireAuth roles={["ORG_ADMIN", "ORG_OWNER", "INSTANCE_OWNER"]}>
             <RolesPage />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/projects/:projectId/authorizations"
+        element={
+          <RequireAuth roles={["ORG_ADMIN", "ORG_OWNER", "INSTANCE_OWNER"]}>
+            <AuthorizationsPage />
           </RequireAuth>
         }
       />
