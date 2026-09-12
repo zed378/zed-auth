@@ -49,6 +49,11 @@ SHIPPED = {
     # P1-16. The first Management API endpoints. Served by the generated
     # router, guarded by the /v1 chain, and reachable — which is what makes
     # documenting them a true claim rather than a promise.
+    # P2-13. The caller's own view of what they administer, for the console's
+    # organization switcher. The one /v1 route that requires no role: it is
+    # derived from the caller's own manager_roles rows, so it can only describe
+    # access they already hold.
+    "/v1/me/organizations",
     "/v1/organizations",
     "/v1/organizations/{org_id}",
     # P1-17. Projects, under the organization that owns them.

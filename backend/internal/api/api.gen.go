@@ -21,6 +21,13 @@ const (
 	Oauth2Scopes = "oauth2.Scopes"
 )
 
+// Defines values for AdministeredOrganizationRoles.
+const (
+	INSTANCEOWNER AdministeredOrganizationRoles = "INSTANCE_OWNER"
+	ORGADMIN      AdministeredOrganizationRoles = "ORG_ADMIN"
+	ORGOWNER      AdministeredOrganizationRoles = "ORG_OWNER"
+)
+
 // Defines values for ApplicationType.
 const (
 	Api    ApplicationType = "api"
@@ -98,6 +105,67 @@ const (
 	Invited     UserStatus = "invited"
 	Locked      UserStatus = "locked"
 )
+
+// AdministeredOrganization One organization the caller administers, and what they hold over it.
+//
+// Deliberately smaller than `Organization`: no `settings`, no `status`,
+// no timestamps. This is a switcher's list, and an endpoint that requires
+// no permission should return the least it can — an organization's
+// settings are readable through `GET /v1/organizations/{org_id}`, which
+// requires `ORG_ADMIN` over it.
+type AdministeredOrganization struct {
+	// Id A resource's stable identifier. Not sequential and not guessable.
+	//
+	// **This was specified as a prefixed, sortable identifier** — `usr_`,
+	// `org_`, `prj_` — and is a UUID instead. The change is deliberate and is
+	// recorded as `PG-23`.
+	//
+	// The prefix has a real benefit: an id pasted into a support ticket is
+	// self-describing, and passing a project id where a user id belongs is
+	// visible on sight rather than at the database. What it cannot survive is
+	// being applied to only part of the surface. `docs/PLAN/04` makes every
+	// primary key a UUID, the access token's `org_id` claim is a UUID, and
+	// OpenID Connect's `sub` — already shipped by `P1-08` — is a UUID that
+	// callers store as a user's permanent key.
+	//
+	// Prefixing only the Management API would give the same user two
+	// identifiers and make every consumer convert between them, which is a
+	// larger and more permanent papercut than the one the prefix removes.
+	// Prefixing everything means changing `sub`, which is a protocol field
+	// with its own conventions and a value integrators have already stored.
+	//
+	// So: UUIDs everywhere, and if prefixed identifiers are wanted later they
+	// arrive everywhere at once or not at all.
+	Id   ResourceId `json:"id"`
+	Name string     `json:"name"`
+
+	// Roles The manager roles the caller holds over this organization, highest
+	// first. `INSTANCE_OWNER` appears against every organization: its
+	// scope is the instance, not any one tenant.
+	//
+	// `PROJECT_OWNER` is deliberately absent, and so is any organization
+	// reached only through one. Its scope is a project, and offering a
+	// switch into an organization where `GET /v1/organizations/{org_id}`
+	// and every screen beneath it answers 403 would be a switcher whose
+	// entries lead to refusals.
+	Roles []AdministeredOrganizationRoles `json:"roles"`
+}
+
+// AdministeredOrganizationRoles defines model for AdministeredOrganization.Roles.
+type AdministeredOrganizationRoles string
+
+// AdministeredOrganizationList defines model for AdministeredOrganizationList.
+type AdministeredOrganizationList struct {
+	Organizations []AdministeredOrganization `json:"organizations"`
+
+	// PageInfo The pagination envelope every collection response embeds.
+	//
+	// Token-based rather than offset-based: an offset re-reads rows that
+	// shifted under concurrent writes, silently skipping or duplicating
+	// entries. For an audit log or a user list that is a correctness bug that
+	// nobody notices.
+	PageInfo *PageInfo `json:"page_info,omitempty"`
+}
 
 // Application A registered OIDC client.
 //
@@ -1581,6 +1649,19 @@ type RateLimited = Error
 // writes one error path rather than one per endpoint.
 type Unauthorized = Error
 
+// ListAdministeredOrganizationsParams defines parameters for ListAdministeredOrganizations.
+type ListAdministeredOrganizationsParams struct {
+	// PageSize Maximum items to return. The server may return fewer, and returning
+	// fewer never means the collection is exhausted — only an absent
+	// `next_page_token` means that.
+	PageSize *PageSize `form:"page_size,omitempty" json:"page_size,omitempty"`
+
+	// PageToken The `next_page_token` from the previous response. Opaque: its contents
+	// are not part of the contract and must not be constructed, parsed, or
+	// persisted by a client.
+	PageToken *PageToken `form:"page_token,omitempty" json:"page_token,omitempty"`
+}
+
 // ListOrganizationsParams defines parameters for ListOrganizations.
 type ListOrganizationsParams struct {
 	// PageSize Maximum items to return. The server may return fewer, and returning
@@ -1879,6 +1960,9 @@ type ServerInterface interface {
 	// Ask whether a subject may perform an action
 	// (POST /v1/authz/check)
 	CheckAuthorization(w http.ResponseWriter, r *http.Request)
+	// List the organizations the caller administers
+	// (GET /v1/me/organizations)
+	ListAdministeredOrganizations(w http.ResponseWriter, r *http.Request, params ListAdministeredOrganizationsParams)
 	// List organizations
 	// (GET /v1/organizations)
 	ListOrganizations(w http.ResponseWriter, r *http.Request, params ListOrganizationsParams)
@@ -2011,6 +2095,12 @@ func (_ Unimplemented) GetReadiness(w http.ResponseWriter, r *http.Request) {
 // Ask whether a subject may perform an action
 // (POST /v1/authz/check)
 func (_ Unimplemented) CheckAuthorization(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// List the organizations the caller administers
+// (GET /v1/me/organizations)
+func (_ Unimplemented) ListAdministeredOrganizations(w http.ResponseWriter, r *http.Request, params ListAdministeredOrganizationsParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -2288,6 +2378,47 @@ func (siw *ServerInterfaceWrapper) CheckAuthorization(w http.ResponseWriter, r *
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.CheckAuthorization(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListAdministeredOrganizations operation middleware
+func (siw *ServerInterfaceWrapper) ListAdministeredOrganizations(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, Oauth2Scopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListAdministeredOrganizationsParams
+
+	// ------------- Optional query parameter "page_size" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "page_size", r.URL.Query(), &params.PageSize)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "page_size", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "page_token" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "page_token", r.URL.Query(), &params.PageToken)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "page_token", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListAdministeredOrganizations(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4208,6 +4339,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/v1/authz/check", wrapper.CheckAuthorization)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/v1/me/organizations", wrapper.ListAdministeredOrganizations)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/v1/organizations", wrapper.ListOrganizations)
 	})
 	r.Group(func(r chi.Router) {
@@ -4503,6 +4637,63 @@ type CheckAuthorization503JSONResponse Error
 func (response CheckAuthorization503JSONResponse) VisitCheckAuthorizationResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(503)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListAdministeredOrganizationsRequestObject struct {
+	Params ListAdministeredOrganizationsParams
+}
+
+type ListAdministeredOrganizationsResponseObject interface {
+	VisitListAdministeredOrganizationsResponse(w http.ResponseWriter) error
+}
+
+type ListAdministeredOrganizations200JSONResponse AdministeredOrganizationList
+
+func (response ListAdministeredOrganizations200JSONResponse) VisitListAdministeredOrganizationsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListAdministeredOrganizations400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response ListAdministeredOrganizations400JSONResponse) VisitListAdministeredOrganizationsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListAdministeredOrganizations401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ListAdministeredOrganizations401JSONResponse) VisitListAdministeredOrganizationsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListAdministeredOrganizations429JSONResponse struct{ RateLimitedJSONResponse }
+
+func (response ListAdministeredOrganizations429JSONResponse) VisitListAdministeredOrganizationsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Retry-After", fmt.Sprint(response.Headers.RetryAfter))
+	w.Header().Set("X-RateLimit-Limit", fmt.Sprint(response.Headers.XRateLimitLimit))
+	w.Header().Set("X-RateLimit-Remaining", fmt.Sprint(response.Headers.XRateLimitRemaining))
+	w.Header().Set("X-RateLimit-Reset", fmt.Sprint(response.Headers.XRateLimitReset))
+	w.WriteHeader(429)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type ListAdministeredOrganizations500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response ListAdministeredOrganizations500JSONResponse) VisitListAdministeredOrganizationsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
 
 	return json.NewEncoder(w).Encode(response)
 }
@@ -7035,6 +7226,9 @@ type StrictServerInterface interface {
 	// Ask whether a subject may perform an action
 	// (POST /v1/authz/check)
 	CheckAuthorization(ctx context.Context, request CheckAuthorizationRequestObject) (CheckAuthorizationResponseObject, error)
+	// List the organizations the caller administers
+	// (GET /v1/me/organizations)
+	ListAdministeredOrganizations(ctx context.Context, request ListAdministeredOrganizationsRequestObject) (ListAdministeredOrganizationsResponseObject, error)
 	// List organizations
 	// (GET /v1/organizations)
 	ListOrganizations(ctx context.Context, request ListOrganizationsRequestObject) (ListOrganizationsResponseObject, error)
@@ -7285,6 +7479,32 @@ func (sh *strictHandler) CheckAuthorization(w http.ResponseWriter, r *http.Reque
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(CheckAuthorizationResponseObject); ok {
 		if err := validResponse.VisitCheckAuthorizationResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListAdministeredOrganizations operation middleware
+func (sh *strictHandler) ListAdministeredOrganizations(w http.ResponseWriter, r *http.Request, params ListAdministeredOrganizationsParams) {
+	var request ListAdministeredOrganizationsRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListAdministeredOrganizations(ctx, request.(ListAdministeredOrganizationsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListAdministeredOrganizations")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListAdministeredOrganizationsResponseObject); ok {
+		if err := validResponse.VisitListAdministeredOrganizationsResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

@@ -377,6 +377,26 @@ The cost of the omission is smaller than it looks today, because both claims are
 
 ---
 
+### PG-37 — `P2-13` is a console task whose Definition of Done needed an endpoint that did not exist
+
+**Affects**: `TASKS/PHASE-2-RBAC-MULTITENANCY.md` § P2-13, `docs/PLAN/05-API-CONTRACT.md`.
+
+The card's surface is **console**, it says "Spec required: No", and its first Definition of Done line reads:
+
+> The switcher lists exactly the organizations the caller administers, **per server-side truth**.
+
+Nothing could answer that. `GET /v1/organizations` requires `INSTANCE_OWNER` by nature — a list that spans tenants cannot be scoped to one — and an `ORG_ADMIN` reads only their own organization. The token's `urn:authservice:manager_roles` claim carries **role names without their scopes**, so it cannot name an organization at all, and `internal/management/store.go` is emphatic that a role in a token is a snapshot this API must not trust.
+
+So the only two ways to satisfy the card were to add an endpoint, or to build the switcher off something that is not server-side truth — which would have satisfied the sentence and broken the requirement.
+
+**What was built**: `GET /v1/me/organizations`, plus a `ScopeSelf` authorization scope for it, plus the `organizations_administered_by` SECURITY DEFINER function. Roughly 300 lines in a task the plan sized as a console `M`.
+
+**The gap is in the planning, not the outcome.** A console task that needs a new endpoint is not a console task, and the roadmap's sizing and dependency graph both assumed otherwise (`P2-13` depends only on `P2-08`). Two more Phase 2 console cards — `P2-14`, and `P2-12`'s roster, already recorded as `PG-36` — sit near the same line.
+
+**Recommendation**: when a console card's DoD says "per server-side truth", the card should name the endpoint it reads, and the roadmap should carry a backend dependency. `docs/PLAN/05` should document `/v1/me/organizations` through the deliberate plan-change process.
+
+---
+
 ### PG-36 — Nothing can answer "who has access to this project?"
 
 **Affects**: `P2-12`'s Authorizations tab, `docs/PLAN/17`'s access-review expectations, and any future access certification (`DF-01`).

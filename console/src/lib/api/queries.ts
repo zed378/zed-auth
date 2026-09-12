@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 
 import { api, queryKeys } from "./client";
-import { useAuth } from "../auth/AuthProvider";
+import { useOrgContext } from "../org/OrgProvider";
 
 /**
  * The reads the console does, in one place (P1-22).
@@ -11,10 +11,43 @@ import { useAuth } from "../auth/AuthProvider";
  * with a correct API, and the reason `PF-20` is on the watch list.
  */
 
-/** The organization in the caller's token. Null before there is one. */
+/**
+ * The organization the console is acting in. Null before sign-in.
+ *
+ * The token's `org_id` until `P2-13`; now the **active** organization, which
+ * is the token's unless an administrator has switched (`?org=`). Every query
+ * key below is built from it, so switching re-scopes every read without a
+ * single call site changing — and the switch clears the cache anyway, so a
+ * hook that forgot to include it could not serve the previous tenant's rows.
+ */
 export function useOrgId(): string | null {
-  const { claims } = useAuth();
-  return claims?.orgId ?? null;
+  return useOrgContext().orgId;
+}
+
+/**
+ * The organizations this caller administers (P2-13).
+ *
+ * From `GET /v1/me/organizations`, never from the token's
+ * `urn:authservice:manager_roles` claim: that claim carries role names without
+ * their scopes, so it cannot name an organization at all, and a role in a token
+ * is a snapshot up to ten minutes stale.
+ *
+ * NOT keyed by organization. It is a property of the caller, not of the
+ * context they are in, and re-fetching it on every switch would make the
+ * switcher empty itself the moment it is used.
+ */
+export function useAdministeredOrganizations(enabled: boolean) {
+  return useQuery({
+    queryKey: [...queryKeys.administered],
+    enabled,
+    queryFn: async () => {
+      const { data, error } = await api.GET("/v1/me/organizations", {
+        params: { query: { page_size: 100 } },
+      });
+      if (error !== undefined) throw asFailure(error);
+      return data.organizations;
+    },
+  });
 }
 
 export function useOrganization(orgId: string | null) {

@@ -104,6 +104,12 @@ const sidebar: SidebarsConfig = {
       items: [
         {
           type: "doc",
+          id: "api-reference/list-administered-organizations",
+          label: "List the organizations the caller administers",
+          className: "api-method get",
+        },
+        {
+          type: "doc",
           id: "api-reference/list-organizations",
           label: "List organizations",
           className: "api-method get",

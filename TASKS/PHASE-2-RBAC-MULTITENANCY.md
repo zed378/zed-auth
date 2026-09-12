@@ -442,7 +442,7 @@
 
 | | |
 |---|---|
-| **Status** | TODO |
+| **Status** | DONE — 2026-09-12, [record](../MEMORY/records/2026-09-12-P2-13-org-switcher.md). End-to-end verified against a local stack; not yet on staging. **Also added `GET /v1/me/organizations`** — the DoD could not be met without it, see `PG-37` |
 | **Depends on** | P2-08 |
 | **Plan refs** | `docs/UI-UX/08-PAGE-SPECIFICATIONS.md` (Organization switcher), `docs/PLAN/06-FRONTEND-ARCHITECTURE.md` § Information Architecture, `docs/PLAN/01-PRODUCT-SCOPE.md` § Out of Scope |
 | **Spec required** | No |
@@ -459,11 +459,11 @@
 6. Verify server-side that the caller may act in the selected organization — the switcher is UI, not a control (`docs/UI-UX/08` § Cross-Screen Requirements).
 
 **Definition of Done**
-- [ ] The switcher lists exactly the organizations the caller administers, per server-side truth.
-- [ ] Switching clears the previous organization's cached data, verified by test.
-- [ ] The active organization is visible on every screen.
-- [ ] Selecting an unauthorized organization is refused server-side even if forced client-side.
-- [ ] The context survives refresh via the URL.
+- [x] The switcher lists exactly the organizations the caller administers, per server-side truth — from `GET /v1/me/organizations`, **added by this task** because nothing could answer it (`PG-37`). Never from the token's manager-role claim, which carries role names without their scopes. 7 integration tests; removing the caller filter from the SQL turns two cross-tenant tests red.
+- [x] Switching clears the previous organization's cached data, verified by test — `queryClient.clear()`, and the test seeds a cache entry for the old organization and asserts it is gone.
+- [x] The active organization is visible on every screen — in the side navigation, above every destination, as a label when there is nowhere to switch and a control when there is. Asserted on four screens end-to-end.
+- [x] Selecting an unauthorized organization is refused server-side even if forced client-side — a Playwright test drives `?org=<forged>` against the real service and asserts the refusal, plus a chrome message explaining it. The create button stays visible and the test says why: it is gated on the caller's token, not the context, and the API refuses the write regardless.
+- [x] The context survives refresh via the URL — `?org=`, re-attached after internal navigation because React Router drops search parameters on a `<Link>`. Removed entirely when acting in the caller's own organization.
 
 ---
 

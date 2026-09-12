@@ -1,3 +1,4 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
@@ -36,12 +37,21 @@ beforeEach(() => {
 });
 
 function renderShell(children = <h1>Page</h1>) {
+  // A QueryClient because the shell now renders the organization switcher,
+  // which reads `GET /v1/me/organizations` (P2-13). The shell's own
+  // assertions are unaffected: with no token the switcher renders nothing.
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+
   return render(
-    <MemoryRouter>
-      <AuthProvider>
-        <AppShell>{children}</AppShell>
-      </AuthProvider>
-    </MemoryRouter>,
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter>
+        <AuthProvider>
+          <AppShell>{children}</AppShell>
+        </AuthProvider>
+      </MemoryRouter>
+    </QueryClientProvider>,
   );
 }
 
