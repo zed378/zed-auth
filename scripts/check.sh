@@ -233,6 +233,57 @@ else
   fail "destructive migrations without justification:$undocumented"
 fi
 
+# A CHECK comparing two timestamps only means what it says if both were written
+# by the same clock. `idempotency_records` had `expires_at` from the caller and
+# `created_at` from the column DEFAULT — the database's — so
+# `expires_at > created_at` was really asserting "the caller's clock is less
+# than a day behind the database's". It held for three days and then the
+# integration suite, whose clock is fixed at 2026-09-10 12:00, stopped being
+# able to insert anything at all the moment real time passed that plus the TTL.
+# Nothing had changed; the tests had simply expired (P1-28).
+#
+# The first version of this gate derived the table from the constraint's name
+# and so looked for `INSERT INTO idempotency` — which does not exist, because
+# the table is `idempotency_records`. It found nothing, skipped, and passed
+# while the bug was in the tree. A table it cannot find an INSERT for is now a
+# failure, not a silence.
+if clocks=$(python3 - <<'PY'
+import glob, re, sys
+
+# Every CREATE TABLE whose body compares a column against created_at.
+tables = {}
+for path in sorted(glob.glob('backend/migrations/*.up.sql')):
+    sql = open(path, encoding='utf-8').read()
+    for match in re.finditer(r'CREATE TABLE (?:IF NOT EXISTS )?([a-z_]+)\s*\((.*?)\n\);', sql, re.S):
+        name, body = match.group(1), match.group(2)
+        if re.search(r'CHECK\s*\([^)]*\bcreated_at\b', body):
+            tables[name] = path
+
+problems = []
+for table, migration in sorted(tables.items()):
+    found = False
+    for path in glob.glob('backend/**/*.go', recursive=True):
+        if path.endswith('_test.go'):
+            continue
+        src = open(path, encoding='utf-8').read()
+        for insert in re.finditer(r'INSERT INTO ' + table + r'\s*\((.*?)\)', src, re.S):
+            found = True
+            if 'created_at' not in insert.group(1):
+                problems.append('%s: INSERT in %s does not write created_at' % (table, path))
+    if not found:
+        problems.append('%s: no INSERT found in shipped code — %s cannot be checked'
+                        % (table, migration))
+
+print('\n'.join(problems))
+sys.exit(0)
+PY
+) && [ -z "$clocks" ]; then
+  pass "rows with an expires-after-creation check are written from one clock"
+else
+  fail "a row is built from two clocks:"
+  printf '%s\n' "$clocks" | sed 's/^/      /'
+fi
+
 # --- Shell ------------------------------------------------------------------
 
 section "Shell"
@@ -674,21 +725,32 @@ sys.exit(1 if 'DEMO_CLIENT_SECRET' in services['spa']['environment'] else 0)
     AUTH_SECRETS_DIR=/tmp/s AUTH_ADMIN_TOKEN_REF=file:/tmp/s/metrics-token \
     docker compose -f deploy/vm/docker-compose.tunnel.yml config --format json 2>/dev/null)
 
-  if echo "$rendered" | grep -q 'AUTH_POSTGRES_OWNER_PASSWORD\|AUTH_MIGRATE_DSN'; then
-    if echo "$rendered" | python3 -c "
-import json,sys
-d=json.load(sys.stdin)
-env=d['services']['authservice']['environment']
-leaked=[k for k in env if k in ('AUTH_POSTGRES_OWNER_PASSWORD','AUTH_MIGRATE_DSN')]
-sys.exit(1 if leaked else 0)
-" 2>/dev/null; then
-      pass "service container receives no owner credentials"
-    else
-      fail "the service container receives owner credentials"
-    fi
-  else
-    pass "service container receives no owner credentials"
-  fi
+  # One reader, whose output distinguishes three outcomes that the previous
+  # shape collapsed into two. `grep -q` exits at its first match and can leave
+  # the writer feeding it holding an unwritten payload; that write fails, and
+  # under `pipefail` the pipeline is non-zero — indistinguishable from "no
+  # match". Here "no match" was wired to `pass`, so a gate that could not read
+  # its input would have announced that the service receives no owner
+  # credentials. `P1-28` hit the same shape in its acceptance harness, where it
+  # produced a false FAILURE and was therefore visible; this one fails the
+  # silent way round, which is the project's named defect class sitting inside
+  # the script that exists to catch it.
+  leak=$(printf '%s' "$rendered" | python3 -c "
+import json, sys
+try:
+    d = json.load(sys.stdin)
+    env = d['services']['authservice'].get('environment') or {}
+except Exception as exc:
+    print('unreadable: %s' % exc)
+    sys.exit(0)
+print(','.join(k for k in env if k in ('AUTH_POSTGRES_OWNER_PASSWORD', 'AUTH_MIGRATE_DSN')))
+" 2>/dev/null)
+
+  case "$leak" in
+    "")           pass "service container receives no owner credentials" ;;
+    unreadable*)  fail "the owner-credential check could not read the compose file ($leak)" ;;
+    *)            fail "the service container receives owner credentials: $leak" ;;
+  esac
 else
   skip "compose validation" "docker unavailable"
 fi

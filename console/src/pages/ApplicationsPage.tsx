@@ -43,6 +43,24 @@ export function ApplicationsPage() {
   const columns: Column<Application>[] = [
     { key: "name", header: "Name", cell: (app) => app.name },
     {
+      key: "client_id",
+      header: "Client ID",
+      // `docs/UI-UX/08` names this tab's purpose as "Register application,
+      // **view `client_id`**/secret, set redirect URIs", and it was missing
+      // until `P1-28` walked the acceptance criteria. An integrator's first
+      // need from this screen is the value they paste into their own
+      // configuration; without it the console could register an application
+      // and then not tell anyone what it was called.
+      //
+      // Shown in full rather than truncated. A shortened id is one somebody
+      // copies, pastes, and debugs for an hour — and `docs/PLAN/04` is
+      // explicit that the id IS the client_id, so there is no second, shorter
+      // identifier to show instead.
+      cell: (app) => (
+        <code className="font-mono text-small text-text-secondary">{app.id}</code>
+      ),
+    },
+    {
       key: "type",
       header: "Type",
       cell: (app) => <Badge tone="neutral">{app.type}</Badge>,
