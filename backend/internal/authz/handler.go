@@ -17,6 +17,10 @@ type Handler struct {
 	DB  *postgres.DB
 	Log *slog.Logger
 
+	// Cache holds the decision's INPUTS (P2-07). Optional: nil means every
+	// check reads the database, which is slower and never wrong.
+	Cache *Cache
+
 	// Observer records decision metrics. `docs/PLAN/13` wants latency, the
 	// allow/deny ratio and the error rate as three separate series, because an
 	// outage that showed up as a deny spike would look like a policy change.
@@ -129,69 +133,137 @@ func (h *Handler) CheckAuthorization(
 // grantsFor reads the subject's roles in the caller's own project, with what
 // each role carries.
 //
-// One query. `P1-28` found Postgres CPU to be the ceiling and this endpoint is
-// expected to carry more traffic than everything in Phase 1 combined, so a
-// decision that cost three round trips would set a new one.
+// Two reads, both cacheable independently (`P2-07`): what the user holds, and
+// what the project's roles carry. They change for different reasons and are
+// invalidated by different events — combining them would mean one role edit
+// invalidating every user who holds it, which is a scan or a guess and neither
+// belongs in a request path.
+//
+// A cache miss, or a cache that cannot be reached, falls through to the
+// database. Never to an allow.
 //
 // The second return says whether the subject exists — for the LOG only. The
 // response must not distinguish an unknown subject from an unauthorized one.
 func (h *Handler) grantsFor(
 	ctx context.Context, orgID, clientID, subjectUserID string,
 ) ([]Grant, bool, error) {
-	var (
-		out    []Grant
-		exists bool
-	)
-
-	err := h.DB.WithTenant(ctx, orgID, func(tx *postgres.Tx) error {
-		// Does the subject exist in this tenant? Read in the same round trip
-		// as the grants, because it is only ever used for a log line and does
-		// not deserve a query of its own.
-		rows, err := tx.Query(ctx, `
-			WITH subject AS (
-			  SELECT id FROM users WHERE id = $1
-			),
-			client_project AS (
-			  SELECT project_id FROM applications WHERE id = $2
-			)
-			SELECT
-			  (SELECT count(*) FROM subject) > 0,
-			  r.key,
-			  r.permission_keys
-			  FROM user_grants g
-			  JOIN client_project cp ON cp.project_id = g.project_id
-			  JOIN roles r ON r.project_id = g.project_id AND r.key = ANY(g.role_keys)
-			 WHERE g.user_id = $1`,
-			subjectUserID, clientID)
-		if err != nil {
-			return err
-		}
-		defer func() { _ = rows.Close() }()
-
-		for rows.Next() {
-			var g Grant
-			if err := rows.Scan(&exists, &g.RoleKey, pq.Array(&g.PermissionKeys)); err != nil {
-				return err
-			}
-			out = append(out, g)
-		}
-		if err := rows.Err(); err != nil {
-			return err
-		}
-
-		// No rows means no grants, which says nothing about whether the
-		// subject exists — so that has to be asked separately in exactly the
-		// case where the join produced nothing.
-		if len(out) == 0 {
-			return tx.QueryRow(ctx,
-				`SELECT EXISTS (SELECT 1 FROM users WHERE id = $1)`, subjectUserID).Scan(&exists)
-		}
-		return nil
-	})
+	projectID, err := h.projectOf(ctx, orgID, clientID)
 	if err != nil {
 		return nil, false, err
 	}
+
+	roleKeys, cachedKeys := h.Cache.RoleKeys(ctx, orgID, subjectUserID, projectID)
+	definitions, cachedRoles := h.Cache.Roles(ctx, orgID, projectID)
+
+	// `exists` is only ever used for a log line, so it is not worth a query of
+	// its own — and not worth caching either. It is read alongside the grants
+	// when the grants are read, and assumed true when they came from a cache
+	// (an entry only exists for a user who was looked up).
+	exists := cachedKeys
+
+	if !cachedKeys || !cachedRoles {
+		err := h.DB.WithTenant(ctx, orgID, func(tx *postgres.Tx) error {
+			if !cachedKeys {
+				var err error
+				roleKeys, exists, err = readRoleKeys(ctx, tx, subjectUserID, projectID)
+				if err != nil {
+					return err
+				}
+				h.Cache.PutRoleKeys(ctx, orgID, subjectUserID, projectID, roleKeys)
+			}
+			if !cachedRoles {
+				var err error
+				definitions, err = readRoleDefinitions(ctx, tx, projectID)
+				if err != nil {
+					return err
+				}
+				h.Cache.PutRoles(ctx, orgID, projectID, definitions)
+			}
+			return nil
+		})
+		if err != nil {
+			return nil, false, err
+		}
+	}
+
+	out := make([]Grant, 0, len(roleKeys))
+	for _, key := range roleKeys {
+		// A role key with no definition is dropped rather than treated as
+		// carrying nothing in particular. `P2-03`'s trigger makes it
+		// impossible to write one, and if one ever exists it must not become a
+		// grant that quietly matches an empty permission set.
+		permissions, defined := definitions[key]
+		if !defined {
+			continue
+		}
+		out = append(out, Grant{RoleKey: key, PermissionKeys: permissions})
+	}
 	return out, exists, nil
+}
+
+// projectOf resolves the caller's client to its project.
+//
+// Not cached: it is a single indexed lookup by primary key, and caching an
+// application's project would add an invalidation path for a value that
+// changes when an application is created and never again.
+func (h *Handler) projectOf(ctx context.Context, orgID, clientID string) (string, error) {
+	var projectID string
+	err := h.DB.WithTenant(ctx, orgID, func(tx *postgres.Tx) error {
+		return tx.QueryRow(ctx,
+			`SELECT project_id FROM applications WHERE id = $1`, clientID).Scan(&projectID)
+	})
+	if err != nil {
+		return "", err
+	}
+	return projectID, nil
+}
+
+func readRoleKeys(
+	ctx context.Context, tx *postgres.Tx, userID, projectID string,
+) ([]string, bool, error) {
+	var (
+		keys   []string
+		exists bool
+	)
+	err := tx.QueryRow(ctx, `
+		SELECT
+		  EXISTS (SELECT 1 FROM users WHERE id = $1),
+		  coalesce((SELECT role_keys FROM user_grants
+		             WHERE user_id = $1 AND project_id = $2), '{}')`,
+		userID, projectID,
+	).Scan(&exists, pq.Array(&keys))
+	if err != nil {
+		return nil, false, err
+	}
+	if keys == nil {
+		keys = []string{}
+	}
+	return keys, exists, nil
+}
+
+func readRoleDefinitions(
+	ctx context.Context, tx *postgres.Tx, projectID string,
+) (map[string][]string, error) {
+	rows, err := tx.Query(ctx,
+		`SELECT key, permission_keys FROM roles WHERE project_id = $1`, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	out := map[string][]string{}
+	for rows.Next() {
+		var key string
+		var permissions []string
+		if err := rows.Scan(&key, pq.Array(&permissions)); err != nil {
+			return nil, err
+		}
+		if permissions == nil {
+			permissions = []string{}
+		}
+		out[key] = permissions
+	}
+	return out, rows.Err()
 }
 
 func (h *Handler) observeDecision(allowed bool, started time.Time) {

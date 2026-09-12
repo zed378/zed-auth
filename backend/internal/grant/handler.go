@@ -20,6 +20,24 @@ type Handler struct {
 	DB     *postgres.DB
 	Log    *slog.Logger
 	Audit  management.Recorder
+
+	// Cache is the authorization cache to invalidate when a grant changes
+	// (P2-07). Optional: nil means the TTL is the only mechanism, which is
+	// slower to take effect and never wrong.
+	//
+	// An interface rather than the cache type, so this package does not depend
+	// on `internal/authz` — which depends on `internal/role`, which would make
+	// the dependency graph a ring.
+	Cache Invalidator
+}
+
+// Invalidator drops what a grant change made stale.
+//
+// Proactive invalidation is what makes `P2-07`'s TTL a backstop rather than
+// the revocation window: without it, a revoked role stays usable for up to the
+// TTL, every time.
+type Invalidator interface {
+	InvalidateUser(ctx context.Context, orgID, userID, projectID string)
 }
 
 func New(db *postgres.DB, recorder management.Recorder, log *slog.Logger) *Handler {
@@ -95,6 +113,13 @@ func (h *Handler) GrantRolesToUser(
 		return nil, faultFrom(err)
 	}
 
+	// After the transaction commits, never inside it. An invalidation inside a
+	// transaction that then rolls back would have dropped a cache entry that
+	// was still correct — harmless — but one that COMMITS after the
+	// invalidation would leave a window where the old value is re-cached by a
+	// concurrent read. Ordering it after the commit closes that.
+	h.invalidate(ctx, created.UserID, created.ProjectID)
+
 	rendered, err := render(created)
 	if err != nil {
 		return nil, err
@@ -145,6 +170,8 @@ func (h *Handler) ReplaceUserGrant(
 		return nil, faultFrom(err)
 	}
 
+	h.invalidate(ctx, updated.UserID, updated.ProjectID)
+
 	rendered, err := render(updated)
 	if err != nil {
 		return nil, err
@@ -185,7 +212,22 @@ func (h *Handler) RevokeUserGrant(
 		return nil, faultFrom(err)
 	}
 
+	// The invalidation that matters most: until this lands, a revoked role is
+	// still served from cache.
+	h.invalidate(ctx, userID, projectID)
+
 	return api.RevokeUserGrant204Response{}, nil
+}
+
+func (h *Handler) invalidate(ctx context.Context, userID, projectID string) {
+	if h.Cache == nil {
+		return
+	}
+	orgID, _ := management.ScopeFrom(ctx)
+	if orgID == "" {
+		return
+	}
+	h.Cache.InvalidateUser(ctx, orgID, userID, projectID)
 }
 
 // --- helpers ----------------------------------------------------------------

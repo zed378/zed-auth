@@ -258,7 +258,7 @@
 
 | | |
 |---|---|
-| **Status** | TODO |
+| **Status** | DONE — [record](../MEMORY/records/2026-09-12-P2-07-decision-caching.md), [ADR-022](../MEMORY/DECISIONS.md). Not yet on staging |
 | **Depends on** | P2-06 |
 | **Plan refs** | `docs/PLAN/12-PERFORMANCE.md` § Design Decisions Made for Performance, `docs/PLAN/08-AUTHORIZATION.md` Part C § Full Permission Check Flow |
 | **Spec required** | Yes — security/performance trade-off |
@@ -275,11 +275,11 @@
 6. On a cache backend failure, fall through to the database rather than failing the check — but never fall through to "allow."
 
 **Definition of Done**
-- [ ] The TTL choice and its revocation-window implication are recorded in `MEMORY/DECISIONS.md`.
-- [ ] Proactive invalidation on grant change is tested end-to-end.
-- [ ] Cache unavailability degrades to a database read, never to an allow.
-- [ ] The revocation window is documented publicly.
-- [ ] Hit rate and staleness are observable in metrics.
+- [x] The TTL choice and its revocation-window implication are recorded in [ADR-022](../MEMORY/DECISIONS.md). 30 seconds, and the number matters less than what makes it defensible: invalidation is the mechanism, so the TTL covers only the cases invalidation cannot — a cache that was unreachable at the moment of the change, and a grant changed outside the API.
+- [x] Proactive invalidation on grant change is tested end-to-end, through the real HTTP path. The tests **do not wait**: the TTL is 30 seconds and they take milliseconds, so the only thing that can make them pass is the invalidation landing.
+- [x] Cache unavailability degrades to a database read, never to an allow — and the test asserts **both halves**, because a cache outage that denied everything would satisfy "never allow" while being an outage of its own. This found a real bug: without a per-operation timeout the request **timed out** instead of falling through, so a cache outage was a service outage.
+- [x] The revocation window is documented publicly, with the reason attached: immediate normally, at most 30 seconds if an invalidation was lost, and if a step cannot be undone that is the window being accepted.
+- [x] Hit rate and staleness are observable. Staleness is the age of an entry **when it was used**, which is what the fleet actually served rather than an upper bound anybody can read off a constant.
 
 ---
 

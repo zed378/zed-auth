@@ -191,6 +191,28 @@ type Metrics struct {
 	// until Phase 4b, which is correct and visible.
 	PolicyEvalDuration prometheus.Histogram
 
+	// --- Authorization cache (P2-07) ---
+
+	// AuthzCacheLookups counts hits, misses and unreachable-cache events by
+	// kind. "unavailable" is its own outcome rather than a miss: the remedies
+	// differ, and a cache that is down looks exactly like a cold one on a hit
+	// rate alone.
+	AuthzCacheLookups *prometheus.CounterVec
+
+	// AuthzCacheEntryAge is how old an entry was WHEN IT WAS USED.
+	//
+	// The observed staleness distribution `P2-07` step 5 asks for, and the
+	// honest version of it: the TTL is an upper bound anybody can read off a
+	// constant, while this says what the fleet actually served.
+	AuthzCacheEntryAge *prometheus.HistogramVec
+
+	// AuthzCacheInvalidationFailures counts invalidations that did not land.
+	//
+	// Every one of these is a window where a revoked permission may still be
+	// served until the entry expires — the only thing that makes the TTL
+	// load-bearing rather than a backstop.
+	AuthzCacheInvalidationFailures *prometheus.CounterVec
+
 	// --- Delegation (P4-01) ---
 
 	// ProjectGrantChanges exists because docs/PLAN/13 names an unusual spike in
@@ -364,6 +386,22 @@ func NewMetrics(service, version string) *Metrics {
 			"authz_decisions_total",
 			"Authorization decisions by result. A sudden shift in the allow ratio is worth investigating.",
 			"decision", "mode"),
+
+		AuthzCacheLookups: factory.counterVec(
+			"authz_cache_lookups_total",
+			"Authorization cache lookups by kind and outcome (hit, miss, unavailable).",
+			"kind", "outcome"),
+
+		AuthzCacheEntryAge: factory.histogramVec(
+			"authz_cache_entry_age_seconds",
+			"Age of a cached authorization input when it was used. The observed staleness distribution.",
+			[]float64{0.5, 1, 2, 5, 10, 20, 30},
+			"kind"),
+
+		AuthzCacheInvalidationFailures: factory.counterVec(
+			"authz_cache_invalidation_failures_total",
+			"Invalidations that did not land. Each is a window where a revoked permission may still be served.",
+			"kind"),
 
 		PolicyEvalDuration: factory.histogram(
 			"authz_policy_eval_duration_seconds",

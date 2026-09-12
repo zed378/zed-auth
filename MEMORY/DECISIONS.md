@@ -889,6 +889,50 @@ None contradicted. `docs/PLAN/06` names the dogfooding constraint and does not s
 
 ---
 
+### ADR-022 — The authorization cache holds inputs for 30 seconds, and invalidation is the mechanism rather than the TTL
+
+**Status**: accepted, 2026-09-12 (`P2-07`)
+
+**Context**
+
+`P2-07` step 1 asks for the TTL and its reasoning to be stated explicitly, and step 4 asks for the revocation window to be documented publicly — because "a consumer team making a security decision deserves to know the real staleness bound, not an implied *instant*".
+
+A cache in front of an authorization decision is a correctness risk wearing a performance improvement's clothes. The failure it introduces is that a revoked permission keeps working, and the size of that window is the thing a security reviewer will ask about.
+
+**Decision**
+
+Three parts, and the order matters.
+
+**Invalidation is the mechanism.** A grant change drops that user's entry for that project; a role edit drops the project's role definitions. Both happen after the transaction commits. A revocation is therefore honoured on the **next check**, not after a delay.
+
+**The TTL is 30 seconds, and it is a backstop.** It covers exactly two cases invalidation cannot: Redis was unreachable at the moment of the change, so the delete never landed; and somebody changed a grant outside the API — a migration, a support script, direct SQL — where no code runs to invalidate anything.
+
+**Inputs are cached, never decisions.** What a user holds, and what each role carries. A cached decision would be wrong the moment Phase 4b lets a policy read `resource.attributes`, because it would be served for a resource it was never computed against.
+
+**So the window a consumer must be told is: immediate in the normal case, at most 30 seconds if an invalidation was lost.** That is a sentence somebody can act on. "We cache aggressively" is not.
+
+**Why 30 seconds rather than longer**
+
+`P1-28` measured the database as able to serve this load — the cache protects latency rather than making the system possible. A cache that is ~90% effective at 30 seconds is not meaningfully worse than one that is ~93% effective at five minutes, and the window it opens is ten times larger. The trade is bad in the direction that matters.
+
+**Why two keys rather than one**
+
+Grants and role definitions change for different reasons. One combined entry would mean a single role edit invalidating every user who holds it: a scan, or a guess about who that is, and neither belongs in a request path. Two keys make a role edit one delete, whatever the number of holders.
+
+**The operation timeout, which the first version did not have**
+
+Each cache operation gets 50 milliseconds. Without it, an unreachable Redis made every check wait for the client's own dial-and-retry budget, and the request **timed out** rather than reading the database — so a cache outage became a service outage, which is precisely what step 6 exists to prevent.
+
+Found by pointing the cache at a dead port and watching the check answer `503 TIMEOUT` instead of the right answer a few milliseconds later. It is now a test.
+
+**Consequences**
+
+- An invalidation that fails to land is the only thing that makes the TTL load-bearing, so it is counted (`authz_cache_invalidation_failures_total`) and logged at `ERROR`.
+- Staleness is observed rather than assumed: `authz_cache_entry_age_seconds` records how old an entry was **when it was used**, which is what the fleet actually served rather than an upper bound anybody can read off a constant.
+- A cache outage shows up as its own outcome in `authz_cache_lookups_total` rather than as a miss, because "the cache is down" and "this user was not cached" have different remedies.
+
+---
+
 ### ADR-021 — Role claims are scoped to one project and bounded at 64, and truncate rather than drop
 
 **Status**: accepted, 2026-09-12 (`P2-04`)
