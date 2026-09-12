@@ -1483,6 +1483,15 @@ export interface components {
          *     key kept silently becomes a policy that is not in force and looks like
          *     it is, and nobody notices until the audit that was supposed to find it
          *     does not.
+         *
+         *     Every `default` here is the value the service applies when an
+         *     organization's settings say nothing — the same value the
+         *     `organizations.settings` column default carries and the same one
+         *     `authn.DefaultPolicy` and `authn.DefaultLoginPolicy` hold. They are
+         *     documented here because the console must show an administrator what
+         *     they are changing *from*, and a console restating them would be a third
+         *     copy free to drift. `TestSpecDefaultsMatchTheService` fails if the two
+         *     Go values and these stop agreeing.
          */
         OrganizationSettings: {
             password_policy?: {
@@ -1491,23 +1500,37 @@ export interface components {
                  *     it and never lower it — a tenant setting that can go below the
                  *     instance floor is a per-tenant way to disable a platform
                  *     control.
+                 * @default 12
                  */
                 min_length?: number;
+                /** @default true */
                 require_uppercase?: boolean;
                 /**
                  * @description `0` means passwords never expire, which is a real choice rather
                  *     than an absent value: NIST SP 800-63B argues forced rotation
                  *     makes passwords worse.
+                 * @default 90
                  */
                 max_age_days?: number;
             };
+            /**
+             * @description Stored and validated; **not enforced**. Multi-factor enrolment
+             *     arrives in Phase 3, and until it does this records an intention
+             *     rather than a control. No surface may describe it as active
+             *     (`docs/UI-UX/21` governance rule).
+             * @default false
+             */
             mfa_required?: boolean;
+            /** @default 12 */
             session_lifetime_hours?: number;
             /**
              * @description Only `password` is available in this phase. `passkey` and `social`
              *     are planned and are rejected until they work — an API that accepts
              *     a method nothing implements would silently disable every method
              *     that does.
+             * @default [
+             *       "password"
+             *     ]
              */
             allowed_login_methods?: "password"[];
         };
@@ -1833,7 +1856,7 @@ export interface components {
              *     for an organization that distributes links through its own channel.
              * @default true
              */
-            send_invite_email: boolean;
+            send_invite_email?: boolean;
         };
         UserCreated: components["schemas"]["User"] & {
             /**
