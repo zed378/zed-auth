@@ -24,6 +24,52 @@ lookup: does this user hold a role in this project that includes this permission
 This covers the overwhelming majority of real cases, and it is fast — a property that
 matters because every protected request in every consumer application pays for it.
 
+### What the token tells you, and when it stops being true
+
+An access token carries the roles the user holds **in the project the token was issued
+for**, under a claim named for that project:
+
+```json
+"urn:authservice:iam:org:project:PROJECT_ID:roles": {
+  "cashier": { "org_id": "ORG_ID" }
+}
+```
+
+Only that project. A token issued to one application does not carry the roles its holder
+has in a different one, so the token stays the same size as an organization adds
+projects.
+
+The `org_id` inside each value looks redundant, and is deliberate: once a project is
+delegated to another organization, the same role name becomes reachable from two
+contexts, and the value is what tells them apart. It is emitted from the start so that
+adding it later is not a change every consumer has to absorb.
+
+Administrative roles — the ones that govern who administers Zed Auth itself — are
+separate and not project-scoped:
+
+```json
+"urn:authservice:manager_roles": ["ORG_ADMIN"]
+```
+
+The claim is **absent** rather than empty for users who hold none, which is most of them.
+
+**These claims are a snapshot taken when the token was issued.** If a role is revoked a
+minute later, a token minted before that keeps asserting it until it expires. Nothing can
+reach back into a token already in somebody's hands.
+
+That is the trade a self-contained token makes, and it is why revocation is not the same
+as expiry. For most decisions the snapshot is right: it costs no round trip, and being a
+few minutes stale is not a risk. For the ones where it is not — anything destructive,
+anything involving money, anything an auditor will ask about — ask at the time of the
+action instead of trusting the token, and keep access-token lifetimes short so the window
+stays small.
+
+A very heavily-granted user reaches a bound: the claim carries at most 64 roles for one
+project. Past that it is truncated rather than dropped, so what remains is always a true
+subset of what the user holds — a consumer may deny something it should have allowed, and
+will never allow something it should have denied. A role model that needs more than 64
+distinct roles in a single project is usually saying it wants fewer, broader ones.
+
 *Arrives in Phase 2.*
 
 ## Layer 2 — Project grants (delegation)

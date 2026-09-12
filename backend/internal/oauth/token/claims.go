@@ -137,16 +137,60 @@ func AccessTokenClaims(in Subject, now time.Time) (Claims, error) {
 		claims["sid"] = in.SessionID
 	}
 
-	// The role namespace, reserved and empty until P2-04.
+	// The role namespace. Reserved empty by `P1-07`, populated here.
 	//
-	// Present rather than absent, so the token's shape does not change when
-	// roles arrive — a consumer reading `claims[ns] ?? {}` today keeps working,
-	// and one that would have crashed on a missing key never gets written.
+	// Always present when there is a project, even with no roles — so the
+	// token's shape does not change when a user is granted their first role,
+	// and a consumer reading `claims[ns] ?? {}` keeps working either way.
 	if in.ProjectID != "" {
-		claims[RoleClaimNamespace(in.ProjectID)] = map[string]any{}
+		claims[RoleClaimNamespace(in.ProjectID)] = roleClaim(in.RoleKeys, in.OrgID)
+	}
+
+	// Administrative roles, flat, because they are not project-scoped:
+	// `docs/PLAN/08` Part C shows exactly this shape.
+	//
+	// Omitted entirely when there are none, rather than emitted as `[]`. An
+	// empty array in a token is a claim asserting "this user is administratively
+	// nothing", which is true and is also 30 bytes in every token this service
+	// issues — and the overwhelming majority of users are administratively
+	// nothing.
+	if len(in.ManagerRoles) > 0 {
+		claims[ManagerRoleClaim] = bounded(in.ManagerRoles)
 	}
 
 	return claims, nil
+}
+
+// ManagerRoleClaim is the administrative role claim key (docs/PLAN/08 Part C).
+const ManagerRoleClaim = "urn:authservice:manager_roles"
+
+// roleClaim builds the per-project role object.
+//
+// `{"cashier": {"org_id": "org_acme"}}` — the org_id nested INSIDE each value,
+// which looks redundant in Phase 2 because there is only one organizational
+// context a role can come from. `docs/PLAN/08` Part A says why it is there
+// anyway: once Phase 4's delegation makes the same role name reachable from two
+// contexts, a consumer needs to tell them apart — and adding a field to a claim
+// consumers already parse is a breaking change for every one of them.
+//
+// So it is emitted now, when it costs nothing, rather than when it is needed.
+func roleClaim(keys []string, orgID string) map[string]any {
+	out := make(map[string]any, len(keys))
+	for _, key := range bounded(keys) {
+		// A map, so a duplicated key collapses rather than producing a
+		// malformed claim. The grant store already refuses duplicates; this is
+		// the layer that cannot produce one even if it did.
+		out[key] = map[string]any{"org_id": orgID}
+	}
+	return out
+}
+
+// bounded truncates a role list to MaxRoleClaims. See the constant.
+func bounded(keys []string) []string {
+	if len(keys) <= MaxRoleClaims {
+		return keys
+	}
+	return keys[:MaxRoleClaims]
 }
 
 // ClientCredentialsClaims assembles an access token with no user.
@@ -189,7 +233,38 @@ type Subject struct {
 	AuthTime    time.Time
 	Nonce       string
 	Scope       []string
+
+	// RoleKeys are the roles this user holds IN THIS CLIENT'S PROJECT, and
+	// nowhere else (P2-04).
+	//
+	// Scoped that way deliberately. A user may hold roles in every project an
+	// organization has, and a token carrying all of them grows with the
+	// organization rather than with the request — while the consumer reading
+	// it only ever cares about its own. `docs/PLAN/08` Part A's claim key is
+	// per-project for the same reason.
+	RoleKeys []string
+
+	// ManagerRoles are the administrative roles the user holds
+	// (`docs/PLAN/08` Part C). Present in the token so a consumer can tell an
+	// administrator from an ordinary user without a second call.
+	ManagerRoles []string
 }
+
+// MaxRoleClaims bounds how many role keys a token will carry.
+//
+// ADR-021. A token is carried in an `Authorization` header, and most proxies
+// and application servers cap header size at 8 KB — so a token that grows
+// without bound eventually stops working, and it stops working at the
+// consumer, in production, for whichever user happened to accumulate the most
+// roles. That failure is a 431 or a truncated header, neither of which points
+// at this service.
+//
+// Sixty-four matches `grant.MaxRoleKeys`: a grant cannot carry more, so a
+// token cannot need more for one project. If the bound is ever reached the
+// claim is TRUNCATED rather than dropped and the token still carries a true
+// subset, because a consumer denying access it should have granted is
+// recoverable and a consumer granting access it should not have is not.
+const MaxRoleClaims = 64
 
 func (s Subject) validate() error {
 	switch {
