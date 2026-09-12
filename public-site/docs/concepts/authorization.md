@@ -88,7 +88,57 @@ subset of what the user holds — a consumer may deny something it should have a
 will never allow something it should have denied. A role model that needs more than 64
 distinct roles in a single project is usually saying it wants fewer, broader ones.
 
-*Arrives in Phase 2.*
+### The three things you define
+
+**A permission key** is `resource:action` — `sale:create`, `billing.invoice:write`. The
+thing and the verb. Lower-case, and the resource may be dotted to group a family. The
+character set is narrow on purpose: a permission key ends up inside a JWT claim, so it
+must not be able to change the shape of one.
+
+**A role** is a named set of permission keys, belonging to exactly one project. `admin`
+in one project is unrelated to `admin` in another — the alternative is a role name that
+means one thing in the billing system and something else in the warehouse, and nobody
+notices until it matters. A role may carry no permissions at all; a label is useful
+before the permissions behind it exist.
+
+**A grant** is one user's roles in one project — the row that actually gives access. One
+per user per project, holding the whole set. A user with no grant has no access: there is
+no implicit or default role, so there is nothing to reason about that a role does *not*
+carry.
+
+Two rules follow from a grant naming a role by key:
+
+- A role's key cannot be changed, by anyone. Renaming would silently remove access from
+  everyone holding it.
+- A role that any grant still references cannot be deleted. The deletion is refused, with
+  the count, rather than cascaded — a cascade removes access from every holder in
+  response to a request that looks like tidying up, and nothing afterwards explains why
+  those people lost it.
+
+See [define roles and assign them](/docs/guides/define-roles) for the calls.
+
+### Who administers what
+
+Separately from application roles, five administrative roles govern Zed Auth itself. They
+nest: each satisfies every requirement below it.
+
+| Role | Administers |
+|---|---|
+| `INSTANCE_OWNER` | The whole deployment, across every organization |
+| `ORG_OWNER` | One organization, including its policies and its own deletion |
+| `ORG_ADMIN` | One organization's projects, users and grants |
+| `PROJECT_OWNER` | One project's roles and applications |
+| `MEMBER` | Nothing administrative — belonging to the organization |
+
+An `ORG_ADMIN` therefore satisfies a requirement for `PROJECT_OWNER` over any project in
+their organization, without needing a row per project. An `INSTANCE_OWNER` is the only
+one whose scope is not an organization, which is why it can administer one it is not a
+member of.
+
+These arrive in a separate token claim and are described in
+[validate role claims](/docs/guides/validate-role-claims). Your application almost
+certainly should not read them: they say somebody administers the identity provider, not
+that they should be able to approve a purchase order in your software.
 
 ## Layer 2 — Project grants (delegation)
 

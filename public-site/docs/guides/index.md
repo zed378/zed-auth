@@ -27,13 +27,15 @@ them now would mean publishing instructions that cannot be followed.
 | Guide | Where |
 |---|---|
 | Set up SSO for your application | [Quickstart](/docs/quickstart) |
+| Define roles and assign them | [Define roles](/docs/guides/define-roles) |
+| Validate role claims in your service | [Validate role claims](/docs/guides/validate-role-claims) |
+| Use `/v1/authz/check` for real-time decisions | [Authorization checks](/docs/guides/authorization-checks) |
 
 ## Planned
 
 | Guide | Arrives with |
 |---|---|
-| Invite a user and assign their first role | Phase 2 — the invitation works today; roles do not exist yet |
-| Provision an organization from CI | Phase 1 — needs the bootstrap path in `PG-26` |
+| Provision an organization from CI | Needs the bootstrap path in `PG-26` |
 | Rotate a signing key without downtime | Phase 3 |
 | Delegate a project to a partner organization | Phase 4 |
 | Add an attribute-based policy | Phase 4b |
