@@ -19,8 +19,10 @@ import (
 //
 // Both read what was actually used. Neither reads what is enrolled.
 
-// Store reads enrolled factors. Implemented against Postgres by `P3-02`.
-type Store interface {
+// EnrolledFactors is the framework's view of what a user may be challenged
+// with. Named for the question rather than for the table, because the answer
+// is "active factors of an implemented type" rather than "rows".
+type EnrolledFactors interface {
 	// Confirmed returns the factors a user may be challenged with: enrolled,
 	// confirmed, and of a type this build implements.
 	Confirmed(ctx context.Context, userID string) ([]Factor, error)
@@ -29,7 +31,7 @@ type Store interface {
 // Framework decides and completes challenges.
 type Framework struct {
 	Registry   *Registry
-	Store      Store
+	Store      EnrolledFactors
 	Challenges ChallengeStore
 	Log        *slog.Logger
 
@@ -95,8 +97,8 @@ func (f *Framework) Required(ctx context.Context, userID, orgID, pendingID strin
 	seen := map[Type]bool{}
 
 	for _, factor := range factors {
-		if !factor.Confirmed {
-			// Defensive: `Confirmed` should filter these. A half-finished
+		if !factor.Active() {
+			// Defensive: the store's query should filter these. A half-finished
 			// enrolment must never become answerable, and the cheapest place
 			// to be sure is here.
 			continue

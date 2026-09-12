@@ -141,7 +141,7 @@ func framework(t *testing.T, verifiers []Verifier, factors []Factor) (*Framework
 }
 
 func confirmedTOTP(id string) Factor {
-	return Factor{ID: id, UserID: "u1", OrgID: "o1", Type: TypeTOTP, Confirmed: true}
+	return Factor{ID: id, UserID: "u1", OrgID: "o1", Type: TypeTOTP, Status: StatusActive}
 }
 
 // --- amr ---------------------------------------------------------------------
@@ -248,27 +248,27 @@ func TestAUserWithNoFactorIsNotChallenged(t *testing.T) {
 	}
 }
 
-// An unconfirmed enrolment is not a factor.
+// A pending enrolment is not a factor.
 //
 // A half-finished enrolment must never become answerable — otherwise a user who
 // scanned a QR code and closed the tab holds a factor they cannot use and
 // cannot get past.
-func TestAnUnconfirmedFactorIsNotAnswerable(t *testing.T) {
-	unconfirmed := Factor{ID: "f1", UserID: "u1", OrgID: "o1", Type: TypeTOTP, Confirmed: false}
-	f, _ := framework(t, []Verifier{&fakeVerifier{kind: TypeTOTP}}, []Factor{unconfirmed})
+func TestAPendingFactorIsNotAnswerable(t *testing.T) {
+	pending := Factor{ID: "f1", UserID: "u1", OrgID: "o1", Type: TypeTOTP, Status: StatusPending}
+	f, _ := framework(t, []Verifier{&fakeVerifier{kind: TypeTOTP}}, []Factor{pending})
 
 	decision, err := f.Required(context.Background(), "u1", "o1", "p1")
 	if err != nil {
 		t.Fatalf("Required: %v", err)
 	}
 	if decision.Challenge {
-		t.Error("an unconfirmed enrolment produced a challenge")
+		t.Error("a pending enrolment produced a challenge")
 	}
 }
 
 // A factor whose type this build no longer implements is not offered.
 func TestAFactorWithNoVerifierIsNotOffered(t *testing.T) {
-	orphan := Factor{ID: "f1", UserID: "u1", OrgID: "o1", Type: TypeWebAuthn, Confirmed: true}
+	orphan := Factor{ID: "f1", UserID: "u1", OrgID: "o1", Type: TypeWebAuthn, Status: StatusActive}
 	f, _ := framework(t, []Verifier{&fakeVerifier{kind: TypeTOTP}}, []Factor{orphan})
 
 	decision, err := f.Required(context.Background(), "u1", "o1", "p1")
@@ -284,7 +284,7 @@ func TestAFactorWithNoVerifierIsNotOffered(t *testing.T) {
 func TestEveryEnrolledTypeIsOffered(t *testing.T) {
 	factors := []Factor{
 		confirmedTOTP("f1"),
-		{ID: "f2", UserID: "u1", OrgID: "o1", Type: TypeWebAuthn, Confirmed: true},
+		{ID: "f2", UserID: "u1", OrgID: "o1", Type: TypeWebAuthn, Status: StatusActive},
 	}
 	f, _ := framework(t, []Verifier{
 		&fakeVerifier{kind: TypeTOTP},
@@ -427,7 +427,7 @@ func TestAFactorTheChallengeDidNotNameIsRefused(t *testing.T) {
 	// Enrolled after the challenge was issued: real, confirmed, this user's,
 	// and not something this challenge may be answered with.
 	store.factors = append(store.factors, Factor{
-		ID: "f2", UserID: "u1", OrgID: "o1", Type: TypeTOTP, Confirmed: true,
+		ID: "f2", UserID: "u1", OrgID: "o1", Type: TypeTOTP, Status: StatusActive,
 	})
 
 	if _, err := f.Answer(context.Background(), decision.Handle, "f2", "123456"); !errors.Is(err, ErrNoSuchFactor) {
