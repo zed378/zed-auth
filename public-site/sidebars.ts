@@ -26,7 +26,15 @@ const sidebars: SidebarsConfig = {
     {
       type: "category",
       label: "Guides",
-      items: ["guides/guides-index"],
+      // Reading order, not alphabetical: define roles before reading them
+      // out of a token, and read them out of a token before deciding when a
+      // token is not good enough.
+      items: [
+        "guides/guides-index",
+        "guides/define-roles",
+        "guides/validate-role-claims",
+        "guides/authorization-checks",
+      ],
     },
     {
       type: "category",
