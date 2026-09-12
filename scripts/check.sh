@@ -547,6 +547,33 @@ else
     (cd console && npm test --silent 2>&1 | tail -30)
   fi
 
+  # The permission and role key patterns have ONE definition, in the OpenAPI
+  # spec, and are generated into Go and TypeScript (`P2-01`). A regex that is
+  # copied between two surfaces is a regex that diverges the first time somebody
+  # widens one side to accept a customer's role name — and the divergence is
+  # silent in the worst direction: the console accepts what the API then
+  # refuses, or the console refuses what the API would have allowed.
+  go_before=$(mktemp)
+  ts_before=$(mktemp)
+  cp backend/internal/role/pattern.gen.go "$go_before"
+  cp console/src/lib/api/patterns.gen.ts "$ts_before"
+
+  if (cd console && npm run --silent patterns:generate >/dev/null 2>&1); then
+    if diff -q "$go_before" backend/internal/role/pattern.gen.go >/dev/null 2>&1 &&
+       diff -q "$ts_before" console/src/lib/api/patterns.gen.ts >/dev/null 2>&1; then
+      pass "shared validation patterns match the spec"
+    else
+      fail "the generated patterns have drifted from openapi.yaml — run: cd console && npm run patterns:generate"
+      diff "$go_before" backend/internal/role/pattern.gen.go | head -10
+      diff "$ts_before" console/src/lib/api/patterns.gen.ts | head -10
+      cp "$go_before" backend/internal/role/pattern.gen.go
+      cp "$ts_before" console/src/lib/api/patterns.gen.ts
+    fi
+  else
+    fail "the pattern generator did not run"
+  fi
+  rm -f "$go_before" "$ts_before"
+
   # The generated client is committed, the same discipline as the backend's
   # generated server interface: a reviewer sees the contract change and its
   # consequences in one diff (ADR-013).
