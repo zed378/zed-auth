@@ -173,7 +173,7 @@
 
 | | |
 |---|---|
-| **Status** | TODO |
+| **Status** | DONE (two steps blocked) — [record](../MEMORY/records/2026-09-12-P2-05-manager-hierarchy.md), [spec](../MEMORY/specs/P2-05-manager-hierarchy.md). Taken **before** `P2-02`, which needs `PROJECT_OWNER` to exist. Not yet on staging |
 | **Depends on** | P1-15 |
 | **Plan refs** | `docs/PLAN/08-AUTHORIZATION.md` Part C § Manager Role Hierarchy & Inheritance, `docs/PLAN/04-DATA-MODEL.md` § `manager_roles` |
 | **Spec required** | Yes — administrative authorization |
@@ -191,11 +191,14 @@
 7. Guard against removing the last `ORG_OWNER` from an organization, which would orphan it.
 
 **Definition of Done**
-- [ ] The hierarchy matches `docs/PLAN/08`'s diagram, with an exhaustive table-driven test over every (role, scope, action) combination.
-- [ ] Upward inheritance is impossible, tested explicitly.
-- [ ] `ORG_ADMIN` cannot delete the organization or change its owner.
-- [ ] Every endpoint routes through the one resolution function, verified by review and by an architecture test.
-- [ ] The last `ORG_OWNER` cannot be removed.
+- [x] The hierarchy matches `docs/PLAN/08`'s diagram, with an exhaustive table-driven test over every (role, scope, action) combination. `TestTheHierarchyMatchesThePlan` covers all 25 pairs. The diagram needed a **reading** — `ORG_ADMIN` and `PROJECT_OWNER` are drawn as siblings, which would make every project endpoint shipped in `P1-17`/`P1-18` wrong. Resolved as "an organization-scoped role covers every project in its organization", recorded as `PG-32`.
+- [x] Upward inheritance is impossible, tested explicitly **and as a property** — if A satisfies B and they differ, B must not satisfy A — so an edit that accidentally makes two roles equivalent fails even if somebody updates the cells to match.
+- [x] `ORG_ADMIN` cannot delete the organization. Changing its owner is **not testable**: there is no owner-change operation, because nothing writes `manager_roles` (`PG-31`).
+- [x] Every endpoint routes through the one resolution function, verified by review and by an architecture test that reads the source — the only way to check a negative — and which was proven by planting a bespoke check and watching it get caught.
+- [ ] **The last `ORG_OWNER` cannot be removed. Blocked: there is no removal.** `PG-31` — no endpoint anywhere writes `manager_roles`, in any phase file. Left unticked rather than reasoned away, because the guard is real work that has not been done.
+
+**Also not delivered, and why**
+- Step 6 (confirmation and audit for granting `INSTANCE_OWNER`/`ORG_OWNER`) has nothing to attach to for the same reason. Both land with `PG-31`'s endpoint.
 
 **Abuse cases to test**
 - Horizontal escalation: an `ORG_ADMIN` in org A acting in org B (`docs/SECURITY/02` §3).

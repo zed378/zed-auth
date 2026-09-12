@@ -107,19 +107,27 @@ func (m *Middleware) Require(req Requirement, next http.Handler) http.Handler {
 			return
 		}
 
-		// The organization the REQUEST addresses, which is not necessarily the
-		// caller's own: that is what makes an INSTANCE_OWNER useful and what
-		// makes forgetting the distinction a cross-tenant hole.
-		target := normalizeOrgID(chi.URLParam(r, "org_id"))
-		if target == "" && req.Scope == ScopeOrganization {
-			target = caller.OrgID
+		// What the REQUEST addresses, which is not necessarily the caller's
+		// own organization: that is what makes an INSTANCE_OWNER useful and
+		// what makes forgetting the distinction a cross-tenant hole.
+		//
+		// The project comes from the same place — the route pattern — so a
+		// project-scoped endpoint cannot be reached with a project id from the
+		// body while the path names another (`P2-05`).
+		target := Target{
+			OrgID:     normalizeOrgID(chi.URLParam(r, "org_id")),
+			ProjectID: normalizeOrgID(chi.URLParam(r, "project_id")),
+		}
+		if target.OrgID == "" && req.Scope == ScopeOrganization {
+			target.OrgID = caller.OrgID
 		}
 
 		decision := Authorize(caller, req, target)
 		if !decision.Allowed {
 			if m.Log != nil {
 				m.Log.Info("a management request was refused",
-					"user_id", caller.UserID, "target_org", target, "reason", decision.Reason)
+					"user_id", caller.UserID, "target_org", target.OrgID,
+					"target_project", target.ProjectID, "reason", decision.Reason)
 			}
 			// The reason stays in the log. "you are an ORG_ADMIN and this needs
 			// ORG_OWNER" told to a caller probing an organization they do not
@@ -145,7 +153,7 @@ func (m *Middleware) Require(req Requirement, next http.Handler) http.Handler {
 
 		ctx := context.WithValue(r.Context(), callerKey{}, caller)
 		ctx = context.WithValue(ctx, scopeKey{}, scope{
-			orgID:          target,
+			orgID:          target.OrgID,
 			instanceScoped: decision.InstanceScoped,
 		})
 
