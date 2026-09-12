@@ -36,7 +36,7 @@
 
 | | |
 |---|---|
-| **Status** | TODO |
+| **Status** | DONE — 2026-09-12, [record](../MEMORY/records/2026-09-12-P3-01-mfa-framework.md), [spec](../MEMORY/specs/P3-01-mfa-framework.md). **Step 2's login-flow wiring is deferred to `P3-03`** — see the record |
 | **Depends on** | P1-11, P2-10 |
 | **Plan refs** | `docs/PLAN/05-API-CONTRACT.md` § MFA, `docs/PLAN/04-DATA-MODEL.md` § `sessions` (`auth_methods`), `docs/PLAN/08-AUTHORIZATION.md` § Least Privilege |
 | **Spec required** | Yes — authentication core |
@@ -54,18 +54,20 @@
 7. Handle the multi-factor case: a user may enroll both TOTP and a passkey, and losing one must not lock them out.
 
 **Definition of Done**
-- [ ] Both factor types implement one interface, verified by an architecture test.
-- [ ] A partially-authenticated session cannot access any resource or obtain a token.
-- [ ] `amr` accurately reflects the factors used, asserted per flow.
-- [ ] Step-up forces re-verification even with a valid session.
-- [ ] Verification attempts are rate-limited.
-- [ ] All MFA lifecycle events are audited.
+- [x] Both factor types implement one interface, verified by an architecture test — one that also fails if the interface *grows* a method, because an interface that gains one per factor type is two systems wearing one name. A second architecture test reads the migration and fails if the schema allows a factor type this package does not implement.
+- [x] A partially-authenticated session cannot access any resource or obtain a token — proved structurally rather than procedurally: the handle carries nothing, is hashed before it becomes a storage key, and is refused by `session.Manager.Lookup`, which is the single place a browser credential becomes an identity.
+- [x] `amr` accurately reflects the factors used — derived from what was used and never from what is enrolled, with the case a convenience shortcut breaks tested explicitly (a user with TOTP enrolled who signed in with a password alone carries `pwd`, not `mfa`). An architecture test fails if `mfa` is written anywhere but the one function.
+- [x] Step-up forces re-verification even with a valid session — `StepUp` is a subset test against the session's recorded methods, so a requirement for `hwk` is not satisfied by `otp`. The **decision** is here; the `prompt=login` plumbing that acts on it is `P3-03`'s, with the challenge step.
+- [x] Verification attempts are rate-limited — five per challenge, cooldown rather than lockout (`P1-13`'s shape), and a failed attempt does not extend the window. Measured against real Redis by comparing the TTL across an attempt.
+- [~] All MFA lifecycle events are audited — the **event names and payload rules are specified** (§14 of the spec: type never material, and `mfa.removed` records how the remover authenticated). Nothing emits them yet because nothing enrols, confirms or removes a factor until `P3-02`. The audit call sites belong with the operations that trigger them.
+
+**Deferred, deliberately** — step 2's login-flow wiring lands with `P3-03`. With no factor type registered there is nothing to challenge with, so the branch would be unreachable on every deployment, and an unreachable branch in the authentication path is worse than the seam it plugs into. `P3-03` is "the challenge step in the login flow" and brings TOTP with it.
 
 **Abuse cases to test**
-- Skipping the MFA step by manipulating the partially-authenticated state (`docs/SECURITY/02` §3, §11).
-- Brute-forcing a six-digit TOTP within its validity window.
-- Removing another user's factor (`docs/SECURITY/02` §2).
-- Downgrade: forcing a weaker factor when a stronger one is enrolled.
+- [x] Skipping the MFA step by manipulating the partially-authenticated state (`docs/SECURITY/02` §3, §11) — closed by shape: the handle is a lookup key with no fields in it, so there is nothing to manipulate.
+- [x] Brute-forcing a six-digit TOTP within its validity window — bounded at five attempts per challenge, and the correct code stops working once the bound is reached.
+- [x] Removing another user's factor (`docs/SECURITY/02` §2) — a challenge may only be answered with a factor it named, tested with a factor that exists and belongs to the same user rather than one that does not exist at all.
+- [x] Downgrade: forcing a weaker factor when a stronger one is enrolled — `amr` distinguishes `otp` from `hwk`, and `StepUp` refuses a requirement the session did not meet.
 
 ---
 
