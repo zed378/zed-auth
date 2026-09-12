@@ -322,7 +322,7 @@
 
 | | |
 |---|---|
-| **Status** | TODO |
+| **Status** | DONE — [record](../MEMORY/records/2026-09-12-P2-09-tenant-resolution.md), [ADR-023](../MEMORY/DECISIONS.md). Not yet on staging |
 | **Depends on** | P2-08 |
 | **Plan refs** | `docs/PLAN/08-AUTHORIZATION.md` Part B § Tenant Resolution |
 | **Spec required** | Yes — authentication routing |
@@ -338,11 +338,11 @@
 5. Support the single-default-organization mode for purely internal deployments (`docs/PLAN/08` Part B), since that is what Phase 1 shipped with.
 
 **Definition of Done**
-- [ ] The strategy is recorded as an ADR with its trade-offs.
-- [ ] Resolution happens in exactly one place.
-- [ ] An unresolvable tenant produces a clear error and never a default fallback.
-- [ ] A client-supplied header cannot change the resolved tenant, verified by test.
-- [ ] Single-org deployments still work unchanged.
+- [x] The strategy is recorded as an ADR with its trade-offs — [ADR-023](../MEMORY/DECISIONS.md). Writing it down revealed the decision had **already been made**: the service resolves the tenant from the OIDC client, which is none of the four options Part B lists. Logged as `PG-33`.
+- [x] Resolution happens in exactly one place: the client lookup, before anything else in the request.
+- [x] An unresolvable tenant produces a clear error and never a default fallback. An unknown `client_id` is `P1-06`'s 400 that never redirects, and a search confirms there is no default-organization fallback anywhere to be tricked into.
+- [x] A client-supplied header cannot change the resolved tenant. Tested by **reading the source**, because the claim is about every header and a behavioural test can only send the ones somebody thought of. Proven by planting an `X-Org-Id` read.
+- [x] Single-org deployments still work unchanged — with one organization owning every client, every request resolves to it with no special case. That is what makes this strategy cover the MVP mode rather than replace it.
 
 ---
 
