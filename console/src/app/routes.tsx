@@ -8,6 +8,7 @@ import { ApplicationsPage } from "../pages/ApplicationsPage";
 import { AuditLogPage } from "../pages/AuditLogPage";
 import { PlaceholderPage } from "../pages/PlaceholderPage";
 import { ProjectsPage } from "../pages/ProjectsPage";
+import { RolesPage } from "../pages/RolesPage";
 import { UserDetailPage } from "../pages/UserDetailPage";
 import { UsersPage } from "../pages/UsersPage";
 import { SilentCallbackPage } from "../pages/SilentCallbackPage";
@@ -54,6 +55,14 @@ export function AppRoutes() {
         element={
           <RequireAuth roles={["ORG_ADMIN", "ORG_OWNER", "INSTANCE_OWNER"]}>
             <ApplicationsPage />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/projects/:projectId/roles"
+        element={
+          <RequireAuth roles={["ORG_ADMIN", "ORG_OWNER", "INSTANCE_OWNER"]}>
+            <RolesPage />
           </RequireAuth>
         }
       />

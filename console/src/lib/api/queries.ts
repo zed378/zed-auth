@@ -65,6 +65,37 @@ export function useApplications(orgId: string | null, projectId: string | null) 
   });
 }
 
+/**
+ * A project's roles (P2-11).
+ *
+ * Ordered by `key` by the server rather than by creation time: a role list is
+ * read as a reference table, and somebody looking for `billing-admin` should
+ * not have to know when it was defined.
+ *
+ * Each row carries `grant_count`, which is what lets the delete confirmation
+ * state the consequence before the request instead of discovering the server's
+ * refusal afterwards.
+ */
+export function useRoles(orgId: string | null, projectId: string | null) {
+  return useQuery({
+    queryKey: [...queryKeys.roles, orgId, projectId],
+    enabled: orgId !== null && projectId !== null,
+    queryFn: async () => {
+      const { data, error } = await api.GET(
+        "/v1/organizations/{org_id}/projects/{project_id}/roles",
+        {
+          params: {
+            path: { org_id: orgId as string, project_id: projectId as string },
+            query: { page_size: 100 },
+          },
+        },
+      );
+      if (error !== undefined) throw asFailure(error);
+      return data.roles;
+    },
+  });
+}
+
 export function useUsers(orgId: string | null, search: string) {
   return useQuery({
     queryKey: [...queryKeys.users, orgId, search],
