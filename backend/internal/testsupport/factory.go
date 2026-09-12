@@ -135,6 +135,24 @@ func (f *Factory) Exec(query string, args ...any) {
 	}
 }
 
+// TryExec is Exec for the cases where the failure IS the assertion.
+//
+// A constraint, a trigger or a policy is only shown to work by writing the row
+// it must refuse — and `Exec` fatals, which would make every such test
+// impossible to write through this factory and push it into raw SQL that
+// forgets to use the right connection.
+//
+// It runs on the OWNER connection like everything else here, which is the
+// stronger test for a CHECK or a trigger: those bind to the table regardless
+// of role, so a refusal here is the constraint and not row-level security
+// quietly standing in for it.
+func (f *Factory) TryExec(query string, args ...any) error {
+	f.t.Helper()
+
+	_, err := f.db.Exec(query, args...)
+	return err
+}
+
 // QueryRow reads a single value on the OWNER connection, for assertions that
 // must see the raw row rather than what an application read path returns.
 //

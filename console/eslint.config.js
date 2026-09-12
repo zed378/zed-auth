@@ -95,4 +95,14 @@ export default tseslint.config(
       globals: { ...globals.node },
     },
   },
+
+  // Build-time scripts. They run under Node, not in a browser — `scripts/` is
+  // where `gen-patterns.mjs` lives because that is where `js-yaml` is
+  // installed, not because it is console code.
+  {
+    files: ["scripts/**/*.mjs"],
+    languageOptions: {
+      globals: { ...globals.node },
+    },
+  },
 );

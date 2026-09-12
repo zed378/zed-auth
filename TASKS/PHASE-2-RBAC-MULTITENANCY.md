@@ -38,7 +38,7 @@
 
 | | |
 |---|---|
-| **Status** | TODO |
+| **Status** | DONE — [record](../MEMORY/records/2026-09-12-P2-01-role-model.md), [spec](../MEMORY/specs/P2-01-role-model.md). Not yet on staging: the VM was unreachable (see the record) |
 | **Depends on** | P1-17 |
 | **Plan refs** | `docs/PLAN/08-AUTHORIZATION.md` Part A, `docs/PLAN/04-DATA-MODEL.md` § `roles` |
 | **Spec required** | Yes — authorization model |
@@ -55,11 +55,15 @@
 6. Audit role creation, modification, and deletion.
 
 **Definition of Done**
-- [ ] A role key is unique within its project and may repeat across projects.
-- [ ] Permission key format validation is a pure, unit-tested function shared by API and console.
-- [ ] Built-in roles cannot be deleted or renamed.
-- [ ] Deleting a role in use is either refused or explicitly confirmed and audited.
-- [ ] A role in Project A grants nothing in Project B, verified by test.
+- [x] A role key is unique within its project and may repeat across projects. `TestARoleKeyIsUniqueWithinItsProject`, and `TestARoleKeyRepeatsAcrossProjectsAndCarriesDifferentPermissions` — which asserts the **absence** of project A's permission from project B's identically-named role, because a test that only checks the first one exists would pass against a schema with no scoping at all.
+- [x] Permission key format validation is a pure, unit-tested function shared by API and console. One definition in `openapi/openapi.yaml`, generated into Go and TypeScript; `check.sh` regenerates and diffs, and that gate was mutation-tested.
+- [x] Built-in roles cannot be deleted or renamed. In the database, not only in the store — re-key, delete, and clearing the flag are all refused. `display_name` stays editable on purpose: grants reference `key`.
+- [x] Deleting a role in use is **refused**, with the count. Not cascaded: a cascade removes access from every user holding the role in response to a request that looks like tidying up. Auditing lands with `P2-02`, which is the first thing with an actor to attribute it to — the store has no caller identity.
+- [x] A role in Project A grants nothing in Project B, verified by test. And enforced by the schema rather than by the caller remembering: a trigger refuses a role whose `org_id` disagrees with its project's.
+
+**Deferred, named rather than implied**
+- The `role.created` / `role.updated` / `role.deleted` audit events land with `P2-02`. The store has no actor: an audit row with no `actor_user_id` is what `P1-14` found and fixed, and writing one here would be the same mistake deliberately.
+- `TestDeletingAReferencedRoleIsRefused` is the abuse-case test for A-4 and is already written — `P2-03` is what makes references creatable through an API rather than through the test's own INSERT.
 
 ---
 

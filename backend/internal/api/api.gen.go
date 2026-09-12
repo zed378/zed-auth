@@ -740,6 +740,26 @@ type PageInfo struct {
 	NextPageToken *string `json:"next_page_token,omitempty"`
 }
 
+// PermissionKey A permission a role carries, in `resource:action` form — `user:read`,
+// `billing:write` (`docs/PLAN/08` Part A).
+//
+// The resource may be dotted (`billing.invoice:read`) so a consumer
+// application can namespace its own vocabulary instead of inventing a
+// separator this service did not anticipate.
+//
+// **There is no wildcard.** A `*` in a stored permission key is an
+// authorization decision hiding inside a string: every consumer would
+// have to reimplement the same matching rule, and they would not agree
+// on it. Wildcards, if they are ever wanted, belong in the decision
+// engine where the matching is written once. Widening this pattern later
+// is harmless; narrowing it would break deployed consumer code that
+// cannot be seen from here, so it starts narrow.
+//
+// This pattern is the single definition. `backend/internal/role/pattern.gen.go`
+// and `console/src/lib/api/patterns.gen.ts` are generated from it, and
+// `scripts/check.sh` fails if either has drifted.
+type PermissionKey = string
+
 // Project A container for applications, roles and — from Phase 4 — project grants.
 //
 // It carries no configuration of its own. That is deliberate rather than
@@ -850,6 +870,15 @@ type ResetRequested struct {
 // So: UUIDs everywhere, and if prefixed identifiers are wanted later they
 // arrive everywhere at once or not at all.
 type ResourceId = openapi_types.UUID
+
+// RoleKey A role's stable identifier, unique within its project. `admin` in one
+// project is unrelated to `admin` in another (`docs/PLAN/08` Part A).
+//
+// The character set is bounded because a role key appears inside a JWT
+// claim key (`docs/PLAN/08` Part A § How Role Claims Get Into the Token),
+// so it must not be able to change the shape of a token claim. The same
+// pattern is the `roles_key_shape` constraint in the database.
+type RoleKey = string
 
 // RotatedSecret defines model for RotatedSecret.
 type RotatedSecret struct {

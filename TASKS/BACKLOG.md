@@ -377,6 +377,32 @@ The cost of the omission is smaller than it looks today, because both claims are
 
 ---
 
+### PG-30 — The two "built-in roles" the plan names are not roles of that kind
+
+**Affects**: `P2-01` (the `roles` entity and its `is_builtin` column), `P2-02`, `P2-11`, and anyone reading `docs/PLAN/08` Part A to learn the role model.
+
+`docs/PLAN/08-AUTHORIZATION.md` Part A, under Role Structure:
+
+> Roles can be **built-in** (`org_owner`, `org_admin`) or **custom** (created by an organization admin).
+
+Three lines above it, the same section establishes that roles are defined **per Project** — "so 'admin' in Project A doesn't automatically become 'admin' in Project B".
+
+`ORG_OWNER` and `ORG_ADMIN` are not project-scoped and are not that kind of role. Part C of the same document says so directly:
+
+> `manager_roles`: administrative roles (`INSTANCE_OWNER`, `ORG_OWNER`, `ORG_ADMIN`, `PROJECT_OWNER`, `PROJECT_GRANT_OWNER`) — these govern who can **administer the Auth Service itself**, distinct from application-level roles that govern access **within consumer applications**.
+
+`docs/PLAN/04-DATA-MODEL.md` agrees: they are an enum on `manager_roles`, a different table with a different shape (`user_id` + `role` + `scope_id`, no `project_id`, no `permission_keys`). They have been implemented that way since `P1-15`, and the `ORG_ADMIN` the console holds today is a `manager_roles` row.
+
+So Part A's parenthetical takes two manager roles and offers them as examples of built-in project roles. Read literally it asks `P2-01` to seed every project with an `org_owner` role carrying permission keys — which would be a second, parallel definition of an identity the service already has somewhere else, and the first place a permission check would consult the wrong one.
+
+**What `P2-01` does about it.** `is_builtin` is implemented as the mechanism the data model specifies — a role so marked cannot be renamed or deleted — and **no built-in roles are seeded**, because the only two the plan names belong to another table. The column is not speculative: `P2-05` (manager role enforcement) and `P4-01` (Project Grants) both have reasons to want a role the organization cannot remove, and the mechanism should exist before something needs it rather than be retrofitted around live data.
+
+**What the plan should say.** Either name project-scoped built-in roles that actually make sense for a consumer application to start with, or say plainly that `is_builtin` exists for roles the *service* creates and that none are seeded in Phase 2. Both are small edits; picking one is a plan change and goes through the deliberate process (`AGENTS.md` rule 9), not through this task.
+
+**Why it matters beyond wording.** `docs/PLAN/08` is named in `CLAUDE.md` as "the single source of truth for all authorization logic". A contradiction inside the source of truth is not a typo — the next person to implement a permission check has two documented answers to "what is a role" and no way to tell which one the author meant.
+
+---
+
 ### PG-29 — The backup cannot restore the one secret the recovery procedure depends on
 
 **Affects**: `docs/PLAN/15-DISASTER-RECOVERY.md`, `deploy/vm/backup.sh`, the nightly `zed-auth-backup.timer`, and any recovery of this service anywhere.

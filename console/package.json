@@ -15,6 +15,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "api:generate": "openapi-typescript ../openapi/openapi.yaml -o src/lib/api/schema.gen.ts",
+    "patterns:generate": "node scripts/gen-patterns.mjs",
     "check": "npm run lint && npm run typecheck && npm run test",
     "e2e": "playwright test",
     "e2e:install": "playwright install --with-deps chromium"
