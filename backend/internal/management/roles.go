@@ -33,6 +33,26 @@ const (
 	// OrgAdmin administers one organization except deleting it or changing
 	// its owner.
 	OrgAdmin Role = "ORG_ADMIN"
+
+	// Member is "holds a valid token for this organization", and nothing more.
+	//
+	// **It is not a `manager_roles` value and never appears in that table.** It
+	// is the requirement an endpoint declares when it needs a caller who is
+	// authenticated and inside the tenant, without needing them to administer
+	// anything.
+	//
+	// `P2-06` is why it exists. `/v1/authz/check` is called by consumer
+	// applications asking about their own users, on every protected request
+	// they serve. Requiring ORG_ADMIN there would mean every service that
+	// checks a permission holds an administrative role over the organization —
+	// the exact inversion of least privilege, and a far larger blast radius
+	// than the endpoint needs.
+	//
+	// Before this existed the policy table could say "an administrator" or
+	// nothing at all, because the zero Requirement is unsatisfiable by design.
+	// A table with no way to express "authenticated" pushes an endpoint into
+	// one of those two, and both are wrong.
+	Member Role = "MEMBER"
 )
 
 // The project-scoped roles.
@@ -70,10 +90,15 @@ const (
 // grant reach past its own scope_id. Recorded as `PG-32`; the plan needs one
 // sentence, and picking it is a plan change rather than this task's to make.
 var satisfies = map[Role][]Role{
-	InstanceOwner: {InstanceOwner, OrgOwner, OrgAdmin, ProjectOwner},
-	OrgOwner:      {OrgOwner, OrgAdmin, ProjectOwner},
-	OrgAdmin:      {OrgAdmin, ProjectOwner},
-	ProjectOwner:  {ProjectOwner},
+	InstanceOwner: {InstanceOwner, OrgOwner, OrgAdmin, ProjectOwner, Member},
+	OrgOwner:      {OrgOwner, OrgAdmin, ProjectOwner, Member},
+	OrgAdmin:      {OrgAdmin, ProjectOwner, Member},
+	ProjectOwner:  {ProjectOwner, Member},
+
+	// Member sits under everything: holding any role implies being inside the
+	// tenant. It is satisfied by membership rather than by a grant, which is
+	// the one case `Authorize` handles before looking at grants at all.
+	Member: {Member},
 }
 
 // Satisfies reports whether holding `held` meets a requirement for `required`.
@@ -239,6 +264,18 @@ func Authorize(c Caller, req Requirement, target Target) Decision {
 
 	if target.OrgID == "" {
 		return Decision{Reason: "the request addresses no organization"}
+	}
+
+	// Membership, which needs no grant.
+	//
+	// Checked here rather than in the grant loops below because it is not a
+	// grant: the caller's token says which organization they belong to, and
+	// for a Member requirement that is the whole question. A caller acting on
+	// a DIFFERENT organization falls through and is refused — an INSTANCE_OWNER
+	// has already been allowed above, and nobody else may act outside their
+	// own tenant.
+	if req.Role == Member && c.OrgID == target.OrgID {
+		return Decision{Allowed: true}
 	}
 
 	// A grant over the project itself. Checked first because it is the

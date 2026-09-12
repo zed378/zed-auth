@@ -136,6 +136,18 @@ const sidebar: SidebarsConfig = {
     },
     {
       type: "category",
+      label: "Authorization",
+      items: [
+        {
+          type: "doc",
+          id: "api-reference/check-authorization",
+          label: "Ask whether a subject may perform an action",
+          className: "api-method post",
+        },
+      ],
+    },
+    {
+      type: "category",
       label: "Grants",
       items: [
         {

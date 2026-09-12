@@ -122,6 +122,19 @@ var Policy = map[string]Requirement{
 	"PATCH /v1/organizations/{org_id}/users/{user_id}/grants/{project_id}":  {Role: OrgAdmin, Scope: ScopeOrganization},
 	"DELETE /v1/organizations/{org_id}/users/{user_id}/grants/{project_id}": {Role: OrgAdmin, Scope: ScopeOrganization},
 
+	// --- Authorization checks (P2-06) ---
+	//
+	// ORG_ADMIN is deliberately NOT required. The caller is a consumer
+	// application asking about its own users in its own project — requiring an
+	// administrative role would mean every service that checks a permission
+	// holds an administrative one, which is the opposite of least privilege.
+	//
+	// `Member` is the requirement: a valid token for this organization, and
+	// nothing more. What bounds the endpoint is that the organization AND the
+	// project both come from the token, so a caller can only ask about its own
+	// project's grants — see the handler.
+	"POST /v1/authz/check": {Role: Member, Scope: ScopeOrganization},
+
 	// --- Audit log (P1-20) ---
 	//
 	// One entry, and there will never be more. The table is append-only at the

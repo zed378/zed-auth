@@ -121,6 +121,9 @@ type Deps struct {
 	// GrantAPI implements the user-grant operations (P2-03).
 	GrantAPI Grants
 
+	// AuthzAPI implements the authorization check (P2-06).
+	AuthzAPI Authz
+
 	// UserAPI implements the user operations (P1-19).
 	UserAPI Users
 
@@ -175,6 +178,9 @@ func New(cfg config.HTTPConfig, deps Deps) *Server {
 	}
 	if deps.V1 != nil && deps.GrantAPI == nil {
 		panic("httpserver.New: GrantAPI is required when V1 is configured")
+	}
+	if deps.V1 != nil && deps.AuthzAPI == nil {
+		panic("httpserver.New: AuthzAPI is required when V1 is configured")
 	}
 	if deps.V1 != nil && deps.UserAPI == nil {
 		panic("httpserver.New: UserAPI is required when V1 is configured")
@@ -341,6 +347,7 @@ func New(cfg config.HTTPConfig, deps Deps) *Server {
 		Applications: deps.ApplicationAPI,
 		Roles:        deps.RoleAPI,
 		Grants:       deps.GrantAPI,
+		Authz:        deps.AuthzAPI,
 		Users:        deps.UserAPI,
 		AuditLog:     deps.AuditAPI,
 	}
@@ -489,6 +496,7 @@ type apiRoutes struct {
 	Applications
 	Roles
 	Grants
+	Authz
 	Users
 	AuditLog
 }
@@ -559,6 +567,16 @@ type Grants interface {
 	GrantRolesToUser(ctx context.Context, request api.GrantRolesToUserRequestObject) (api.GrantRolesToUserResponseObject, error)
 	ReplaceUserGrant(ctx context.Context, request api.ReplaceUserGrantRequestObject) (api.ReplaceUserGrantResponseObject, error)
 	RevokeUserGrant(ctx context.Context, request api.RevokeUserGrantRequestObject) (api.RevokeUserGrantResponseObject, error)
+}
+
+// Authz is the authorization decision endpoint (P2-06).
+//
+// Not nested under an organization, unlike everything else in /v1: the
+// organization comes from the caller's token, because an endpoint that takes
+// one in the path is an endpoint somebody will eventually call with a
+// different one.
+type Authz interface {
+	CheckAuthorization(ctx context.Context, request api.CheckAuthorizationRequestObject) (api.CheckAuthorizationResponseObject, error)
 }
 
 // Users is the user half of the Management API (P1-19).

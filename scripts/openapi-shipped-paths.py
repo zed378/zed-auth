@@ -66,6 +66,10 @@ SHIPPED = {
     # organization, because the path is about a user.
     "/v1/organizations/{org_id}/users/{user_id}/grants",
     "/v1/organizations/{org_id}/users/{user_id}/grants/{project_id}",
+    # P2-06. Not nested under an organization: the tenant comes from the
+    # caller's token, because a path that names one is a path somebody will
+    # eventually call with a different one.
+    "/v1/authz/check",
     # P1-19. Users, and the two verb sub-resources the card asks for instead
     # of a delete.
     "/v1/organizations/{org_id}/users",

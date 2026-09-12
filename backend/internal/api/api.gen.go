@@ -38,6 +38,7 @@ const (
 	PERMISSIONDENIED ErrorCode = "PERMISSION_DENIED"
 	RATELIMITED      ErrorCode = "RATE_LIMITED"
 	UNAUTHENTICATED  ErrorCode = "UNAUTHENTICATED"
+	UNAVAILABLE      ErrorCode = "UNAVAILABLE"
 	VALIDATIONERROR  ErrorCode = "VALIDATION_ERROR"
 )
 
@@ -374,6 +375,77 @@ type ApplicationUpdate struct {
 	Name                   *string   `json:"name,omitempty"`
 	PostLogoutRedirectUris *[]string `json:"post_logout_redirect_uris,omitempty"`
 	RedirectUris           *[]string `json:"redirect_uris,omitempty"`
+}
+
+// AuthorizationCheck defines model for AuthorizationCheck.
+type AuthorizationCheck struct {
+	// Action The verb, lower-case. Combined with `resource.type` it forms the
+	// permission key the subject must hold — `approve` on
+	// `purchase_request` asks for `purchase_request:approve`.
+	Action string `json:"action"`
+
+	// Context Request context. Accepted and unused today.
+	Context  *map[string]interface{} `json:"context,omitempty"`
+	Resource struct {
+		// Attributes Whatever the consumer knows about the resource. Accepted,
+		// unused today, and **never logged** — these are the consumer
+		// application's business data and this service has no business
+		// keeping them.
+		Attributes *map[string]interface{} `json:"attributes,omitempty"`
+
+		// Id The specific thing. Accepted, and not used by the role-based
+		// decision — a role is held over a kind of resource, not over one
+		// instance. Attribute-based policies will read it.
+		//
+		// Never logged: it is the consumer's own business identifier.
+		Id *string `json:"id,omitempty"`
+
+		// Type The kind of thing being acted on.
+		Type string `json:"type"`
+	} `json:"resource"`
+	Subject struct {
+		// UserId A resource's stable identifier. Not sequential and not guessable.
+		//
+		// **This was specified as a prefixed, sortable identifier** — `usr_`,
+		// `org_`, `prj_` — and is a UUID instead. The change is deliberate and is
+		// recorded as `PG-23`.
+		//
+		// The prefix has a real benefit: an id pasted into a support ticket is
+		// self-describing, and passing a project id where a user id belongs is
+		// visible on sight rather than at the database. What it cannot survive is
+		// being applied to only part of the surface. `docs/PLAN/04` makes every
+		// primary key a UUID, the access token's `org_id` claim is a UUID, and
+		// OpenID Connect's `sub` — already shipped by `P1-08` — is a UUID that
+		// callers store as a user's permanent key.
+		//
+		// Prefixing only the Management API would give the same user two
+		// identifiers and make every consumer convert between them, which is a
+		// larger and more permanent papercut than the one the prefix removes.
+		// Prefixing everything means changing `sub`, which is a protocol field
+		// with its own conventions and a value integrators have already stored.
+		//
+		// So: UUIDs everywhere, and if prefixed identifiers are wanted later they
+		// arrive everywhere at once or not at all.
+		UserId ResourceId `json:"user_id"`
+	} `json:"subject"`
+}
+
+// AuthorizationDecision defines model for AuthorizationDecision.
+type AuthorizationDecision struct {
+	Allowed bool `json:"allowed"`
+
+	// MatchedPolicy What decided the outcome. Under role-based access control the role
+	// **is** the policy that matched, so this is a role key. Empty on a
+	// denial, because nothing matched.
+	MatchedPolicy *string `json:"matched_policy,omitempty"`
+
+	// Reasons The outcome in words, for support and audit.
+	//
+	// A denial says the same thing however it was reached. A subject who
+	// does not exist and one who holds no matching role produce an
+	// identical response — otherwise this endpoint would answer "does
+	// this user exist?" for anybody holding a valid token.
+	Reasons []string `json:"reasons"`
 }
 
 // Error The error envelope for every non-2xx response, without exception
@@ -1751,6 +1823,9 @@ type ReactivateUserParams struct {
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
+// CheckAuthorizationJSONRequestBody defines body for CheckAuthorization for application/json ContentType.
+type CheckAuthorizationJSONRequestBody = AuthorizationCheck
+
 // CreateOrganizationJSONRequestBody defines body for CreateOrganization for application/json ContentType.
 type CreateOrganizationJSONRequestBody = OrganizationCreate
 
@@ -1801,6 +1876,9 @@ type ServerInterface interface {
 	// Readiness probe
 	// (GET /readyz)
 	GetReadiness(w http.ResponseWriter, r *http.Request)
+	// Ask whether a subject may perform an action
+	// (POST /v1/authz/check)
+	CheckAuthorization(w http.ResponseWriter, r *http.Request)
 	// List organizations
 	// (GET /v1/organizations)
 	ListOrganizations(w http.ResponseWriter, r *http.Request, params ListOrganizationsParams)
@@ -1927,6 +2005,12 @@ func (_ Unimplemented) GetLiveness(w http.ResponseWriter, r *http.Request) {
 // Readiness probe
 // (GET /readyz)
 func (_ Unimplemented) GetReadiness(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Ask whether a subject may perform an action
+// (POST /v1/authz/check)
+func (_ Unimplemented) CheckAuthorization(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -2184,6 +2268,26 @@ func (siw *ServerInterfaceWrapper) GetReadiness(w http.ResponseWriter, r *http.R
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetReadiness(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CheckAuthorization operation middleware
+func (siw *ServerInterfaceWrapper) CheckAuthorization(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, Oauth2Scopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CheckAuthorization(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4101,6 +4205,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Get(options.BaseURL+"/readyz", wrapper.GetReadiness)
 	})
 	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/authz/check", wrapper.CheckAuthorization)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/v1/organizations", wrapper.ListOrganizations)
 	})
 	r.Group(func(r chi.Router) {
@@ -4319,6 +4426,81 @@ func (response GetReadiness200JSONResponse) VisitGetReadinessResponse(w http.Res
 type GetReadiness503JSONResponse ReadinessStatus
 
 func (response GetReadiness503JSONResponse) VisitGetReadinessResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type CheckAuthorizationRequestObject struct {
+	Body *CheckAuthorizationJSONRequestBody
+}
+
+type CheckAuthorizationResponseObject interface {
+	VisitCheckAuthorizationResponse(w http.ResponseWriter) error
+}
+
+type CheckAuthorization200JSONResponse AuthorizationDecision
+
+func (response CheckAuthorization200JSONResponse) VisitCheckAuthorizationResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type CheckAuthorization400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response CheckAuthorization400JSONResponse) VisitCheckAuthorizationResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type CheckAuthorization401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response CheckAuthorization401JSONResponse) VisitCheckAuthorizationResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type CheckAuthorization403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response CheckAuthorization403JSONResponse) VisitCheckAuthorizationResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type CheckAuthorization429JSONResponse struct{ RateLimitedJSONResponse }
+
+func (response CheckAuthorization429JSONResponse) VisitCheckAuthorizationResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Retry-After", fmt.Sprint(response.Headers.RetryAfter))
+	w.Header().Set("X-RateLimit-Limit", fmt.Sprint(response.Headers.XRateLimitLimit))
+	w.Header().Set("X-RateLimit-Remaining", fmt.Sprint(response.Headers.XRateLimitRemaining))
+	w.Header().Set("X-RateLimit-Reset", fmt.Sprint(response.Headers.XRateLimitReset))
+	w.WriteHeader(429)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type CheckAuthorization500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response CheckAuthorization500JSONResponse) VisitCheckAuthorizationResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type CheckAuthorization503JSONResponse Error
+
+func (response CheckAuthorization503JSONResponse) VisitCheckAuthorizationResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(503)
 
@@ -6850,6 +7032,9 @@ type StrictServerInterface interface {
 	// Readiness probe
 	// (GET /readyz)
 	GetReadiness(ctx context.Context, request GetReadinessRequestObject) (GetReadinessResponseObject, error)
+	// Ask whether a subject may perform an action
+	// (POST /v1/authz/check)
+	CheckAuthorization(ctx context.Context, request CheckAuthorizationRequestObject) (CheckAuthorizationResponseObject, error)
 	// List organizations
 	// (GET /v1/organizations)
 	ListOrganizations(ctx context.Context, request ListOrganizationsRequestObject) (ListOrganizationsResponseObject, error)
@@ -7069,6 +7254,37 @@ func (sh *strictHandler) GetReadiness(w http.ResponseWriter, r *http.Request) {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetReadinessResponseObject); ok {
 		if err := validResponse.VisitGetReadinessResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CheckAuthorization operation middleware
+func (sh *strictHandler) CheckAuthorization(w http.ResponseWriter, r *http.Request) {
+	var request CheckAuthorizationRequestObject
+
+	var body CheckAuthorizationJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CheckAuthorization(ctx, request.(CheckAuthorizationRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CheckAuthorization")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CheckAuthorizationResponseObject); ok {
+		if err := validResponse.VisitCheckAuthorizationResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
