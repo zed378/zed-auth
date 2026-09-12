@@ -289,7 +289,15 @@ type fixture struct {
 	handler http.Handler
 	authz   *Handler
 
-	dsn string
+	dsn   string
+	redis *redis.Client
+	cache *Cache
+
+	// The two handlers that invalidate, so a cache test can wire them.
+	grants *grant.Handler
+	roles  *role.Handler
+
+	adminToken string
 
 	orgA, orgB   string
 	projectA     string
@@ -329,6 +337,20 @@ func (f *fixture) post(t *testing.T, body string) *httptest.ResponseRecorder {
 	req := httptest.NewRequest("POST", "/v1/authz/check", strings.NewReader(body))
 	req.Header.Set("Authorization", "Bearer "+f.token)
 	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	f.handler.ServeHTTP(rec, req)
+	return rec
+}
+
+// request is the general form; `post` and `raw` are the authorization-check
+// shapes built on it.
+func (f *fixture) request(t *testing.T, method, path, body, tok string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(method, path, strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+tok)
+	if body != "" {
+		req.Header.Set("Content-Type", "application/json")
+	}
 	rec := httptest.NewRecorder()
 	f.handler.ServeHTTP(rec, req)
 	return rec
@@ -420,6 +442,15 @@ func setup(t *testing.T) *fixture {
 	}
 
 	authzHandler := &Handler{DB: db, Log: discard()}
+	grantHandler := grant.New(db, auditor, discard())
+	roleHandler := role.New(db, auditor, discard())
+
+	// An administrator, for the tests that change a grant or a role through
+	// the API rather than through the factory — which is what invalidation
+	// hangs off.
+	adminUser := factory.User(orgA)
+	factory.Exec(`INSERT INTO manager_roles (user_id, role, scope_id) VALUES ($1, 'ORG_ADMIN', $2)`,
+		adminUser, orgA)
 
 	srv := httpserver.New(config.HTTPConfig{
 		Addr: "127.0.0.1:0", ReadTimeout: 5 * time.Second, WriteTimeout: 5 * time.Second,
@@ -433,8 +464,8 @@ func setup(t *testing.T) *fixture {
 		},
 		ProjectAPI:     &project.Handler{Store: project.NewStore(), DB: db, Audit: auditor, Log: discard()},
 		ApplicationAPI: application.New(db, auditor, discard()),
-		RoleAPI:        role.New(db, auditor, discard()),
-		GrantAPI:       grant.New(db, auditor, discard()),
+		RoleAPI:        roleHandler,
+		GrantAPI:       grantHandler,
 		AuthzAPI:       authzHandler,
 		UserAPI:        &user.Handler{Store: user.NewStore(), DB: db, Audit: auditor, Log: discard()},
 		AuditAPI:       &auditlog.Handler{DB: db, Log: discard()},
@@ -456,8 +487,26 @@ func setup(t *testing.T) *fixture {
 		t.Fatalf("signing: %v", err)
 	}
 
+	adminClaims, err := token.AccessTokenClaims(token.Subject{
+		Issuer: issuer, Audience: issuer, ClientID: clientID,
+		OrgID: orgA, UserID: adminUser, Scope: []string{"openid"},
+	}, time.Now())
+	if err != nil {
+		t.Fatalf("admin claims: %v", err)
+	}
+	adminPayload, err := adminClaims.Encode()
+	if err != nil {
+		t.Fatalf("encoding: %v", err)
+	}
+	adminSigned, err := signer.SignWithType(adminPayload, signing.TypeAccessToken)
+	if err != nil {
+		t.Fatalf("signing: %v", err)
+	}
+
 	return &fixture{
-		db: db, dsn: stack.AppDSN, factory: factory, handler: srv.Handler(), authz: authzHandler,
+		db: db, dsn: stack.AppDSN, redis: rdb, factory: factory,
+		handler: srv.Handler(), authz: authzHandler,
+		grants: grantHandler, roles: roleHandler, adminToken: adminSigned,
 		orgA: orgA, orgB: orgB,
 		projectA: projectA, otherProject: otherProject, projectB: projectB,
 		subject: subject, token: signed,

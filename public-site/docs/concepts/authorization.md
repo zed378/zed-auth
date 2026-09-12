@@ -64,6 +64,24 @@ anything involving money, anything an auditor will ask about — ask at the time
 action instead of trusting the token, and keep access-token lifetimes short so the window
 stays small.
 
+### How quickly a revocation takes effect
+
+Asking at the time of the action gets a live answer, and "live" here has a
+specific meaning worth stating rather than implying.
+
+Grants and role definitions are cached for **30 seconds**, and the cache is
+cleared the moment either changes. So in the normal case a revocation is
+honoured by the **very next check** — there is no delay to wait out.
+
+The 30 seconds is a backstop for the two cases clearing cannot cover: the cache
+was unreachable at the moment of the change, or somebody changed a grant
+outside the API. **If one of those happens, a revoked permission may still be
+honoured for up to 30 seconds.**
+
+That is the real bound. It is short enough to state plainly and long enough to
+matter for something irreversible, so if you are building a step that cannot be
+undone, treat 30 seconds as the window you are accepting.
+
 A very heavily-granted user reaches a bound: the claim carries at most 64 roles for one
 project. Past that it is truncated rather than dropped, so what remains is always a true
 subset of what the user holds — a consumer may deny something it should have allowed, and
