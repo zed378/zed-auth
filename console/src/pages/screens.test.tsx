@@ -173,21 +173,19 @@ describe("user detail", () => {
     created_at: "2026-09-01T00:00:00Z",
   };
 
-  it("marks the not-yet-available tabs as unavailable rather than empty", async () => {
+  it("offers no tab that is not real", async () => {
     stubApi(() => ({ status: 200, body: user }));
 
     renderScreen(<UserDetailPage />, "/users/u1", "/users/:userId");
 
-    // Grants used to be the example here, then Multi-factor. `P2-12` and
-    // `P3-10` made them real, so the assertion moves to a tab that is still
-    // ahead of us rather than being deleted — P1-23 step 3's rule outlives any
-    // particular tab.
-    await userEvent.click(await screen.findByRole("tab", { name: /sessions/i }));
-
-    // An empty tab and an unavailable one look similar and mean opposite
-    // things. This one says which.
-    expect(screen.getByText(/not shown here yet/i)).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: /sessions/i })).toHaveTextContent(/later/i);
+    // P1-23 step 3's rule was that an unavailable tab says so rather than
+    // rendering empty. Grants (P2-12), Multi-factor (P3-10) and Sessions
+    // (P3-11) are all real now, so the rule's remaining form is this: no tab
+    // is marked "later", because none is.
+    for (const tab of await screen.findAllByRole("tab")) {
+      expect(tab).not.toHaveTextContent(/later/i);
+    }
+    expect(screen.getAllByRole("tab")).toHaveLength(4);
   });
 
   it("states the consequence of deactivation, not just that it is irreversible", async () => {

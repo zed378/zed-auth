@@ -13,14 +13,16 @@ import { api, queryKeys } from "../lib/api/client";
 import { useOrgId, useProjects, useUserGrants } from "../lib/api/queries";
 import { useAuth } from "../lib/auth/AuthProvider";
 import { MfaTab } from "./MfaTab";
+import { SessionsTab } from "./SessionsTab";
 
 /**
  * User detail (P1-23, `docs/UI-UX/08`).
  *
- * The Profile tab is real. Grants, Sessions and MFA belong to Phases 2, 1's
- * later work and 3 — and they are rendered as **explicitly unavailable**
- * rather than as empty tabs, because `P1-23` step 3 asks for exactly that:
- * the console must never imply a capability that is not shipped.
+ * Every tab is real: Profile (P1-23), Grants (P2-12), Multi-factor (P3-10) and
+ * Sessions (P3-11). Until each shipped it was rendered as **explicitly
+ * unavailable** rather than as an empty tab, because `P1-23` step 3 asks for
+ * exactly that: the console must never imply a capability that is not shipped.
+ * The `available` flag below stays for the next tab that arrives before its API.
  *
  * An empty "Sessions" tab and a "Sessions — arriving in Phase 3" tab look
  * similar and mean opposite things. One says this user has no sessions; the
@@ -35,7 +37,9 @@ export function UserDetailPage() {
   // lands on the tab the user left rather than on Profile (P3-10).
   const [search] = useSearchParams();
   const initial = search.get("tab");
-  const [tab, setTab] = useState<Tab>(initial === "mfa" || initial === "grants" ? initial : "profile");
+  const [tab, setTab] = useState<Tab>(
+    initial === "mfa" || initial === "grants" || initial === "sessions" ? initial : "profile",
+  );
 
   const user = useQuery({
     queryKey: [...queryKeys.users, orgId, "detail", userId],
@@ -76,7 +80,7 @@ export function UserDetailPage() {
           [
             ["profile", "Profile", true],
             ["grants", "Grants", true],
-            ["sessions", "Sessions", false],
+            ["sessions", "Sessions", true],
             ["mfa", "Multi-factor", true],
           ] as [Tab, string, boolean][]
         ).map(([key, label, available]) => (
@@ -117,7 +121,7 @@ export function UserDetailPage() {
         ) : tab === "mfa" ? (
           <MfaTab orgId={orgId} userId={userId ?? ""} />
         ) : (
-          <NotYet tab={tab} />
+          <SessionsTab orgId={orgId} userId={userId ?? ""} />
         )}
       </div>
     </>
@@ -292,26 +296,6 @@ function GrantsTab({ orgId, userId }: { orgId: string | null; userId: string | n
         </p>
       ) : null}
     </>
-  );
-}
-
-function NotYet({ tab }: { tab: Tab }) {
-  const copy: Record<Exclude<Tab, "profile" | "grants" | "mfa">, { title: string; body: string }> = {
-    sessions: {
-      title: "Sessions are not shown here yet",
-      body:
-        "The service tracks and revokes sessions today — deactivating a user ends them — but a " +
-        "screen for listing and revoking them individually is later work.",
-    },
-  };
-
-  const { title, body } = copy[tab as Exclude<Tab, "profile" | "grants" | "mfa">];
-
-  return (
-    <div className="rounded border border-border bg-bg-surface p-5">
-      <h2 className="text-heading-3 font-medium text-text-primary">{title}</h2>
-      <p className="mt-1 max-w-prose text-body text-text-secondary">{body}</p>
-    </div>
   );
 }
 
