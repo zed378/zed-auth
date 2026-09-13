@@ -147,8 +147,24 @@ type Decision struct {
 // returns the error, and the caller refuses the login. Letting a login through
 // because the factor store was unreachable is the one mistake here that cannot
 // be walked back.
+// answerable reports whether this build can challenge with a factor type.
+//
+// **A passkey is answered by the ceremony, not the registry.** The registry
+// holds code verifiers — a code is typed and checked — and a WebAuthn assertion
+// is a signed document with its own verifier, wired as Framework.WebAuthn. This
+// used to ask only the registry, which in the running service never held a
+// WebAuthn entry, so every passkey was skipped: a user whose only factor was a
+// passkey signed in with a password alone (found in P3-10).
+func (f *Framework) answerable(t Type) bool {
+	if t == TypeWebAuthn {
+		return f.WebAuthn != nil
+	}
+	_, err := f.Registry.For(t)
+	return err == nil
+}
+
 func (f *Framework) Required(ctx context.Context, userID, orgID, pendingID string) (Decision, error) {
-	if f.Registry.Empty() {
+	if f.Registry.Empty() && f.WebAuthn == nil {
 		// No factor type is implemented in this build, so there is nothing to
 		// challenge with. Not an optimisation: a challenge offering nothing
 		// is a dead end, and it would be reachable on every deployment until
@@ -172,7 +188,7 @@ func (f *Framework) Required(ctx context.Context, userID, orgID, pendingID strin
 			// to be sure is here.
 			continue
 		}
-		if _, err := f.Registry.For(factor.Type); err != nil {
+		if !f.answerable(factor.Type) {
 			// Enrolled under a type this build no longer implements — a
 			// rollback, or a factor removed from the registry. It cannot be
 			// challenged with, so it is not offered. Logged, because a user
@@ -769,7 +785,7 @@ func (f *Framework) Peek(ctx context.Context, handle string) (Offer, error) {
 		if !factor.Active() || !contains(challenge.FactorIDs, factor.ID) {
 			continue
 		}
-		if _, err := f.Registry.For(factor.Type); err != nil {
+		if !f.answerable(factor.Type) {
 			continue
 		}
 		if !seen[factor.Type] {

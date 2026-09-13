@@ -7,6 +7,7 @@ import (
 	"encoding/base32"
 	"fmt"
 	"strings"
+	"time"
 )
 
 // Recovery codes (P3-04).
@@ -42,6 +43,15 @@ const (
 	// Three. Early enough to act on while they still have working codes, and
 	// late enough that it is not noise for somebody who has spent one.
 	RecoveryLowWaterMark = 3
+
+	// RecentAuthentication is how fresh a sign-in must be to change how an
+	// account is protected — adding or removing a factor, replacing recovery
+	// codes (P3-10).
+	//
+	// Ten minutes: long enough to finish an enrolment begun just after signing
+	// in, short enough that a session left open over lunch cannot quietly add an
+	// attacker's authenticator and make a takeover permanent and MFA-protected.
+	RecentAuthentication = 10 * time.Minute
 )
 
 // recoveryAlphabet is base32 without padding: A-Z and 2-7.

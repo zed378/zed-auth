@@ -39,8 +39,21 @@ interface Pending {
   returnTo: string;
 }
 
-/** Builds the authorization URL and remembers what the callback must check. */
-export async function beginLogin(config: Config, returnTo: string): Promise<string> {
+/**
+ * Builds the authorization URL and remembers what the callback must check.
+ *
+ * `reauthenticate` asks for `prompt=login` (P3-10): the user signs in again —
+ * password and second factor — even with a live SSO session. It is what the
+ * console does when the API answers `REAUTHENTICATION_REQUIRED`, and it is the
+ * only way a session becomes recent enough to change how an account is
+ * protected. A fresh interactive sign-in creates a new session server-side, so
+ * the token that comes back is tied to it.
+ */
+export async function beginLogin(
+  config: Config,
+  returnTo: string,
+  options: { reauthenticate?: boolean } = {},
+): Promise<string> {
   const verifier = randomString();
   const state = randomString();
 
@@ -50,7 +63,29 @@ export async function beginLogin(config: Config, returnTo: string): Promise<stri
     state,
     challenge: await challengeFor(verifier),
     redirectUri: config.redirectUri,
+    prompt: options.reauthenticate === true ? "login" : undefined,
   });
+}
+
+const SIGNED_IN_AT = "zedauth.console.signed_in_at";
+
+/**
+ * When this tab last completed an INTERACTIVE sign-in (P3-10).
+ *
+ * Silent renewal does not count: it creates no new session, so it does not
+ * make the session any more recent. This is a hint for the UI — whether to
+ * send somebody to re-authenticate before the hosted passkey page, rather than
+ * after it refuses them — and never a control. The server checks the session's
+ * real authentication time on every change.
+ */
+export function signedInWithin(ms: number, now = Date.now()): boolean {
+  const raw = sessionStorage.getItem(SIGNED_IN_AT);
+  const at = raw === null ? Number.NaN : Number(raw);
+  return Number.isFinite(at) && now - at <= ms;
+}
+
+function recordInteractiveSignIn(now = Date.now()): void {
+  sessionStorage.setItem(SIGNED_IN_AT, String(now));
 }
 
 /**
@@ -94,6 +129,7 @@ export async function completeLogin(
   }
 
   await exchange(config, code, pending.verifier, config.redirectUri);
+  recordInteractiveSignIn();
   return { returnTo: pending.returnTo };
 }
 
@@ -147,7 +183,7 @@ interface AuthorizeOptions {
   state: string;
   challenge: string;
   redirectUri: string;
-  prompt?: "none";
+  prompt?: "none" | "login";
 }
 
 function authorizeUrl(config: Config, options: AuthorizeOptions): string {

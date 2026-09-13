@@ -31,6 +31,7 @@ import (
 	"github.com/zed378/zed-auth/backend/internal/config"
 	"github.com/zed378/zed-auth/backend/internal/httpserver"
 	"github.com/zed378/zed-auth/backend/internal/management"
+	"github.com/zed378/zed-auth/backend/internal/mfaapi"
 	"github.com/zed378/zed-auth/backend/internal/oauth/token"
 	"github.com/zed378/zed-auth/backend/internal/ratelimit"
 	"github.com/zed378/zed-auth/backend/internal/sessionapi"
@@ -121,6 +122,7 @@ func setup(t *testing.T) *fixture {
 		AuthzAPI:       stubAuthz{},
 		UserAPI:        stubUsers{},
 		SessionAPI:     &sessionapi.Handler{}, // not exercised here
+		MfaAPI:         &mfaapi.Handler{},     // not exercised here
 		AuditAPI:       &Handler{DB: db, Log: discard()},
 	})
 

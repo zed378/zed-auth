@@ -54,6 +54,16 @@ psql_() {
 
 say "Starting Postgres, Redis, Mailpit and the service"
 
+# The MFA seal key (P3-10), written BEFORE the service starts: a configured key
+# reference that does not resolve stops the service, deliberately. Machine
+# material, generated once and kept across runs so factors enrolled by an
+# earlier run can still be opened. Labelled as Compose's own volume so Compose
+# adopts it rather than warning about an external one.
+MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*' docker volume create   --label com.docker.compose.project=zed-auth   --label com.docker.compose.volume=auth_secrets   zed-auth_auth_secrets >/dev/null 2>&1 || true
+MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*' docker run --rm -v zed-auth_auth_secrets:/s alpine:3.21 sh -c   '[ -s /s/mfa-seal-key ] || head -c 32 /dev/urandom > /s/mfa-seal-key; chown 65532:65532 /s/mfa-seal-key; chmod 400 /s/mfa-seal-key'   >/dev/null 2>&1 || die "could not write the MFA seal key"
+export AUTH_MFA_SEAL_KEY_REF="file:/etc/zed-auth/secrets/mfa-seal-key"
+ok "an MFA seal key is in place"
+
 docker compose -f "$COMPOSE" up -d --build >/dev/null 2>&1 || die "docker compose up failed"
 
 # Readiness, not liveness. `/readyz` consults the database and Redis, which is

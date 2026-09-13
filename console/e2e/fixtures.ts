@@ -1,3 +1,8 @@
+import { createHash } from "node:crypto";
+import { mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import { test as base } from "@playwright/test";
 
 /**
@@ -97,28 +102,87 @@ interface Fixtures {
  */
 let accessToken: string | null = null;
 
-async function mintAccessToken(): Promise<string> {
-  const response = await fetch(`${issuer}/oauth/token`, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      grant_type: "refresh_token",
-      refresh_token: refreshToken,
-      client_id: clientId,
-    }),
-  });
+/**
+ * Where the CURRENT bootstrap refresh token lives, shared by every worker.
+ *
+ * **Refresh tokens rotate (P3-06).** Each exchange returns a new one and spends
+ * the old, and presenting a spent token outside the 30-second grace is reuse:
+ * the whole family is revoked. This fixture used to present the token from
+ * `.e2e.env` on every mint, from every worker — so the first mint rotated it
+ * and any later one killed the family, and every test after that failed with
+ * "the bootstrap refresh token was refused". Found by P3-10's suite, the first
+ * run long enough to need a second mint.
+ *
+ * So the token that is current is kept in a file keyed to the bootstrap token
+ * (a new `e2e-up.sh` run starts a new file), read and rewritten under a lock
+ * so two workers never present the same token outside the grace.
+ */
+const rotationState = join(
+  tmpdir(),
+  `zed-auth-e2e-refresh-${createHash("sha256").update(refreshToken).digest("hex").slice(0, 16)}`,
+);
 
-  if (!response.ok) {
-    throw new Error(
-      `the bootstrap refresh token was refused (${response.status}). It is ` +
-        `minted by scripts/e2e-up.sh; re-run that. ${await response.text()}`,
-    );
+async function withRotationLock<T>(work: () => Promise<T>): Promise<T> {
+  const lock = `${rotationState}.lock`;
+  const deadline = Date.now() + 60_000;
+  for (;;) {
+    try {
+      mkdirSync(lock);
+      break;
+    } catch {
+      // A lock older than a minute belongs to a worker that died holding it.
+      try {
+        if (Date.now() - statSync(lock).mtimeMs > 60_000) rmSync(lock, { recursive: true, force: true });
+      } catch {
+        // Released between the two calls; try again.
+      }
+      if (Date.now() > deadline) throw new Error("timed out waiting for the refresh-token lock");
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
   }
-  const tokens = (await response.json()) as { access_token?: string };
-  if (tokens.access_token === undefined) {
-    throw new Error("the refresh gave back no access token");
+  try {
+    return await work();
+  } finally {
+    rmSync(lock, { recursive: true, force: true });
   }
-  return tokens.access_token;
+}
+
+async function mintAccessToken(): Promise<string> {
+  return withRotationLock(async () => {
+    let current = refreshToken;
+    try {
+      current = readFileSync(rotationState, "utf8").trim() || refreshToken;
+    } catch {
+      // No file yet: this is the first mint of this bootstrap token.
+    }
+
+    const response = await fetch(`${issuer}/oauth/token`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "refresh_token",
+        refresh_token: current,
+        client_id: clientId,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(
+        `the bootstrap refresh token was refused (${response.status}). It is ` +
+          `minted by scripts/e2e-up.sh; re-run that. ${await response.text()}`,
+      );
+    }
+    const tokens = (await response.json()) as { access_token?: string; refresh_token?: string };
+    if (tokens.access_token === undefined) {
+      throw new Error("the refresh gave back no access token");
+    }
+    if (tokens.refresh_token !== undefined) {
+      // Written to a temporary name and renamed, so a reader never sees half.
+      writeFileSync(`${rotationState}.tmp`, tokens.refresh_token);
+      renameSync(`${rotationState}.tmp`, rotationState);
+    }
+    return tokens.access_token;
+  });
 }
 
 /**

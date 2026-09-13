@@ -38,6 +38,7 @@ import (
 	"github.com/zed378/zed-auth/backend/internal/mail"
 	"github.com/zed378/zed-auth/backend/internal/management"
 	"github.com/zed378/zed-auth/backend/internal/mfa"
+	"github.com/zed378/zed-auth/backend/internal/mfaapi"
 	"github.com/zed378/zed-auth/backend/internal/oauth/authorize"
 	"github.com/zed378/zed-auth/backend/internal/oauth/client"
 	"github.com/zed378/zed-auth/backend/internal/oauth/token"
@@ -604,6 +605,21 @@ func run() error {
 		loginHandler.Password.Mailer = mailer
 	}
 
+	// Passkey registration (P3-10, PG-43), on this origin because that is where
+	// the relying party is. Only when P3-05's ceremony was built; otherwise the
+	// page says passkeys are not available.
+	if factorFramework != nil {
+		if ceremony, ok := factorFramework.WebAuthn.(*mfa.WebAuthnVerifier); ok && ceremony != nil {
+			lookup := clientLookup{store: clients, db: db}
+			loginHandler.PasskeyRegistration = &login.PasskeyRegistration{
+				Ceremony: ceremony,
+				Recovery: mfa.NewRecoveryStore(),
+				States:   &login.RedisPasskeyStates{Client: rdb},
+				Clients:  lookup.ByClientID,
+			}
+		}
+	}
+
 	// "This sign-in wasn't me" (P3-08 F-5). Resets through PasswordFlow, so it
 	// shares that flow's token store, mailer and quota.
 	loginHandler.Reports = &login.NotMeFlow{
@@ -714,6 +730,24 @@ func run() error {
 		sessionAPI.Locator = locator
 	}
 
+	// Second factors (P3-10). Reads work on every deployment; the writes need
+	// the factor framework, and without it they answer that MFA is not
+	// available rather than failing.
+	mfaAPI := &mfaapi.Handler{
+		DB:       db,
+		Audit:    auditor,
+		Factors:  mfa.NewStore(),
+		Recovery: mfa.NewRecoveryStore(),
+		Policies: authn.NewPolicyStore(log),
+		Members:  userStore,
+		Log:      log,
+	}
+	if enroller := enroller(factorFramework); enroller != nil {
+		mfaAPI.Enroller = enroller
+		mfaAPI.Attempts = factorFramework.Attempts
+		mfaAPI.PasskeysAvailable = factorFramework.WebAuthn != nil
+	}
+
 	srv := httpserver.New(cfg.HTTP, httpserver.Deps{
 		Logger:         log,
 		Health:         health,
@@ -733,6 +767,7 @@ func run() error {
 		Enrol:          enrolRoute(loginHandler),
 		SetPassword:    http.HandlerFunc(loginHandler.SetPassword),
 		NotMe:          http.HandlerFunc(loginHandler.NotMe),
+		Passkeys:       http.HandlerFunc(loginHandler.Passkeys),
 		V1:             v1,
 		Organizations:  organizations,
 		ProjectAPI:     projects,
@@ -743,6 +778,7 @@ func run() error {
 		UserAPI:        users,
 		AuditAPI:       &auditlog.Handler{DB: db, Log: log},
 		SessionAPI:     sessionAPI,
+		MfaAPI:         mfaAPI,
 		// Explicit configuration, not inferred from the environment: see the
 		// comment on config.HTTPConfig.TrustProxyHeaders. Defaults to false,
 		// so a deployment behind a proxy that forwards client headers

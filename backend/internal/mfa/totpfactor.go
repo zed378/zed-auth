@@ -31,6 +31,11 @@ type FactorStore interface {
 	// Activate marks a pending factor active. A no-op on one already active.
 	Activate(ctx context.Context, tx *postgres.Tx, factorID string) error
 
+	// HasActive and DiscardPending let a new enrolment replace an abandoned
+	// one without ever touching an active factor (P3-10).
+	HasActive(ctx context.Context, tx *postgres.Tx, userID string, t Type) (bool, error)
+	DiscardPending(ctx context.Context, tx *postgres.Tx, userID string, t Type) error
+
 	// RecordUse stores the counter a verification consumed, and reports
 	// whether it was already spent — which is how a replay is refused.
 	RecordUse(ctx context.Context, tx *postgres.Tx, factorID string, counter uint64, at time.Time) (replayed bool, err error)
@@ -109,6 +114,22 @@ func (t *TOTP) Begin(ctx context.Context, userID, orgID, label string) (Enrolmen
 
 	var factorID string
 	err = t.DB.WithTenant(ctx, orgID, func(tx *postgres.Tx) error {
+		// One authenticator app per user (the one-TOTP index). An ACTIVE one
+		// is refused by name: replacing it is a removal first, which is a
+		// decision the user makes, not a side effect of starting over.
+		active, err := t.Store.HasActive(ctx, tx, userID, TypeTOTP)
+		if err != nil {
+			return err
+		}
+		if active {
+			return ErrAlreadyEnrolled
+		}
+		// An abandoned PENDING one is replaced. Its secret was shown once and
+		// never proven; keeping it would block this enrolment forever.
+		if err := t.Store.DiscardPending(ctx, tx, userID, TypeTOTP); err != nil {
+			return err
+		}
+
 		id, err := t.Store.Insert(ctx, tx, userID, orgID, TypeTOTP, label, sealed)
 		if err != nil {
 			return err
@@ -116,6 +137,9 @@ func (t *TOTP) Begin(ctx context.Context, userID, orgID, label string) (Enrolmen
 		factorID = id
 		return nil
 	})
+	if errors.Is(err, ErrAlreadyEnrolled) {
+		return Enrolment{}, err
+	}
 	if err != nil {
 		return Enrolment{}, fmt.Errorf("mfa: starting a TOTP enrolment: %w", err)
 	}
