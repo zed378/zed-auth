@@ -166,9 +166,12 @@ type Challenger interface {
 	// type, for the authorization request the challenge was issued for.
 	AnswerType(ctx context.Context, handle, pendingID string, t mfa.Type, code string) (mfa.Outcome, error)
 
+	// AnswerRecovery completes a challenge with a recovery code (P3-04).
+	AnswerRecovery(ctx context.Context, handle, pendingID, code string) (mfa.Outcome, error)
+
 	// Peek reports what a live challenge may be answered with, consuming
 	// nothing — for re-rendering the page.
-	Peek(ctx context.Context, handle string) ([]mfa.Type, error)
+	Peek(ctx context.Context, handle string) (mfa.Offer, error)
 }
 
 // ClientIP resolves the address a request came from.
@@ -533,7 +536,7 @@ func (h *Handler) submit(w http.ResponseWriter, r *http.Request) {
 		// outcome so that "logins that reached the factor step" is answerable
 		// without inferring it from the difference between two other numbers.
 		h.count(OutcomeChallenged)
-		h.showChallenge(w, r, http.StatusOK, page, outcome.offered, "")
+		h.showChallenge(w, r, http.StatusOK, page, outcome.offer, "")
 
 	case resultExpired:
 		page.Email = email
@@ -604,13 +607,15 @@ type attempt struct {
 	token  session.Token
 	err    error
 
-	// handle and offered are set only for resultChallenge.
+	// handle and offer are set only for resultChallenge.
 	//
-	// `handle` never reaches the HTML: it goes into a cookie. `offered` does,
-	// and carries no identity — a factor TYPE, which is a fact about what kind
-	// of thing to reach for, not about who this is.
-	handle  string
-	offered []mfa.Type
+	// `handle` never reaches the HTML: it goes into a cookie. `offer` does, and
+	// carries no identity — a factor TYPE and a yes/no on recovery, which are
+	// facts about what kind of thing to reach for, not about who this is. In
+	// particular it is not a COUNT of anything: a page reachable with only a
+	// password must not answer questions about the account.
+	handle string
+	offer  mfa.Offer
 }
 
 // authenticate runs a submission through the two things that can stop it.
@@ -653,13 +658,13 @@ func (h *Handler) authenticate(
 		// proven and that is all that has happened.
 		h.auditChallenged(ctx, user, pending)
 		return attempt{
-			result:  resultChallenge,
-			handle:  decision.Handle,
-			offered: decision.Offered,
+			result: resultChallenge,
+			handle: decision.Handle,
+			offer:  mfa.Offer{Types: decision.Offered, Recovery: decision.Recovery},
 		}, session.Session{}, nil
 	}
 
-	return h.issue(r, pending, user, loginPolicy, nil)
+	return h.issue(r, pending, user, loginPolicy, nil, false)
 }
 
 // verify is everything up to and including "the password is correct and usable".
@@ -772,7 +777,7 @@ func (h *Handler) challengeFor(
 // that needed none, and the challenge's answer for one that did.
 func (h *Handler) issue(
 	r *http.Request, pending authorize.Pending, user authn.User,
-	loginPolicy authn.LoginPolicy, used []mfa.Type,
+	loginPolicy authn.LoginPolicy, used []mfa.Type, recovery bool,
 ) (attempt, session.Session, func(context.Context) error) {
 	var (
 		out        attempt
@@ -809,7 +814,7 @@ func (h *Handler) issue(
 			// `mfa.AuthMethods` rather than a literal, so the RFC 8176 names
 			// and the "`mfa` only for two distinct categories" rule live in one
 			// place — P3-01 § 7.
-			AuthMethods: mfa.AuthMethods(true, used...),
+			AuthMethods: mfa.AuthMethodsWithRecovery(true, recovery, used...),
 			IP:          ip,
 			UserAgent:   r.UserAgent(),
 			// The organization's own session lifetime (P2-10), not the

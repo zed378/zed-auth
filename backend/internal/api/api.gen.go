@@ -774,6 +774,22 @@ type LivenessStatus struct {
 // LivenessStatusStatus defines model for LivenessStatus.Status.
 type LivenessStatusStatus string
 
+// MfaReset What an administrator-assisted reset destroyed.
+//
+// Counts rather than identifiers: an administrator is entitled to know
+// that the reset did something, and is not entitled to a list of which
+// devices somebody had enrolled.
+type MfaReset struct {
+	// FactorsRemoved How many enrolled factors were removed.
+	FactorsRemoved int `json:"factors_removed"`
+
+	// RecoveryCodesRemoved How many recovery codes were destroyed, spent ones included — a
+	// used code is a spent credential of an account being handed back,
+	// and its row would otherwise keep a hash of something somebody once
+	// wrote down.
+	RecoveryCodesRemoved int `json:"recovery_codes_removed"`
+}
+
 // OAuthError OAuth 2.1's error shape (RFC 6749 § 5.2), used by the protocol
 // endpoints. Distinct from the `Error` envelope every other endpoint
 // returns, because this is what a consumer's OAuth library parses.
@@ -1925,6 +1941,16 @@ type GrantRolesToUserParams struct {
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
+// ResetUserMfaParams defines parameters for ResetUserMfa.
+type ResetUserMfaParams struct {
+	// IdempotencyKey A client-generated key making a retried `POST` safe. Replaying a
+	// request with the same key returns the original result rather than
+	// creating a second resource — which matters most for automated
+	// provisioning, where a network timeout is indistinguishable from a
+	// failure (`docs/PLAN/05` Part B).
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+}
+
 // ResetUserPasswordParams defines parameters for ResetUserPassword.
 type ResetUserPasswordParams struct {
 	// IdempotencyKey A client-generated key making a retried `POST` safe. Replaying a
@@ -2097,6 +2123,9 @@ type ServerInterface interface {
 	// Replace a user's roles in a project
 	// (PATCH /v1/organizations/{org_id}/users/{user_id}/grants/{project_id})
 	ReplaceUserGrant(w http.ResponseWriter, r *http.Request, orgId OrganizationId, userId UserId, projectId ProjectId)
+	// Clear a user's two-step verification
+	// (POST /v1/organizations/{org_id}/users/{user_id}/mfa-reset)
+	ResetUserMfa(w http.ResponseWriter, r *http.Request, orgId OrganizationId, userId UserId, params ResetUserMfaParams)
 	// Send a password-reset link
 	// (POST /v1/organizations/{org_id}/users/{user_id}/password-reset)
 	ResetUserPassword(w http.ResponseWriter, r *http.Request, orgId OrganizationId, userId UserId, params ResetUserPasswordParams)
@@ -2328,6 +2357,12 @@ func (_ Unimplemented) RevokeUserGrant(w http.ResponseWriter, r *http.Request, o
 // Replace a user's roles in a project
 // (PATCH /v1/organizations/{org_id}/users/{user_id}/grants/{project_id})
 func (_ Unimplemented) ReplaceUserGrant(w http.ResponseWriter, r *http.Request, orgId OrganizationId, userId UserId, projectId ProjectId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Clear a user's two-step verification
+// (POST /v1/organizations/{org_id}/users/{user_id}/mfa-reset)
+func (_ Unimplemented) ResetUserMfa(w http.ResponseWriter, r *http.Request, orgId OrganizationId, userId UserId, params ResetUserMfaParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -4123,6 +4158,70 @@ func (siw *ServerInterfaceWrapper) ReplaceUserGrant(w http.ResponseWriter, r *ht
 	handler.ServeHTTP(w, r)
 }
 
+// ResetUserMfa operation middleware
+func (siw *ServerInterfaceWrapper) ResetUserMfa(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "org_id" -------------
+	var orgId OrganizationId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "org_id", chi.URLParam(r, "org_id"), &orgId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "org_id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "user_id" -------------
+	var userId UserId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "user_id", chi.URLParam(r, "user_id"), &userId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "user_id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, Oauth2Scopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ResetUserMfaParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ResetUserMfa(w, r, orgId, userId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ResetUserPassword operation middleware
 func (siw *ServerInterfaceWrapper) ResetUserPassword(w http.ResponseWriter, r *http.Request) {
 
@@ -4474,6 +4573,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Patch(options.BaseURL+"/v1/organizations/{org_id}/users/{user_id}/grants/{project_id}", wrapper.ReplaceUserGrant)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/organizations/{org_id}/users/{user_id}/mfa-reset", wrapper.ResetUserMfa)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/v1/organizations/{org_id}/users/{user_id}/password-reset", wrapper.ResetUserPassword)
@@ -7106,6 +7208,74 @@ func (response ReplaceUserGrant500JSONResponse) VisitReplaceUserGrantResponse(w 
 	return json.NewEncoder(w).Encode(response)
 }
 
+type ResetUserMfaRequestObject struct {
+	OrgId  OrganizationId `json:"org_id"`
+	UserId UserId         `json:"user_id"`
+	Params ResetUserMfaParams
+}
+
+type ResetUserMfaResponseObject interface {
+	VisitResetUserMfaResponse(w http.ResponseWriter) error
+}
+
+type ResetUserMfa200JSONResponse MfaReset
+
+func (response ResetUserMfa200JSONResponse) VisitResetUserMfaResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ResetUserMfa401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ResetUserMfa401JSONResponse) VisitResetUserMfaResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ResetUserMfa403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response ResetUserMfa403JSONResponse) VisitResetUserMfaResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ResetUserMfa404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response ResetUserMfa404JSONResponse) VisitResetUserMfaResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ResetUserMfa429JSONResponse struct{ RateLimitedJSONResponse }
+
+func (response ResetUserMfa429JSONResponse) VisitResetUserMfaResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Retry-After", fmt.Sprint(response.Headers.RetryAfter))
+	w.Header().Set("X-RateLimit-Limit", fmt.Sprint(response.Headers.XRateLimitLimit))
+	w.Header().Set("X-RateLimit-Remaining", fmt.Sprint(response.Headers.XRateLimitRemaining))
+	w.Header().Set("X-RateLimit-Reset", fmt.Sprint(response.Headers.XRateLimitReset))
+	w.WriteHeader(429)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type ResetUserMfa500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response ResetUserMfa500JSONResponse) VisitResetUserMfaResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
 type ResetUserPasswordRequestObject struct {
 	OrgId  OrganizationId `json:"org_id"`
 	UserId UserId         `json:"user_id"`
@@ -7363,6 +7533,9 @@ type StrictServerInterface interface {
 	// Replace a user's roles in a project
 	// (PATCH /v1/organizations/{org_id}/users/{user_id}/grants/{project_id})
 	ReplaceUserGrant(ctx context.Context, request ReplaceUserGrantRequestObject) (ReplaceUserGrantResponseObject, error)
+	// Clear a user's two-step verification
+	// (POST /v1/organizations/{org_id}/users/{user_id}/mfa-reset)
+	ResetUserMfa(ctx context.Context, request ResetUserMfaRequestObject) (ResetUserMfaResponseObject, error)
 	// Send a password-reset link
 	// (POST /v1/organizations/{org_id}/users/{user_id}/password-reset)
 	ResetUserPassword(ctx context.Context, request ResetUserPasswordRequestObject) (ResetUserPasswordResponseObject, error)
@@ -8481,6 +8654,34 @@ func (sh *strictHandler) ReplaceUserGrant(w http.ResponseWriter, r *http.Request
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ReplaceUserGrantResponseObject); ok {
 		if err := validResponse.VisitReplaceUserGrantResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ResetUserMfa operation middleware
+func (sh *strictHandler) ResetUserMfa(w http.ResponseWriter, r *http.Request, orgId OrganizationId, userId UserId, params ResetUserMfaParams) {
+	var request ResetUserMfaRequestObject
+
+	request.OrgId = orgId
+	request.UserId = userId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ResetUserMfa(ctx, request.(ResetUserMfaRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ResetUserMfa")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ResetUserMfaResponseObject); ok {
+		if err := validResponse.VisitResetUserMfaResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

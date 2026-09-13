@@ -2,6 +2,7 @@ package mfa
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"reflect"
 	"strings"
@@ -522,19 +523,49 @@ func TestStepUpNeedsEveryRequiredMethod(t *testing.T) {
 // --- the handle ---------------------------------------------------------------
 
 // The handle carries nothing. It is a lookup key, not a container.
+//
+// An earlier version searched one handle for the two-character needles "u1" and
+// "o1". A handle is 43 characters of base64url, so each needle appears by pure
+// chance about one run in a hundred — measured at **1.97% across 200,000
+// samples**. It duly failed on an unrelated commit, which is the worst way for
+// a security test to behave: a check that cries wolf two runs in a hundred is
+// one somebody eventually deletes, and the control goes with it.
+//
+// The property is now tested the way it actually holds. `NewHandle` takes no
+// arguments — asserted structurally by TestNewHandleTakesNoArguments — so there
+// is no user for it to encode. What is left to check is that the output is the
+// right amount of real entropy, and that identifiers of the length real ones
+// have never appear in it.
 func TestAHandleCarriesNothing(t *testing.T) {
-	handle, err := NewHandle()
-	if err != nil {
-		t.Fatalf("NewHandle: %v", err)
+	// Identifiers shaped like the real ones. A UUID appearing by chance in 32
+	// random bytes is not a flake, it is a miracle — unlike "u1".
+	identifiers := []string{
+		"3f2a9c14-7b6e-4d51-9a30-5c8e1f0b2d47",
+		"8e1d0a95-2c47-4b83-bf16-9d05a7e3c214",
 	}
 
-	for _, leak := range []string{"u1", "o1", "user", "org", "totp"} {
-		if strings.Contains(handle, leak) {
-			t.Errorf("the handle contains %q — there is a field in it for a client to edit", leak)
+	for i := 0; i < 100; i++ {
+		handle, err := NewHandle()
+		if err != nil {
+			t.Fatalf("NewHandle: %v", err)
 		}
-	}
-	if len(handle) < 40 {
-		t.Errorf("a %d-character handle is short enough to be worth guessing", len(handle))
+
+		for _, id := range identifiers {
+			if strings.Contains(handle, id) {
+				t.Fatalf("the handle contains %q — there is a field in it for a client to edit", id)
+			}
+		}
+
+		// 32 bytes of CSPRNG, decoded rather than assumed: a handle that
+		// encoded something would have to be a different length or a different
+		// alphabet, and both show up here.
+		raw, err := base64.RawURLEncoding.DecodeString(handle)
+		if err != nil {
+			t.Fatalf("the handle %q is not base64url: %v", handle, err)
+		}
+		if len(raw) != 32 {
+			t.Fatalf("a handle decodes to %d bytes, want 32", len(raw))
+		}
 	}
 }
 

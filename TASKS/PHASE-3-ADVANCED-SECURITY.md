@@ -145,7 +145,7 @@
 
 | | |
 |---|---|
-| **Status** | TODO |
+| **Status** | DONE — 2026-09-13, [record](../MEMORY/records/2026-09-13-P3-04-recovery-codes.md), [spec](../MEMORY/specs/P3-04-recovery-codes.md), [runbook](../deploy/RUNBOOK-mfa-recovery.md). **Step 1's "at enrollment" and self-service regeneration land with `P3-12`** — see below |
 | **Depends on** | P3-02 |
 | **Plan refs** | `docs/PLAN/17-ACCEPTANCE-CRITERIA.md` § Phase 3 ("including recovery from a lost device — documented process, even if manual at first") |
 | **Spec required** | Yes — account recovery is an attack path |
@@ -162,11 +162,18 @@
 6. Audit every recovery use and every admin-assisted reset with elevated visibility; these are exactly the events an incident review will look for (`docs/SECURITY/04-INCIDENT-RESPONSE-PLAYBOOKS.md`).
 
 **Definition of Done**
-- [ ] Recovery codes are shown once, stored hashed, and single-use.
-- [ ] Regeneration invalidates all prior codes.
-- [ ] The admin-assisted reset process is documented, permission-gated, and audited.
-- [ ] Recovery attempts are rate-limited.
-- [ ] An end-to-end lost-device recovery has been walked through and recorded.
+- [x] Recovery codes are shown once, stored hashed, and single-use — the plaintext exists in one return value and nowhere else, and single-use is `WHERE used_at IS NULL` in the consuming UPDATE rather than a read-then-write, so two browsers presenting one code cannot both win. Proven by a concurrency test, not by reading the SQL.
+- [x] Regeneration invalidates all prior codes — delete and insert in one transaction, so there is no moment when both batches work and none when neither does.
+- [x] The admin-assisted reset process is documented, permission-gated, and audited — `POST /v1/organizations/{org_id}/users/{user_id}/mfa-reset`, `ORG_ADMIN`, `user.mfa.reset_by_admin` written in the same transaction as the deletions. **It destroys credentials and mints none**: an administrator who could issue a working code for another account could take it over.
+- [x] Recovery attempts are rate-limited — against the **same** counter TOTP guesses use. Two separate allowances would not be two bounds; it would be one bound twice as large, reached by choosing which form to guess in.
+- [x] An end-to-end lost-device recovery has been walked through and recorded — as a test (`internal/login/recovery_integration_test.go`), so it is walked again on every run rather than once by somebody who then wrote down what they remembered. The transcript and what it found are in the record.
+
+**Also** — two things worth reading before the next factor task:
+
+- A seam declared `(userID, orgID)` and implemented `(orgID, userID)` compiled fine, because both are strings. It would have set the tenant to a user id, matched nothing under RLS, and left recovery codes **silently never offered**. Found by reading, not by a test; there is now a test that asserts the argument ORDER rather than only the call.
+- `docs/PLAN/04` asks for these to be "hashed with the same rigor as a password". They are SHA-256, deliberately — `PG-39` records why: a slow KDF defends low-entropy inputs, an 80-bit CSPRNG value has no candidate list, and ten Argon2 computations per attempt would be a denial of service on a path an attacker holding the password can drive.
+
+**Deferred to `P3-12`**, where the account screen and its "requires recent authentication" live: generating codes *at enrolment* (step 1's wording — there is no enrolment endpoint to call it from), self-service display and regeneration, and the low-count warning in a user interface. The count and the message are exposed; the screen is not.
 
 **Abuse cases to test**
 - Social-engineering the admin-assisted path — mitigated procedurally; the documented process must name the verification requirement.
@@ -415,6 +422,18 @@
 ---
 
 ## P3-12 — Console: Personal Account Settings
+
+> **Also carries three items from `P3-04`**, whose mechanism exists and whose
+> screen does not:
+>
+> - **Recovery codes are generated at enrolment** (`P3-04` step 1). Generation,
+>   storage and display-once are built; nothing calls them, because enrolment
+>   has no endpoint.
+> - **Self-service regeneration**, which `P3-04` step 3 requires to invalidate
+>   every prior code and to demand re-authentication. `RecoveryStore.Issue`
+>   already does the first half atomically.
+> - **The low-count warning** (`P3-04` F-4). `login.RecoveryNotice` chooses the
+>   message and `mfa.RecoveryLowWaterMark` is the threshold; no screen shows it.
 
 > **Carries two requirements from `P3-02`**, whose mechanism exists and whose
 > endpoint does not:

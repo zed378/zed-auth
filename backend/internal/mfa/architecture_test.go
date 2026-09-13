@@ -171,6 +171,19 @@ func TestTheHandleIsMintedFromRandomnessAndNothingElse(t *testing.T) {
 //
 // `docs/PLAN/13` names tokens, passwords and resource attributes; the spec adds
 // factor material. A secret in a log is a second factor in a log.
+//
+// The check is on what is LOGGED, not on what the message says about itself.
+// An earlier version compared the whole line, which fired on the sentence
+// "reading whether recovery codes are available failed" — prose, carrying
+// nothing. That matters more than the inconvenience: a check that cries wolf on
+// its own package's vocabulary is one somebody deletes in a hurry, and the
+// control it was standing in for goes with it.
+//
+// So a leading plain message literal is stripped and everything else is
+// examined — the structured key/value pairs, which is where material would
+// actually travel. A message built by `fmt.Sprintf` is NOT stripped, because
+// the first token after the paren is then a call rather than a quote, so
+// `Warn(fmt.Sprintf("code %s", code))` is still caught.
 func TestNoSourceLogsFactorMaterial(t *testing.T) {
 	for name, body := range sourceFiles(t) {
 		for _, line := range strings.Split(body, "\n") {
@@ -178,15 +191,51 @@ func TestNoSourceLogsFactorMaterial(t *testing.T) {
 			if strings.HasPrefix(trimmed, "//") {
 				continue
 			}
-			if !strings.Contains(trimmed, ".Warn(") && !strings.Contains(trimmed, ".Info(") &&
-				!strings.Contains(trimmed, ".Error(") && !strings.Contains(trimmed, ".Debug(") {
+
+			call := ""
+			for _, level := range []string{".Warn(", ".Info(", ".Error(", ".Debug("} {
+				if idx := strings.Index(trimmed, level); idx >= 0 {
+					call = trimmed[idx+len(level):]
+					break
+				}
+			}
+			if call == "" {
 				continue
 			}
+
 			for _, forbidden := range []string{"Secret", "secret", "code", "Code"} {
-				if strings.Contains(trimmed, forbidden) {
+				if strings.Contains(withoutLeadingLiteral(call), forbidden) {
 					t.Errorf("%s logs something named %q:\n  %s", name, forbidden, trimmed)
 				}
 			}
 		}
 	}
+}
+
+// withoutLeadingLiteral drops a plain string literal at the start of a call's
+// arguments — the slog message — and returns what follows.
+//
+// Anything that is not a bare literal is returned untouched, so a message
+// assembled at runtime stays under inspection.
+func withoutLeadingLiteral(args string) string {
+	args = strings.TrimSpace(args)
+	if !strings.HasPrefix(args, `"`) {
+		return args
+	}
+
+	// Find the closing quote, honouring escapes. A literal containing `\"` must
+	// not end the scan early, or the rest of the message would be treated as
+	// arguments and the check would go back to firing on prose.
+	for i := 1; i < len(args); i++ {
+		if args[i] == '\\' {
+			i++
+			continue
+		}
+		if args[i] == '"' {
+			return args[i+1:]
+		}
+	}
+	// Unterminated on this line — a multi-line message. Inspect all of it
+	// rather than assuming.
+	return args
 }
