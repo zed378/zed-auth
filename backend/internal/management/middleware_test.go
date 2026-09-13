@@ -508,3 +508,23 @@ func TestRateLimitedCarriesRetryAfterRoundedUp(t *testing.T) {
 		t.Errorf("Retry-After = %q, want 2", got)
 	}
 }
+
+// P3-09: the caller carries the token's session, which is what marks "this
+// session" in the sessions API and what "revoke others" keeps.
+func TestTheCallerCarriesTheTokensSession(t *testing.T) {
+	f := newFixture(t)
+
+	if w := f.call(t, orgScoped(), "/v1/organizations/{org_id}/users", orgA, true); w.Code != http.StatusOK {
+		t.Fatalf("status = %d", w.Code)
+	}
+	if f.seen.SessionID != "33333333-3333-3333-3333-333333333333" {
+		t.Errorf("Caller.SessionID = %q, want the token's sid", f.seen.SessionID)
+	}
+
+	g := newFixture(t)
+	delete(g.verifier.claims, "sid")
+	g.call(t, orgScoped(), "/v1/organizations/{org_id}/users", orgA, true)
+	if g.seen.SessionID != "" {
+		t.Errorf("a token with no sid produced SessionID %q", g.seen.SessionID)
+	}
+}

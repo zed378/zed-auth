@@ -39,6 +39,7 @@ import (
 	project2 "github.com/zed378/zed-auth/backend/internal/project"
 	"github.com/zed378/zed-auth/backend/internal/ratelimit"
 	"github.com/zed378/zed-auth/backend/internal/role"
+	"github.com/zed378/zed-auth/backend/internal/sessionapi"
 	"github.com/zed378/zed-auth/backend/internal/signing"
 	"github.com/zed378/zed-auth/backend/internal/storage/postgres"
 	"github.com/zed378/zed-auth/backend/internal/testsupport"
@@ -454,6 +455,7 @@ func setup(t *testing.T) *fixture {
 		GrantAPI:       New(db, auditor, discard()),
 		AuthzAPI:       &authz.Handler{DB: db, Log: discard()},
 		UserAPI:        &user.Handler{Store: user.NewStore(), DB: db, Audit: auditor, Log: discard()},
+		SessionAPI:     &sessionapi.Handler{}, // not exercised here
 		AuditAPI:       &auditlog.Handler{DB: db, Log: discard()},
 	})
 

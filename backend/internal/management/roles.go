@@ -146,6 +146,12 @@ type Caller struct {
 	// others, and that difference is the whole reason Authorize takes a target.
 	OrgID string
 
+	// SessionID is the sign-in session the token was issued through, from its
+	// `sid` claim, and empty for a client_credentials token (P3-09). Already
+	// checked live by the middleware when present. It is what lets the
+	// sessions API mark "this session" and keep it through "revoke others".
+	SessionID string
+
 	// Grants are every manager role this caller holds, read from the database
 	// on this request. See the package's Authorize.
 	Grants []Grant

@@ -44,6 +44,18 @@ var Policy = map[string]Requirement{
 	// gap somebody left.
 	"GET /v1/me/organizations": {Role: Member, Scope: ScopeSelf},
 
+	// The caller's own sessions (P3-09, FR-5). Self-scoped for the same reason:
+	// the handler takes the user from the token, so these routes can only ever
+	// act on the caller's sessions.
+	"GET /v1/me/sessions":                 {Role: Member, Scope: ScopeSelf},
+	"DELETE /v1/me/sessions/{session_id}": {Role: Member, Scope: ScopeSelf},
+	"POST /v1/me/sessions/revoke-others":  {Role: Member, Scope: ScopeSelf},
+
+	// A member's sessions (P3-09). ORG_ADMIN, the same as deactivating the
+	// member: ending one session is strictly less than ending all of them.
+	"GET /v1/organizations/{org_id}/users/{user_id}/sessions":                 {Role: OrgAdmin, Scope: ScopeOrganization},
+	"DELETE /v1/organizations/{org_id}/users/{user_id}/sessions/{session_id}": {Role: OrgAdmin, Scope: ScopeOrganization},
+
 	// --- Organizations (P1-16) ---
 	//
 	// Listing and creating are instance-scoped because they are genuinely

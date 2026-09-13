@@ -340,7 +340,7 @@
 
 | | |
 |---|---|
-| **Status** | TODO |
+| **Status** | DONE — 2026-09-13, [record](../MEMORY/records/2026-09-13-P3-09-session-management-api.md), [spec](../MEMORY/specs/P3-09-session-management-api.md) |
 | **Depends on** | P1-11 |
 | **Plan refs** | `docs/PLAN/02-REQUIREMENTS.md` FR-5, `docs/PLAN/05-API-CONTRACT.md` § Endpoint Structure, `docs/UI-UX/04-USER-FLOWS.md` Flow 4, `docs/PLAN/17-ACCEPTANCE-CRITERIA.md` § Phase 3 |
 | **Spec required** | Yes — session control |
@@ -358,11 +358,11 @@
 7. Audit every revocation with actor and target.
 
 **Definition of Done**
-- [ ] A user sees only their own sessions; an admin sees their organization's.
-- [ ] Revocation is effective on the very next request, verified by test.
-- [ ] Refresh tokens from a revoked session are invalidated.
-- [ ] "Revoke all other sessions" preserves the current one.
-- [ ] Revocations are audited.
+- [x] A user sees only their own sessions; an admin sees their organization's. `/v1/me/sessions` takes the user from the token; the organization route needs `ORG_ADMIN` and resolves every session together with its owner, so another person's session is the same `404` as none. Cross-user, cross-tenant and role-less cases tested.
+- [x] Revocation is effective on the very next request, verified by test — the cookie through a warmed cache, and the revoked token's next Management API call. Consumer apps validating JWTs locally keep an already-issued access token up to ten minutes; the contract says so.
+- [x] Refresh tokens from a revoked session are invalidated — in the same transaction, for every client.
+- [x] "Revoke all other sessions" preserves the current one. A token with no session is refused with `400` rather than read as "revoke all".
+- [x] Revocations are audited — actor, target, reason, refresh tokens revoked; through `management.Audit`, so a revocation that cannot be recorded rolls back. Building it found the audit guard reporting correct no-ops across the API; fixed with `management.Unchanged`.
 
 **Abuse cases to test**
 - Revoking another user's session without authorization (`docs/SECURITY/02` §2).

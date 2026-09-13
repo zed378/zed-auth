@@ -121,14 +121,31 @@ func (m *Manager) Lookup(ctx context.Context, presented string, policy Policy, n
 		return Session{}, ErrNotFound
 	}
 
+	// The copy that goes into the cache carries the activity this lookup is
+	// about to record. Caching the row as read — with the OLD last_seen_at —
+	// meant every cache hit for the next minute still looked a minute stale,
+	// so each one wrote to the database again: a write per request, which is
+	// exactly what touchInterval exists to prevent (found in P3-09, which is
+	// the task that shows this column to people).
+	read := session
+	if needsTouch(session, now) {
+		session.LastSeenAt = now
+	}
+
 	// May legitimately refuse: a revocation landing during this read writes a
 	// tombstone, and declining to cache is the correct outcome.
 	if _, err := m.cache.Put(ctx, hash, session); err != nil && m.log != nil {
 		m.log.Warn("caching session failed", "error", err.Error())
 	}
 
-	m.touch(ctx, session, now)
+	m.touch(ctx, read, now)
 	return session, nil
+}
+
+// needsTouch reports whether a session's recorded activity is old enough to
+// be worth a write.
+func needsTouch(s Session, now time.Time) bool {
+	return now.Sub(s.LastSeenAt) >= touchInterval
 }
 
 // touch records activity, at most once per touchInterval per session.
@@ -136,7 +153,7 @@ func (m *Manager) Lookup(ctx context.Context, presented string, policy Policy, n
 // Best effort and deliberately not fatal: failing a login because a bookkeeping
 // write failed would trade a real outage for a cosmetic inaccuracy.
 func (m *Manager) touch(ctx context.Context, s Session, now time.Time) {
-	if now.Sub(s.LastSeenAt) < touchInterval {
+	if !needsTouch(s, now) {
 		return
 	}
 	if err := m.store.Touch(ctx, m.db, s.OrgID, s.ID, now); err != nil && m.log != nil {

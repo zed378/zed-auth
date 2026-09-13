@@ -54,6 +54,15 @@ SHIPPED = {
     # derived from the caller's own manager_roles rows, so it can only describe
     # access they already hold.
     "/v1/me/organizations",
+    # P3-09. The caller's own sessions (FR-5), on the same no-role footing as
+    # the route above: the user comes from the token, so it can describe
+    # nobody else.
+    "/v1/me/sessions",
+    "/v1/me/sessions/{session_id}",
+    "/v1/me/sessions/revoke-others",
+    # P3-09. A member's sessions, for an administrator.
+    "/v1/organizations/{org_id}/users/{user_id}/sessions",
+    "/v1/organizations/{org_id}/users/{user_id}/sessions/{session_id}",
     "/v1/organizations",
     "/v1/organizations/{org_id}",
     # P1-17. Projects, under the organization that owns them.

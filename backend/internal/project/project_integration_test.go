@@ -45,6 +45,7 @@ import (
 	"github.com/zed378/zed-auth/backend/internal/organization"
 	"github.com/zed378/zed-auth/backend/internal/ratelimit"
 	"github.com/zed378/zed-auth/backend/internal/role"
+	"github.com/zed378/zed-auth/backend/internal/sessionapi"
 	"github.com/zed378/zed-auth/backend/internal/signing"
 	"github.com/zed378/zed-auth/backend/internal/storage/postgres"
 	"github.com/zed378/zed-auth/backend/internal/testsupport"
@@ -142,8 +143,9 @@ func setup(t *testing.T) *fixture {
 		// chain with any half of the Management API missing, and the handler
 		// refuses a deactivation it cannot make real rather than panicking on
 		// a nil revoker.
-		UserAPI:  &user.Handler{Store: user.NewStore(), DB: db, Audit: auditor, Log: discard()},
-		AuditAPI: &auditlog.Handler{DB: db, Log: discard()},
+		UserAPI:    &user.Handler{Store: user.NewStore(), DB: db, Audit: auditor, Log: discard()},
+		SessionAPI: &sessionapi.Handler{}, // not exercised here
+		AuditAPI:   &auditlog.Handler{DB: db, Log: discard()},
 	})
 
 	return &fixture{
