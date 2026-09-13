@@ -32,6 +32,24 @@ type RecoveryCodes interface {
 	Spend(ctx context.Context, orgID, userID, code string) (remaining int, err error)
 }
 
+// WebAuthnCeremony is the framework's view of a passkey ceremony (P3-05).
+//
+// Two methods, and the shape is forced by what WebAuthn is: a challenge the
+// server issues and an assertion signed over it. That does not fit `Verifier`,
+// whose `Verify(ctx, factorID, code)` has no way to reach the challenge this
+// login issued — so WebAuthn plugs in here as well as there, rather than being
+// bent into a shape that would have had to carry the challenge in the "code".
+type WebAuthnCeremony interface {
+	// Options builds a challenge for a user's registered credentials. It
+	// returns nil options when the user holds none, so a caller can tell "no
+	// passkey" from "a passkey and something went wrong".
+	Options(ctx context.Context, orgID, userID string) (options, session []byte, err error)
+
+	// Verify checks an assertion against the session that issued it and
+	// reports which factor answered.
+	Verify(ctx context.Context, orgID, userID string, session, assertion []byte) (factorID string, err error)
+}
+
 // EnrolledFactors is the framework's view of what a user may be challenged
 // with. Named for the question rather than for the table, because the answer
 // is "active factors of an implemented type" rather than "rows".
@@ -55,6 +73,10 @@ type Framework struct {
 	Store      EnrolledFactors
 	Challenges ChallengeStore
 	Log        *slog.Logger
+
+	// WebAuthn performs the passkey ceremony (P3-05). Nil means this build
+	// offers no passkey, which is what every deployment before P3-05 was.
+	WebAuthn WebAuthnCeremony
 
 	// Recovery reads whether a user has unspent recovery codes, and spends
 	// them (P3-04). Nil means recovery codes are not available in this build,
@@ -98,6 +120,11 @@ type Decision struct {
 	// Offered are the factor types the user may answer with — what they
 	// actually have, so a user who lost one device is not shown a dead end.
 	Offered []Type
+
+	// WebAuthnOptions is what the page hands `navigator.credentials.get`, when
+	// the user has a passkey and this build can serve it (P3-05). Empty
+	// otherwise, and the page renders no passkey form.
+	WebAuthnOptions []byte
 
 	// Recovery is true when the user holds at least one unspent recovery code
 	// (P3-04).
@@ -175,13 +202,35 @@ func (f *Framework) Required(ctx context.Context, userID, orgID, pendingID strin
 		return Decision{}, err
 	}
 
+	// The passkey ceremony, if this user has one and this build can serve it
+	// (P3-05).
+	//
+	// Issued HERE rather than when the page renders, so the options and the
+	// session that checks them are minted together and stored together. A
+	// ceremony begun at render time would let a refresh mint fresh challenges
+	// indefinitely.
+	var options, ceremony []byte
+	if f.WebAuthn != nil && seen[TypeWebAuthn] {
+		options, ceremony, err = f.WebAuthn.Options(ctx, orgID, userID)
+		if err != nil {
+			// Refused, not degraded. Unlike the recovery-code lookup, which
+			// answers "no" on failure because the user's factor still works,
+			// this IS the user's factor — silently falling back to offering
+			// nothing would lock out somebody whose only credential is a
+			// passkey.
+			return Decision{}, fmt.Errorf("mfa: beginning a passkey ceremony: %w", err)
+		}
+	}
+
 	stored, err := f.Challenges.Put(ctx, Challenge{
-		UserID:    userID,
-		OrgID:     orgID,
-		PendingID: pendingID,
-		FactorIDs: ids,
-		Methods:   nil,
-		CreatedAt: f.now(),
+		UserID:          userID,
+		OrgID:           orgID,
+		PendingID:       pendingID,
+		FactorIDs:       ids,
+		Methods:         nil,
+		WebAuthnOptions: options,
+		WebAuthnSession: ceremony,
+		CreatedAt:       f.now(),
 	}, ChallengeTTL)
 	if err != nil {
 		return Decision{}, fmt.Errorf("mfa: storing a challenge: %w", err)
@@ -207,7 +256,13 @@ func (f *Framework) Required(ctx context.Context, userID, orgID, pendingID strin
 		recovery = available
 	}
 
-	return Decision{Challenge: true, Handle: handle, Offered: offered, Recovery: recovery}, nil
+	return Decision{
+		Challenge:       true,
+		Handle:          handle,
+		Offered:         offered,
+		Recovery:        recovery,
+		WebAuthnOptions: options,
+	}, nil
 }
 
 // Answer verifies one attempt against a challenge.
@@ -340,6 +395,11 @@ type Outcome struct {
 	// attempt was wrong and the challenge is still live, so the page can be
 	// re-rendered without the caller holding state of its own.
 	Offered []Type
+
+	// WebAuthnOptions are re-offered alongside Offered when an attempt was
+	// wrong and the challenge is still live, so the page re-renders with the
+	// same ceremony rather than a new one.
+	WebAuthnOptions []byte
 
 	// RecoveryAvailable is whether a recovery code could still answer — set
 	// alongside Offered when an attempt was wrong and the challenge is live, so
@@ -547,6 +607,10 @@ type Offer struct {
 	// holds.
 	Types []Type
 
+	// WebAuthnOptions are the ones this challenge already issued, so a
+	// re-render hands the browser the same ceremony rather than a new one.
+	WebAuthnOptions []byte
+
 	// Recovery is whether an unspent recovery code could answer instead
 	// (P3-04).
 	Recovery bool
@@ -557,6 +621,127 @@ type Offer struct {
 // The caller turns this into the "start again" page rather than a form whose
 // every answer is refused — a dead end that says so beats one that does not.
 func (o Offer) Empty() bool { return len(o.Types) == 0 && !o.Recovery }
+
+// Passkey reports whether a passkey form should render.
+//
+// Both halves matter: a user may hold a WebAuthn factor while this build has no
+// ceremony to serve it — after a rollback, say — and a form with no options is
+// one whose button does nothing.
+func (o Offer) Passkey() bool {
+	if len(o.WebAuthnOptions) == 0 {
+		return false
+	}
+	for _, t := range o.Types {
+		if t == TypeWebAuthn {
+			return true
+		}
+	}
+	return false
+}
+
+// AnswerWebAuthn completes a challenge with a signed assertion (P3-05).
+//
+// The third sibling of AnswerType and AnswerRecovery, and it shares every
+// control that makes those safe: the challenge decides who, the pending request
+// must match, the per-user bound is charged before any verification work, and a
+// spent challenge stays spent.
+//
+// What it adds is the reason WebAuthn exists — the assertion is checked against
+// **the session this login issued**, which names the origin and the challenge
+// the authenticator had to sign over. A relayed assertion from a lookalike page
+// carries that page's origin and fails here.
+func (f *Framework) AnswerWebAuthn(
+	ctx context.Context, handle, pendingID string, assertion []byte,
+) (Outcome, error) {
+	if f.WebAuthn == nil {
+		return Outcome{}, ErrUnsupported
+	}
+
+	challenge, err := f.Challenges.Get(ctx, handle)
+	if err != nil {
+		return Outcome{}, err
+	}
+	if challenge.PendingID != pendingID {
+		return Outcome{}, ErrNoChallenge
+	}
+
+	who := Outcome{
+		UserID:    challenge.UserID,
+		OrgID:     challenge.OrgID,
+		PendingID: challenge.PendingID,
+	}
+
+	if challenge.Spent() {
+		_ = f.Challenges.Delete(ctx, handle)
+		return who, ErrChallengeSpent
+	}
+
+	if len(challenge.WebAuthnSession) == 0 {
+		// No ceremony was issued for this login, so there is nothing an
+		// assertion could be checked against. Refused rather than verified
+		// against a session built here: a check whose expected value comes from
+		// the same request as the answer is not a check.
+		return who, ErrNoSuchFactor
+	}
+
+	if f.Attempts != nil {
+		allowed, err := f.Attempts.Allowed(ctx, challenge.UserID, f.now())
+		if err != nil {
+			return who, fmt.Errorf("mfa: reading the attempt bound: %w", err)
+		}
+		if !allowed {
+			return who, ErrTooManyAttempts
+		}
+	}
+
+	factorID, err := f.WebAuthn.Verify(
+		ctx, challenge.OrgID, challenge.UserID, challenge.WebAuthnSession, assertion)
+
+	switch {
+	case err == nil:
+		if delErr := f.Challenges.Delete(ctx, handle); delErr != nil {
+			f.log().Warn("deleting a completed challenge failed", "error", delErr.Error())
+		}
+		_ = factorID
+		who.Complete = true
+		who.Methods = append(challenge.Methods, TypeWebAuthn)
+		return who, nil
+
+	case errors.Is(err, ErrWrongCode), errors.Is(err, ErrOriginMismatch),
+		errors.Is(err, ErrClonedAuthenticator):
+		// All three are refusals and all three count against the bound. They
+		// are distinguishable to an OPERATOR — an origin mismatch is a phishing
+		// attempt or a misconfiguration, a counter regression is a possible
+		// clone — and identical to the browser, because telling a caller which
+		// of their attacks was detected helps only them.
+		if f.Attempts != nil {
+			if _, failErr := f.Attempts.Fail(ctx, challenge.UserID, f.now()); failErr != nil {
+				f.log().Warn("counting a failed passkey attempt failed", "error", failErr.Error())
+			}
+		}
+
+		challenge.Attempts++
+		if repErr := f.Challenges.Replace(ctx, handle, challenge); repErr != nil {
+			f.log().Warn("recording a failed attempt failed", "error", repErr.Error())
+		}
+		if challenge.Spent() {
+			_ = f.Challenges.Delete(ctx, handle)
+			return who, ErrChallengeSpent
+		}
+
+		offer, offerErr := f.Peek(ctx, handle)
+		if offerErr == nil {
+			who.Offered = offer.Types
+			who.RecoveryAvailable = offer.Recovery
+			who.WebAuthnOptions = offer.WebAuthnOptions
+		}
+		return who, err
+
+	default:
+		// A failure to decide. Not a wrong answer, and not a pass.
+		return who, fmt.Errorf("mfa: verifying a passkey: %w", err)
+	}
+}
 
 // Peek reports what a live challenge may be answered with, consuming nothing.
 //
@@ -608,7 +793,7 @@ func (f *Framework) Peek(ctx context.Context, handle string) (Offer, error) {
 		recovery = available
 	}
 
-	return Offer{Types: offered, Recovery: recovery}, nil
+	return Offer{Types: offered, Recovery: recovery, WebAuthnOptions: challenge.WebAuthnOptions}, nil
 }
 
 // idOfType resolves a type to one of the factors THIS challenge named.

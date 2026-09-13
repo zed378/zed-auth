@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"html/template"
 	"net/http"
 	"net/url"
 	"strings"
@@ -34,6 +35,22 @@ import (
 
 // MFAPath is where the challenge step is mounted.
 const MFAPath = "/login/mfa"
+
+// WebAuthnPath is where the passkey step posts (P3-05).
+//
+// Its own route rather than a `factor` value on the shared form, because what
+// it carries is different in kind: an assertion is a JSON document produced by
+// a browser API, not a code somebody typed. Keeping it separate also keeps the
+// CSP relaxation (`PG-40`) scoped to the page that needs it.
+const WebAuthnPath = "/login/mfa/webauthn"
+
+// maxAssertionBytes bounds what the passkey form may post.
+//
+// Larger than the code field by three orders of magnitude, because an assertion
+// legitimately is: a couple of kilobytes of CBOR and JSON. Still far below what
+// would make this endpoint a place to push bytes, and the verifier bounds it
+// again before anything parses it.
+const maxAssertionBytes = 64 << 10
 
 // RecoveryFactor is the `factor` value the recovery form posts (P3-04).
 //
@@ -299,6 +316,108 @@ func (h *Handler) submitChallenge(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// WebAuthnStep verifies a signed assertion (P3-05).
+//
+// A sibling of MFAStep rather than a branch inside it. POST only: there is
+// nothing to render here, because the form and the ceremony both live on the
+// challenge page.
+func (h *Handler) WebAuthnStep(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", "POST")
+		h.notice(w, r, http.StatusMethodNotAllowed, Notice{
+			Title: "Method not allowed",
+			Body:  "This page accepts POST.",
+		})
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, maxAssertionBytes)
+	if err := r.ParseForm(); err != nil {
+		h.badRequest(w, r, "the form could not be read")
+		return
+	}
+
+	id := r.PostForm.Get("request")
+	if !validPendingID(id) {
+		h.noRequest(w, r)
+		return
+	}
+
+	pending, err := h.Authorization.Peek(r.Context(), id)
+	if err != nil {
+		h.expired(w, r, err)
+		return
+	}
+
+	page, err := h.page(r.Context(), pending, id)
+	if err != nil {
+		h.serverError(w, r, "preparing the login page", err)
+		return
+	}
+
+	token, hasToken := csrfFromRequest(r)
+	page.CSRFToken = token
+
+	if !hasToken || !checkCSRF(r, r.PostForm.Get(csrfField)) {
+		fresh, tokenErr := newCSRFToken()
+		if tokenErr != nil {
+			h.serverError(w, r, "issuing a CSRF token", tokenErr)
+			return
+		}
+		http.SetCookie(w, csrfCookie(fresh))
+		page.CSRFToken = fresh
+
+		offer, _ := h.offeredFor(r)
+		h.showChallenge(w, r, http.StatusOK, page, offer, MsgSessionProblem)
+		return
+	}
+
+	handle, ok := challengeFromRequest(r)
+	if !ok || h.MFA == nil {
+		h.challengeGone(w, r, page)
+		return
+	}
+
+	assertion := []byte(r.PostForm.Get("assertion"))
+	outcome, err := h.MFA.AnswerWebAuthn(r.Context(), handle, id, assertion)
+
+	switch {
+	case err == nil && outcome.Complete:
+		h.completeChallenge(w, r, pending, id, outcome)
+
+	case errors.Is(err, mfa.ErrTooManyAttempts):
+		h.count(OutcomeRateLimited)
+		offer, _ := h.offeredFor(r)
+		h.showChallenge(w, r, http.StatusOK, page, offer, MsgCodeRateLimited)
+
+	case errors.Is(err, mfa.ErrChallengeSpent), errors.Is(err, mfa.ErrNoChallenge):
+		h.count(OutcomeFailed)
+		h.challengeGone(w, r, page)
+
+	case errors.Is(err, mfa.ErrWrongCode), errors.Is(err, mfa.ErrNoSuchFactor),
+		errors.Is(err, mfa.ErrOriginMismatch), errors.Is(err, mfa.ErrClonedAuthenticator),
+		errors.Is(err, mfa.ErrUnsupported):
+		// **One message for all five.** They are very different things to an
+		// operator — an origin mismatch is a phishing attempt, a counter
+		// regression is a possible clone — and the log says which. The browser
+		// is told what every other failure on this page is told, because
+		// confirming to a caller which of their attacks was detected helps only
+		// them.
+		h.auditMFA(r, audit.EventMFAFailed, mfa.TypeWebAuthn, outcome)
+		h.count(OutcomeFailed)
+		h.showChallenge(w, r, http.StatusOK, page,
+			mfa.Offer{
+				Types:           outcome.Offered,
+				Recovery:        outcome.RecoveryAvailable,
+				WebAuthnOptions: outcome.WebAuthnOptions,
+			},
+			MsgWrongCode)
+
+	default:
+		h.serverError(w, r, "verifying a passkey", err)
+	}
+}
+
 // completeChallenge creates the session the challenge was standing in front of.
 func (h *Handler) completeChallenge(
 	w http.ResponseWriter, r *http.Request, pending authorize.Pending, id string, outcome mfa.Outcome,
@@ -393,6 +512,9 @@ func (h *Handler) showChallenge(
 		Recovery: offer.Recovery,
 		Problem:  problem,
 	}
+	if offer.Passkey() {
+		challenge.Passkey = template.JS(offer.WebAuthnOptions)
+	}
 
 	// A challenge with nothing to offer is a dead end. It can happen: every
 	// factor removed between the password step and this render, or a build with
@@ -404,7 +526,7 @@ func (h *Handler) showChallenge(
 	// holding only a WebAuthn credential reaches here with a non-empty offer and
 	// an empty form. Testing the framework's answer instead would have rendered
 	// that empty form — a page with a heading, no fields, and no way onward.
-	if len(challenge.Offered) == 0 && !challenge.Recovery {
+	if len(challenge.Offered) == 0 && !challenge.Recovery && len(challenge.Passkey) == 0 {
 		h.challengeGone(w, r, page)
 		return
 	}
@@ -414,7 +536,13 @@ func (h *Handler) showChallenge(
 		h.serverError(w, r, "rendering the challenge page", err)
 		return
 	}
-	h.write(w, status, page.ContentSecurityPolicy(), body)
+	// The CHALLENGE page's policy, not the embedded Page's.
+	//
+	// They differ by exactly one directive — the script source a passkey step
+	// needs — and taking the wrong one renders the script and then forbids it.
+	// The symptom is a button that never appears, in every browser, with one
+	// console line nobody is watching; a test caught it here instead.
+	h.write(w, status, challenge.ContentSecurityPolicy(), body)
 }
 
 // challengeGone is the end of a challenge that cannot continue.

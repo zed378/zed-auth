@@ -77,6 +77,22 @@ type Challenge struct {
 	// challenge existed.
 	Methods []Type `json:"methods"`
 
+	// WebAuthnOptions is what the browser passes to `navigator.credentials.get`,
+	// and WebAuthnSession is the server's half of the same ceremony — the
+	// challenge it must have signed, the relying party it must have signed for
+	// (P3-05).
+	//
+	// **Both are issued once, when the challenge is raised.** Re-rendering the
+	// page reuses them rather than minting a new pair, which is what keeps a
+	// refresh from being a way to get an unlimited supply of fresh challenges.
+	// Single use is enforced where it matters: the whole Challenge is consumed
+	// on success.
+	//
+	// The SESSION never reaches the client. It is the expected value, and a
+	// client that could edit what it is checked against is not being checked.
+	WebAuthnOptions []byte `json:"webauthn_options,omitempty"`
+	WebAuthnSession []byte `json:"webauthn_session,omitempty"`
+
 	CreatedAt time.Time `json:"created_at"`
 }
 
