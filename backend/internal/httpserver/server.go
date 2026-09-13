@@ -102,6 +102,13 @@ type Deps struct {
 	Login  http.Handler
 	Forgot http.Handler
 
+	// Passkey serves POST /login/mfa/webauthn — the assertion (P3-05).
+	//
+	// Its own route rather than a branch inside MFA, because a deployment can
+	// have a factor framework and no passkey: nil here means the route is not
+	// registered, and the challenge page then offers no passkey form.
+	Passkey http.Handler
+
 	// MFA serves GET and POST /login/mfa — the second step (P3-03).
 	//
 	// Nil means the deployment has no factor framework, and the route is then
@@ -330,6 +337,12 @@ func New(cfg config.HTTPConfig, deps Deps) *Server {
 		// token and the challenge handle.
 		mux.Method(http.MethodGet, "/login/mfa", deps.MFA)
 		mux.Method(http.MethodPost, "/login/mfa", deps.MFA)
+	}
+	if deps.Passkey != nil {
+		// POST only. There is nothing to render at this path — the form and the
+		// ceremony both live on the challenge page, and a GET here would be a
+		// second place a passkey step could appear to exist.
+		mux.Method(http.MethodPost, "/login/mfa/webauthn", deps.Passkey)
 	}
 	if deps.Forgot != nil {
 		// Both methods now (P1-19). It was GET-only while the page was a

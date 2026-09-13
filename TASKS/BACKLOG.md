@@ -377,6 +377,36 @@ The cost of the omission is smaller than it looks today, because both claims are
 
 ---
 
+### PG-40 — WebAuthn requires JavaScript, and the hosted login flow was designed to have none
+
+**Affects**: `P1-12` (the login page), `TASKS/PHASE-3-ADVANCED-SECURITY.md` § P3-05, `docs/PLAN/02-REQUIREMENTS.md` FR-2, `docs/UI-UX/` (the hosted pages).
+
+`P1-12` did not merely happen to omit script. It is load-bearing, and the source says so:
+
+> There is no JavaScript. Not "it degrades gracefully" — none at all, which is what makes `default-src 'none'` an achievable policy rather than an aspirational one, and what leaves no DOM sink for an injected value to reach.
+
+`docs/PLAN/02` FR-2 requires WebAuthn, and WebAuthn is `navigator.credentials` — a browser API with no form-only equivalent. **There is no version of this feature without script.** The two requirements are in direct conflict and neither document acknowledges the other.
+
+`P3-03` saw it coming and deferred it rather than resolving it quietly, in as many words: *"WebAuthn needs script, and this page has none. It will need its own step."*
+
+**How `P3-05` resolved it**, and what the residual is:
+
+| | |
+|---|---|
+| `/login` — where a password is typed | **Unchanged.** `default-src 'none'`, no `script-src`, no script. Asserted by `TestThePasswordPageStillHasNoScript` |
+| `/login/mfa` offering only TOTP | **Unchanged**, so the relaxation is scoped to the REQUEST rather than to the route. Asserted by `TestATOTPOnlyChallengeHasNoScript` |
+| `/login/mfa` offering a passkey | `script-src '<sha256 of the one inline script>'`, and nothing else |
+
+A **hash**, not a nonce: a nonce changes per response and authorises whatever the server put it on, while a hash authorises one exact block of text. Change a byte and it stops executing. The hash is computed from the source rather than written down, because a hand-written one is one somebody forgets to update — and the symptom would be a button that silently never appears.
+
+The script reads one JSON blob already in the page, calls one browser API, fills a hidden field and submits a form that was already there. No framework, no `fetch`, no dynamic code. `connect-src` is still absent, so it cannot talk anywhere.
+
+**The residual, stated plainly**: this is the one page in the estate where a content-injection bug could reach a script context. That is the price of phishing resistance, it is contained to one step of one flow, and three tests hold the line. It is not free and it is not pretended to be.
+
+**Recommendation**: `docs/PLAN/02` FR-2 and whichever `docs/UI-UX/` document inherits `P1-12`'s "no script" rule should both state the exception and its boundary, so the next person reading either one finds the decision rather than an apparent contradiction. Through the deliberate plan-change process.
+
+---
+
 ### PG-39 — "hashed with the same rigor as a password" is the wrong primitive for a recovery code
 
 **Affects**: `docs/PLAN/04-DATA-MODEL.md` § `user_recovery_codes`, implemented by `P3-04`.

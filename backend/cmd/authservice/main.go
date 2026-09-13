@@ -676,6 +676,7 @@ func run() error {
 		Login:          loginHandler,
 		Forgot:         http.HandlerFunc(loginHandler.Forgot),
 		MFA:            mfaRoute(factorFramework, loginHandler),
+		Passkey:        passkeyRoute(factorFramework, loginHandler),
 		SetPassword:    http.HandlerFunc(loginHandler.SetPassword),
 		V1:             v1,
 		Organizations:  organizations,
@@ -851,6 +852,29 @@ func buildMFA(
 
 	factorStore := &mfa.Store{}
 
+	// The WebAuthn relying party, from the deployment's OWN issuer.
+	//
+	// Never from a request: the expected origin is the whole phishing defence,
+	// and a service that took it from the `Origin` header would accept whatever
+	// a lookalike sent while appearing to check.
+	var passkey mfa.WebAuthnCeremony
+	rp, rpErr := mfa.NewWebAuthn(cfg.Issuer, "Auth Service")
+	if rpErr != nil {
+		// Logged loudly and NOT fatal. A deployment whose issuer cannot yield a
+		// relying party id should still serve TOTP rather than refuse to start
+		// — but an operator must be able to see that passkeys are off, because
+		// the symptom otherwise is a button nobody's browser ever shows.
+		log.Error("passkeys are disabled: the relying party could not be built",
+			"issuer", cfg.Issuer, "error", rpErr.Error())
+	} else {
+		passkey = &mfa.WebAuthnVerifier{
+			Store: mfa.NewWebAuthnStore(),
+			DB:    db,
+			RP:    rp,
+			Log:   log,
+		}
+	}
+
 	totp := &mfa.TOTP{
 		Store:  factorStore,
 		DB:     db,
@@ -876,6 +900,11 @@ func buildMFA(
 		// deployment with factors and no recovery path is one where a lost
 		// phone is a support ticket at best and a lost account at worst.
 		Recovery: &mfa.PostgresRecovery{Store: mfa.NewRecoveryStore(), DB: db},
+		// The passkey ceremony (P3-05). Nil when the relying party could not be
+		// built, which is a configuration problem rather than a reason to
+		// refuse every login — the deployment then offers TOTP, and the startup
+		// log says why.
+		WebAuthn: passkey,
 		// The challenge and the attempt counter share one Redis, which is what
 		// lets the counter fail CLOSED without that being a decision about
 		// availability: a Redis that cannot count cannot hold a challenge
@@ -918,6 +947,20 @@ func mfaRoute(framework *mfa.Framework, h *login.Handler) http.Handler {
 		return nil
 	}
 	return http.HandlerFunc(h.MFAStep)
+}
+
+// passkeyRoute registers /login/mfa/webauthn only when a ceremony exists.
+//
+// Two conditions, not one: a deployment may have a factor framework (TOTP) and
+// no WebAuthn ceremony, and registering the route anyway would give a passkey
+// step that refuses everything. `mfaRoute`'s comment applies with more force
+// here, because a passkey failure reads to a user as "my security key is
+// broken" rather than as "this service does not offer that".
+func passkeyRoute(framework *mfa.Framework, h *login.Handler) http.Handler {
+	if framework == nil || framework.WebAuthn == nil {
+		return nil
+	}
+	return http.HandlerFunc(h.WebAuthnStep)
 }
 
 // passwordChecks bundles the P1-02 pieces a password-set path needs.

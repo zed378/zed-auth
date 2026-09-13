@@ -53,6 +53,13 @@ type fakeChallenger struct {
 	seenRecoveryCode string
 	recoveryCalls    int
 
+	// The passkey step (P3-05).
+	peekOptions   []byte
+	passkey       mfa.Outcome
+	passkeyErr    error
+	seenAssertion []byte
+	passkeyCalls  int
+
 	// seen records what AnswerType was called with, so a test can assert the
 	// handler passed the form's factor type through rather than inventing one.
 	seenType    mfa.Type
@@ -84,8 +91,21 @@ func (f *fakeChallenger) AnswerRecovery(
 	return f.recovery, f.recoveryErr
 }
 
+func (f *fakeChallenger) AnswerWebAuthn(
+	_ context.Context, _, pendingID string, assertion []byte,
+) (mfa.Outcome, error) {
+	f.passkeyCalls++
+	f.seenPending = pendingID
+	f.seenAssertion = assertion
+	return f.passkey, f.passkeyErr
+}
+
 func (f *fakeChallenger) Peek(context.Context, string) (mfa.Offer, error) {
-	return mfa.Offer{Types: f.peek, Recovery: f.peekRecovery}, f.peekErr
+	return mfa.Offer{
+		Types:           f.peek,
+		Recovery:        f.peekRecovery,
+		WebAuthnOptions: f.peekOptions,
+	}, f.peekErr
 }
 
 // challenged builds a fixture whose user holds one TOTP factor.
