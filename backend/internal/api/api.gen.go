@@ -39,14 +39,15 @@ const (
 
 // Defines values for ErrorCode.
 const (
-	CONFLICT         ErrorCode = "CONFLICT"
-	INTERNAL         ErrorCode = "INTERNAL"
-	NOTFOUND         ErrorCode = "NOT_FOUND"
-	PERMISSIONDENIED ErrorCode = "PERMISSION_DENIED"
-	RATELIMITED      ErrorCode = "RATE_LIMITED"
-	UNAUTHENTICATED  ErrorCode = "UNAUTHENTICATED"
-	UNAVAILABLE      ErrorCode = "UNAVAILABLE"
-	VALIDATIONERROR  ErrorCode = "VALIDATION_ERROR"
+	CONFLICT                 ErrorCode = "CONFLICT"
+	INTERNAL                 ErrorCode = "INTERNAL"
+	NOTFOUND                 ErrorCode = "NOT_FOUND"
+	PERMISSIONDENIED         ErrorCode = "PERMISSION_DENIED"
+	RATELIMITED              ErrorCode = "RATE_LIMITED"
+	REAUTHENTICATIONREQUIRED ErrorCode = "REAUTHENTICATION_REQUIRED"
+	UNAUTHENTICATED          ErrorCode = "UNAUTHENTICATED"
+	UNAVAILABLE              ErrorCode = "UNAVAILABLE"
+	VALIDATIONERROR          ErrorCode = "VALIDATION_ERROR"
 )
 
 // Defines values for IntrospectionTokenType.
@@ -57,6 +58,18 @@ const (
 // Defines values for LivenessStatusStatus.
 const (
 	Ok LivenessStatusStatus = "ok"
+)
+
+// Defines values for MfaFactorType.
+const (
+	MfaFactorTypeTotp     MfaFactorType = "totp"
+	MfaFactorTypeWebauthn MfaFactorType = "webauthn"
+)
+
+// Defines values for MyMfaAvailableTypes.
+const (
+	MyMfaAvailableTypesTotp     MyMfaAvailableTypes = "totp"
+	MyMfaAvailableTypesWebauthn MyMfaAvailableTypes = "webauthn"
 )
 
 // Defines values for OAuthErrorError.
@@ -774,6 +787,51 @@ type LivenessStatus struct {
 // LivenessStatusStatus defines model for LivenessStatus.Status.
 type LivenessStatusStatus string
 
+// MemberMfa defines model for MemberMfa.
+type MemberMfa struct {
+	Factors                []MfaFactor `json:"factors"`
+	RecoveryCodesRemaining int         `json:"recovery_codes_remaining"`
+}
+
+// MfaFactor One active second factor. Never its secret or credential material.
+type MfaFactor struct {
+	CreatedAt time.Time `json:"created_at"`
+
+	// Id A resource's stable identifier. Not sequential and not guessable.
+	//
+	// **This was specified as a prefixed, sortable identifier** — `usr_`,
+	// `org_`, `prj_` — and is a UUID instead. The change is deliberate and is
+	// recorded as `PG-23`.
+	//
+	// The prefix has a real benefit: an id pasted into a support ticket is
+	// self-describing, and passing a project id where a user id belongs is
+	// visible on sight rather than at the database. What it cannot survive is
+	// being applied to only part of the surface. `docs/PLAN/04` makes every
+	// primary key a UUID, the access token's `org_id` claim is a UUID, and
+	// OpenID Connect's `sub` — already shipped by `P1-08` — is a UUID that
+	// callers store as a user's permanent key.
+	//
+	// Prefixing only the Management API would give the same user two
+	// identifiers and make every consumer convert between them, which is a
+	// larger and more permanent papercut than the one the prefix removes.
+	// Prefixing everything means changing `sub`, which is a protocol field
+	// with its own conventions and a value integrators have already stored.
+	//
+	// So: UUIDs everywhere, and if prefixed identifiers are wanted later they
+	// arrive everywhere at once or not at all.
+	Id ResourceId `json:"id"`
+
+	// Label What the user called it, if anything.
+	Label      nullable.Nullable[string]    `json:"label"`
+	LastUsedAt nullable.Nullable[time.Time] `json:"last_used_at"`
+
+	// Type `totp` is an authenticator app; `webauthn` is a passkey or security key.
+	Type MfaFactorType `json:"type"`
+}
+
+// MfaFactorType `totp` is an authenticator app; `webauthn` is a passkey or security key.
+type MfaFactorType string
+
 // MfaImpact What enabling `mfa_required` would mean for this organization.
 //
 // Counts rather than identifiers, deliberately — see the operation's
@@ -811,6 +869,23 @@ type MfaReset struct {
 	// wrote down.
 	RecoveryCodesRemoved int `json:"recovery_codes_removed"`
 }
+
+// MyMfa defines model for MyMfa.
+type MyMfa struct {
+	// AvailableTypes The factor types this deployment can enrol. Empty when MFA is not configured.
+	AvailableTypes []MyMfaAvailableTypes `json:"available_types"`
+	Factors        []MfaFactor           `json:"factors"`
+
+	// MfaRequired Whether the caller's organization requires a second factor. When true, the last factor cannot be removed.
+	MfaRequired bool `json:"mfa_required"`
+
+	// RecoveryCodesRemaining Unused recovery codes. Zero with an active factor means the user has
+	// no way back in if they lose it, and a client should say so plainly.
+	RecoveryCodesRemaining int `json:"recovery_codes_remaining"`
+}
+
+// MyMfaAvailableTypes defines model for MyMfa.AvailableTypes.
+type MyMfaAvailableTypes string
 
 // OAuthError OAuth 2.1's error shape (RFC 6749 § 5.2), used by the protocol
 // endpoints. Distinct from the `Error` envelope every other endpoint
@@ -1145,6 +1220,15 @@ type ProjectUpdate struct {
 	Name *string `json:"name,omitempty"`
 }
 
+// QrCode defines model for QrCode.
+type QrCode struct {
+	// Rows One string per row, `1` for a dark module and `0` for a light one.
+	Rows []string `json:"rows"`
+
+	// Size Modules per side, excluding the quiet zone a renderer should add.
+	Size int `json:"size"`
+}
+
 // ReadinessStatus The complete `/readyz` response.
 //
 // Note that the ready value is `ready`, not `ok`. The two probes report
@@ -1159,6 +1243,12 @@ type ReadinessStatus struct {
 
 // ReadinessStatusStatus defines model for ReadinessStatus.Status.
 type ReadinessStatusStatus string
+
+// RecoveryCodes defines model for RecoveryCodes.
+type RecoveryCodes struct {
+	// Codes Ten single-use codes, shown once.
+	Codes []string `json:"codes"`
+}
 
 // ResetRequested defines model for ResetRequested.
 type ResetRequested struct {
@@ -1432,6 +1522,71 @@ type TokenResponse struct {
 // TokenResponseTokenType defines model for TokenResponse.TokenType.
 type TokenResponseTokenType string
 
+// TotpConfirmation defines model for TotpConfirmation.
+type TotpConfirmation struct {
+	// Code The six digits the authenticator shows now.
+	Code string `json:"code"`
+}
+
+// TotpConfirmed defines model for TotpConfirmed.
+type TotpConfirmed struct {
+	// Factor One active second factor. Never its secret or credential material.
+	Factor MfaFactor `json:"factor"`
+
+	// RecoveryCodes A new batch of recovery codes when the user had none, shown once;
+	// null when they already hold unused codes.
+	RecoveryCodes nullable.Nullable[[]string] `json:"recovery_codes"`
+}
+
+// TotpEnrolment Everything an authenticator app needs, returned once. The QR code is the
+// `provisioning_uri` as a module grid rather than an image, so a client
+// draws it with its own elements and no image or markup crosses the API.
+// Always show `secret` beside it: it is the text alternative for anybody
+// who cannot scan.
+type TotpEnrolment struct {
+	Digits int `json:"digits"`
+
+	// FactorId A resource's stable identifier. Not sequential and not guessable.
+	//
+	// **This was specified as a prefixed, sortable identifier** — `usr_`,
+	// `org_`, `prj_` — and is a UUID instead. The change is deliberate and is
+	// recorded as `PG-23`.
+	//
+	// The prefix has a real benefit: an id pasted into a support ticket is
+	// self-describing, and passing a project id where a user id belongs is
+	// visible on sight rather than at the database. What it cannot survive is
+	// being applied to only part of the surface. `docs/PLAN/04` makes every
+	// primary key a UUID, the access token's `org_id` claim is a UUID, and
+	// OpenID Connect's `sub` — already shipped by `P1-08` — is a UUID that
+	// callers store as a user's permanent key.
+	//
+	// Prefixing only the Management API would give the same user two
+	// identifiers and make every consumer convert between them, which is a
+	// larger and more permanent papercut than the one the prefix removes.
+	// Prefixing everything means changing `sub`, which is a protocol field
+	// with its own conventions and a value integrators have already stored.
+	//
+	// So: UUIDs everywhere, and if prefixed identifiers are wanted later they
+	// arrive everywhere at once or not at all.
+	FactorId ResourceId `json:"factor_id"`
+
+	// Period Seconds per code.
+	Period int `json:"period"`
+
+	// ProvisioningUri The `otpauth://totp/...` URI.
+	ProvisioningUri string `json:"provisioning_uri"`
+	Qr              QrCode `json:"qr"`
+
+	// Secret The shared secret, base32. Shown once.
+	Secret string `json:"secret"`
+}
+
+// TotpEnrolmentRequest defines model for TotpEnrolmentRequest.
+type TotpEnrolmentRequest struct {
+	// Label A name for the authenticator, such as the device it is on.
+	Label *string `json:"label,omitempty"`
+}
+
 // User A person who can sign in to one organization.
 //
 // **No password appears here in either direction.** Not on create, not on
@@ -1661,6 +1816,30 @@ type UserUpdate struct {
 // arrive everywhere at once or not at all.
 type ApplicationId = ResourceId
 
+// FactorId A resource's stable identifier. Not sequential and not guessable.
+//
+// **This was specified as a prefixed, sortable identifier** — `usr_`,
+// `org_`, `prj_` — and is a UUID instead. The change is deliberate and is
+// recorded as `PG-23`.
+//
+// The prefix has a real benefit: an id pasted into a support ticket is
+// self-describing, and passing a project id where a user id belongs is
+// visible on sight rather than at the database. What it cannot survive is
+// being applied to only part of the surface. `docs/PLAN/04` makes every
+// primary key a UUID, the access token's `org_id` claim is a UUID, and
+// OpenID Connect's `sub` — already shipped by `P1-08` — is a UUID that
+// callers store as a user's permanent key.
+//
+// Prefixing only the Management API would give the same user two
+// identifiers and make every consumer convert between them, which is a
+// larger and more permanent papercut than the one the prefix removes.
+// Prefixing everything means changing `sub`, which is a protocol field
+// with its own conventions and a value integrators have already stored.
+//
+// So: UUIDs everywhere, and if prefixed identifiers are wanted later they
+// arrive everywhere at once or not at all.
+type FactorId = ResourceId
+
 // IdempotencyKey defines model for IdempotencyKey.
 type IdempotencyKey = string
 
@@ -1824,6 +2003,26 @@ type RateLimited = Error
 // (`docs/PLAN/05` Part B § Standard Error Format). One shape means a client
 // writes one error path rather than one per endpoint.
 type Unauthorized = Error
+
+// RegenerateMyRecoveryCodesParams defines parameters for RegenerateMyRecoveryCodes.
+type RegenerateMyRecoveryCodesParams struct {
+	// IdempotencyKey A client-generated key making a retried `POST` safe. Replaying a
+	// request with the same key returns the original result rather than
+	// creating a second resource — which matters most for automated
+	// provisioning, where a network timeout is indistinguishable from a
+	// failure (`docs/PLAN/05` Part B).
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+}
+
+// BeginMyTotpEnrolmentParams defines parameters for BeginMyTotpEnrolment.
+type BeginMyTotpEnrolmentParams struct {
+	// IdempotencyKey A client-generated key making a retried `POST` safe. Replaying a
+	// request with the same key returns the original result rather than
+	// creating a second resource — which matters most for automated
+	// provisioning, where a network timeout is indistinguishable from a
+	// failure (`docs/PLAN/05` Part B).
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+}
 
 // ListAdministeredOrganizationsParams defines parameters for ListAdministeredOrganizations.
 type ListAdministeredOrganizationsParams struct {
@@ -2129,6 +2328,12 @@ type ListUserSessionsParams struct {
 // CheckAuthorizationJSONRequestBody defines body for CheckAuthorization for application/json ContentType.
 type CheckAuthorizationJSONRequestBody = AuthorizationCheck
 
+// BeginMyTotpEnrolmentJSONRequestBody defines body for BeginMyTotpEnrolment for application/json ContentType.
+type BeginMyTotpEnrolmentJSONRequestBody = TotpEnrolmentRequest
+
+// ConfirmMyTotpEnrolmentJSONRequestBody defines body for ConfirmMyTotpEnrolment for application/json ContentType.
+type ConfirmMyTotpEnrolmentJSONRequestBody = TotpConfirmation
+
 // CreateOrganizationJSONRequestBody defines body for CreateOrganization for application/json ContentType.
 type CreateOrganizationJSONRequestBody = OrganizationCreate
 
@@ -2182,6 +2387,21 @@ type ServerInterface interface {
 	// Ask whether a subject may perform an action
 	// (POST /v1/authz/check)
 	CheckAuthorization(w http.ResponseWriter, r *http.Request)
+	// Read the caller's second factors
+	// (GET /v1/me/mfa)
+	GetMyMfa(w http.ResponseWriter, r *http.Request)
+	// Remove one of the caller's factors
+	// (DELETE /v1/me/mfa/factors/{factor_id})
+	RemoveMyFactor(w http.ResponseWriter, r *http.Request, factorId FactorId)
+	// Replace the caller's recovery codes
+	// (POST /v1/me/mfa/recovery-codes)
+	RegenerateMyRecoveryCodes(w http.ResponseWriter, r *http.Request, params RegenerateMyRecoveryCodesParams)
+	// Begin enrolling an authenticator app
+	// (POST /v1/me/mfa/totp)
+	BeginMyTotpEnrolment(w http.ResponseWriter, r *http.Request, params BeginMyTotpEnrolmentParams)
+	// Confirm an authenticator app with a code
+	// (POST /v1/me/mfa/totp/{factor_id}/confirm)
+	ConfirmMyTotpEnrolment(w http.ResponseWriter, r *http.Request, factorId FactorId)
 	// List the organizations the caller administers
 	// (GET /v1/me/organizations)
 	ListAdministeredOrganizations(w http.ResponseWriter, r *http.Request, params ListAdministeredOrganizationsParams)
@@ -2290,6 +2510,9 @@ type ServerInterface interface {
 	// Replace a user's roles in a project
 	// (PATCH /v1/organizations/{org_id}/users/{user_id}/grants/{project_id})
 	ReplaceUserGrant(w http.ResponseWriter, r *http.Request, orgId OrganizationId, userId UserId, projectId ProjectId)
+	// Read a member's second factors
+	// (GET /v1/organizations/{org_id}/users/{user_id}/mfa)
+	GetUserMfa(w http.ResponseWriter, r *http.Request, orgId OrganizationId, userId UserId)
 	// Clear a user's two-step verification
 	// (POST /v1/organizations/{org_id}/users/{user_id}/mfa-reset)
 	ResetUserMfa(w http.ResponseWriter, r *http.Request, orgId OrganizationId, userId UserId, params ResetUserMfaParams)
@@ -2338,6 +2561,36 @@ func (_ Unimplemented) GetReadiness(w http.ResponseWriter, r *http.Request) {
 // Ask whether a subject may perform an action
 // (POST /v1/authz/check)
 func (_ Unimplemented) CheckAuthorization(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Read the caller's second factors
+// (GET /v1/me/mfa)
+func (_ Unimplemented) GetMyMfa(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Remove one of the caller's factors
+// (DELETE /v1/me/mfa/factors/{factor_id})
+func (_ Unimplemented) RemoveMyFactor(w http.ResponseWriter, r *http.Request, factorId FactorId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Replace the caller's recovery codes
+// (POST /v1/me/mfa/recovery-codes)
+func (_ Unimplemented) RegenerateMyRecoveryCodes(w http.ResponseWriter, r *http.Request, params RegenerateMyRecoveryCodesParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Begin enrolling an authenticator app
+// (POST /v1/me/mfa/totp)
+func (_ Unimplemented) BeginMyTotpEnrolment(w http.ResponseWriter, r *http.Request, params BeginMyTotpEnrolmentParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Confirm an authenticator app with a code
+// (POST /v1/me/mfa/totp/{factor_id}/confirm)
+func (_ Unimplemented) ConfirmMyTotpEnrolment(w http.ResponseWriter, r *http.Request, factorId FactorId) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -2557,6 +2810,12 @@ func (_ Unimplemented) ReplaceUserGrant(w http.ResponseWriter, r *http.Request, 
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// Read a member's second factors
+// (GET /v1/organizations/{org_id}/users/{user_id}/mfa)
+func (_ Unimplemented) GetUserMfa(w http.ResponseWriter, r *http.Request, orgId OrganizationId, userId UserId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // Clear a user's two-step verification
 // (POST /v1/organizations/{org_id}/users/{user_id}/mfa-reset)
 func (_ Unimplemented) ResetUserMfa(w http.ResponseWriter, r *http.Request, orgId OrganizationId, userId UserId, params ResetUserMfaParams) {
@@ -2663,6 +2922,180 @@ func (siw *ServerInterfaceWrapper) CheckAuthorization(w http.ResponseWriter, r *
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.CheckAuthorization(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetMyMfa operation middleware
+func (siw *ServerInterfaceWrapper) GetMyMfa(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, Oauth2Scopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetMyMfa(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RemoveMyFactor operation middleware
+func (siw *ServerInterfaceWrapper) RemoveMyFactor(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "factor_id" -------------
+	var factorId FactorId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "factor_id", chi.URLParam(r, "factor_id"), &factorId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "factor_id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, Oauth2Scopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RemoveMyFactor(w, r, factorId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RegenerateMyRecoveryCodes operation middleware
+func (siw *ServerInterfaceWrapper) RegenerateMyRecoveryCodes(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, Oauth2Scopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params RegenerateMyRecoveryCodesParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RegenerateMyRecoveryCodes(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// BeginMyTotpEnrolment operation middleware
+func (siw *ServerInterfaceWrapper) BeginMyTotpEnrolment(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, Oauth2Scopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params BeginMyTotpEnrolmentParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.BeginMyTotpEnrolment(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ConfirmMyTotpEnrolment operation middleware
+func (siw *ServerInterfaceWrapper) ConfirmMyTotpEnrolment(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "factor_id" -------------
+	var factorId FactorId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "factor_id", chi.URLParam(r, "factor_id"), &factorId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "factor_id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, Oauth2Scopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ConfirmMyTotpEnrolment(w, r, factorId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4516,6 +4949,46 @@ func (siw *ServerInterfaceWrapper) ReplaceUserGrant(w http.ResponseWriter, r *ht
 	handler.ServeHTTP(w, r)
 }
 
+// GetUserMfa operation middleware
+func (siw *ServerInterfaceWrapper) GetUserMfa(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "org_id" -------------
+	var orgId OrganizationId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "org_id", chi.URLParam(r, "org_id"), &orgId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "org_id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "user_id" -------------
+	var userId UserId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "user_id", chi.URLParam(r, "user_id"), &userId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "user_id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, Oauth2Scopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetUserMfa(w, r, orgId, userId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ResetUserMfa operation middleware
 func (siw *ServerInterfaceWrapper) ResetUserMfa(w http.ResponseWriter, r *http.Request) {
 
@@ -4945,6 +5418,21 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/v1/authz/check", wrapper.CheckAuthorization)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/v1/me/mfa", wrapper.GetMyMfa)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/v1/me/mfa/factors/{factor_id}", wrapper.RemoveMyFactor)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/me/mfa/recovery-codes", wrapper.RegenerateMyRecoveryCodes)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/me/mfa/totp", wrapper.BeginMyTotpEnrolment)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/me/mfa/totp/{factor_id}/confirm", wrapper.ConfirmMyTotpEnrolment)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/v1/me/organizations", wrapper.ListAdministeredOrganizations)
 	})
 	r.Group(func(r chi.Router) {
@@ -5051,6 +5539,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Patch(options.BaseURL+"/v1/organizations/{org_id}/users/{user_id}/grants/{project_id}", wrapper.ReplaceUserGrant)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/v1/organizations/{org_id}/users/{user_id}/mfa", wrapper.GetUserMfa)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/v1/organizations/{org_id}/users/{user_id}/mfa-reset", wrapper.ResetUserMfa)
@@ -5264,6 +5755,336 @@ type CheckAuthorization503JSONResponse Error
 func (response CheckAuthorization503JSONResponse) VisitCheckAuthorizationResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(503)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetMyMfaRequestObject struct {
+}
+
+type GetMyMfaResponseObject interface {
+	VisitGetMyMfaResponse(w http.ResponseWriter) error
+}
+
+type GetMyMfa200JSONResponse MyMfa
+
+func (response GetMyMfa200JSONResponse) VisitGetMyMfaResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetMyMfa401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response GetMyMfa401JSONResponse) VisitGetMyMfaResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetMyMfa429JSONResponse struct{ RateLimitedJSONResponse }
+
+func (response GetMyMfa429JSONResponse) VisitGetMyMfaResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Retry-After", fmt.Sprint(response.Headers.RetryAfter))
+	w.Header().Set("X-RateLimit-Limit", fmt.Sprint(response.Headers.XRateLimitLimit))
+	w.Header().Set("X-RateLimit-Remaining", fmt.Sprint(response.Headers.XRateLimitRemaining))
+	w.Header().Set("X-RateLimit-Reset", fmt.Sprint(response.Headers.XRateLimitReset))
+	w.WriteHeader(429)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type GetMyMfa500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response GetMyMfa500JSONResponse) VisitGetMyMfaResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type RemoveMyFactorRequestObject struct {
+	FactorId FactorId `json:"factor_id"`
+}
+
+type RemoveMyFactorResponseObject interface {
+	VisitRemoveMyFactorResponse(w http.ResponseWriter) error
+}
+
+type RemoveMyFactor204Response struct {
+}
+
+func (response RemoveMyFactor204Response) VisitRemoveMyFactorResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type RemoveMyFactor401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response RemoveMyFactor401JSONResponse) VisitRemoveMyFactorResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type RemoveMyFactor403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response RemoveMyFactor403JSONResponse) VisitRemoveMyFactorResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type RemoveMyFactor404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response RemoveMyFactor404JSONResponse) VisitRemoveMyFactorResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type RemoveMyFactor409JSONResponse struct{ ConflictJSONResponse }
+
+func (response RemoveMyFactor409JSONResponse) VisitRemoveMyFactorResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type RemoveMyFactor429JSONResponse struct{ RateLimitedJSONResponse }
+
+func (response RemoveMyFactor429JSONResponse) VisitRemoveMyFactorResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Retry-After", fmt.Sprint(response.Headers.RetryAfter))
+	w.Header().Set("X-RateLimit-Limit", fmt.Sprint(response.Headers.XRateLimitLimit))
+	w.Header().Set("X-RateLimit-Remaining", fmt.Sprint(response.Headers.XRateLimitRemaining))
+	w.Header().Set("X-RateLimit-Reset", fmt.Sprint(response.Headers.XRateLimitReset))
+	w.WriteHeader(429)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type RemoveMyFactor500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response RemoveMyFactor500JSONResponse) VisitRemoveMyFactorResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type RegenerateMyRecoveryCodesRequestObject struct {
+	Params RegenerateMyRecoveryCodesParams
+}
+
+type RegenerateMyRecoveryCodesResponseObject interface {
+	VisitRegenerateMyRecoveryCodesResponse(w http.ResponseWriter) error
+}
+
+type RegenerateMyRecoveryCodes200JSONResponse RecoveryCodes
+
+func (response RegenerateMyRecoveryCodes200JSONResponse) VisitRegenerateMyRecoveryCodesResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type RegenerateMyRecoveryCodes401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response RegenerateMyRecoveryCodes401JSONResponse) VisitRegenerateMyRecoveryCodesResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type RegenerateMyRecoveryCodes403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response RegenerateMyRecoveryCodes403JSONResponse) VisitRegenerateMyRecoveryCodesResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type RegenerateMyRecoveryCodes409JSONResponse struct{ ConflictJSONResponse }
+
+func (response RegenerateMyRecoveryCodes409JSONResponse) VisitRegenerateMyRecoveryCodesResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type RegenerateMyRecoveryCodes429JSONResponse struct{ RateLimitedJSONResponse }
+
+func (response RegenerateMyRecoveryCodes429JSONResponse) VisitRegenerateMyRecoveryCodesResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Retry-After", fmt.Sprint(response.Headers.RetryAfter))
+	w.Header().Set("X-RateLimit-Limit", fmt.Sprint(response.Headers.XRateLimitLimit))
+	w.Header().Set("X-RateLimit-Remaining", fmt.Sprint(response.Headers.XRateLimitRemaining))
+	w.Header().Set("X-RateLimit-Reset", fmt.Sprint(response.Headers.XRateLimitReset))
+	w.WriteHeader(429)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type RegenerateMyRecoveryCodes500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response RegenerateMyRecoveryCodes500JSONResponse) VisitRegenerateMyRecoveryCodesResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type BeginMyTotpEnrolmentRequestObject struct {
+	Params BeginMyTotpEnrolmentParams
+	Body   *BeginMyTotpEnrolmentJSONRequestBody
+}
+
+type BeginMyTotpEnrolmentResponseObject interface {
+	VisitBeginMyTotpEnrolmentResponse(w http.ResponseWriter) error
+}
+
+type BeginMyTotpEnrolment201JSONResponse TotpEnrolment
+
+func (response BeginMyTotpEnrolment201JSONResponse) VisitBeginMyTotpEnrolmentResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type BeginMyTotpEnrolment400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response BeginMyTotpEnrolment400JSONResponse) VisitBeginMyTotpEnrolmentResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type BeginMyTotpEnrolment401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response BeginMyTotpEnrolment401JSONResponse) VisitBeginMyTotpEnrolmentResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type BeginMyTotpEnrolment403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response BeginMyTotpEnrolment403JSONResponse) VisitBeginMyTotpEnrolmentResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type BeginMyTotpEnrolment409JSONResponse struct{ ConflictJSONResponse }
+
+func (response BeginMyTotpEnrolment409JSONResponse) VisitBeginMyTotpEnrolmentResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type BeginMyTotpEnrolment429JSONResponse struct{ RateLimitedJSONResponse }
+
+func (response BeginMyTotpEnrolment429JSONResponse) VisitBeginMyTotpEnrolmentResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Retry-After", fmt.Sprint(response.Headers.RetryAfter))
+	w.Header().Set("X-RateLimit-Limit", fmt.Sprint(response.Headers.XRateLimitLimit))
+	w.Header().Set("X-RateLimit-Remaining", fmt.Sprint(response.Headers.XRateLimitRemaining))
+	w.Header().Set("X-RateLimit-Reset", fmt.Sprint(response.Headers.XRateLimitReset))
+	w.WriteHeader(429)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type BeginMyTotpEnrolment500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response BeginMyTotpEnrolment500JSONResponse) VisitBeginMyTotpEnrolmentResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ConfirmMyTotpEnrolmentRequestObject struct {
+	FactorId FactorId `json:"factor_id"`
+	Body     *ConfirmMyTotpEnrolmentJSONRequestBody
+}
+
+type ConfirmMyTotpEnrolmentResponseObject interface {
+	VisitConfirmMyTotpEnrolmentResponse(w http.ResponseWriter) error
+}
+
+type ConfirmMyTotpEnrolment200JSONResponse TotpConfirmed
+
+func (response ConfirmMyTotpEnrolment200JSONResponse) VisitConfirmMyTotpEnrolmentResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ConfirmMyTotpEnrolment400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response ConfirmMyTotpEnrolment400JSONResponse) VisitConfirmMyTotpEnrolmentResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ConfirmMyTotpEnrolment401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ConfirmMyTotpEnrolment401JSONResponse) VisitConfirmMyTotpEnrolmentResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ConfirmMyTotpEnrolment404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response ConfirmMyTotpEnrolment404JSONResponse) VisitConfirmMyTotpEnrolmentResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ConfirmMyTotpEnrolment429JSONResponse struct{ RateLimitedJSONResponse }
+
+func (response ConfirmMyTotpEnrolment429JSONResponse) VisitConfirmMyTotpEnrolmentResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Retry-After", fmt.Sprint(response.Headers.RetryAfter))
+	w.Header().Set("X-RateLimit-Limit", fmt.Sprint(response.Headers.XRateLimitLimit))
+	w.Header().Set("X-RateLimit-Remaining", fmt.Sprint(response.Headers.XRateLimitRemaining))
+	w.Header().Set("X-RateLimit-Reset", fmt.Sprint(response.Headers.XRateLimitReset))
+	w.WriteHeader(429)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type ConfirmMyTotpEnrolment500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response ConfirmMyTotpEnrolment500JSONResponse) VisitConfirmMyTotpEnrolmentResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
 
 	return json.NewEncoder(w).Encode(response)
 }
@@ -7928,6 +8749,73 @@ func (response ReplaceUserGrant500JSONResponse) VisitReplaceUserGrantResponse(w 
 	return json.NewEncoder(w).Encode(response)
 }
 
+type GetUserMfaRequestObject struct {
+	OrgId  OrganizationId `json:"org_id"`
+	UserId UserId         `json:"user_id"`
+}
+
+type GetUserMfaResponseObject interface {
+	VisitGetUserMfaResponse(w http.ResponseWriter) error
+}
+
+type GetUserMfa200JSONResponse MemberMfa
+
+func (response GetUserMfa200JSONResponse) VisitGetUserMfaResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetUserMfa401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response GetUserMfa401JSONResponse) VisitGetUserMfaResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetUserMfa403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response GetUserMfa403JSONResponse) VisitGetUserMfaResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetUserMfa404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response GetUserMfa404JSONResponse) VisitGetUserMfaResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetUserMfa429JSONResponse struct{ RateLimitedJSONResponse }
+
+func (response GetUserMfa429JSONResponse) VisitGetUserMfaResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Retry-After", fmt.Sprint(response.Headers.RetryAfter))
+	w.Header().Set("X-RateLimit-Limit", fmt.Sprint(response.Headers.XRateLimitLimit))
+	w.Header().Set("X-RateLimit-Remaining", fmt.Sprint(response.Headers.XRateLimitRemaining))
+	w.Header().Set("X-RateLimit-Reset", fmt.Sprint(response.Headers.XRateLimitReset))
+	w.WriteHeader(429)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type GetUserMfa500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response GetUserMfa500JSONResponse) VisitGetUserMfaResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
 type ResetUserMfaRequestObject struct {
 	OrgId  OrganizationId `json:"org_id"`
 	UserId UserId         `json:"user_id"`
@@ -8301,6 +9189,21 @@ type StrictServerInterface interface {
 	// Ask whether a subject may perform an action
 	// (POST /v1/authz/check)
 	CheckAuthorization(ctx context.Context, request CheckAuthorizationRequestObject) (CheckAuthorizationResponseObject, error)
+	// Read the caller's second factors
+	// (GET /v1/me/mfa)
+	GetMyMfa(ctx context.Context, request GetMyMfaRequestObject) (GetMyMfaResponseObject, error)
+	// Remove one of the caller's factors
+	// (DELETE /v1/me/mfa/factors/{factor_id})
+	RemoveMyFactor(ctx context.Context, request RemoveMyFactorRequestObject) (RemoveMyFactorResponseObject, error)
+	// Replace the caller's recovery codes
+	// (POST /v1/me/mfa/recovery-codes)
+	RegenerateMyRecoveryCodes(ctx context.Context, request RegenerateMyRecoveryCodesRequestObject) (RegenerateMyRecoveryCodesResponseObject, error)
+	// Begin enrolling an authenticator app
+	// (POST /v1/me/mfa/totp)
+	BeginMyTotpEnrolment(ctx context.Context, request BeginMyTotpEnrolmentRequestObject) (BeginMyTotpEnrolmentResponseObject, error)
+	// Confirm an authenticator app with a code
+	// (POST /v1/me/mfa/totp/{factor_id}/confirm)
+	ConfirmMyTotpEnrolment(ctx context.Context, request ConfirmMyTotpEnrolmentRequestObject) (ConfirmMyTotpEnrolmentResponseObject, error)
 	// List the organizations the caller administers
 	// (GET /v1/me/organizations)
 	ListAdministeredOrganizations(ctx context.Context, request ListAdministeredOrganizationsRequestObject) (ListAdministeredOrganizationsResponseObject, error)
@@ -8409,6 +9312,9 @@ type StrictServerInterface interface {
 	// Replace a user's roles in a project
 	// (PATCH /v1/organizations/{org_id}/users/{user_id}/grants/{project_id})
 	ReplaceUserGrant(ctx context.Context, request ReplaceUserGrantRequestObject) (ReplaceUserGrantResponseObject, error)
+	// Read a member's second factors
+	// (GET /v1/organizations/{org_id}/users/{user_id}/mfa)
+	GetUserMfa(ctx context.Context, request GetUserMfaRequestObject) (GetUserMfaResponseObject, error)
 	// Clear a user's two-step verification
 	// (POST /v1/organizations/{org_id}/users/{user_id}/mfa-reset)
 	ResetUserMfa(ctx context.Context, request ResetUserMfaRequestObject) (ResetUserMfaResponseObject, error)
@@ -8575,6 +9481,148 @@ func (sh *strictHandler) CheckAuthorization(w http.ResponseWriter, r *http.Reque
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(CheckAuthorizationResponseObject); ok {
 		if err := validResponse.VisitCheckAuthorizationResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetMyMfa operation middleware
+func (sh *strictHandler) GetMyMfa(w http.ResponseWriter, r *http.Request) {
+	var request GetMyMfaRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetMyMfa(ctx, request.(GetMyMfaRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetMyMfa")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetMyMfaResponseObject); ok {
+		if err := validResponse.VisitGetMyMfaResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RemoveMyFactor operation middleware
+func (sh *strictHandler) RemoveMyFactor(w http.ResponseWriter, r *http.Request, factorId FactorId) {
+	var request RemoveMyFactorRequestObject
+
+	request.FactorId = factorId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RemoveMyFactor(ctx, request.(RemoveMyFactorRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RemoveMyFactor")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RemoveMyFactorResponseObject); ok {
+		if err := validResponse.VisitRemoveMyFactorResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RegenerateMyRecoveryCodes operation middleware
+func (sh *strictHandler) RegenerateMyRecoveryCodes(w http.ResponseWriter, r *http.Request, params RegenerateMyRecoveryCodesParams) {
+	var request RegenerateMyRecoveryCodesRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RegenerateMyRecoveryCodes(ctx, request.(RegenerateMyRecoveryCodesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RegenerateMyRecoveryCodes")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RegenerateMyRecoveryCodesResponseObject); ok {
+		if err := validResponse.VisitRegenerateMyRecoveryCodesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// BeginMyTotpEnrolment operation middleware
+func (sh *strictHandler) BeginMyTotpEnrolment(w http.ResponseWriter, r *http.Request, params BeginMyTotpEnrolmentParams) {
+	var request BeginMyTotpEnrolmentRequestObject
+
+	request.Params = params
+
+	var body BeginMyTotpEnrolmentJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.BeginMyTotpEnrolment(ctx, request.(BeginMyTotpEnrolmentRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "BeginMyTotpEnrolment")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(BeginMyTotpEnrolmentResponseObject); ok {
+		if err := validResponse.VisitBeginMyTotpEnrolmentResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ConfirmMyTotpEnrolment operation middleware
+func (sh *strictHandler) ConfirmMyTotpEnrolment(w http.ResponseWriter, r *http.Request, factorId FactorId) {
+	var request ConfirmMyTotpEnrolmentRequestObject
+
+	request.FactorId = factorId
+
+	var body ConfirmMyTotpEnrolmentJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ConfirmMyTotpEnrolment(ctx, request.(ConfirmMyTotpEnrolmentRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ConfirmMyTotpEnrolment")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ConfirmMyTotpEnrolmentResponseObject); ok {
+		if err := validResponse.VisitConfirmMyTotpEnrolmentResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -9640,6 +10688,33 @@ func (sh *strictHandler) ReplaceUserGrant(w http.ResponseWriter, r *http.Request
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ReplaceUserGrantResponseObject); ok {
 		if err := validResponse.VisitReplaceUserGrantResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetUserMfa operation middleware
+func (sh *strictHandler) GetUserMfa(w http.ResponseWriter, r *http.Request, orgId OrganizationId, userId UserId) {
+	var request GetUserMfaRequestObject
+
+	request.OrgId = orgId
+	request.UserId = userId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetUserMfa(ctx, request.(GetUserMfaRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetUserMfa")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetUserMfaResponseObject); ok {
+		if err := validResponse.VisitGetUserMfaResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

@@ -189,6 +189,7 @@ func setup(t *testing.T) *fixture {
 		AuthzAPI:       stubAuthz{},
 		UserAPI:        users,
 		SessionAPI:     notWiredSessions{},
+		MfaAPI:         notWiredFactors{},
 		AuditAPI:       &auditlog.Handler{DB: db, Log: discard()},
 	})
 
@@ -1443,4 +1444,32 @@ func TestADeliberateNoOpIsNotReportedAsAnUnauditedMutation(t *testing.T) {
 	if n := f.guard.count(); n != 0 {
 		t.Errorf("a repeated deactivation was reported as an unaudited mutation: %v", f.guard.missed)
 	}
+}
+
+// notWiredFactors satisfies the factor resource for a server that does not
+// exercise it. The user package cannot import mfaapi, which imports user.
+type notWiredFactors struct{}
+
+func (notWiredFactors) GetMyMfa(context.Context, api.GetMyMfaRequestObject) (api.GetMyMfaResponseObject, error) {
+	return nil, errSessionsNotWired
+}
+
+func (notWiredFactors) BeginMyTotpEnrolment(context.Context, api.BeginMyTotpEnrolmentRequestObject) (api.BeginMyTotpEnrolmentResponseObject, error) {
+	return nil, errSessionsNotWired
+}
+
+func (notWiredFactors) ConfirmMyTotpEnrolment(context.Context, api.ConfirmMyTotpEnrolmentRequestObject) (api.ConfirmMyTotpEnrolmentResponseObject, error) {
+	return nil, errSessionsNotWired
+}
+
+func (notWiredFactors) RemoveMyFactor(context.Context, api.RemoveMyFactorRequestObject) (api.RemoveMyFactorResponseObject, error) {
+	return nil, errSessionsNotWired
+}
+
+func (notWiredFactors) RegenerateMyRecoveryCodes(context.Context, api.RegenerateMyRecoveryCodesRequestObject) (api.RegenerateMyRecoveryCodesResponseObject, error) {
+	return nil, errSessionsNotWired
+}
+
+func (notWiredFactors) GetUserMfa(context.Context, api.GetUserMfaRequestObject) (api.GetUserMfaResponseObject, error) {
+	return nil, errSessionsNotWired
 }

@@ -41,6 +41,7 @@ import (
 	"github.com/zed378/zed-auth/backend/internal/grant"
 	"github.com/zed378/zed-auth/backend/internal/httpserver"
 	"github.com/zed378/zed-auth/backend/internal/management"
+	"github.com/zed378/zed-auth/backend/internal/mfaapi"
 	"github.com/zed378/zed-auth/backend/internal/oauth/token"
 	"github.com/zed378/zed-auth/backend/internal/organization"
 	"github.com/zed378/zed-auth/backend/internal/ratelimit"
@@ -145,6 +146,7 @@ func setup(t *testing.T) *fixture {
 		// a nil revoker.
 		UserAPI:    &user.Handler{Store: user.NewStore(), DB: db, Audit: auditor, Log: discard()},
 		SessionAPI: &sessionapi.Handler{}, // not exercised here
+		MfaAPI:     &mfaapi.Handler{},     // not exercised here
 		AuditAPI:   &auditlog.Handler{DB: db, Log: discard()},
 	})
 

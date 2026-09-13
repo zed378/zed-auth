@@ -57,6 +57,13 @@ const (
 	// first is cacheable and makes an outage look like a policy change on
 	// every dashboard watching the allow/deny ratio; the second is neither.
 	Unavailable
+
+	// Reauthenticate: allowed, but not on this authentication (P3-10). The
+	// session behind the token is too old for an action that changes how the
+	// account is protected. A 403 like Forbidden, with its own code, because
+	// the caller can fix it by signing in again and a client must be able to
+	// tell that apart from "you may not".
+	Reauthenticate
 )
 
 // Fault is an error with a class, carried to the middleware that writes it.
@@ -105,6 +112,7 @@ var mapping = map[Class]struct {
 	RateLimited:     {http.StatusTooManyRequests, api.RATELIMITED},
 	Internal:        {http.StatusInternalServerError, api.INTERNAL},
 	Unavailable:     {http.StatusServiceUnavailable, api.UNAVAILABLE},
+	Reauthenticate:  {http.StatusForbidden, api.REAUTHENTICATIONREQUIRED},
 }
 
 // Status and Code report how a class is answered.

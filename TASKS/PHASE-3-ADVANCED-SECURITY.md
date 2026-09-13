@@ -375,7 +375,7 @@
 
 | | |
 |---|---|
-| **Status** | TODO |
+| **Status** | DONE — 2026-09-13, [record](../MEMORY/records/2026-09-13-P3-10-mfa-tab.md), [spec](../MEMORY/specs/P3-10-mfa-tab.md). Built the factor API no card owned (`PG-42`) and a hosted passkey page (`PG-43`). **Found that passkeys were never challenged in the running service**, and a forced-enrolment lockout |
 | **Depends on** | P3-02, P3-05 |
 | **Plan refs** | `docs/UI-UX/08-PAGE-SPECIFICATIONS.md` (MFA tab), `docs/UI-UX/19-FRONTEND-IMPLEMENTATION-CHAIN.md` |
 | **Spec required** | No — implementation chain mandatory |
@@ -392,11 +392,11 @@
 6. Enrollment errors — wrong code, expired challenge, unsupported browser — each get their own message per `docs/UI-UX/14`.
 
 **Definition of Done**
-- [ ] Admins cannot enroll or remove factors for another user except via the audited reset path.
-- [ ] Enrollment flows for both factor types complete successfully in an E2E test.
-- [ ] Recovery codes are shown once with clear warnings.
-- [ ] Removing the last factor under a mandatory-MFA policy is blocked with an explanation.
-- [ ] Accessibility requirements are met, including for the QR code (which needs a text alternative).
+- [x] Admins cannot enroll or remove factors for another user except via the audited reset path — no administrator write exists but `mfa-reset`; the self routes take the user from the token, so an administrator's token acts only on the administrator (tested).
+- [x] Enrollment flows for both factor types complete successfully in an E2E test — and each then signs in with the new factor, which is what found that passkeys were never challenged.
+- [x] Recovery codes are shown once with clear warnings — with Copy and Download, and a dialog that cannot close until the user says they saved them; the hosted passkey page shows them once too.
+- [x] Removing the last factor under a mandatory-MFA policy is blocked with an explanation — disabled with the reason beside it, and refused by the API with `409`.
+- [x] Accessibility requirements are met, including for the QR code (which needs a text alternative) — `role="img"` with a label, and the secret always shown beside it as text; axe clean on the tab.
 
 ---
 
@@ -443,6 +443,14 @@
 
 ## P3-12 — Console: Personal Account Settings
 
+> **Update, 2026-09-13 — `P3-10` delivered most of what is carried below**: the
+> factor API (`PG-42`) with recent authentication and audit, recovery codes at
+> first enrolment through the API and the hosted passkey page, self-service
+> regeneration, the zero-codes warning on the MFA tab, and passkey registration
+> (`PG-43`). **Still open for this task**: recovery codes at `P3-07`'s *forced*
+> enrolment during sign-in, the low-count (≤3) warning, and reusing `P3-10`'s
+> components on the mobile personal settings screen.
+>
 > **Also carries three items from `P3-04`**, whose mechanism exists and whose
 > screen does not:
 >

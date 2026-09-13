@@ -29,8 +29,11 @@ interface AuthState {
   claims: Claims | null;
   error: AuthError | null;
 
-  /** Sends the browser to the identity provider. */
-  login: (returnTo?: string) => Promise<void>;
+  /**
+   * Sends the browser to the identity provider. `reauthenticate` forces a full
+   * sign-in even with a live session (P3-10).
+   */
+  login: (returnTo?: string, options?: { reauthenticate?: boolean }) => Promise<void>;
 
   /** Ends the session here and there. */
   logout: () => void;
@@ -132,9 +135,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [status, claims, renew]);
 
   const login = useCallback(
-    async (returnTo?: string) => {
+    async (returnTo?: string, options?: { reauthenticate?: boolean }) => {
       const destination = returnTo ?? `${window.location.pathname}${window.location.search}`;
-      window.location.assign(await beginLogin(config, destination));
+      window.location.assign(await beginLogin(config, destination, options));
     },
     [config],
   );

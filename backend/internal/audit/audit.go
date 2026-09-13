@@ -92,6 +92,14 @@ const (
 	// EventMFAEnrolled is a factor that became usable.
 	EventMFAEnrolled EventType = "user.mfa.enrolled"
 
+	// Self-service factor management (P3-10). Started is recorded even when the
+	// enrolment is never confirmed: a run of starts with no completion is what
+	// somebody probing a stolen session's limits looks like. Removal is the one
+	// an incident review searches for, because taking a factor off an account is
+	// a favourite step in a takeover (P3-01 step 6).
+	EventMFAEnrolmentStarted EventType = "user.mfa.enrolment_started"
+	EventMFARemoved          EventType = "user.mfa.removed"
+
 	// Login anomalies (P3-08).
 	//
 	// EventLoginAnomaly records every detection, notified or not, so the

@@ -57,6 +57,33 @@ func (s *Store) Insert(
 	return id, nil
 }
 
+// DiscardPending removes a user's unconfirmed factors of one type.
+//
+// An abandoned enrolment is a pending row nothing will ever confirm, and for
+// TOTP the one-per-user index covers pending rows too — so without this, the
+// abandoned row blocks every later attempt (found in P3-10: a user who closed
+// P3-07's forced enrolment could never sign in again). Only PENDING rows: an
+// active factor is never removed as a side effect of starting another.
+func (s *Store) DiscardPending(ctx context.Context, tx *postgres.Tx, userID string, t Type) error {
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM user_mfa_factors WHERE user_id = $1 AND type = $2 AND status = 'pending'`,
+		userID, string(t)); err != nil {
+		return fmt.Errorf("mfa: discarding an abandoned enrolment: %w", err)
+	}
+	return nil
+}
+
+// HasActive reports whether a user already has an active factor of a type.
+func (s *Store) HasActive(ctx context.Context, tx *postgres.Tx, userID string, t Type) (bool, error) {
+	var has bool
+	if err := tx.QueryRow(ctx,
+		`SELECT EXISTS (SELECT 1 FROM user_mfa_factors WHERE user_id = $1 AND type = $2 AND status = 'active')`,
+		userID, string(t)).Scan(&has); err != nil {
+		return false, fmt.Errorf("mfa: checking for an active factor: %w", err)
+	}
+	return has, nil
+}
+
 // Sealed reads one factor's ciphertext and status.
 func (s *Store) Sealed(
 	ctx context.Context, tx *postgres.Tx, factorID string,
