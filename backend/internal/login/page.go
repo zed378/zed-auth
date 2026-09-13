@@ -121,6 +121,16 @@ const (
 	// who will actually see it.
 	MsgSessionProblem = "This page has been open for a while. Please try again."
 
+	// The passkey step's copy (P3-05).
+	//
+	// MsgPasskeyUnsupported is shown only when the browser cannot do WebAuthn,
+	// and it says what to do instead rather than what went wrong — card step 8
+	// asks for a clear explanation, and "your browser does not support
+	// WebAuthn" explains nothing to somebody who wants to sign in.
+	MsgPasskeyLabel       = "Use a passkey or security key"
+	MsgPasskeyHint        = "Sign in with the passkey, fingerprint reader or security key you registered."
+	MsgPasskeyUnsupported = "This browser cannot use a passkey. Use your authenticator app below, or try a different browser."
+
 	// MsgRecoveryLabel and MsgRecoveryHint are the recovery form's copy (P3-04).
 	//
 	// "One of your recovery codes" rather than "your backup code": the user was
@@ -410,6 +420,24 @@ var noticeTemplate = template.Must(template.New("notice").Parse(`<!DOCTYPE html>
 </html>
 `))
 
+// ContentSecurityPolicy for the challenge step.
+//
+// The login page's policy, plus **one script source, and only when this page
+// actually carries the script**. A page offering no passkey emits no
+// `script-src` at all, so the TOTP-only path keeps `P1-12`'s policy unchanged —
+// which means the relaxation is scoped to the requests that need it rather than
+// to the route.
+//
+// `connect-src` is still absent, so the script cannot talk to anywhere. What it
+// can do is call one browser API and submit a form that was already here.
+func (c ChallengePage) ContentSecurityPolicy() string {
+	base := c.Page.ContentSecurityPolicy()
+	if len(c.Passkey) == 0 {
+		return base
+	}
+	return base + "; script-src '" + passkeyScriptHash + "'"
+}
+
 // ChallengePage is the second step (P3-03).
 //
 // It EMBEDS Page rather than copying its fields, so the stylesheet, the CSP,
@@ -428,6 +456,15 @@ type ChallengePage struct {
 	// Problem is the form-level message, one of the constants above.
 	Problem string
 
+	// Passkey is the WebAuthn ceremony's options, when this user has a
+	// credential and this build can serve it (P3-05).
+	//
+	// The raw JSON `navigator.credentials.get` needs, rendered into the page as
+	// a script-readable value. It carries a challenge and a list of credential
+	// ids and **nothing about the user** — no name, no address, no count of
+	// anything beyond what the browser must present to the authenticator.
+	Passkey template.JS
+
 	// Recovery is true when this user holds an unspent recovery code (P3-04).
 	//
 	// Read from server-side state when the challenge was RAISED, never from the
@@ -439,6 +476,18 @@ type ChallengePage struct {
 	// account beyond the one it was opened to ask.
 	Recovery bool
 }
+
+// The passkey step's copy and its script, as methods so the template cannot be
+// handed a value from anywhere else.
+func (c ChallengePage) PasskeyLabel() string       { return MsgPasskeyLabel }
+func (c ChallengePage) PasskeyHint() string        { return MsgPasskeyHint }
+func (c ChallengePage) PasskeyUnsupported() string { return MsgPasskeyUnsupported }
+
+// PasskeyScript is the script whose hash the policy above pins.
+//
+// template.JS, so html/template emits it unescaped — which is safe here and
+// only here: the value is a constant in this file, not anything from a request.
+func (c ChallengePage) PasskeyScript() template.JS { return template.JS(passkeyScript) }
 
 // RecoveryLabel and RecoveryHint are the recovery form's copy.
 //
@@ -500,6 +549,101 @@ func offeredLabels(types []mfa.Type) []OfferedFactor {
 	return out
 }
 
+// passkeyScript is the only JavaScript in the hosted login flow (P3-05).
+//
+// **Read it for how little it is.** It reads one JSON blob already in the page,
+// calls one browser API, puts the answer in a hidden field and submits a form
+// this page already contains. No framework, no `fetch`, no dynamic code, no DOM
+// sink an injected value could reach — `connect-src` stays `'none'` and the CSP
+// below adds exactly one source.
+//
+// It exists because WebAuthn cannot work without it: `navigator.credentials` is
+// a browser API and there is no form-only equivalent. `P1-12` made "no script,
+// ever" a load-bearing property of the page where a password is typed, and that
+// page still has none. This is a separate step. `PG-40` records the trade.
+//
+// It is pinned by HASH rather than allowed by a nonce, for the reason the
+// stylesheet is: a nonce changes per response and authorises whatever the
+// server put it on, while a hash authorises this exact text. Change one byte
+// and it stops executing, which is the failure mode to want.
+//
+// Graceful degradation is the `if` on the first line: a browser with no
+// `navigator.credentials` never reveals the button, and the TOTP form beside it
+// is untouched (card step 8).
+const passkeyScript = `
+(function () {
+  var form = document.getElementById('passkey-form');
+  var button = document.getElementById('passkey-button');
+  var options = document.getElementById('passkey-options');
+  var unsupported = document.getElementById('passkey-unsupported');
+  if (!form || !button || !options) { return; }
+
+  if (!window.PublicKeyCredential || !navigator.credentials || !navigator.credentials.get) {
+    if (unsupported) { unsupported.hidden = false; }
+    return;
+  }
+  button.hidden = false;
+
+  function decode(value) {
+    var padded = value.replace(/-/g, '+').replace(/_/g, '/');
+    while (padded.length % 4) { padded += '='; }
+    var raw = atob(padded);
+    var bytes = new Uint8Array(raw.length);
+    for (var i = 0; i < raw.length; i++) { bytes[i] = raw.charCodeAt(i); }
+    return bytes.buffer;
+  }
+
+  function encode(buffer) {
+    var bytes = new Uint8Array(buffer);
+    var text = '';
+    for (var i = 0; i < bytes.length; i++) { text += String.fromCharCode(bytes[i]); }
+    return btoa(text).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
+
+  button.addEventListener('click', function () {
+    var request = JSON.parse(options.textContent).publicKey;
+    request.challenge = decode(request.challenge);
+    if (request.allowCredentials) {
+      request.allowCredentials = request.allowCredentials.map(function (c) {
+        return { id: decode(c.id), type: c.type, transports: c.transports };
+      });
+    }
+
+    navigator.credentials.get({ publicKey: request }).then(function (credential) {
+      document.getElementById('passkey-assertion').value = JSON.stringify({
+        id: credential.id,
+        rawId: encode(credential.rawId),
+        type: credential.type,
+        response: {
+          authenticatorData: encode(credential.response.authenticatorData),
+          clientDataJSON: encode(credential.response.clientDataJSON),
+          signature: encode(credential.response.signature),
+          userHandle: credential.response.userHandle ? encode(credential.response.userHandle) : ''
+        }
+      });
+      form.submit();
+    }).catch(function () {
+      // Cancelled, or no authenticator. Nothing is said about WHY: the other
+      // forms on this page are still there, and a message speculating about
+      // the user's hardware would be a guess.
+      button.disabled = false;
+    });
+  });
+})();
+`
+
+// passkeyScriptHash is the CSP source for the script above.
+//
+// Computed from the text rather than written down, so the two cannot drift —
+// a hash pinned by hand is one somebody forgets to update, and the symptom
+// would be a button that silently does nothing.
+var passkeyScriptHash = scriptHash(passkeyScript)
+
+func scriptHash(script string) string {
+	sum := sha256.Sum256([]byte(script))
+	return "sha256-" + base64.StdEncoding.EncodeToString(sum[:])
+}
+
 // challengeTemplate is the code form.
 //
 // The same shape as the login form and the same absences: no script, no event
@@ -542,6 +686,20 @@ var challengeTemplate = template.Must(template.New("challenge").Parse(`<!DOCTYPE
 </div>
 <button type="submit">Verify</button>
 </form>
+{{end}}
+{{if .Passkey}}
+<form method="post" action="/login/mfa/webauthn" id="passkey-form">
+<input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+<input type="hidden" name="request" value="{{.RequestID}}">
+<input type="hidden" name="assertion" id="passkey-assertion">
+<div class="field">
+<p class="note">{{.PasskeyHint}}</p>
+<p class="note" id="passkey-unsupported" hidden>{{.PasskeyUnsupported}}</p>
+</div>
+<button type="button" id="passkey-button" hidden>{{.PasskeyLabel}}</button>
+</form>
+<script type="application/json" id="passkey-options">{{.Passkey}}</script>
+<script>{{.PasskeyScript}}</script>
 {{end}}
 {{if .Recovery}}
 <form method="post" action="/login/mfa">

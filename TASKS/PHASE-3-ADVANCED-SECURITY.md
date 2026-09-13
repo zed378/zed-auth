@@ -186,7 +186,7 @@
 
 | | |
 |---|---|
-| **Status** | TODO |
+| **Status** | DONE **except DoD item 1** — 2026-09-13, [record](../MEMORY/records/2026-09-13-P3-05-webauthn.md), [spec](../MEMORY/specs/P3-05-webauthn.md). Cross-browser verification needs hardware this environment does not have; the item stays unticked below rather than being claimed |
 | **Depends on** | P3-01 |
 | **Plan refs** | `docs/PLAN/02-REQUIREMENTS.md` FR-2, `docs/PLAN/05-API-CONTRACT.md` § MFA, § Passwordless |
 | **Spec required** | Yes — authentication |
@@ -205,12 +205,18 @@
 8. Degrade gracefully on unsupported browsers by falling back to TOTP with a clear explanation.
 
 **Definition of Done**
-- [ ] Registration and authentication work across at least two browser and platform combinations.
-- [ ] Origin and challenge verification are enforced, verified by a test using a mismatched origin.
-- [ ] Multiple credentials per user are supported and individually removable.
-- [ ] The signature counter is checked, with cloned-authenticator detection where the authenticator supports it.
-- [ ] `amr` distinguishes WebAuthn from TOTP.
-- [ ] Unsupported browsers fall back cleanly.
+- [ ] **Registration and authentication work across at least two browser and platform combinations** — **NOT MET, and not claimed.** Playwright drives a virtual authenticator only through the Chrome DevTools Protocol (Chromium); Firefox and WebKit expose no equivalent, and a platform authenticator needs real hardware. What is verified is the ceremony against a software authenticator producing genuine ES256 signatures. **To close this**: two real devices, or a hosted browser lab.
+- [x] Origin and challenge verification are enforced, verified by a test using a mismatched origin — `TestAnAssertionFromALookalikeOriginIsRefused`, where everything about the assertion is real except the origin the browser reported, **with a positive control** so the refusal is the origin check rather than a verifier that refuses everything. Plus the RP ID, an assertion for another challenge, and one over a challenge this service never issued.
+- [x] Multiple credentials per user are supported and individually removable — a laptop and a phone, each authenticating; removing one leaves the other working and the removed one refused.
+- [x] The signature counter is checked, with cloned-authenticator detection where the authenticator supports it — strictly increasing, except that a stored-and-reported zero is accepted, because most platform authenticators do not count and refusing them would exclude most users.
+- [x] `amr` distinguishes WebAuthn from TOTP — `hwk` and `otp`, never interchangeable. A consumer demanding a hardware-backed credential is not satisfied by an authenticator app.
+- [x] Unsupported browsers fall back cleanly — the button is hidden until script confirms `window.PublicKeyCredential`, the explanation says what to do instead rather than what went wrong, and the TOTP form beside it is untouched.
+
+**Also** — three things worth reading before the next factor task:
+
+- **`PG-40`**: WebAuthn needs JavaScript and `P1-12` made "no script" load-bearing. Resolved by containment — `/login` and a TOTP-only challenge are unchanged, and only a page that renders a passkey form carries `script-src`, pinned by **hash** rather than a nonce. Three tests hold that boundary.
+- **A bug only a browser would otherwise have shown**: `showChallenge` emitted the embedded `Page`'s policy rather than the `ChallengePage`'s, which differ by exactly the script directive. The page would have rendered the script and then forbidden it — a button that never appears, in every browser, with one console line nobody watches.
+- **`public_key` is a `text` column and a COSE key is CBOR**, which is never valid UTF-8. Both text columns now hold base64url. And migration `20260913000031` makes "one credential belongs to one account" a property of the database rather than of one code path.
 
 **Abuse cases to test**
 - Phishing via a lookalike origin (must fail on the origin check).
@@ -434,6 +440,10 @@
 >   already does the first half atomically.
 > - **The low-count warning** (`P3-04` F-4). `login.RecoveryNotice` chooses the
 >   message and `mfa.RecoveryLowWaterMark` is the threshold; no screen shows it.
+> - **Registering a passkey** (`P3-05`). `WebAuthnVerifier.BeginRegistration`
+>   and `FinishRegistration` are built and tested against a real ceremony;
+>   nothing calls them from outside, because registration needs the same
+>   "requires recent authentication" the other two do.
 
 > **Carries two requirements from `P3-02`**, whose mechanism exists and whose
 > endpoint does not:
