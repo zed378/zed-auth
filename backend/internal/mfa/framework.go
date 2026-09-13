@@ -19,6 +19,19 @@ import (
 //
 // Both read what was actually used. Neither reads what is enrolled.
 
+// RecoveryCodes is the framework's view of a user's recovery codes.
+//
+// An interface for the same reason EnrolledFactors is one: the framework
+// decides, the store reads. It is named for the question rather than the table.
+type RecoveryCodes interface {
+	// Unspent reports whether this user holds a code they could still use.
+	Unspent(ctx context.Context, orgID, userID string) (bool, error)
+
+	// Spend consumes one code and reports how many remain. It returns
+	// ErrNoRecoveryCode for wrong, used, and another user's alike.
+	Spend(ctx context.Context, orgID, userID, code string) (remaining int, err error)
+}
+
 // EnrolledFactors is the framework's view of what a user may be challenged
 // with. Named for the question rather than for the table, because the answer
 // is "active factors of an implemented type" rather than "rows".
@@ -42,6 +55,11 @@ type Framework struct {
 	Store      EnrolledFactors
 	Challenges ChallengeStore
 	Log        *slog.Logger
+
+	// Recovery reads whether a user has unspent recovery codes, and spends
+	// them (P3-04). Nil means recovery codes are not available in this build,
+	// which is what every deployment before P3-04 was.
+	Recovery RecoveryCodes
 
 	// Attempts bounds a user's failed guesses across challenges (P3-03).
 	//
@@ -80,6 +98,14 @@ type Decision struct {
 	// Offered are the factor types the user may answer with — what they
 	// actually have, so a user who lost one device is not shown a dead end.
 	Offered []Type
+
+	// Recovery is true when the user holds at least one unspent recovery code
+	// (P3-04).
+	//
+	// Read when the challenge is RAISED, not when the page is rendered, so the
+	// page never offers a way in the user has no way to take. A dead option on
+	// this page is somebody who cannot sign in reading that they can.
+	Recovery bool
 }
 
 // Required decides whether a login must present a factor before it completes.
@@ -164,7 +190,24 @@ func (f *Framework) Required(ctx context.Context, userID, orgID, pendingID strin
 		handle = stored
 	}
 
-	return Decision{Challenge: true, Handle: handle, Offered: offered}, nil
+	// Whether a recovery code could answer this challenge (P3-04).
+	//
+	// A store failure here does NOT fail the login: the challenge is already
+	// stored and the user's factor still works, so the only consequence of
+	// answering "no" is that a way in the user might not need is not offered.
+	// Refusing the login instead would turn an outage in the recovery table
+	// into an outage in sign-in for everybody who has a factor.
+	recovery := false
+	if f.Recovery != nil {
+		available, err := f.Recovery.Unspent(ctx, orgID, userID)
+		if err != nil {
+			f.log().Warn("reading whether recovery codes are available failed",
+				"error", err.Error())
+		}
+		recovery = available
+	}
+
+	return Decision{Challenge: true, Handle: handle, Offered: offered, Recovery: recovery}, nil
 }
 
 // Answer verifies one attempt against a challenge.
@@ -297,6 +340,23 @@ type Outcome struct {
 	// attempt was wrong and the challenge is still live, so the page can be
 	// re-rendered without the caller holding state of its own.
 	Offered []Type
+
+	// RecoveryAvailable is whether a recovery code could still answer — set
+	// alongside Offered when an attempt was wrong and the challenge is live, so
+	// the page re-renders with the same options it had.
+	RecoveryAvailable bool
+
+	// Recovery is true when the challenge was completed with a recovery code
+	// rather than a factor (P3-04).
+	//
+	// The caller needs it for two things that must not be guessed at: the audit
+	// event is a different one, and the session's `amr` must not claim a
+	// possession factor that was never presented.
+	Recovery bool
+
+	// Remaining is how many recovery codes are left, set when Recovery is true.
+	// F-4's low-water warning is built on it.
+	Remaining int
 }
 
 // AnswerType verifies an attempt against the challenge's factor OF ONE TYPE.
@@ -359,11 +419,12 @@ func (f *Framework) AnswerType(
 			// Still live. Re-read what may be offered rather than trusting the
 			// copy taken before the attempt — a factor removed in between must
 			// not be offered again.
-			offered, offerErr := f.Peek(ctx, handle)
+			offer, offerErr := f.Peek(ctx, handle)
 			if offerErr != nil {
 				return who, err
 			}
-			who.Offered = offered
+			who.Offered = offer.Types
+			who.RecoveryAvailable = offer.Recovery
 			return who, err
 		}
 		return who, err
@@ -374,24 +435,147 @@ func (f *Framework) AnswerType(
 	return who, nil
 }
 
+// AnswerRecovery completes a challenge with a recovery code (P3-04).
+//
+// A sibling of AnswerType rather than a factor type of its own. A recovery code
+// is not something the user HAS in the sense `user_mfa_factors` means — there is
+// no device, nothing to enrol, and no `amr` value in RFC 8176 that names one —
+// so modelling it as a factor would have put a row in that table which no
+// verifier could serve and no `Type.AMR()` could name.
+//
+// What it shares with AnswerType is everything that makes either safe: the
+// challenge is the authority on who, the pending request must match, and the
+// per-user attempt bound is charged before any lookup.
+func (f *Framework) AnswerRecovery(
+	ctx context.Context, handle, pendingID, code string,
+) (Outcome, error) {
+	if f.Recovery == nil {
+		// No recovery store in this build. Refused as a wrong code rather than
+		// as an error: the caller offered the option because Decision said so,
+		// and a build where those disagree is a wiring bug, not a user's
+		// problem to read about.
+		return Outcome{}, ErrNoRecoveryCode
+	}
+
+	challenge, err := f.Challenges.Get(ctx, handle)
+	if err != nil {
+		return Outcome{}, err
+	}
+
+	// The same binding AnswerType enforces, and for the same reason: a
+	// challenge answered in one login must not complete a different one.
+	if challenge.PendingID != pendingID {
+		return Outcome{}, ErrNoChallenge
+	}
+
+	who := Outcome{
+		UserID:    challenge.UserID,
+		OrgID:     challenge.OrgID,
+		PendingID: challenge.PendingID,
+	}
+
+	if challenge.Spent() {
+		_ = f.Challenges.Delete(ctx, handle)
+		return who, ErrChallengeSpent
+	}
+
+	// The per-user bound, before any store read (P3-03 step 2, card step 5).
+	//
+	// The SAME counter TOTP guesses are charged against, deliberately. Two
+	// separate allowances would mean an attacker gets ten guesses at the code
+	// and ten more at the recovery codes — which is not two bounds, it is one
+	// bound twice as large, reached by choosing which form to guess in.
+	if f.Attempts != nil {
+		allowed, err := f.Attempts.Allowed(ctx, challenge.UserID, f.now())
+		if err != nil {
+			return who, fmt.Errorf("mfa: reading the attempt bound: %w", err)
+		}
+		if !allowed {
+			return who, ErrTooManyAttempts
+		}
+	}
+
+	remaining, err := f.Recovery.Spend(ctx, challenge.OrgID, challenge.UserID, code)
+	switch {
+	case err == nil:
+		// Consumed, so the challenge cannot be answered twice.
+		if delErr := f.Challenges.Delete(ctx, handle); delErr != nil {
+			f.log().Warn("deleting a completed challenge failed", "error", delErr.Error())
+		}
+		who.Complete = true
+		who.Recovery = true
+		who.Remaining = remaining
+		return who, nil
+
+	case errors.Is(err, ErrNoRecoveryCode):
+		if f.Attempts != nil {
+			if _, failErr := f.Attempts.Fail(ctx, challenge.UserID, f.now()); failErr != nil {
+				f.log().Warn("counting a failed recovery attempt failed", "error", failErr.Error())
+			}
+		}
+
+		challenge.Attempts++
+		if repErr := f.Challenges.Replace(ctx, handle, challenge); repErr != nil {
+			f.log().Warn("recording a failed attempt failed", "error", repErr.Error())
+		}
+		if challenge.Spent() {
+			_ = f.Challenges.Delete(ctx, handle)
+			return who, ErrChallengeSpent
+		}
+
+		offer, offerErr := f.Peek(ctx, handle)
+		if offerErr == nil {
+			who.Offered = offer.Types
+			who.RecoveryAvailable = offer.Recovery
+		}
+		return who, ErrNoRecoveryCode
+
+	default:
+		// A failure to decide. Not a wrong code, and not a pass.
+		return who, fmt.Errorf("mfa: spending a recovery code: %w", err)
+	}
+}
+
+// Offer is everything a live challenge may be answered with.
+//
+// One value rather than two calls, because the page renders both together and a
+// second round trip to the same challenge could see a different answer — a
+// factor removed between the two reads would produce a page offering nothing
+// while claiming a challenge is live.
+type Offer struct {
+	// Types are the factor kinds this build can challenge with and this user
+	// holds.
+	Types []Type
+
+	// Recovery is whether an unspent recovery code could answer instead
+	// (P3-04).
+	Recovery bool
+}
+
+// Empty reports whether there is no way at all to answer.
+//
+// The caller turns this into the "start again" page rather than a form whose
+// every answer is refused — a dead end that says so beats one that does not.
+func (o Offer) Empty() bool { return len(o.Types) == 0 && !o.Recovery }
+
 // Peek reports what a live challenge may be answered with, consuming nothing.
 //
 // For re-rendering the page — a refresh, or a wrong code. It reads the factors
 // fresh rather than returning what the challenge recorded, so a factor removed
 // mid-challenge stops being offered at once. The challenge's id list is still
 // the authority on what may be ANSWERED; this only governs what is shown.
-func (f *Framework) Peek(ctx context.Context, handle string) ([]Type, error) {
+func (f *Framework) Peek(ctx context.Context, handle string) (Offer, error) {
 	challenge, err := f.Challenges.Get(ctx, handle)
 	if err != nil {
-		return nil, err
+		return Offer{}, err
 	}
 	if challenge.Spent() {
-		return nil, ErrChallengeSpent
+		return Offer{}, ErrChallengeSpent
 	}
 
 	factors, err := f.Store.Confirmed(ctx, challenge.OrgID, challenge.UserID)
 	if err != nil {
-		return nil, fmt.Errorf("mfa: reading enrolled factors: %w", err)
+		return Offer{}, fmt.Errorf("mfa: reading enrolled factors: %w", err)
 	}
 
 	offered := make([]Type, 0, len(factors))
@@ -408,7 +592,23 @@ func (f *Framework) Peek(ctx context.Context, handle string) ([]Type, error) {
 			offered = append(offered, factor.Type)
 		}
 	}
-	return offered, nil
+
+	// Recovery availability, read fresh for the same reason the factors are: a
+	// batch regenerated or cleared mid-challenge must stop being offered at
+	// once. A store failure answers "no" rather than failing the render — the
+	// user's factor still works, and the cost of being wrong here is one option
+	// not shown.
+	recovery := false
+	if f.Recovery != nil {
+		available, err := f.Recovery.Unspent(ctx, challenge.OrgID, challenge.UserID)
+		if err != nil {
+			f.log().Warn("reading whether recovery codes are available failed",
+				"error", err.Error())
+		}
+		recovery = available
+	}
+
+	return Offer{Types: offered, Recovery: recovery}, nil
 }
 
 // idOfType resolves a type to one of the factors THIS challenge named.

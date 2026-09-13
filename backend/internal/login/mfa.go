@@ -35,6 +35,15 @@ import (
 // MFAPath is where the challenge step is mounted.
 const MFAPath = "/login/mfa"
 
+// RecoveryFactor is the `factor` value the recovery form posts (P3-04).
+//
+// Deliberately NOT an mfa.Type. A recovery code is not a factor: there is no
+// row in `user_mfa_factors`, nothing to enrol, and no RFC 8176 value that names
+// one. Making it a Type would have put a value in that enum which no verifier
+// could serve — the same mistake `allowed_login_methods` refuses when it will
+// not store "sms".
+const RecoveryFactor = "recovery"
+
 // ChallengeCookieName carries the handle.
 //
 // `__Host-` for the reason the CSRF cookie has it, and with more at stake: a
@@ -234,12 +243,23 @@ func (h *Handler) submitChallenge(w http.ResponseWriter, r *http.Request) {
 	// The factor TYPE, from the form. Not a factor id — see
 	// Framework.AnswerType. An unrecognised type resolves to no factor and is
 	// refused exactly as a wrong code is.
-	factorType := mfa.Type(r.PostForm.Get("factor"))
+	submitted := r.PostForm.Get("factor")
+	factorType := mfa.Type(submitted)
 	code := boundedCode(r.PostForm.Get("code"))
 
 	// `id` binds the answer to the authorization request this form belongs to.
 	// A challenge issued for one request must not complete another.
-	outcome, err := h.MFA.AnswerType(r.Context(), handle, id, factorType, code)
+	//
+	// The two paths differ only in which credential is checked. Everything that
+	// makes either safe — the challenge as the authority on who, the pending-id
+	// binding, the per-user attempt bound — lives in the framework and is shared.
+	var outcome mfa.Outcome
+	if submitted == RecoveryFactor {
+		outcome, err = h.MFA.AnswerRecovery(r.Context(), handle, id, code)
+	} else {
+		outcome, err = h.MFA.AnswerType(r.Context(), handle, id, factorType, code)
+	}
+
 	switch {
 	case err == nil && outcome.Complete:
 		h.completeChallenge(w, r, pending, id, outcome)
@@ -258,14 +278,17 @@ func (h *Handler) submitChallenge(w http.ResponseWriter, r *http.Request) {
 		h.count(OutcomeFailed)
 		h.challengeGone(w, r, page)
 
-	case errors.Is(err, mfa.ErrWrongCode), errors.Is(err, mfa.ErrNoSuchFactor):
+	case errors.Is(err, mfa.ErrWrongCode), errors.Is(err, mfa.ErrNoSuchFactor),
+		errors.Is(err, mfa.ErrNoRecoveryCode):
 		// **One answer for both.** A wrong code and a factor type this
 		// challenge has no factor for are different facts, and the second is a
 		// fact about what the user has enrolled — which somebody probing the
 		// form must not be able to read off the response.
-		h.auditMFA(r, audit.EventMFAFailed, factorType, outcome)
+		h.auditMFA(r, audit.EventMFAFailed, mfa.Type(submitted), outcome)
 		h.count(OutcomeFailed)
-		h.showChallenge(w, r, http.StatusOK, page, outcome.Offered, MsgWrongCode)
+		h.showChallenge(w, r, http.StatusOK, page,
+			mfa.Offer{Types: outcome.Offered, Recovery: outcome.RecoveryAvailable},
+			MsgWrongCode)
 
 	default:
 		// A failure to DECIDE: the factor store unreachable, a seal key that
@@ -291,7 +314,7 @@ func (h *Handler) completeChallenge(
 		return
 	}
 
-	out, current, invalidate := h.issue(r, pending, user, loginPolicy, outcome.Methods)
+	out, current, invalidate := h.issue(r, pending, user, loginPolicy, outcome.Methods, outcome.Recovery)
 	if out.result != resultAuthenticated {
 		h.serverError(w, r, "creating a session", out.err)
 		return
@@ -306,7 +329,18 @@ func (h *Handler) completeChallenge(
 	http.SetCookie(w, clearChallengeCookie())
 	http.SetCookie(w, session.Cookie(out.token))
 
-	h.auditMFA(r, audit.EventMFASucceeded, firstType(outcome.Methods), outcome)
+	// A recovery login is its own event, at elevated visibility (card step 6).
+	//
+	// Not a variant of `user.mfa.success`: an incident review searching for
+	// "was this account recovered rather than authenticated" should find one
+	// event type, not a field inside another. The remaining count goes in the
+	// payload because it is the number that says how close this account is to
+	// having no way back at all.
+	if outcome.Recovery {
+		h.auditRecovery(r, outcome)
+	} else {
+		h.auditMFA(r, audit.EventMFASucceeded, firstType(outcome.Methods), outcome)
+	}
 	h.count(OutcomeSuccess)
 
 	h.Authorization.Resume(w, r, id, current)
@@ -351,18 +385,26 @@ func (h *Handler) userForChallenge(
 
 // showChallenge renders the code form.
 func (h *Handler) showChallenge(
-	w http.ResponseWriter, r *http.Request, status int, page Page, offered []mfa.Type, problem string,
+	w http.ResponseWriter, r *http.Request, status int, page Page, offer mfa.Offer, problem string,
 ) {
 	challenge := ChallengePage{
-		Page:    page,
-		Offered: offeredLabels(offered),
-		Problem: problem,
+		Page:     page,
+		Offered:  offeredLabels(offer.Types),
+		Recovery: offer.Recovery,
+		Problem:  problem,
 	}
 
 	// A challenge with nothing to offer is a dead end. It can happen: every
-	// factor removed between the password step and this render. Say so rather
-	// than showing a form whose every answer is wrong.
-	if len(challenge.Offered) == 0 {
+	// factor removed between the password step and this render, or a build with
+	// no verifier for what the user holds. Say so rather than showing a form
+	// whose every answer is wrong.
+	//
+	// The check is on what will actually RENDER, not on what the framework
+	// offered: `offeredLabels` drops kinds this page cannot serve, so a user
+	// holding only a WebAuthn credential reaches here with a non-empty offer and
+	// an empty form. Testing the framework's answer instead would have rendered
+	// that empty form — a page with a heading, no fields, and no way onward.
+	if len(challenge.Offered) == 0 && !challenge.Recovery {
 		h.challengeGone(w, r, page)
 		return
 	}
@@ -400,10 +442,10 @@ func (h *Handler) challengeGone(w http.ResponseWriter, r *http.Request, page Pag
 // Used on the paths that must re-render without having just called
 // AnswerType. An error yields nothing, and showChallenge turns that into the
 // "start again" page rather than an empty form.
-func (h *Handler) offeredFor(r *http.Request) ([]mfa.Type, error) {
+func (h *Handler) offeredFor(r *http.Request) (mfa.Offer, error) {
 	handle, ok := challengeFromRequest(r)
 	if !ok || h.MFA == nil {
-		return nil, mfa.ErrNoChallenge
+		return mfa.Offer{}, mfa.ErrNoChallenge
 	}
 	return h.MFA.Peek(r.Context(), handle)
 }
@@ -481,6 +523,37 @@ func (h *Handler) auditMFA(
 		// path it would hand an attacker a way to suppress their own trail by
 		// making one table unwritable.
 		h.Log.Warn("recording an MFA verification failed", "error", err.Error())
+	}
+}
+
+// auditRecovery records a login completed with a recovery code.
+//
+// Elevated visibility (card step 6, `docs/SECURITY/04`): this and the
+// administrator reset are the two rows an incident review looks for first,
+// because both mean somebody got in without the factor the account is protected
+// by. The payload carries how many codes remain and NEVER the code, its hash, or
+// the batch it came from.
+func (h *Handler) auditRecovery(r *http.Request, outcome mfa.Outcome) {
+	if h.Audit == nil || outcome.OrgID == "" || outcome.UserID == "" {
+		return
+	}
+
+	ctx := r.Context()
+	ip := h.clientIP(r)
+
+	err := h.DB.WithTenant(ctx, outcome.OrgID, func(tx *postgres.Tx) error {
+		return h.Audit.Write(ctx, tx, audit.Event{
+			OrgID:       outcome.OrgID,
+			ActorUserID: outcome.UserID,
+			Type:        audit.EventMFARecoveryUsed,
+			Payload: map[string]any{
+				"remaining": outcome.Remaining,
+			},
+			IP: ip,
+		})
+	})
+	if err != nil && h.Log != nil {
+		h.Log.Warn("recording a recovery-code login failed", "error", err.Error())
 	}
 }
 

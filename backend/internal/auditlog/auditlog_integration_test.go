@@ -770,6 +770,10 @@ func (stubUsers) DeactivateUser(context.Context, api.DeactivateUserRequestObject
 func (stubUsers) ReactivateUser(context.Context, api.ReactivateUserRequestObject) (api.ReactivateUserResponseObject, error) {
 	return nil, errNotWired
 }
+func (stubUsers) ResetUserMfa(context.Context, api.ResetUserMfaRequestObject) (api.ResetUserMfaResponseObject, error) {
+	return nil, nil
+}
+
 func (stubUsers) ResetUserPassword(context.Context, api.ResetUserPasswordRequestObject) (api.ResetUserPasswordResponseObject, error) {
 	return nil, errNotWired
 }

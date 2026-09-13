@@ -71,6 +71,11 @@ type Handler struct {
 	// the mailbox that suffers. Optional; nil means no bound.
 	MailLimit MailLimiter
 
+	// MFA is what an administrator-assisted reset destroys (P3-04). Nil means
+	// this build has no factor support, and the reset endpoint says so rather
+	// than reporting a successful reset of nothing.
+	MFA MfaFactors
+
 	// BaseURL is where a link in an email points. Without it there is nothing
 	// to put in the message, so an unset one is a configuration error rather
 	// than a silent no-op.

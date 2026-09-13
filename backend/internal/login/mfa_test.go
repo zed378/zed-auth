@@ -41,6 +41,18 @@ type fakeChallenger struct {
 	peek    []mfa.Type
 	peekErr error
 
+	// recovery is what a live challenge offers besides a factor, and what
+	// AnswerRecovery answers (P3-04).
+	peekRecovery bool
+	recovery     mfa.Outcome
+	recoveryErr  error
+
+	// seenRecoveryCode records what AnswerRecovery was handed, so a test can
+	// assert the handler routed the recovery form to the recovery path rather
+	// than to AnswerType with a bogus factor type.
+	seenRecoveryCode string
+	recoveryCalls    int
+
 	// seen records what AnswerType was called with, so a test can assert the
 	// handler passed the form's factor type through rather than inventing one.
 	seenType    mfa.Type
@@ -63,8 +75,17 @@ func (f *fakeChallenger) AnswerType(
 	return f.outcome, f.answerErr
 }
 
-func (f *fakeChallenger) Peek(context.Context, string) ([]mfa.Type, error) {
-	return f.peek, f.peekErr
+func (f *fakeChallenger) AnswerRecovery(
+	_ context.Context, _, pendingID, code string,
+) (mfa.Outcome, error) {
+	f.recoveryCalls++
+	f.seenPending = pendingID
+	f.seenRecoveryCode = code
+	return f.recovery, f.recoveryErr
+}
+
+func (f *fakeChallenger) Peek(context.Context, string) (mfa.Offer, error) {
+	return mfa.Offer{Types: f.peek, Recovery: f.peekRecovery}, f.peekErr
 }
 
 // challenged builds a fixture whose user holds one TOTP factor.
