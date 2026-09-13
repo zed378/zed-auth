@@ -277,6 +277,18 @@ func (h *Handler) SetPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Only a token whose purpose is to set a password may do so.
+	//
+	// Checked BEFORE the transaction, so a token of another purpose is refused
+	// without being consumed — a user who clicked their "this wasn't me" link
+	// on the wrong page keeps a working link. And refused as an invalid link
+	// rather than with a message naming the purpose, which would tell whoever
+	// holds a stolen token exactly what kind it is.
+	if !user.SetsPassword(claim.Purpose) {
+		h.invalidLink(w, r)
+		return
+	}
+
 	var policyProblem string
 	now := h.now()
 	err = h.DB.WithTenant(r.Context(), claim.OrgID, func(tx *postgres.Tx) error {
@@ -355,7 +367,10 @@ func (h *Handler) showSetPasswordForm(w http.ResponseWriter, r *http.Request, to
 	}
 
 	claim, err := h.Password.Lookup(r.Context(), token, h.now())
-	if err != nil {
+	if err != nil || !user.SetsPassword(claim.Purpose) {
+		// The same rule the submission enforces, applied to the render too — a
+		// token that may not set a password must not produce a form that looks
+		// as if it could.
 		h.invalidLink(w, r)
 		return
 	}

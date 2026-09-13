@@ -67,6 +67,13 @@ type Metrics struct {
 	// it look like something to be tolerated at a low rate.
 	RefreshReuse prometheus.Counter
 
+	// LoginAnomalies counts anomaly findings by signal (P3-08).
+	//
+	// Labelled, unlike RefreshReuse, because this one HAS a routine baseline —
+	// people buy laptops and travel — and what an operator needs to see is which
+	// signal moved. Three fixed label values; nothing user-derived.
+	LoginAnomalies *prometheus.CounterVec
+
 	// TokenDuration is bucketed on docs/PLAN/12's targets (p50 < 50ms, p95 < 200ms,
 	// p99 < 400ms) so a quantile query answers "did we meet it" without
 	// interpolating across a wide bucket — the same reasoning P0-11 applied to
@@ -301,6 +308,11 @@ func NewMetrics(service, version string) *Metrics {
 			"auth_refresh_reuse_detected_total",
 			"Rotated refresh tokens presented again. docs/PLAN/13 § Alerting: page on any increase — "+
 				"this counter has no routine baseline, unlike auth_token_errors_total."),
+		LoginAnomalies: factory.counterVec(
+			"auth_login_anomalies_total",
+			"Successful logins that looked unusual, by signal (new_device, new_location, impossible_travel). "+
+				"Has a routine baseline; alert on a change in rate, not on any increase.",
+			"signal"),
 		TokenDuration: factory.histogramVec(
 			"auth_token_duration_seconds",
 			"Token endpoint latency by grant, bucketed on docs/PLAN/12's targets.",

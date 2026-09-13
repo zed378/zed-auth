@@ -53,7 +53,7 @@ Status codes are reduced to their class for the same reason. The exact code is i
 
 ## Alerts
 
-`alerts.yml`, validated with `promtool check rules`. Fifteen rules, each carrying the reason it exists in its annotation — an alert whose purpose nobody remembers is an alert that gets silenced.
+`alerts.yml`, validated with `promtool check rules`. Twenty-two rules, each carrying the reason it exists in its annotation — an alert whose purpose nobody remembers is an alert that gets silenced.
 
 ```bash
 docker run --rm -v "$PWD:/rules" --entrypoint promtool prom/prometheus:v3.1.0 \

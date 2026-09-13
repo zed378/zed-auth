@@ -589,3 +589,79 @@ func TestForgotWithNoPendingRequestAnswersIdentically(t *testing.T) {
 		t.Errorf("status differs: %d vs %d", withRequest.Code, withNone.Code)
 	}
 }
+
+// --- a token that may not set a password (P3-08) --------------------------------------
+
+// A "this wasn't me" link cannot set a password.
+//
+// **This was a latent hole, found while building P3-08, before any such token was
+// ever issued.** The set-password page consumed whatever purpose a token carried,
+// which was harmless while every issued purpose legitimately set passwords. P3-08
+// adds `report_not_me` — a link that sits in an anomaly email for a week and is
+// designed to sign the owner OUT, never in. Without the purpose check, anybody
+// holding one could open `/password/set` with it and take the account.
+func TestAReportNotMeTokenCannotSetAPassword(t *testing.T) {
+	s := setup(t)
+	userID, _ := s.inviteToken(t, "notme@example.test")
+
+	// A report_not_me token for the same user, issued directly — the anomaly
+	// notice is what issues these in production.
+	var token user.Token
+	if err := s.db.WithTenant(context.Background(), s.orgID, func(tx *postgres.Tx) error {
+		var err error
+		token, err = s.users.IssueToken(context.Background(), tx, userID,
+			user.PurposeReportNotMe, user.ReportNotMeLifetime, time.Now())
+		return err
+	}); err != nil {
+		t.Fatalf("issuing a report_not_me token: %v", err)
+	}
+
+	w := s.setPassword(t, token.Plaintext, "An attacker chose this password")
+
+	if strings.Contains(w.Body.String(), "password is set") {
+		t.Fatalf("a report_not_me token set the account's password:\n%s", w.Body.String())
+	}
+
+	// And the password really did not change.
+	var hash string
+	s.factory.QueryRow(&hash, `SELECT COALESCE(password_hash, '') FROM users WHERE id = $1`, userID)
+	if hash != "" {
+		if result, _ := authn.Verify(hash, "An attacker chose this password"); result.Match {
+			t.Fatal("the attacker's password took effect")
+		}
+	}
+
+	// And the token was NOT consumed: a user who clicked their "not me" link on
+	// the wrong page still holds a working one.
+	var used int
+	s.factory.QueryRow(&used,
+		`SELECT count(*) FROM user_tokens WHERE user_id = $1 AND purpose = 'report_not_me' AND used_at IS NOT NULL`,
+		userID)
+	if used != 0 {
+		t.Error("the refused token was consumed, so the real owner lost their link")
+	}
+}
+
+// The form render refuses it too, so nothing looks as if it could work.
+func TestAReportNotMeTokenDoesNotRenderAPasswordForm(t *testing.T) {
+	s := setup(t)
+	userID, _ := s.inviteToken(t, "notme-form@example.test")
+
+	var token user.Token
+	if err := s.db.WithTenant(context.Background(), s.orgID, func(tx *postgres.Tx) error {
+		var err error
+		token, err = s.users.IssueToken(context.Background(), tx, userID,
+			user.PurposeReportNotMe, user.ReportNotMeLifetime, time.Now())
+		return err
+	}); err != nil {
+		t.Fatalf("issuing: %v", err)
+	}
+
+	r := httptest.NewRequest(http.MethodGet, "/password/set?token="+url.QueryEscape(token.Plaintext), nil)
+	w := httptest.NewRecorder()
+	s.login.SetPassword(w, r)
+
+	if strings.Contains(w.Body.String(), `name="password"`) {
+		t.Errorf("a report_not_me token rendered a password form:\n%s", w.Body.String())
+	}
+}

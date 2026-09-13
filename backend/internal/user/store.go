@@ -348,6 +348,29 @@ func (s *Store) SetPassword(
 	return nil
 }
 
+// ClearPassword removes a user's password, so the only way back in is a reset
+// link (P3-08).
+//
+// For "this wasn't me". Ending every session is not enough on its own: whoever
+// signed in still knows the password and can simply sign in again. With no hash
+// stored, authn.Authenticate answers exactly as it does for a wrong password,
+// at the same cost — so the person holding the stolen password learns nothing
+// from trying it.
+//
+// `password_changed_at` is left alone. No password was chosen, and moving it
+// would reset an expiry clock for a password that no longer exists.
+func (s *Store) ClearPassword(ctx context.Context, tx *postgres.Tx, id string) error {
+	result, err := tx.Exec(ctx,
+		`UPDATE users SET password_hash = NULL, updated_at = now() WHERE id = $1`, id)
+	if err != nil {
+		return fmt.Errorf("user: clearing the password: %w", err)
+	}
+	if affected, _ := result.RowsAffected(); affected == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // wrapConstraint turns a database constraint into an error the API can answer.
 func wrapConstraint(err error, doing string) error {
 	text := err.Error()

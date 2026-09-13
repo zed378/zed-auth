@@ -377,6 +377,26 @@ The cost of the omission is smaller than it looks today, because both claims are
 
 ---
 
+### PG-41 — New-location and impossible-travel detection need a geolocation source, and no plan document names one
+
+**Affects**: `TASKS/PHASE-3-ADVANCED-SECURITY.md` § P3-08 steps 2–3, `docs/PLAN/09-SECURITY.md` § Audit & Anomaly Detection, `docs/PLAN/07-BACKEND-ARCHITECTURE.md` (dependencies), `docs/PLAN/14-DEPLOYMENT.md` (what an operator provisions).
+
+`docs/PLAN/09` asks for a notification on a login from a new location, and the card asks for impossible-travel detection. Both need an IP address turned into a place. Nothing in the plan says where that comes from, and every realistic answer carries a decision the plan should own rather than a task:
+
+| Source | Cost |
+|---|---|
+| A commercial GeoIP database (MaxMind GeoLite2 or GeoIP2) | A licence agreement and account, and a download pipeline to keep it current |
+| A free database (DB-IP Lite, CC BY 4.0) | Attribution obligations, and coarser data |
+| An online lookup API | **Every user's login IP sent to a third party.** Unacceptable for an identity provider, and ruled out rather than listed as an option |
+
+**How `P3-08` shipped around it**: detection sits behind a `Locator` interface; the service reads the MaxMind DB file **format**, which several free and commercial databases use; **no database ships**. An operator sets `AUTH_ANOMALY_GEOIP_PATH`. With it unset, new-device detection works and the two location signals are off, and startup says so. A path that is set and cannot be opened stops the service, because a detector silently running without the data it was configured with would report "no unusual locations" indefinitely.
+
+What that leaves undecided: which database, under whose licence, and how it is refreshed. Location data goes stale — IP blocks are reassigned — and a months-old file produces false impossible-travel findings with no symptom but noise.
+
+**Recommendation**: `docs/PLAN/09` should name the accepted source class (a local file, never an online lookup) and its update cadence, and `docs/PLAN/14` should list the file as an operator-provisioned input alongside the TLS certificate. Through the deliberate plan-change process.
+
+---
+
 ### PG-40 — WebAuthn requires JavaScript, and the hosted login flow was designed to have none
 
 **Affects**: `P1-12` (the login page), `TASKS/PHASE-3-ADVANCED-SECURITY.md` § P3-05, `docs/PLAN/02-REQUIREMENTS.md` FR-2, `docs/UI-UX/` (the hosted pages).

@@ -25,7 +25,36 @@ import (
 const (
 	PurposeInvite = "invite"
 	PurposeReset  = "password_reset"
+
+	// PurposeReportNotMe is the link in a login-anomaly notice (P3-08). It
+	// grants one power — signing the owner out everywhere and sending them a
+	// reset link — and can neither sign anybody in nor set a password.
+	PurposeReportNotMe = "report_not_me"
 )
+
+// SetsPassword reports whether a token of this purpose may be used to set a
+// password.
+//
+// **An allow-list, not a deny-list, and that is the entire point.** The
+// set-password page used to consume whatever purpose a token carried, which was
+// harmless while every issued purpose legitimately set passwords. It stopped
+// being harmless the moment a token with a DIFFERENT power existed: P3-08's
+// `report_not_me` link lives in an email for a week, and without this check
+// anybody holding one could open `/password/set` with it and take the account —
+// the precise power that link was designed never to have.
+//
+// Found while building that flow, before any such token was issued. A deny-list
+// would have repeated the mistake the next time a purpose was added; an
+// allow-list makes a new purpose unable to set a password until somebody decides
+// in writing that it should.
+func SetsPassword(purpose string) bool {
+	switch purpose {
+	case PurposeInvite, PurposeReset:
+		return true
+	default:
+		return false
+	}
+}
 
 // Lifetimes.
 //
@@ -37,6 +66,12 @@ const (
 const (
 	InviteLifetime = 72 * time.Hour
 	ResetLifetime  = time.Hour
+
+	// ReportNotMeLifetime is a week, unlike a reset's hour, because the person
+	// reading an anomaly notice did not ask for it and may open it days later.
+	// Its power is narrow enough that a longer life costs little: the worst a
+	// stolen link can do is sign the real owner out and email them a reset.
+	ReportNotMeLifetime = 7 * 24 * time.Hour
 )
 
 // tokenBytes is the entropy in a token.

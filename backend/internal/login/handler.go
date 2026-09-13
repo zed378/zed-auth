@@ -256,6 +256,15 @@ type Handler struct {
 	// deployment — the forgot page then says so rather than pretending.
 	Password *PasswordFlow
 
+	// Reports is "this wasn't me" (P3-08). Nil means the page answers that it
+	// is not configured — which it also does when Password is nil, because the
+	// page resets through PasswordFlow's machinery.
+	Reports *NotMeFlow
+
+	// Anomalies runs login anomaly detection after a session is created
+	// (P3-08). Nil means no detection.
+	Anomalies AnomalyDetector
+
 	// Now is overridable for tests.
 	Now func() time.Time
 }
@@ -941,6 +950,11 @@ func (h *Handler) issue(
 	if err != nil {
 		return attempt{result: resultError, err: err}, session.Session{}, nil
 	}
+
+	// After the commit, never inside it: detection reads session history, and a
+	// read inside this transaction would see a login that might yet roll back.
+	h.detectAnomalies(ctx, created, ip, r.UserAgent(), now)
+
 	return out, created, invalidate
 }
 

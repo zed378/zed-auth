@@ -56,7 +56,7 @@ Decisions `TASKS/` has identified as needing an ADR, listed here so they are not
 | P2-07 | Authorization cache TTL, and the revocation window it implies | The window must be documented publicly; integrators build security models on it |
 | P2-09 | Tenant resolution: subdomain, path, email domain, or single default | Each has real infrastructure and UX costs; changing it later is disruptive |
 | P3-06 | Refresh rotation retry grace window | Too strict logs real users out constantly; too loose weakens reuse detection |
-| P3-08 | Anomaly response: step-up authentication, or notify only | Step-up on a false positive is disruptive; notification alone is passive |
+| ~~P3-08~~ | ~~Anomaly response: step-up authentication, or notify only~~ — **decided 2026-09-13**, ADR-024: notify only, and notifications default off until the false-positive rate is measured | Step-up on a false positive is disruptive; notification alone is passive |
 | P4-16 | Whether to undertake Phase 4b (ABAC) at all | `docs/PLAN/08` Part D and `docs/PLAN/16` both say build it only on concrete need |
 | P4B-03 | Behavior when no ABAC policy matches: fall back to RBAC, or deny | An ambiguous default here is a security bug waiting for an auditor to find |
 | ~~PG-01..PG-11~~ | ~~Plan gaps~~ — **resolved 2026-09-08** by amending the plan documents. See ADR-002 through ADR-004 | — |
@@ -886,6 +886,49 @@ Rejected now because the console is a **static bundle on a CDN** (`docs/PLAN/06`
 **Plan impact**
 
 None contradicted. `docs/PLAN/06` names the dogfooding constraint and does not specify storage; `docs/SECURITY/02` §6 and §14 describe the threat this answers. `docs/PLAN/02`'s "no console-specific backdoor" is satisfied: the console uses the same endpoints, the same grant and the same prompt parameter any other SPA would.
+
+---
+
+### ADR-024 — A login anomaly notifies the user; it never triggers step-up
+
+| | |
+|---|---|
+| **Date** | 2026-09-13 |
+| **Status** | Accepted |
+| **Task** | `P3-08` |
+| **Deciders** | Zed |
+
+**Context**
+
+`P3-08` detects three kinds of unusual login — a new device, a new coarse location, and travel faster than 1000 km/h between two logins — and step 7 of the card asks for a recorded decision: does a detection trigger step-up authentication, or only a notification?
+
+The signal is noisy by construction, and the noise is not a tuning problem. A VPN connecting through another continent is impossible travel. A phone moving from Wi-Fi to a mobile network can change city. A new laptop is a new device, and so is a reinstalled browser. Every one of those is an anomaly by the rules and none is an attack. On a population of real users, most detections will be people doing ordinary things.
+
+**Decision**
+
+**Notify only.** A detection writes `user.login.anomaly` and increments `auth_login_anomalies_total{signal}`, always. If notifications are enabled, the user is emailed a plain description of what looked different, with a link that — after a confirmation page — signs them out everywhere, clears their password and sends a reset link.
+
+**Detection never changes the outcome of the login it observes.** It runs after the session has been committed, off the request path, and cannot fail the sign-in.
+
+**Notifications default off** (`AUTH_ANOMALY_NOTIFY=false`). The card requires the false-positive rate to be measured against real traffic before notifications go out broadly; with detection always on and notifications off, that measurement is the metric, and nobody has been emailed while it is taken.
+
+**Alternatives considered**
+
+- **Step-up on every detection.** Stops a thief who has only a password — but only for a user with a second factor, who is already protected against exactly that thief by MFA itself. For a user with no factor, step-up has nothing to step up to. So it adds friction precisely where protection already exists and none where it does not, and the friction lands on the VPN user mid-task.
+- **Step-up on impossible travel only.** The narrowest signal, and still the one a VPN produces. Also a bypass lesson: an attacker learns to sign in from the victim's own country, which is cheap.
+- **Block on impossible travel.** A lockout driven by a heuristic, with a denial of service built in: anybody who can make a user's login look far away — a proxy, a shared VPN exit — can lock them out.
+- **Notify with notifications on by default.** Simplest to ship, and it emails every user of every organization on the first day with a rate nobody has measured. A notice people learn to ignore is worse than none, because the one real notice gets ignored with the rest.
+
+**Consequences**
+
+- **A thief who signs in is not stopped by this.** They are reported. The control is how fast the real user finds out and how little it takes to act — one click and a confirmation — not prevention. Prevention is MFA, which `P3-07` lets an organization require.
+- **The "this wasn't me" link is destructive and reachable from an email**, so it confirms on GET and acts on POST: mail clients pre-fetch links. Its token is purpose-bound in both directions — it cannot set a password, and a reset token cannot drive it — which is also what found a latent hole in `/password/set` (spec § 9).
+- **Two notices close together**: the newer link replaces the older one. The invalid-link page says so.
+- **Revisit** once `auth_login_anomalies_total` has a baseline from real traffic. If impossible travel turns out rare and clean, step-up for that one signal becomes a reasonable experiment; this decision does not rule it out, it declines to make it blind.
+
+**Plan impact**
+
+None contradicted. `docs/PLAN/09` § Audit & Anomaly Detection asks for notification on new device or location and says nothing about step-up. The geolocation source it would need is recorded separately as `PG-41`.
 
 ---
 
