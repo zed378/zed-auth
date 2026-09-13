@@ -49,11 +49,18 @@ var Policy = map[string]Requirement{
 	// Listing and creating are instance-scoped because they are genuinely
 	// cross-tenant: a list spans organizations, and a create happens before the
 	// organization it makes exists.
-	"GET /v1/organizations":             {Role: InstanceOwner, Scope: ScopeInstance},
-	"POST /v1/organizations":            {Role: InstanceOwner, Scope: ScopeInstance},
-	"GET /v1/organizations/{org_id}":    {Role: OrgAdmin, Scope: ScopeOrganization},
-	"PATCH /v1/organizations/{org_id}":  {Role: OrgOwner, Scope: ScopeOrganization},
-	"DELETE /v1/organizations/{org_id}": {Role: InstanceOwner, Scope: ScopeInstance},
+	"GET /v1/organizations":            {Role: InstanceOwner, Scope: ScopeInstance},
+	"POST /v1/organizations":           {Role: InstanceOwner, Scope: ScopeInstance},
+	"GET /v1/organizations/{org_id}":   {Role: OrgAdmin, Scope: ScopeOrganization},
+	"PATCH /v1/organizations/{org_id}": {Role: OrgOwner, Scope: ScopeOrganization},
+
+	// How many members a mandate would affect (P3-07).
+	//
+	// ORG_ADMIN rather than ORG_OWNER, unlike the PATCH beside it: reading the
+	// impact changes nothing, and an administrator deciding whether to ASK for
+	// the policy should not need the authority to impose it.
+	"GET /v1/organizations/{org_id}/mfa-impact": {Role: OrgAdmin, Scope: ScopeOrganization},
+	"DELETE /v1/organizations/{org_id}":         {Role: InstanceOwner, Scope: ScopeInstance},
 
 	// --- Projects (P1-17) ---
 	//

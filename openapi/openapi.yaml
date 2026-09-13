@@ -2027,6 +2027,44 @@ paths:
         "429": { $ref: "#/components/responses/RateLimited" }
         "500": { $ref: "#/components/responses/InternalError" }
 
+  /v1/organizations/{org_id}/mfa-impact:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationId"
+
+    get:
+      tags: [Organizations]
+      operationId: getMfaImpact
+      summary: How many members would be affected by requiring two-step verification
+      description: |
+        Requires `ORG_ADMIN`. Answers the one question an administrator needs
+        before turning `mfa_required` on: **how many people does this affect?**
+
+        Enabling the mandate without knowing that is how an organization
+        discovers, one support ticket at a time, that most of its users had
+        never enrolled. The grace period softens the landing; this lets somebody
+        decide whether to announce it first.
+
+        **Counts only, never names.** "Which of my colleagues has no second
+        factor" is not needed to make this decision, and it is precisely the
+        list an attacker holding an administrator's token would want — a
+        ready-made set of the accounts in this organization that a stolen
+        password would be enough for.
+
+        The counts exclude deactivated users, who cannot sign in and so cannot
+        be affected by a policy about signing in.
+      responses:
+        "200":
+          description: The impact of enabling the mandate.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MfaImpact"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
   /v1/organizations/{org_id}/events:
     parameters:
       - $ref: "#/components/parameters/OrganizationId"
@@ -3160,6 +3198,43 @@ components:
           type: string
           nullable: true
           maxLength: 200
+
+    MfaImpact:
+      type: object
+      description: |
+        What enabling `mfa_required` would mean for this organization.
+
+        Counts rather than identifiers, deliberately — see the operation's
+        description.
+      required: [members, without_factor, mfa_required]
+      additionalProperties: false
+      properties:
+        members:
+          type: integer
+          minimum: 0
+          description: Active members of this organization.
+          example: 42
+        without_factor:
+          type: integer
+          minimum: 0
+          description: |
+            How many of them hold no active second factor. These are the people
+            who would be routed into enrolment at their next sign-in once the
+            grace period ends.
+          example: 17
+        mfa_required:
+          type: boolean
+          description: Whether the mandate is already on.
+          example: false
+        grace_ends_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: |
+            When the grace period ends, if the mandate is already on. Null
+            otherwise — a deadline for a policy nobody has enabled would be a
+            number this service made up.
+          example: "2026-09-27T12:00:00Z"
 
     MfaReset:
       type: object

@@ -88,6 +88,9 @@ SHIPPED = {
     # the endpoint without the documented verification step would be the
     # undocumented reset path the task exists to replace.
     "/v1/organizations/{org_id}/users/{user_id}/mfa-reset",
+    # P3-07. The impact count an administrator sees before enabling the MFA
+    # mandate — counts only, never the list of who.
+    "/v1/organizations/{org_id}/mfa-impact",
     # P1-20. The audit log, read-only and deliberately so.
     "/v1/organizations/{org_id}/events",
 }
