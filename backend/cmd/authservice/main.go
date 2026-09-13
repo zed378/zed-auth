@@ -25,6 +25,7 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
+	"github.com/zed378/zed-auth/backend/internal/anomaly"
 	"github.com/zed378/zed-auth/backend/internal/application"
 	"github.com/zed378/zed-auth/backend/internal/audit"
 	"github.com/zed378/zed-auth/backend/internal/auditlog"
@@ -602,6 +603,27 @@ func run() error {
 		loginHandler.Password.Mailer = mailer
 	}
 
+	// "This sign-in wasn't me" (P3-08 F-5). Resets through PasswordFlow, so it
+	// shares that flow's token store, mailer and quota.
+	loginHandler.Reports = &login.NotMeFlow{
+		Sessions:  sessions,
+		Refresh:   token.NewRefreshStore(),
+		Passwords: userStore,
+	}
+
+	// Login anomaly detection (P3-08). Fatal only when an operator named a
+	// geolocation file that cannot be opened — a detector silently running
+	// without the data it was configured with would report "no unusual
+	// locations" for as long as nobody looked.
+	anomalies, err := buildAnomalyDetection(cfg, db, auditor, mailer, userStore, mailQuotas, metrics, log)
+	if err != nil {
+		log.Error("login anomaly detection could not be configured", "error", err.Error())
+		return err
+	}
+	if anomalies != nil {
+		loginHandler.Anomalies = anomalies
+	}
+
 	discoveryCapabilities := oidc.Capabilities{
 		Issuer:  cfg.Issuer,
 		JWKSURI: cfg.Issuer + "/.well-known/jwks.json",
@@ -685,6 +707,7 @@ func run() error {
 		Passkey:        passkeyRoute(factorFramework, loginHandler),
 		Enrol:          enrolRoute(loginHandler),
 		SetPassword:    http.HandlerFunc(loginHandler.SetPassword),
+		NotMe:          http.HandlerFunc(loginHandler.NotMe),
 		V1:             v1,
 		Organizations:  organizations,
 		ProjectAPI:     projects,
@@ -844,6 +867,59 @@ func resolveSecrets(cfg *config.Config) (serviceSecrets, error) {
 // first-class state rather than a failure: a deployment without a seal key runs
 // exactly as every deployment did before P3-02, with the difference stated in
 // the startup log.
+// buildAnomalyDetection assembles P3-08's detector, or returns nil when
+// detection is switched off.
+//
+// Returns the concrete type so a disabled detector is a nil pointer the caller
+// checks, never a nil pointer inside a non-nil interface.
+func buildAnomalyDetection(
+	cfg *config.Config, db *postgres.DB, auditor *audit.Writer, mailer *mail.SMTP,
+	users *user.Store, mailQuotas *ratelimit.Quotas, metrics *observability.Metrics, log *slog.Logger,
+) (*anomaly.Detector, error) {
+	if !cfg.Anomaly.Detect {
+		log.Info("login anomaly detection is switched off", "set", "AUTH_ANOMALY_DETECT=true")
+		return nil, nil
+	}
+
+	detector := &anomaly.Detector{
+		History:  &anomaly.PostgresHistory{DB: db},
+		Recorder: &anomaly.AuditRecorder{DB: db, Audit: auditor},
+		Observer: anomalyObserver{metrics},
+		Log:      log,
+	}
+
+	if cfg.Anomaly.GeoIPPath == "" {
+		log.Info("no geolocation database is configured; new-location and impossible-travel detection are off",
+			"set", "AUTH_ANOMALY_GEOIP_PATH")
+	} else {
+		locator, err := anomaly.OpenLocator(cfg.Anomaly.GeoIPPath)
+		if err != nil {
+			return nil, fmt.Errorf("open the geolocation database: %w", err)
+		}
+		detector.Locator = locator
+	}
+
+	switch {
+	case !cfg.Anomaly.Notify:
+		// The default until the false-positive rate is known (spec § 21).
+		log.Info("login anomaly notifications are off; findings are audited and counted only",
+			"set", "AUTH_ANOMALY_NOTIFY=true")
+	case mailer == nil:
+		log.Warn("login anomaly notifications were requested but outbound mail is not configured; nobody will be notified",
+			"set", "AUTH_SMTP_URL")
+	default:
+		detector.Notifier = &login.AnomalyMail{
+			Users:     users,
+			DB:        db,
+			Mailer:    mailer,
+			MailLimit: mailQuotas,
+			BaseURL:   cfg.Issuer,
+		}
+	}
+
+	return detector, nil
+}
+
 func buildMFA(
 	cfg *config.Config, secrets serviceSecrets, db *postgres.DB,
 	rdb *redis.Client, log *slog.Logger,
@@ -1455,6 +1531,12 @@ func (o loginObserver) LoginAttempt(outcome string) {
 // endpoint as a whole but a client_credentials call and an authorization_code
 // call do very different amounts of work — averaging them would hide a
 // regression in either.
+type anomalyObserver struct{ m *observability.Metrics }
+
+func (o anomalyObserver) Anomaly(signal anomaly.Signal) {
+	o.m.LoginAnomalies.WithLabelValues(string(signal)).Inc()
+}
+
 type tokenObserver struct{ m *observability.Metrics }
 
 func (o tokenObserver) Issued(grant string, d time.Duration) {

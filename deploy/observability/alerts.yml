@@ -198,6 +198,63 @@ groups:
             if someone disabled it; worth confirming that they meant to and
             that it gets turned back on.
 
+      - alert: RefreshTokenReuseDetected
+        # P3-06. A rotated refresh token presented again means the token
+        # existed in two places — stolen, or a client that copies it. There is
+        # no routine baseline, so the threshold is any increase at all.
+        #
+        # Missing until P3-08: P3-06's record and the metric's own help text
+        # both said "page on any increase", and no rule did. Found while adding
+        # P3-08's alerts beside it.
+        expr: increase(auth_refresh_reuse_detected_total[10m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "A rotated refresh token was presented again"
+          description: >-
+            The whole token family has already been revoked, so the immediate
+            harm is contained. What needs a person is the cause: find the
+            token.refresh.reuse_detected audit event, and treat the user and
+            client it names as possibly compromised.
+
+      - alert: LoginNewDeviceShareHigh
+        # P3-08. People buy laptops, so new-device logins have a routine
+        # baseline, and the alert is on their SHARE of successful logins rather
+        # than on any count. new_device only: one login carries it at most
+        # once, so the ratio cannot exceed 1 the way a sum across signals can.
+        #
+        # 0.3 is provisional. It has not been measured on real traffic —
+        # staging has been unreachable (MEMORY/specs/P3-08 § 21) — and should
+        # be re-set from a week of this metric before anybody pages on it.
+        expr: |
+          sum(rate(auth_login_anomalies_total{signal="new_device"}[1h]))
+          /
+          clamp_min(sum(rate(auth_login_attempts_total{outcome="success"}[1h])), 0.001) > 0.3
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "An unusual share of successful logins come from new devices"
+          description: >-
+            Stolen credentials being used at scale look like this, and so does a
+            browser release the device fingerprint does not recognise. Compare
+            with LoginFailureSpike: an attack usually raises both.
+
+      - alert: ImpossibleTravelLogins
+        # P3-08. Rarer than new devices and noisier per event — a VPN hop is
+        # impossible travel by these rules — so informational, and a count
+        # rather than a ratio. Provisional for the same reason as above.
+        expr: sum(increase(auth_login_anomalies_total{signal="impossible_travel"}[1h])) > 10
+        for: 15m
+        labels:
+          severity: info
+        annotations:
+          summary: "Several logins in the last hour were impossible travel"
+          description: >-
+            Individually these are usually VPNs. Several at once is worth a look
+            at the user.login.anomaly audit events for a shared pattern.
+
       - alert: LockoutSpike
         expr: sum(increase(auth_lockouts_total[15m])) > 20
         for: 5m

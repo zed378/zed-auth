@@ -91,6 +91,10 @@ type Deps struct {
 	// than answering with something that looks like a broken feature.
 	SetPassword http.Handler
 
+	// NotMe serves GET and POST /account/not-me — "this sign-in wasn't me"
+	// (P3-08). Nil means the route is not registered.
+	NotMe http.Handler
+
 	// Login serves GET and POST /login, and Forgot serves /login/forgot
 	// (P1-12). Hand-registered because they answer with HTML rather than with
 	// docs/PLAN/05's JSON envelope, which is what the generated interface produces.
@@ -369,6 +373,13 @@ func New(cfg config.HTTPConfig, deps Deps) *Server {
 		// unauthenticated — which is exactly why it does not belong under /v1.
 		mux.Method(http.MethodGet, "/password/set", deps.SetPassword)
 		mux.Method(http.MethodPost, "/password/set", deps.SetPassword)
+	}
+	if deps.NotMe != nil {
+		// The link in a login-anomaly notice (P3-08). Unauthenticated for the
+		// reason /password/set is — the token is the credential — and GET only
+		// confirms, because mail clients pre-fetch links.
+		mux.Method(http.MethodGet, "/account/not-me", deps.NotMe)
+		mux.Method(http.MethodPost, "/account/not-me", deps.NotMe)
 	}
 
 	// Every route in the spec, from one generated router, on the MAIN mux.

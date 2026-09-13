@@ -57,3 +57,42 @@ func PasswordReset(to, organization, link string, validFor string) Message {
 		Body:    b.String(),
 	}
 }
+
+// LoginAnomaly tells a user their account was signed in to in an unfamiliar way
+// (P3-08).
+//
+// It says WHAT was unusual, in words a person recognises, and it gives exactly
+// one action. Two things it deliberately does not do:
+//
+//   - It does not say "your account may be compromised". Most of these are a new
+//     laptop or a trip, and a notice that cries wolf in its first sentence is one
+//     people learn to delete unread — the outcome the card's step 5 names as
+//     worse than no notice at all.
+//   - It does not carry the full IP address. The location is coarse on purpose,
+//     and a precise address in an email is a detail that outlives its usefulness
+//     in somebody's inbox.
+func LoginAnomaly(to, organization string, reasons []string, when, where, reportLink, validFor string) Message {
+	var b strings.Builder
+	fmt.Fprintf(&b, "Your %s account was just signed in to", organization)
+	if where != "" {
+		fmt.Fprintf(&b, " from %s", where)
+	}
+	fmt.Fprintf(&b, " at %s.\n\n", when)
+
+	b.WriteString("We are telling you because this sign-in looked different from your usual ones:\n\n")
+	for _, r := range reasons {
+		b.WriteString("  - " + r + "\n")
+	}
+
+	b.WriteString("\nIf this was you — a new device, or you are travelling — you do not need to do anything.\n\n")
+	b.WriteString("If it was not you, open this link. It will sign your account out everywhere " +
+		"and send you a link to choose a new password:\n\n")
+	b.WriteString(reportLink + "\n\n")
+	fmt.Fprintf(&b, "The link expires in %s.\n", validFor)
+
+	return Message{
+		To:      to,
+		Subject: "New sign-in to your " + organization + " account",
+		Body:    b.String(),
+	}
+}
