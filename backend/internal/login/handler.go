@@ -238,6 +238,16 @@ type Handler struct {
 	// about factors want.
 	MFA Challenger
 
+	// Enrol and Enrolments are forced enrolment (P3-07).
+	//
+	// **Nil means this deployment cannot enrol anybody**, and that is checked
+	// before the mandate is enforced rather than after. Forcing enrolment on a
+	// build with no factor implementation would lock out every user in an
+	// organization with no way forward — which is the exact outcome the forced
+	// flow exists to avoid.
+	Enrol      Enroller
+	Enrolments EnrolStore
+
 	// Policy is the session policy. P2-10 makes it per organization.
 	Policy session.Policy
 
@@ -541,6 +551,19 @@ func (h *Handler) submit(w http.ResponseWriter, r *http.Request) {
 		h.count(OutcomeChallenged)
 		h.showChallenge(w, r, http.StatusOK, page, outcome.offer, "")
 
+	case resultEnrolmentRequired:
+		// The password was right, so the address counter is cleared exactly as
+		// it is for a completed login — the person proved who they are, and
+		// the missing factor is their organization's policy rather than a
+		// doubt about them.
+		if h.Limiter != nil {
+			h.Limiter.Succeed(r.Context(), email)
+		}
+
+		http.SetCookie(w, enrolCookie(outcome.handle))
+		h.count(OutcomeChallenged)
+		h.showEnrolment(w, r, http.StatusOK, page, outcome.enrolment, "")
+
 	case resultExpired:
 		page.Email = email
 		page.Error = MsgPasswordExpired
@@ -603,6 +626,13 @@ const (
 	// alongside wrong passwords — which would make a rise in MFA adoption look
 	// like a rise in attacks.
 	resultChallenge
+
+	// resultEnrolmentRequired is the organization's mandate with nothing to
+	// satisfy it (P3-07).
+	//
+	// Like resultChallenge, this is NOT a refusal: the credential was correct.
+	// What is missing is a factor, and the only way forward is to create one.
+	resultEnrolmentRequired
 )
 
 type attempt struct {
@@ -619,6 +649,10 @@ type attempt struct {
 	// password must not answer questions about the account.
 	handle string
 	offer  mfa.Offer
+
+	// enrolment is set only for resultEnrolmentRequired. The secret in it is
+	// displayed exactly once.
+	enrolment mfa.Enrolment
 }
 
 // authenticate runs a submission through the two things that can stop it.
@@ -669,6 +703,47 @@ func (h *Handler) authenticate(
 				WebAuthnOptions: decision.WebAuthnOptions,
 			},
 		}, session.Session{}, nil
+	}
+
+	// The organization's mandate (P3-07).
+	//
+	// Reached only when the user has NO answerable factor, because
+	// `decision.Challenge` is true whenever they do — so `hasFactor` is false
+	// by construction here rather than by a second lookup that could disagree
+	// with the one above.
+	switch authn.RequireMFA(loginPolicy, false, h.now()) {
+	case authn.MFAEnrolmentRequired:
+		if h.Enrol == nil || h.Enrolments == nil {
+			// The mandate says yes and this build cannot act on it. Letting
+			// the login through is the only non-lockout answer, and it is
+			// logged at ERROR because an organization that believes MFA is
+			// mandatory is entitled to find out that it is not.
+			if h.Log != nil {
+				h.Log.Error("an organization requires MFA and this deployment cannot enrol anybody",
+					"org_id", user.OrgID)
+			}
+			break
+		}
+
+		handle, enrolment, err := h.beginForcedEnrolment(ctx, user, pending)
+		if err != nil {
+			return attempt{result: resultError, err: err}, session.Session{}, nil
+		}
+		return attempt{
+			result:    resultEnrolmentRequired,
+			handle:    handle,
+			enrolment: enrolment,
+		}, session.Session{}, nil
+
+	case authn.MFAInGrace:
+		// Signed in. The grace is what stops a hard cutover, and the warning is
+		// P3-12's to display on the account screen — this only records that
+		// they were inside it, so "how many people are still unprotected"
+		// stays answerable.
+		if h.Log != nil {
+			h.Log.Info("a user signed in without a factor inside the MFA grace period",
+				"org_id", user.OrgID)
+		}
 	}
 
 	return h.issue(r, pending, user, loginPolicy, nil, false)

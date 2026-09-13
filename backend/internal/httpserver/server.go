@@ -102,6 +102,14 @@ type Deps struct {
 	Login  http.Handler
 	Forgot http.Handler
 
+	// Enrol serves GET and POST /login/mfa/enrol — forced enrolment (P3-07).
+	//
+	// Nil when this deployment cannot enrol anybody, which is the same shape
+	// the two routes below use and for a sharper reason: a forced-enrolment
+	// page with nothing behind it would be a dead end for somebody who has
+	// just been told they cannot sign in without finishing it.
+	Enrol http.Handler
+
 	// Passkey serves POST /login/mfa/webauthn — the assertion (P3-05).
 	//
 	// Its own route rather than a branch inside MFA, because a deployment can
@@ -338,6 +346,10 @@ func New(cfg config.HTTPConfig, deps Deps) *Server {
 		mux.Method(http.MethodGet, "/login/mfa", deps.MFA)
 		mux.Method(http.MethodPost, "/login/mfa", deps.MFA)
 	}
+	if deps.Enrol != nil {
+		mux.Method(http.MethodGet, "/login/mfa/enrol", deps.Enrol)
+		mux.Method(http.MethodPost, "/login/mfa/enrol", deps.Enrol)
+	}
 	if deps.Passkey != nil {
 		// POST only. There is nothing to render at this path — the form and the
 		// ceremony both live on the challenge page, and a GET here would be a
@@ -545,6 +557,7 @@ type Manager interface {
 	CreateOrganization(ctx context.Context, request api.CreateOrganizationRequestObject) (api.CreateOrganizationResponseObject, error)
 	GetOrganization(ctx context.Context, request api.GetOrganizationRequestObject) (api.GetOrganizationResponseObject, error)
 	UpdateOrganization(ctx context.Context, request api.UpdateOrganizationRequestObject) (api.UpdateOrganizationResponseObject, error)
+	GetMfaImpact(ctx context.Context, request api.GetMfaImpactRequestObject) (api.GetMfaImpactResponseObject, error)
 	DeleteOrganization(ctx context.Context, request api.DeleteOrganizationRequestObject) (api.DeleteOrganizationResponseObject, error)
 }
 

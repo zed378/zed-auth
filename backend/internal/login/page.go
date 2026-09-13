@@ -121,6 +121,30 @@ const (
 	// who will actually see it.
 	MsgSessionProblem = "This page has been open for a while. Please try again."
 
+	// The forced-enrolment step's copy (P3-07).
+	//
+	// It says WHY, because a user who has always signed in with a password and
+	// is suddenly asked for more will otherwise assume something is broken. It
+	// names the organization's decision rather than the service's, since that
+	// is whose decision it is.
+	MsgEnrolTitle = "Set up two-step verification"
+	MsgEnrolLead  = "Your organization now requires a second step when you sign in. " +
+		"Set it up once here and you will not be asked again."
+	MsgEnrolSecretLabel = "If you cannot scan, enter this key in your app"
+	MsgEnrolCodeLabel   = "Enter the 6-digit code from your app"
+	MsgEnrolSubmit      = "Confirm and sign in"
+
+	// MsgEnrolmentGone ends an enrolment that expired or ran out of attempts.
+	MsgEnrolmentGone = "That took too long, or the code was wrong too many times. " +
+		"Sign in again to start over."
+
+	// MsgGraceWarning is shown to somebody inside the grace period.
+	//
+	// They ARE signed in — the grace is what stops a hard cutover — and this is
+	// the only moment they will act on it, so it says what happens and when.
+	MsgGraceWarning = "Your organization will soon require two-step verification. " +
+		"Set it up in your account settings before %s, or you will be asked to set it up when you sign in."
+
 	// The passkey step's copy (P3-05).
 	//
 	// MsgPasskeyUnsupported is shown only when the browser cannot do WebAuthn,
@@ -437,6 +461,90 @@ func (c ChallengePage) ContentSecurityPolicy() string {
 	}
 	return base + "; script-src '" + passkeyScriptHash + "'"
 }
+
+// EnrolPage is the forced-enrolment step (P3-07).
+//
+// It EMBEDS Page for the reason ChallengePage does: the stylesheet, the CSP,
+// the branding and the CSRF token must not drift between the screens of one
+// flow.
+//
+// **No script and no image.** The `otpauth:` URI is rendered as text rather
+// than as a QR code, because drawing one needs either a script or an external
+// image — and `P1-12`'s `default-src 'none'` is worth more than the
+// convenience. Every authenticator app accepts a typed key, and `PG-40`'s
+// exception is scoped to the passkey step rather than to the flow.
+type EnrolPage struct {
+	Page
+
+	// Secret is the base32 key, shown EXACTLY ONCE — when the enrolment
+	// begins. A refresh renders this page with it empty rather than
+	// re-displaying it, so a one-time value does not become one sitting in a
+	// browser cache.
+	Secret string
+
+	// URI is the `otpauth://` string, for a user who can paste it.
+	URI string
+
+	// Problem is the form-level message.
+	Problem string
+}
+
+// HasSecret reports whether this render is the one-time display.
+func (e EnrolPage) HasSecret() bool { return e.Secret != "" }
+
+// The enrolment step's copy, as methods so the template cannot be handed a
+// value from anywhere else.
+func (e EnrolPage) EnrolTitle() string       { return MsgEnrolTitle }
+func (e EnrolPage) EnrolLead() string        { return MsgEnrolLead }
+func (e EnrolPage) EnrolSecretLabel() string { return MsgEnrolSecretLabel }
+func (e EnrolPage) EnrolCodeLabel() string   { return MsgEnrolCodeLabel }
+func (e EnrolPage) EnrolSubmit() string      { return MsgEnrolSubmit }
+
+// enrolTemplate is the forced-enrolment form.
+//
+// Read it for what is absent, as with the others: no script, no event handler,
+// no style attribute, and no value from the query string. The only
+// interpolations are the application's registered name, the validated logo, the
+// two opaque tokens, and a secret this service generated moments ago.
+var enrolTemplate = template.Must(template.New("enrol").Parse(`<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{{.EnrolTitle}}</title>
+<style>{{.Style}}</style>
+</head>
+<body>
+<main>
+<div class="card">
+{{if .Branding.LogoURL}}<img class="mark" src="{{.Branding.LogoURL}}" alt="">{{end}}
+<h1>{{.EnrolTitle}}</h1>
+<p class="note">{{.EnrolLead}}</p>
+{{if .Problem}}
+<div class="alert" role="alert" tabindex="-1" autofocus><p>{{.Problem}}</p></div>
+{{end}}
+{{if .HasSecret}}
+<div class="field">
+<label for="enrol-secret">{{.EnrolSecretLabel}}</label>
+<input id="enrol-secret" type="text" value="{{.Secret}}" readonly>
+</div>
+{{end}}
+<form method="post" action="/login/mfa/enrol">
+<input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+<input type="hidden" name="request" value="{{.RequestID}}">
+<div class="field">
+<label for="enrol-code">{{.EnrolCodeLabel}}</label>
+<input id="enrol-code" name="code" type="text" inputmode="numeric"
+ autocomplete="one-time-code" autocapitalize="none" spellcheck="false" required
+ {{if not .Problem}}autofocus{{end}}>
+</div>
+<button type="submit">{{.EnrolSubmit}}</button>
+</form>
+</div>
+</main>
+</body>
+</html>
+`))
 
 // ChallengePage is the second step (P3-03).
 //

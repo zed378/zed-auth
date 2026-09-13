@@ -1244,6 +1244,44 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/organizations/{org_id}/mfa-impact": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The organization that owns the resource. Every request is scoped to exactly one. */
+                org_id: components["parameters"]["OrganizationId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * How many members would be affected by requiring two-step verification
+         * @description Requires `ORG_ADMIN`. Answers the one question an administrator needs
+         *     before turning `mfa_required` on: **how many people does this affect?**
+         *
+         *     Enabling the mandate without knowing that is how an organization
+         *     discovers, one support ticket at a time, that most of its users had
+         *     never enrolled. The grace period softens the landing; this lets somebody
+         *     decide whether to announce it first.
+         *
+         *     **Counts only, never names.** "Which of my colleagues has no second
+         *     factor" is not needed to make this decision, and it is precisely the
+         *     list an attacker holding an administrator's token would want — a
+         *     ready-made set of the accounts in this organization that a stolen
+         *     password would be enough for.
+         *
+         *     The counts exclude deactivated users, who cannot sign in and so cannot
+         *     be affected by a policy about signing in.
+         */
+        get: operations["getMfaImpact"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/organizations/{org_id}/events": {
         parameters: {
             query?: never;
@@ -1933,6 +1971,39 @@ export interface components {
             email?: string;
             username?: string | null;
             display_name?: string | null;
+        };
+        /**
+         * @description What enabling `mfa_required` would mean for this organization.
+         *
+         *     Counts rather than identifiers, deliberately — see the operation's
+         *     description.
+         */
+        MfaImpact: {
+            /**
+             * @description Active members of this organization.
+             * @example 42
+             */
+            members: number;
+            /**
+             * @description How many of them hold no active second factor. These are the people
+             *     who would be routed into enrolment at their next sign-in once the
+             *     grace period ends.
+             * @example 17
+             */
+            without_factor: number;
+            /**
+             * @description Whether the mandate is already on.
+             * @example false
+             */
+            mfa_required: boolean;
+            /**
+             * Format: date-time
+             * @description When the grace period ends, if the mandate is already on. Null
+             *     otherwise — a deadline for a policy nobody has enabled would be a
+             *     number this service made up.
+             * @example 2026-09-27T12:00:00Z
+             */
+            grace_ends_at?: string | null;
         };
         /**
          * @description What an administrator-assisted reset destroyed.
@@ -4317,6 +4388,34 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MfaReset"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["RateLimited"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    getMfaImpact: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The organization that owns the resource. Every request is scoped to exactly one. */
+                org_id: components["parameters"]["OrganizationId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The impact of enabling the mandate. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MfaImpact"];
                 };
             };
             401: components["responses"]["Unauthorized"];

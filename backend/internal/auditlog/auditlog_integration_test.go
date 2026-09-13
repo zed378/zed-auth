@@ -704,6 +704,10 @@ func (stubManager) CreateOrganization(context.Context, api.CreateOrganizationReq
 func (stubManager) GetOrganization(context.Context, api.GetOrganizationRequestObject) (api.GetOrganizationResponseObject, error) {
 	return nil, errNotWired
 }
+func (stubManager) GetMfaImpact(context.Context, api.GetMfaImpactRequestObject) (api.GetMfaImpactResponseObject, error) {
+	return nil, nil
+}
+
 func (stubManager) UpdateOrganization(context.Context, api.UpdateOrganizationRequestObject) (api.UpdateOrganizationResponseObject, error) {
 	return nil, errNotWired
 }
