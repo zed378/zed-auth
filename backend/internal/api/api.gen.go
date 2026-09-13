@@ -787,6 +787,68 @@ type LivenessStatus struct {
 // LivenessStatusStatus defines model for LivenessStatus.Status.
 type LivenessStatusStatus string
 
+// Me defines model for Me.
+type Me struct {
+	DisplayName nullable.Nullable[string] `json:"display_name"`
+	Email       string                    `json:"email"`
+
+	// Id A resource's stable identifier. Not sequential and not guessable.
+	//
+	// **This was specified as a prefixed, sortable identifier** — `usr_`,
+	// `org_`, `prj_` — and is a UUID instead. The change is deliberate and is
+	// recorded as `PG-23`.
+	//
+	// The prefix has a real benefit: an id pasted into a support ticket is
+	// self-describing, and passing a project id where a user id belongs is
+	// visible on sight rather than at the database. What it cannot survive is
+	// being applied to only part of the surface. `docs/PLAN/04` makes every
+	// primary key a UUID, the access token's `org_id` claim is a UUID, and
+	// OpenID Connect's `sub` — already shipped by `P1-08` — is a UUID that
+	// callers store as a user's permanent key.
+	//
+	// Prefixing only the Management API would give the same user two
+	// identifiers and make every consumer convert between them, which is a
+	// larger and more permanent papercut than the one the prefix removes.
+	// Prefixing everything means changing `sub`, which is a protocol field
+	// with its own conventions and a value integrators have already stored.
+	//
+	// So: UUIDs everywhere, and if prefixed identifiers are wanted later they
+	// arrive everywhere at once or not at all.
+	Id           ResourceId `json:"id"`
+	Organization struct {
+		// Id A resource's stable identifier. Not sequential and not guessable.
+		//
+		// **This was specified as a prefixed, sortable identifier** — `usr_`,
+		// `org_`, `prj_` — and is a UUID instead. The change is deliberate and is
+		// recorded as `PG-23`.
+		//
+		// The prefix has a real benefit: an id pasted into a support ticket is
+		// self-describing, and passing a project id where a user id belongs is
+		// visible on sight rather than at the database. What it cannot survive is
+		// being applied to only part of the surface. `docs/PLAN/04` makes every
+		// primary key a UUID, the access token's `org_id` claim is a UUID, and
+		// OpenID Connect's `sub` — already shipped by `P1-08` — is a UUID that
+		// callers store as a user's permanent key.
+		//
+		// Prefixing only the Management API would give the same user two
+		// identifiers and make every consumer convert between them, which is a
+		// larger and more permanent papercut than the one the prefix removes.
+		// Prefixing everything means changing `sub`, which is a protocol field
+		// with its own conventions and a value integrators have already stored.
+		//
+		// So: UUIDs everywhere, and if prefixed identifiers are wanted later they
+		// arrive everywhere at once or not at all.
+		Id   ResourceId `json:"id"`
+		Name string     `json:"name"`
+	} `json:"organization"`
+
+	// PasswordChangedAt When the password was last set; null when never recorded.
+	PasswordChangedAt nullable.Nullable[time.Time] `json:"password_changed_at"`
+
+	// PasswordPolicy The rules a new password must meet, as the organization has configured them.
+	PasswordPolicy MyPasswordPolicy `json:"password_policy"`
+}
+
 // MemberMfa defines model for MemberMfa.
 type MemberMfa struct {
 	Factors                []MfaFactor `json:"factors"`
@@ -886,6 +948,17 @@ type MyMfa struct {
 
 // MyMfaAvailableTypes defines model for MyMfa.AvailableTypes.
 type MyMfaAvailableTypes string
+
+// MyPasswordPolicy The rules a new password must meet, as the organization has configured them.
+type MyPasswordPolicy struct {
+	// BreachChecked Whether new passwords are checked against a breached-password corpus on this service.
+	BreachChecked bool `json:"breach_checked"`
+
+	// MaxAgeDays Days before a password expires. Zero means it does not.
+	MaxAgeDays       int  `json:"max_age_days"`
+	MinLength        int  `json:"min_length"`
+	RequireUppercase bool `json:"require_uppercase"`
+}
 
 // OAuthError OAuth 2.1's error shape (RFC 6749 § 5.2), used by the protocol
 // endpoints. Distinct from the `Error` envelope every other endpoint
@@ -1134,6 +1207,12 @@ type PageInfo struct {
 	// valid end-of-collection test. An empty array is not one: a page can
 	// legitimately return zero items and still have a next page.
 	NextPageToken *string `json:"next_page_token,omitempty"`
+}
+
+// PasswordChange defines model for PasswordChange.
+type PasswordChange struct {
+	CurrentPassword string `json:"current_password"`
+	NewPassword     string `json:"new_password"`
 }
 
 // PermissionKey A permission a role carries, in `resource:action` form — `user:read`,
@@ -2037,6 +2116,16 @@ type ListAdministeredOrganizationsParams struct {
 	PageToken *PageToken `form:"page_token,omitempty" json:"page_token,omitempty"`
 }
 
+// ChangeMyPasswordParams defines parameters for ChangeMyPassword.
+type ChangeMyPasswordParams struct {
+	// IdempotencyKey A client-generated key making a retried `POST` safe. Replaying a
+	// request with the same key returns the original result rather than
+	// creating a second resource — which matters most for automated
+	// provisioning, where a network timeout is indistinguishable from a
+	// failure (`docs/PLAN/05` Part B).
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+}
+
 // ListMySessionsParams defines parameters for ListMySessions.
 type ListMySessionsParams struct {
 	// PageSize Maximum items to return. The server may return fewer, and returning
@@ -2334,6 +2423,9 @@ type BeginMyTotpEnrolmentJSONRequestBody = TotpEnrolmentRequest
 // ConfirmMyTotpEnrolmentJSONRequestBody defines body for ConfirmMyTotpEnrolment for application/json ContentType.
 type ConfirmMyTotpEnrolmentJSONRequestBody = TotpConfirmation
 
+// ChangeMyPasswordJSONRequestBody defines body for ChangeMyPassword for application/json ContentType.
+type ChangeMyPasswordJSONRequestBody = PasswordChange
+
 // CreateOrganizationJSONRequestBody defines body for CreateOrganization for application/json ContentType.
 type CreateOrganizationJSONRequestBody = OrganizationCreate
 
@@ -2387,6 +2479,9 @@ type ServerInterface interface {
 	// Ask whether a subject may perform an action
 	// (POST /v1/authz/check)
 	CheckAuthorization(w http.ResponseWriter, r *http.Request)
+	// Read the caller's own account
+	// (GET /v1/me)
+	GetMe(w http.ResponseWriter, r *http.Request)
 	// Read the caller's second factors
 	// (GET /v1/me/mfa)
 	GetMyMfa(w http.ResponseWriter, r *http.Request)
@@ -2405,6 +2500,9 @@ type ServerInterface interface {
 	// List the organizations the caller administers
 	// (GET /v1/me/organizations)
 	ListAdministeredOrganizations(w http.ResponseWriter, r *http.Request, params ListAdministeredOrganizationsParams)
+	// Change the caller's password
+	// (POST /v1/me/password)
+	ChangeMyPassword(w http.ResponseWriter, r *http.Request, params ChangeMyPasswordParams)
 	// List the caller's sign-in sessions
 	// (GET /v1/me/sessions)
 	ListMySessions(w http.ResponseWriter, r *http.Request, params ListMySessionsParams)
@@ -2564,6 +2662,12 @@ func (_ Unimplemented) CheckAuthorization(w http.ResponseWriter, r *http.Request
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// Read the caller's own account
+// (GET /v1/me)
+func (_ Unimplemented) GetMe(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // Read the caller's second factors
 // (GET /v1/me/mfa)
 func (_ Unimplemented) GetMyMfa(w http.ResponseWriter, r *http.Request) {
@@ -2597,6 +2701,12 @@ func (_ Unimplemented) ConfirmMyTotpEnrolment(w http.ResponseWriter, r *http.Req
 // List the organizations the caller administers
 // (GET /v1/me/organizations)
 func (_ Unimplemented) ListAdministeredOrganizations(w http.ResponseWriter, r *http.Request, params ListAdministeredOrganizationsParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Change the caller's password
+// (POST /v1/me/password)
+func (_ Unimplemented) ChangeMyPassword(w http.ResponseWriter, r *http.Request, params ChangeMyPasswordParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -2931,6 +3041,26 @@ func (siw *ServerInterfaceWrapper) CheckAuthorization(w http.ResponseWriter, r *
 	handler.ServeHTTP(w, r)
 }
 
+// GetMe operation middleware
+func (siw *ServerInterfaceWrapper) GetMe(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, Oauth2Scopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetMe(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetMyMfa operation middleware
 func (siw *ServerInterfaceWrapper) GetMyMfa(w http.ResponseWriter, r *http.Request) {
 
@@ -3137,6 +3267,52 @@ func (siw *ServerInterfaceWrapper) ListAdministeredOrganizations(w http.Response
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListAdministeredOrganizations(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ChangeMyPassword operation middleware
+func (siw *ServerInterfaceWrapper) ChangeMyPassword(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, Oauth2Scopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ChangeMyPasswordParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ChangeMyPassword(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -5418,6 +5594,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/v1/authz/check", wrapper.CheckAuthorization)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/v1/me", wrapper.GetMe)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/v1/me/mfa", wrapper.GetMyMfa)
 	})
 	r.Group(func(r chi.Router) {
@@ -5434,6 +5613,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/v1/me/organizations", wrapper.ListAdministeredOrganizations)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/me/password", wrapper.ChangeMyPassword)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/v1/me/sessions", wrapper.ListMySessions)
@@ -5755,6 +5937,53 @@ type CheckAuthorization503JSONResponse Error
 func (response CheckAuthorization503JSONResponse) VisitCheckAuthorizationResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(503)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetMeRequestObject struct {
+}
+
+type GetMeResponseObject interface {
+	VisitGetMeResponse(w http.ResponseWriter) error
+}
+
+type GetMe200JSONResponse Me
+
+func (response GetMe200JSONResponse) VisitGetMeResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetMe401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response GetMe401JSONResponse) VisitGetMeResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetMe429JSONResponse struct{ RateLimitedJSONResponse }
+
+func (response GetMe429JSONResponse) VisitGetMeResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Retry-After", fmt.Sprint(response.Headers.RetryAfter))
+	w.Header().Set("X-RateLimit-Limit", fmt.Sprint(response.Headers.XRateLimitLimit))
+	w.Header().Set("X-RateLimit-Remaining", fmt.Sprint(response.Headers.XRateLimitRemaining))
+	w.Header().Set("X-RateLimit-Reset", fmt.Sprint(response.Headers.XRateLimitReset))
+	w.WriteHeader(429)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type GetMe500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response GetMe500JSONResponse) VisitGetMeResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
 
 	return json.NewEncoder(w).Encode(response)
 }
@@ -6140,6 +6369,63 @@ func (response ListAdministeredOrganizations429JSONResponse) VisitListAdminister
 type ListAdministeredOrganizations500JSONResponse struct{ InternalErrorJSONResponse }
 
 func (response ListAdministeredOrganizations500JSONResponse) VisitListAdministeredOrganizationsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ChangeMyPasswordRequestObject struct {
+	Params ChangeMyPasswordParams
+	Body   *ChangeMyPasswordJSONRequestBody
+}
+
+type ChangeMyPasswordResponseObject interface {
+	VisitChangeMyPasswordResponse(w http.ResponseWriter) error
+}
+
+type ChangeMyPassword204Response struct {
+}
+
+func (response ChangeMyPassword204Response) VisitChangeMyPasswordResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type ChangeMyPassword400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response ChangeMyPassword400JSONResponse) VisitChangeMyPasswordResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ChangeMyPassword401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ChangeMyPassword401JSONResponse) VisitChangeMyPasswordResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ChangeMyPassword429JSONResponse struct{ RateLimitedJSONResponse }
+
+func (response ChangeMyPassword429JSONResponse) VisitChangeMyPasswordResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Retry-After", fmt.Sprint(response.Headers.RetryAfter))
+	w.Header().Set("X-RateLimit-Limit", fmt.Sprint(response.Headers.XRateLimitLimit))
+	w.Header().Set("X-RateLimit-Remaining", fmt.Sprint(response.Headers.XRateLimitRemaining))
+	w.Header().Set("X-RateLimit-Reset", fmt.Sprint(response.Headers.XRateLimitReset))
+	w.WriteHeader(429)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type ChangeMyPassword500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response ChangeMyPassword500JSONResponse) VisitChangeMyPasswordResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(500)
 
@@ -9189,6 +9475,9 @@ type StrictServerInterface interface {
 	// Ask whether a subject may perform an action
 	// (POST /v1/authz/check)
 	CheckAuthorization(ctx context.Context, request CheckAuthorizationRequestObject) (CheckAuthorizationResponseObject, error)
+	// Read the caller's own account
+	// (GET /v1/me)
+	GetMe(ctx context.Context, request GetMeRequestObject) (GetMeResponseObject, error)
 	// Read the caller's second factors
 	// (GET /v1/me/mfa)
 	GetMyMfa(ctx context.Context, request GetMyMfaRequestObject) (GetMyMfaResponseObject, error)
@@ -9207,6 +9496,9 @@ type StrictServerInterface interface {
 	// List the organizations the caller administers
 	// (GET /v1/me/organizations)
 	ListAdministeredOrganizations(ctx context.Context, request ListAdministeredOrganizationsRequestObject) (ListAdministeredOrganizationsResponseObject, error)
+	// Change the caller's password
+	// (POST /v1/me/password)
+	ChangeMyPassword(ctx context.Context, request ChangeMyPasswordRequestObject) (ChangeMyPasswordResponseObject, error)
 	// List the caller's sign-in sessions
 	// (GET /v1/me/sessions)
 	ListMySessions(ctx context.Context, request ListMySessionsRequestObject) (ListMySessionsResponseObject, error)
@@ -9488,6 +9780,30 @@ func (sh *strictHandler) CheckAuthorization(w http.ResponseWriter, r *http.Reque
 	}
 }
 
+// GetMe operation middleware
+func (sh *strictHandler) GetMe(w http.ResponseWriter, r *http.Request) {
+	var request GetMeRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetMe(ctx, request.(GetMeRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetMe")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetMeResponseObject); ok {
+		if err := validResponse.VisitGetMeResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // GetMyMfa operation middleware
 func (sh *strictHandler) GetMyMfa(w http.ResponseWriter, r *http.Request) {
 	var request GetMyMfaRequestObject
@@ -9649,6 +9965,39 @@ func (sh *strictHandler) ListAdministeredOrganizations(w http.ResponseWriter, r 
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ListAdministeredOrganizationsResponseObject); ok {
 		if err := validResponse.VisitListAdministeredOrganizationsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ChangeMyPassword operation middleware
+func (sh *strictHandler) ChangeMyPassword(w http.ResponseWriter, r *http.Request, params ChangeMyPasswordParams) {
+	var request ChangeMyPasswordRequestObject
+
+	request.Params = params
+
+	var body ChangeMyPasswordJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ChangeMyPassword(ctx, request.(ChangeMyPasswordRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ChangeMyPassword")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ChangeMyPasswordResponseObject); ok {
+		if err := validResponse.VisitChangeMyPasswordResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

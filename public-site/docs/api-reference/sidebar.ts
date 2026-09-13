@@ -148,6 +148,24 @@ const sidebar: SidebarsConfig = {
     },
     {
       type: "category",
+      label: "Account",
+      items: [
+        {
+          type: "doc",
+          id: "api-reference/get-me",
+          label: "Read the caller's own account",
+          className: "api-method get",
+        },
+        {
+          type: "doc",
+          id: "api-reference/change-my-password",
+          label: "Change the caller's password",
+          className: "api-method post",
+        },
+      ],
+    },
+    {
+      type: "category",
       label: "MFA",
       items: [
         {

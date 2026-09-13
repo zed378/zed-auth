@@ -173,3 +173,27 @@ func TestTheReportPageAndDetectorAreWired(t *testing.T) {
 		t.Errorf("NotMePath is %q but the registered route is /account/not-me", NotMePath)
 	}
 }
+
+// P3-12: every password-set path validates through the one PasswordValidator,
+// and the breach corpus is handed to it.
+//
+// The gap this closes was a wiring gap and nothing else: the breach client was
+// built in main and passed to nothing, so no test of the validator or the page
+// could have seen it. This reads the wiring.
+func TestEveryPasswordSetPathUsesTheValidatorWithTheCorpus(t *testing.T) {
+	src := mainSource(t)
+
+	for _, want := range []string{
+		"passwordValidator := &authn.PasswordValidator{",
+		"Breaches: passwords.breaches,",
+		"Policy:    passwordValidator,",
+		"Validator:     passwordValidator,",
+	} {
+		if !strings.Contains(src, want) {
+			t.Errorf("main.go does not contain %q", want)
+		}
+	}
+	if strings.Contains(src, "passwordPolicy{") {
+		t.Error("main.go still builds the policy-only adapter that skipped the breach corpus")
+	}
+}

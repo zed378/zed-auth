@@ -456,6 +456,68 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read the caller's own account
+         * @description The caller's profile, their organization's name, and the password rules
+         *     that apply to them — so a client can show the requirements **before** a
+         *     new password is typed rather than only after it is refused (`P3-12`).
+         *
+         *     Requires only a valid access token; the user comes from the token. A
+         *     member with no administrative role reads their own account here, which
+         *     the organization's user routes (`ORG_ADMIN`) would refuse them.
+         */
+        get: operations["getMe"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/me/password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Change the caller's password
+         * @description Requires the **current** password as well as the new one. A live session
+         *     is not proof that the person at the keyboard is the account's owner, and
+         *     a stolen session that could change the password would lock the owner out.
+         *
+         *     The current password is checked against the **same per-address bound as
+         *     sign-in** (`P1-13`): wrong guesses here count toward the same cooldown,
+         *     so this endpoint is not a second, unthrottled way to guess a password.
+         *     A refusal during a cooldown is `429`.
+         *
+         *     The new password must satisfy the organization's policy and must not
+         *     appear in the breached-password corpus (`P1-02`, ADR-015). Every rule
+         *     it fails is listed under `new_password`.
+         *
+         *     On success every **other** session is signed out and their refresh
+         *     tokens revoked; the session this request came from is kept. A password
+         *     change is what somebody does when they think somebody else knows it.
+         *     Audited as `user.password.changed`.
+         */
+        post: operations["changeMyPassword"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/me/mfa": {
         parameters: {
             query?: never;
@@ -2733,6 +2795,36 @@ export interface components {
                 details?: components["schemas"]["ErrorDetail"][];
             };
         };
+        Me: {
+            id: components["schemas"]["ResourceId"];
+            email: string;
+            display_name: string | null;
+            organization: {
+                id: components["schemas"]["ResourceId"];
+                name: string;
+            };
+            password_policy: components["schemas"]["MyPasswordPolicy"];
+            /**
+             * Format: date-time
+             * @description When the password was last set; null when never recorded.
+             */
+            password_changed_at: string | null;
+        };
+        /** @description The rules a new password must meet, as the organization has configured them. */
+        MyPasswordPolicy: {
+            min_length: number;
+            require_uppercase: boolean;
+            /** @description Days before a password expires. Zero means it does not. */
+            max_age_days: number;
+            /** @description Whether new passwords are checked against a breached-password corpus on this service. */
+            breach_checked: boolean;
+        };
+        PasswordChange: {
+            /** Format: password */
+            current_password: string;
+            /** Format: password */
+            new_password: string;
+        };
         /** @description One active second factor. Never its secret or credential material. */
         MfaFactor: {
             id: components["schemas"]["ResourceId"];
@@ -3597,6 +3689,64 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["AdministeredOrganizationList"];
                 };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            429: components["responses"]["RateLimited"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    getMe: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The caller's account. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Me"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            429: components["responses"]["RateLimited"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    changeMyPassword: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description A client-generated key making a retried `POST` safe. Replaying a
+                 *     request with the same key returns the original result rather than
+                 *     creating a second resource — which matters most for automated
+                 *     provisioning, where a network timeout is indistinguishable from a
+                 *     failure (`docs/PLAN/05` Part B).
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PasswordChange"];
+            };
+        };
+        responses: {
+            /** @description The password is changed and other sessions are signed out. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
