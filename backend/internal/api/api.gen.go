@@ -774,6 +774,28 @@ type LivenessStatus struct {
 // LivenessStatusStatus defines model for LivenessStatus.Status.
 type LivenessStatusStatus string
 
+// MfaImpact What enabling `mfa_required` would mean for this organization.
+//
+// Counts rather than identifiers, deliberately — see the operation's
+// description.
+type MfaImpact struct {
+	// GraceEndsAt When the grace period ends, if the mandate is already on. Null
+	// otherwise — a deadline for a policy nobody has enabled would be a
+	// number this service made up.
+	GraceEndsAt nullable.Nullable[time.Time] `json:"grace_ends_at,omitempty"`
+
+	// Members Active members of this organization.
+	Members int `json:"members"`
+
+	// MfaRequired Whether the mandate is already on.
+	MfaRequired bool `json:"mfa_required"`
+
+	// WithoutFactor How many of them hold no active second factor. These are the people
+	// who would be routed into enrolment at their next sign-in once the
+	// grace period ends.
+	WithoutFactor int `json:"without_factor"`
+}
+
 // MfaReset What an administrator-assisted reset destroyed.
 //
 // Counts rather than identifiers: an administrator is entitled to know
@@ -2048,6 +2070,9 @@ type ServerInterface interface {
 	// Read the audit log
 	// (GET /v1/organizations/{org_id}/events)
 	ListEvents(w http.ResponseWriter, r *http.Request, orgId OrganizationId, params ListEventsParams)
+	// How many members would be affected by requiring two-step verification
+	// (GET /v1/organizations/{org_id}/mfa-impact)
+	GetMfaImpact(w http.ResponseWriter, r *http.Request, orgId OrganizationId)
 	// List an organization's projects
 	// (GET /v1/organizations/{org_id}/projects)
 	ListProjects(w http.ResponseWriter, r *http.Request, orgId OrganizationId, params ListProjectsParams)
@@ -2207,6 +2232,12 @@ func (_ Unimplemented) UpdateOrganization(w http.ResponseWriter, r *http.Request
 // Read the audit log
 // (GET /v1/organizations/{org_id}/events)
 func (_ Unimplemented) ListEvents(w http.ResponseWriter, r *http.Request, orgId OrganizationId, params ListEventsParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// How many members would be affected by requiring two-step verification
+// (GET /v1/organizations/{org_id}/mfa-impact)
+func (_ Unimplemented) GetMfaImpact(w http.ResponseWriter, r *http.Request, orgId OrganizationId) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -2796,6 +2827,37 @@ func (siw *ServerInterfaceWrapper) ListEvents(w http.ResponseWriter, r *http.Req
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListEvents(w, r, orgId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetMfaImpact operation middleware
+func (siw *ServerInterfaceWrapper) GetMfaImpact(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "org_id" -------------
+	var orgId OrganizationId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "org_id", chi.URLParam(r, "org_id"), &orgId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "org_id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, Oauth2Scopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetMfaImpact(w, r, orgId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4500,6 +4562,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Get(options.BaseURL+"/v1/organizations/{org_id}/events", wrapper.ListEvents)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/v1/organizations/{org_id}/mfa-impact", wrapper.GetMfaImpact)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/v1/organizations/{org_id}/projects", wrapper.ListProjects)
 	})
 	r.Group(func(r chi.Router) {
@@ -5279,6 +5344,72 @@ func (response ListEvents429JSONResponse) VisitListEventsResponse(w http.Respons
 type ListEvents500JSONResponse struct{ InternalErrorJSONResponse }
 
 func (response ListEvents500JSONResponse) VisitListEventsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetMfaImpactRequestObject struct {
+	OrgId OrganizationId `json:"org_id"`
+}
+
+type GetMfaImpactResponseObject interface {
+	VisitGetMfaImpactResponse(w http.ResponseWriter) error
+}
+
+type GetMfaImpact200JSONResponse MfaImpact
+
+func (response GetMfaImpact200JSONResponse) VisitGetMfaImpactResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetMfaImpact401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response GetMfaImpact401JSONResponse) VisitGetMfaImpactResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetMfaImpact403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response GetMfaImpact403JSONResponse) VisitGetMfaImpactResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetMfaImpact404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response GetMfaImpact404JSONResponse) VisitGetMfaImpactResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetMfaImpact429JSONResponse struct{ RateLimitedJSONResponse }
+
+func (response GetMfaImpact429JSONResponse) VisitGetMfaImpactResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Retry-After", fmt.Sprint(response.Headers.RetryAfter))
+	w.Header().Set("X-RateLimit-Limit", fmt.Sprint(response.Headers.XRateLimitLimit))
+	w.Header().Set("X-RateLimit-Remaining", fmt.Sprint(response.Headers.XRateLimitRemaining))
+	w.Header().Set("X-RateLimit-Reset", fmt.Sprint(response.Headers.XRateLimitReset))
+	w.WriteHeader(429)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type GetMfaImpact500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response GetMfaImpact500JSONResponse) VisitGetMfaImpactResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(500)
 
@@ -7458,6 +7589,9 @@ type StrictServerInterface interface {
 	// Read the audit log
 	// (GET /v1/organizations/{org_id}/events)
 	ListEvents(ctx context.Context, request ListEventsRequestObject) (ListEventsResponseObject, error)
+	// How many members would be affected by requiring two-step verification
+	// (GET /v1/organizations/{org_id}/mfa-impact)
+	GetMfaImpact(ctx context.Context, request GetMfaImpactRequestObject) (GetMfaImpactResponseObject, error)
 	// List an organization's projects
 	// (GET /v1/organizations/{org_id}/projects)
 	ListProjects(ctx context.Context, request ListProjectsRequestObject) (ListProjectsResponseObject, error)
@@ -7891,6 +8025,32 @@ func (sh *strictHandler) ListEvents(w http.ResponseWriter, r *http.Request, orgI
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ListEventsResponseObject); ok {
 		if err := validResponse.VisitListEventsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetMfaImpact operation middleware
+func (sh *strictHandler) GetMfaImpact(w http.ResponseWriter, r *http.Request, orgId OrganizationId) {
+	var request GetMfaImpactRequestObject
+
+	request.OrgId = orgId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetMfaImpact(ctx, request.(GetMfaImpactRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetMfaImpact")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetMfaImpactResponseObject); ok {
+		if err := validResponse.VisitGetMfaImpactResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

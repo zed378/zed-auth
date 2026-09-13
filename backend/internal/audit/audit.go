@@ -75,6 +75,23 @@ const (
 	EventMFACodesIssued  EventType = "user.mfa.codes_generated"
 	EventMFAResetByAdmin EventType = "user.mfa.reset_by_admin"
 
+	// The organization-wide mandate (P3-07).
+	//
+	// **Disabling is at least as important as enabling.** Somebody removing a
+	// security control is what `docs/SECURITY/04` has an incident reviewer
+	// search for, and a generic "settings changed" cannot answer it — which is
+	// why these are their own types rather than a field inside
+	// `organization.updated`.
+	EventMFAMandateEnabled  EventType = "organization.mfa_required.enabled"
+	EventMFAMandateDisabled EventType = "organization.mfa_required.disabled"
+
+	// EventMFAEnrolmentForced is a user routed into enrolment because the
+	// mandate left them no way past it.
+	EventMFAEnrolmentForced EventType = "user.mfa.enrolment_forced"
+
+	// EventMFAEnrolled is a factor that became usable.
+	EventMFAEnrolled EventType = "user.mfa.enrolled"
+
 	// EventTokenIssued records a successful exchange at the token endpoint
 	// (P1-07). The payload names the client, the grant and the scope, and
 	// never a token — the whole point of the event is to reconstruct who was

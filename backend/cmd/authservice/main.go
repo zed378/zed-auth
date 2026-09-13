@@ -578,6 +578,12 @@ func run() error {
 		IP:            clientIP,
 		MFA:           factorFramework,
 
+		// Forced enrolment (P3-07). Both are nil when no factor type is
+		// configured, which is what stops an organization's mandate from
+		// becoming a lockout on a build that cannot satisfy it.
+		Enrol:      enroller(factorFramework),
+		Enrolments: enrolments(factorFramework, rdb),
+
 		// P1-19's two hosted pages. The token lookup is passed as a function
 		// because resolving a link before a tenant is known needs the
 		// SECURITY DEFINER path, and the login package deliberately holds only
@@ -677,6 +683,7 @@ func run() error {
 		Forgot:         http.HandlerFunc(loginHandler.Forgot),
 		MFA:            mfaRoute(factorFramework, loginHandler),
 		Passkey:        passkeyRoute(factorFramework, loginHandler),
+		Enrol:          enrolRoute(loginHandler),
 		SetPassword:    http.HandlerFunc(loginHandler.SetPassword),
 		V1:             v1,
 		Organizations:  organizations,
@@ -961,6 +968,52 @@ func passkeyRoute(framework *mfa.Framework, h *login.Handler) http.Handler {
 		return nil
 	}
 	return http.HandlerFunc(h.WebAuthnStep)
+}
+
+// enroller is the factor type forced enrolment uses (P3-07).
+//
+// TOTP specifically, and only TOTP: the forced step renders with no script,
+// and a WebAuthn registration ceremony needs `navigator.credentials` — which
+// would extend `PG-40`'s exception from one page to the flow. A user may enrol
+// a passkey afterwards from their account settings.
+//
+// `mfa.Verifier` already has exactly the two methods `login.Enroller` asks for,
+// so the registry's own entry is handed over rather than a wrapper being
+// written around it.
+func enroller(framework *mfa.Framework) login.Enroller {
+	if framework == nil {
+		return nil
+	}
+	verifier, err := framework.Registry.For(mfa.TypeTOTP)
+	if err != nil {
+		return nil
+	}
+	return verifier
+}
+
+// enrolments is the store behind the forced step.
+//
+// Nil when there is no factor to enrol, so the two halves cannot disagree: a
+// store with no enroller would be state nothing writes, and an enroller with no
+// store would fail at the moment somebody needed it most.
+func enrolments(framework *mfa.Framework, rdb redis.UniversalClient) login.EnrolStore {
+	if framework == nil || rdb == nil {
+		return nil
+	}
+	return login.NewRedisEnrolments(rdb)
+}
+
+// enrolRoute registers /login/mfa/enrol only when enrolment is possible.
+//
+// Both halves, because the policy and the ability to act on it are separate
+// things: an organization can require MFA on a build that implements none, and
+// `authenticate` logs that loudly rather than locking everybody out. This is
+// the routing half of the same decision.
+func enrolRoute(h *login.Handler) http.Handler {
+	if h.Enrol == nil || h.Enrolments == nil {
+		return nil
+	}
+	return http.HandlerFunc(h.EnrolStep)
 }
 
 // passwordChecks bundles the P1-02 pieces a password-set path needs.

@@ -14,6 +14,7 @@ import (
 
 	"github.com/zed378/zed-auth/backend/internal/api"
 	"github.com/zed378/zed-auth/backend/internal/audit"
+	"github.com/zed378/zed-auth/backend/internal/authn"
 	"github.com/zed378/zed-auth/backend/internal/management"
 	"github.com/zed378/zed-auth/backend/internal/storage/postgres"
 )
@@ -236,10 +237,52 @@ func (h *Handler) UpdateOrganization(
 		if before, err = h.Store.Get(ctx, tx); err != nil {
 			return err
 		}
+
+		// The MFA mandate's activation time (P3-07).
+		//
+		// Stamped HERE rather than where the patch was assembled, because
+		// deciding whether this change is the TRANSITION needs the stored
+		// settings — and reading them outside this transaction would leave a
+		// window where two concurrent PATCHes both see "off" and both stamp.
+		//
+		// The caller cannot supply it: `unknownKeys` refuses
+		// `mfa_required_since` as an unknown setting, which is what stops an
+		// administrator backdating the grace to zero.
+		if changes.Settings != nil {
+			stamped, err := StampMandate(before.Settings, changes.Settings, h.now())
+			if err != nil {
+				return err
+			}
+			changes.Settings = stamped
+		}
+
 		if updated, err = h.Store.Update(ctx, tx, changes); err != nil {
 			return err
 		}
-		return h.write(ctx, tx, eventFor(before, updated), changedPayload(before, updated))
+		if err := h.write(ctx, tx, eventFor(before, updated), changedPayload(before, updated)); err != nil {
+			return err
+		}
+
+		// The mandate's own events (P3-07), written IN ADDITION to the generic
+		// update and in the same transaction.
+		//
+		// `organization.updated` already carries the new settings, so the fact
+		// is technically recorded either way. That is not the same as being
+		// findable: an incident reviewer searching for "who turned MFA off" is
+		// searching by event type, and a generic update that happens to contain
+		// `"mfa_required":false` somewhere in a JSON payload is a row nobody
+		// finds until after they needed it.
+		//
+		// A mutation-style review of this task found these events defined,
+		// `MandateChange` tested, and nothing emitting them — the requirement
+		// would have shipped unmet with every test green.
+		switch MandateChange(before.Settings, updated.Settings) {
+		case MandateEnabled:
+			return h.write(ctx, tx, audit.EventMFAMandateEnabled, mandatePayload(updated))
+		case MandateDisabled:
+			return h.write(ctx, tx, audit.EventMFAMandateDisabled, mandatePayload(updated))
+		}
+		return nil
 	})
 	if err != nil {
 		return nil, notFoundOr(err)
@@ -250,6 +293,22 @@ func (h *Handler) UpdateOrganization(
 		return nil, err
 	}
 	return api.UpdateOrganization200JSONResponse(rendered), nil
+}
+
+// mandatePayload is what the mandate events carry.
+//
+// The organization and, when the mandate is on, when its grace period ends. Not
+// the settings document: `organization.updated` beside it already has that, and
+// repeating it here would make the two rows disagree the day one of them is
+// redacted and the other is not.
+func mandatePayload(org Organization) map[string]any {
+	payload := map[string]any{"organization_id": org.ID}
+
+	policy, _ := authn.ParseLoginPolicy(org.Settings)
+	if deadline := authn.MFADeadline(policy); !deadline.IsZero() {
+		payload["grace_ends_at"] = deadline.UTC().Format(time.RFC3339)
+	}
+	return payload
 }
 
 // --- delete ----------------------------------------------------------------------------

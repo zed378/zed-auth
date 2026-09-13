@@ -273,7 +273,7 @@
 
 | | |
 |---|---|
-| **Status** | TODO |
+| **Status** | DONE — 2026-09-13, [record](../MEMORY/records/2026-09-13-P3-07-mfa-enforcement.md), [spec](../MEMORY/specs/P3-07-mfa-enforcement.md). **Closes `docs/PLAN/17`'s Phase 2 criterion** that `P2-10` left open by design |
 | **Depends on** | P3-03, P2-10 |
 | **Plan refs** | `docs/PLAN/02-REQUIREMENTS.md` FR-6, `docs/PLAN/08-AUTHORIZATION.md` Part B, `docs/PLAN/17-ACCEPTANCE-CRITERIA.md` § Phase 2 |
 | **Spec required** | Yes — policy enforcement |
@@ -290,11 +290,18 @@
 6. Audit policy activation and every forced enrollment.
 
 **Definition of Done**
-- [ ] Enabling `mfa_required` forces enrollment at next login, with no bypass path.
-- [ ] Grace behavior is documented and implemented deliberately.
-- [ ] Any exemption is explicit, audited, and visible.
-- [ ] The admin sees the impact count before enabling.
-- [ ] `docs/PLAN/17`'s Phase 2 criterion about MFA-required being enforced rather than merely stored is now fully satisfied.
+- [x] Enabling `mfa_required` forces enrollment at next login, with no bypass path — past the grace, a user with no factor is routed into enrolment and **no session exists until they finish**, which is what makes it unbypassable: every other page needs one. An enrolment is bound to its authorization request, and the factor is created for the user who proved the password rather than one a request could name.
+- [x] Grace behavior is documented and implemented deliberately — fourteen days from **activation**, stamped by the service and refused from a caller, so an administrator cannot backdate it to zero. Re-sending the flag does not restart it; toggling off and on does not buy a fresh one.
+- [x] Any exemption is explicit, audited, and visible — **none are built**, which is how this is met: an exemption that does not exist cannot be granted silently. Service accounts need none, because `client_credentials` has no user.
+- [x] The admin sees the impact count before enabling — `GET /v1/organizations/{org_id}/mfa-impact`, `ORG_ADMIN`. **Counts, never names**: a list of colleagues with no second factor is exactly what an attacker holding an admin token would want.
+- [x] `docs/PLAN/17`'s Phase 2 criterion about MFA-required being enforced rather than merely stored is now fully satisfied.
+
+**Also** — two findings worth reading:
+
+- **A requirement every test said was met, and was not.** The enable/disable audit events were defined and `MandateChange` was tested, but nothing emitted either event. Found by checking each promised thing had a caller before writing the record, not by a test. Two integration tests now fail with the wiring removed.
+- **A build that cannot enrol does not lock anybody out.** `decision.Challenge == false` means either "no factor" or "no factor implementation", and forcing enrolment in the second case would be a lockout with no way forward. The handler checks it can enrol before acting on the mandate, and logs at ERROR when it cannot — an organization that believes MFA is mandatory is entitled to find out.
+
+**A rollback silently disables the mandate**, because an older build ignores the new settings field. Recorded rather than discovered.
 
 ---
 

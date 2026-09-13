@@ -138,6 +138,12 @@ const sidebar: SidebarsConfig = {
           label: "Delete an organization",
           className: "api-method delete",
         },
+        {
+          type: "doc",
+          id: "api-reference/get-mfa-impact",
+          label: "How many members would be affected by requiring two-step verification",
+          className: "api-method get",
+        },
       ],
     },
     {

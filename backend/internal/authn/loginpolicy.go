@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"slices"
 	"strconv"
+	"time"
 
 	"github.com/zed378/zed-auth/backend/internal/storage/postgres"
 )
@@ -23,6 +24,27 @@ import (
 type LoginPolicy struct {
 	// SessionLifetimeHours is how long a session may live.
 	SessionLifetimeHours int
+
+	// MFARequired is the organization's mandate (P3-07).
+	//
+	// `P2-10` stored this and deliberately did not enforce it, because MFA did
+	// not exist. It does now, so this is read at the password step and decides
+	// whether a user without a factor is routed into enrolment.
+	MFARequired bool
+
+	// MFARequiredSince is when the mandate was turned on, and it is what the
+	// grace period is measured from.
+	//
+	// **From activation, not from the user's last login.** Measuring per user
+	// would let somebody who never signs in sit outside the policy forever,
+	// and would make the deadline unanswerable for an administrator asking
+	// "when does this take effect".
+	//
+	// Zero when the mandate is off, or when it predates this field — an
+	// organization that had it on before `P3-07` shipped gets the grace
+	// measured from its first login after the upgrade rather than a deadline
+	// already in the past.
+	MFARequiredSince time.Time
 
 	// AllowedMethods are the ways a user may authenticate.
 	//
@@ -73,14 +95,23 @@ func ParseLoginPolicy(settings []byte) (LoginPolicy, []Adjustment) {
 	}
 
 	var doc struct {
-		SessionLifetimeHours *int      `json:"session_lifetime_hours"`
-		AllowedLoginMethods  *[]string `json:"allowed_login_methods"`
+		SessionLifetimeHours *int       `json:"session_lifetime_hours"`
+		AllowedLoginMethods  *[]string  `json:"allowed_login_methods"`
+		MFARequired          *bool      `json:"mfa_required"`
+		MFARequiredSince     *time.Time `json:"mfa_required_since"`
 	}
 	if err := json.Unmarshal(settings, &doc); err != nil {
 		return policy, []Adjustment{{
 			Field: "settings", Configured: "unreadable", Applied: "defaults",
 			Reason: "the settings document could not be parsed",
 		}}
+	}
+
+	if doc.MFARequired != nil {
+		policy.MFARequired = *doc.MFARequired
+	}
+	if doc.MFARequiredSince != nil {
+		policy.MFARequiredSince = *doc.MFARequiredSince
 	}
 
 	if doc.SessionLifetimeHours != nil {
@@ -126,6 +157,73 @@ func ParseLoginPolicy(settings []byte) (LoginPolicy, []Adjustment) {
 	}
 
 	return policy, adjustments
+}
+
+// MFAGracePeriod is how long a user has to enrol after the mandate is enabled.
+//
+// **Fourteen days**, and the number is a judgement rather than a fact, so here
+// is the judgement: two working weeks means somebody on a one-week holiday
+// comes back to a warning rather than a lockout, and it is short enough that an
+// administrator who enables it sees it take effect inside a sprint.
+//
+// The grace exists because the alternative is a hard cutover, which locks out
+// everybody without a factor the moment the switch flips. That produces a
+// support queue rather than security — and the fastest way out of a support
+// queue is to turn the setting off again, which leaves the organization less
+// safe than before anybody tried.
+//
+// It is a real window in which the policy is not enforced. That is the cost,
+// and it is bounded and visible rather than indefinite.
+const MFAGracePeriod = 14 * 24 * time.Hour
+
+// MFAOutcome is what the mandate says about one login.
+type MFAOutcome int
+
+const (
+	// MFANotRequired: no mandate, or the user already holds a factor.
+	MFANotRequired MFAOutcome = iota
+
+	// MFAInGrace: the mandate applies, the user has no factor, and the
+	// deadline has not passed. They are signed in AND told.
+	MFAInGrace
+
+	// MFAEnrolmentRequired: the mandate applies, the user has no factor, and
+	// the grace has run out. No session until they enrol.
+	MFAEnrolmentRequired
+)
+
+// RequireMFA decides what the mandate means for one login.
+//
+// Pure, so the truth table can be tested without a database, a clock or a
+// request — the same split `Evaluate` makes for the password policy. Three
+// inputs and three outcomes, and every combination is enumerated in the tests
+// rather than described here.
+//
+// `since` being zero with the mandate ON is the upgrade case: an organization
+// that had `mfa_required` set before this field existed. Their grace starts
+// now rather than having expired in the past, because a deadline nobody could
+// have known about is not a deadline.
+func RequireMFA(policy LoginPolicy, hasFactor bool, now time.Time) MFAOutcome {
+	if !policy.MFARequired || hasFactor {
+		return MFANotRequired
+	}
+	if policy.MFARequiredSince.IsZero() {
+		return MFAInGrace
+	}
+	if now.Before(policy.MFARequiredSince.Add(MFAGracePeriod)) {
+		return MFAInGrace
+	}
+	return MFAEnrolmentRequired
+}
+
+// MFADeadline is when the grace runs out, for a page that must show it.
+//
+// Zero when there is no deadline to show.
+func MFADeadline(policy LoginPolicy) time.Time {
+	if !policy.MFARequired || policy.MFARequiredSince.IsZero() {
+		return time.Time{}
+	}
+	return policy.MFARequiredSince.Add(MFAGracePeriod)
 }
 
 // Bounds on a session lifetime, matching internal/session's own.
