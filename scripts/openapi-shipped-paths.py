@@ -60,6 +60,14 @@ SHIPPED = {
     "/v1/me/sessions",
     "/v1/me/sessions/{session_id}",
     "/v1/me/sessions/revoke-others",
+    # P3-10. The caller's own second factors, and a member's for an
+    # administrator, read-only.
+    "/v1/me/mfa",
+    "/v1/me/mfa/totp",
+    "/v1/me/mfa/totp/{factor_id}/confirm",
+    "/v1/me/mfa/factors/{factor_id}",
+    "/v1/me/mfa/recovery-codes",
+    "/v1/organizations/{org_id}/users/{user_id}/mfa",
     # P3-09. A member's sessions, for an administrator.
     "/v1/organizations/{org_id}/users/{user_id}/sessions",
     "/v1/organizations/{org_id}/users/{user_id}/sessions/{session_id}",

@@ -456,6 +456,176 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/me/mfa": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read the caller's second factors
+         * @description The caller's active factors, how many unused recovery codes they hold,
+         *     whether their organization requires MFA, and which factor types this
+         *     deployment can enrol. Requires only a valid access token; the user
+         *     comes from the token.
+         *
+         *     Pending enrolments are not listed. They verify nothing and are replaced
+         *     by the next enrolment. No secret, credential id or public key is ever
+         *     returned.
+         *
+         *     `available_types` is empty when the deployment has no factor encryption
+         *     key configured, in which case nothing can be enrolled.
+         */
+        get: operations["getMyMfa"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/me/mfa/totp": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Begin enrolling an authenticator app
+         * @description Creates a PENDING factor and returns what an authenticator app needs:
+         *     the secret, the `otpauth://` URI, and the same URI as a QR module grid.
+         *     **This is the only time the secret is returned.** The factor verifies
+         *     nothing until a code confirms it.
+         *
+         *     **Requires recent authentication.** The session the caller's token was
+         *     issued through must have authenticated within the last ten minutes;
+         *     otherwise the answer is `403 REAUTHENTICATION_REQUIRED`, and the client
+         *     should send the user through sign-in again (`prompt=login`). A stolen
+         *     session must not be able to add or remove a second factor: that is how a
+         *     takeover becomes permanent and MFA-protected. A token with no session
+         *     (`client_credentials`) can never manage factors.
+         *
+         *     One authenticator app per user: with one already active this is `409`,
+         *     and replacing it is a removal first. An unconfirmed earlier enrolment is
+         *     simply replaced.
+         */
+        post: operations["beginMyTotpEnrolment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/me/mfa/totp/{factor_id}/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A second factor belonging to the caller. */
+                factor_id: components["parameters"]["FactorId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Confirm an authenticator app with a code
+         * @description Proves the authenticator produces codes, which is what turns the pending
+         *     factor into a real one. Attempts count against the same per-user bound
+         *     the sign-in challenge uses; exhausting it is `429`.
+         *
+         *     When the caller held no unused recovery codes, a batch is issued and
+         *     returned here, **once**. Store them before closing the screen: they are
+         *     never shown again, and `POST /v1/me/mfa/recovery-codes` replaces rather
+         *     than re-reads them.
+         *
+         *     A factor that is not the caller's, not pending, or does not exist is
+         *     `404`.
+         */
+        post: operations["confirmMyTotpEnrolment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/me/mfa/factors/{factor_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A second factor belonging to the caller. */
+                factor_id: components["parameters"]["FactorId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Remove one of the caller's factors
+         * @description Removes an authenticator app or a passkey.
+         *
+         *     **Requires recent authentication.** The session the caller's token was
+         *     issued through must have authenticated within the last ten minutes;
+         *     otherwise the answer is `403 REAUTHENTICATION_REQUIRED`, and the client
+         *     should send the user through sign-in again (`prompt=login`). A stolen
+         *     session must not be able to add or remove a second factor: that is how a
+         *     takeover becomes permanent and MFA-protected. A token with no session
+         *     (`client_credentials`) can never manage factors.
+         *
+         *     **Refused with `409` when it is the caller's last factor and their
+         *     organization requires MFA**: the next sign-in would have nothing to
+         *     challenge with and would route them straight back into enrolment. In an
+         *     organization that does not require MFA, removing the last factor is
+         *     allowed.
+         *
+         *     A factor that is not the caller's is `404`.
+         */
+        delete: operations["removeMyFactor"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/me/mfa/recovery-codes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Replace the caller's recovery codes
+         * @description Issues a new batch and invalidates every earlier code, used or not, in
+         *     one statement. The codes are returned **once**.
+         *
+         *     **Requires recent authentication.** The session the caller's token was
+         *     issued through must have authenticated within the last ten minutes;
+         *     otherwise the answer is `403 REAUTHENTICATION_REQUIRED`, and the client
+         *     should send the user through sign-in again (`prompt=login`). A stolen
+         *     session must not be able to add or remove a second factor: that is how a
+         *     takeover becomes permanent and MFA-protected. A token with no session
+         *     (`client_credentials`) can never manage factors.
+         *
+         *     Needs at least one active factor (`409` otherwise): a recovery code
+         *     recovers access past a second factor, and without one there is nothing
+         *     to recover past.
+         */
+        post: operations["regenerateMyRecoveryCodes"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/me/sessions": {
         parameters: {
             query?: never;
@@ -1337,6 +1507,38 @@ export interface paths {
          *     the response reports zero removed.
          */
         post: operations["resetUserMfa"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/organizations/{org_id}/users/{user_id}/mfa": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The organization that owns the resource. Every request is scoped to exactly one. */
+                org_id: components["parameters"]["OrganizationId"];
+                /** @description The user this operation acts on. */
+                user_id: components["parameters"]["UserId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Read a member's second factors
+         * @description Requires `ORG_ADMIN`. **Read-only by design** (`docs/UI-UX/08`): an
+         *     administrator can see which factors a member has and when they were
+         *     added and last used, and can clear them all through
+         *     `POST .../mfa-reset` when a device is lost — but can never enrol or
+         *     remove one on the member's behalf. An administrator who could add a
+         *     factor to someone else's account could sign in as them.
+         *
+         *     Types, labels and dates only. No secret, credential id or public key.
+         */
+        get: operations["getUserMfa"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -2390,7 +2592,7 @@ export interface components {
          *     (`docs/SECURITY/02` §12).
          * @enum {string}
          */
-        ErrorCode: "VALIDATION_ERROR" | "UNAUTHENTICATED" | "PERMISSION_DENIED" | "NOT_FOUND" | "CONFLICT" | "RATE_LIMITED" | "INTERNAL" | "UNAVAILABLE";
+        ErrorCode: "VALIDATION_ERROR" | "UNAUTHENTICATED" | "PERMISSION_DENIED" | "NOT_FOUND" | "CONFLICT" | "RATE_LIMITED" | "INTERNAL" | "UNAVAILABLE" | "REAUTHENTICATION_REQUIRED";
         /**
          * @description One specific problem within a failed request. Present for
          *     `VALIDATION_ERROR`, where naming the bad field is helpful and discloses
@@ -2530,6 +2732,88 @@ export interface components {
                 /** @description Field-level problems. Omitted when there are none. */
                 details?: components["schemas"]["ErrorDetail"][];
             };
+        };
+        /** @description One active second factor. Never its secret or credential material. */
+        MfaFactor: {
+            id: components["schemas"]["ResourceId"];
+            /**
+             * @description `totp` is an authenticator app; `webauthn` is a passkey or security key.
+             * @enum {string}
+             */
+            type: "totp" | "webauthn";
+            /** @description What the user called it, if anything. */
+            label: string | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            last_used_at: string | null;
+        };
+        MyMfa: {
+            factors: components["schemas"]["MfaFactor"][];
+            /**
+             * @description Unused recovery codes. Zero with an active factor means the user has
+             *     no way back in if they lose it, and a client should say so plainly.
+             */
+            recovery_codes_remaining: number;
+            /** @description Whether the caller's organization requires a second factor. When true, the last factor cannot be removed. */
+            mfa_required: boolean;
+            /** @description The factor types this deployment can enrol. Empty when MFA is not configured. */
+            available_types: ("totp" | "webauthn")[];
+        };
+        MemberMfa: {
+            factors: components["schemas"]["MfaFactor"][];
+            recovery_codes_remaining: number;
+        };
+        TotpEnrolmentRequest: {
+            /** @description A name for the authenticator, such as the device it is on. */
+            label?: string;
+        };
+        /**
+         * @description Everything an authenticator app needs, returned once. The QR code is the
+         *     `provisioning_uri` as a module grid rather than an image, so a client
+         *     draws it with its own elements and no image or markup crosses the API.
+         *     Always show `secret` beside it: it is the text alternative for anybody
+         *     who cannot scan.
+         */
+        TotpEnrolment: {
+            factor_id: components["schemas"]["ResourceId"];
+            /** @description The shared secret, base32. Shown once. */
+            secret: string;
+            /** @description The `otpauth://totp/...` URI. */
+            provisioning_uri: string;
+            qr: components["schemas"]["QrCode"];
+            /** @example 6 */
+            digits: number;
+            /**
+             * @description Seconds per code.
+             * @example 30
+             */
+            period: number;
+        };
+        QrCode: {
+            /** @description Modules per side, excluding the quiet zone a renderer should add. */
+            size: number;
+            /** @description One string per row, `1` for a dark module and `0` for a light one. */
+            rows: string[];
+        };
+        TotpConfirmation: {
+            /**
+             * @description The six digits the authenticator shows now.
+             * @example 123456
+             */
+            code: string;
+        };
+        TotpConfirmed: {
+            factor: components["schemas"]["MfaFactor"];
+            /**
+             * @description A new batch of recovery codes when the user had none, shown once;
+             *     null when they already hold unused codes.
+             */
+            recovery_codes: string[] | null;
+        };
+        RecoveryCodes: {
+            /** @description Ten single-use codes, shown once. */
+            codes: string[];
         };
         /**
          * @description One sign-in session, in the least detail that lets a person recognise
@@ -2709,6 +2993,8 @@ export interface components {
         OrganizationId: components["schemas"]["ResourceId"];
         /** @description The user this operation acts on. */
         UserId: components["schemas"]["ResourceId"];
+        /** @description A second factor belonging to the caller. */
+        FactorId: components["schemas"]["ResourceId"];
         /** @description The sign-in session this operation acts on. */
         SessionId: components["schemas"]["ResourceId"];
         /** @description The application. This value is also its OIDC `client_id`. */
@@ -3314,6 +3600,167 @@ export interface operations {
             };
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
+            429: components["responses"]["RateLimited"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    getMyMfa: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The caller's factors. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MyMfa"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            429: components["responses"]["RateLimited"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    beginMyTotpEnrolment: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description A client-generated key making a retried `POST` safe. Replaying a
+                 *     request with the same key returns the original result rather than
+                 *     creating a second resource — which matters most for automated
+                 *     provisioning, where a network timeout is indistinguishable from a
+                 *     failure (`docs/PLAN/05` Part B).
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Required, and may be `{}` for the default name. Required rather than
+         *     optional because the generated server decodes a body on every call,
+         *     and a contract promising an optional body the server refuses would be
+         *     a contract that lies.
+         */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TotpEnrolmentRequest"];
+            };
+        };
+        responses: {
+            /** @description The enrolment has begun. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TotpEnrolment"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["RateLimited"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    confirmMyTotpEnrolment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A second factor belonging to the caller. */
+                factor_id: components["parameters"]["FactorId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TotpConfirmation"];
+            };
+        };
+        responses: {
+            /** @description The factor is active. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TotpConfirmed"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["RateLimited"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    removeMyFactor: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A second factor belonging to the caller. */
+                factor_id: components["parameters"]["FactorId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The factor is gone. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["RateLimited"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    regenerateMyRecoveryCodes: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description A client-generated key making a retried `POST` safe. Replaying a
+                 *     request with the same key returns the original result rather than
+                 *     creating a second resource — which matters most for automated
+                 *     provisioning, where a network timeout is indistinguishable from a
+                 *     failure (`docs/PLAN/05` Part B).
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The new codes. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecoveryCodes"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
             429: components["responses"]["RateLimited"];
             500: components["responses"]["InternalError"];
         };
@@ -4713,6 +5160,36 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MfaReset"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["RateLimited"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    getUserMfa: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The organization that owns the resource. Every request is scoped to exactly one. */
+                org_id: components["parameters"]["OrganizationId"];
+                /** @description The user this operation acts on. */
+                user_id: components["parameters"]["UserId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The member's factors. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemberMfa"];
                 };
             };
             401: components["responses"]["Unauthorized"];

@@ -463,3 +463,58 @@ func TestTheChallengeIsAuditedUnderItsOwnEventTypes(t *testing.T) {
 		}
 	}
 }
+
+// A user who abandons forced enrolment can still sign in (found in P3-10).
+//
+// P3-07 routes a user past the mandate's grace into enrolment. The first visit
+// creates a pending TOTP factor; closing the tab abandons it. The second
+// sign-in used to hit the one-TOTP index on that abandoned row and answer 500
+// on every attempt — a lockout of the exact people the forced flow exists to
+// get through, until an administrator reset them.
+func TestAnAbandonedForcedEnrolmentDoesNotLockTheUserOut(t *testing.T) {
+	s := setup(t)
+
+	sealer, err := mfa.NewSealer([]byte("an-integration-test-key-long-enough"))
+	if err != nil {
+		t.Fatalf("NewSealer: %v", err)
+	}
+	factorStore := mfa.NewStore()
+	totp := &mfa.TOTP{
+		Store: factorStore, DB: s.db, Sealer: sealer, Log: discard(), Issuer: "auth.example.test",
+		OrgOf: func(ctx context.Context, factorID string) (string, error) {
+			var orgID string
+			err := s.db.SQL().QueryRowContext(ctx, `SELECT mfa_factor_org($1)`, factorID).Scan(&orgID)
+			return orgID, err
+		},
+	}
+	s.login.MFA = &mfa.Framework{
+		Registry:   mfa.NewRegistry(totp),
+		Store:      &mfa.PostgresFactors{Store: factorStore, DB: s.db},
+		Challenges: mfa.NewRedisChallenges(s.rdb),
+		Attempts:   &mfa.RedisAttempts{Client: s.rdb},
+		Log:        discard(),
+	}
+	s.login.Enrol = totp
+	s.login.Enrolments = NewRedisEnrolments(s.rdb)
+
+	// The mandate, long past its grace.
+	s.setSettings(t, s.orgID, `{"mfa_required": true, "mfa_required_since": "2020-01-01T00:00:00Z"}`)
+
+	for attempt := 1; attempt <= 2; attempt++ {
+		id := s.begin(t)
+		csrf := s.form(t, id)
+		w := s.submit(t, id, csrf, testEmail, testPassword)
+
+		if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `name="code"`) {
+			t.Fatalf("sign-in %d did not reach the enrolment step (%d):\n%s", attempt, w.Code, w.Body.String())
+		}
+		// Then the user closes the tab: nothing is confirmed.
+	}
+
+	var pending int
+	s.factory.QueryRow(&pending,
+		`SELECT count(*) FROM user_mfa_factors WHERE user_id = $1 AND status = 'pending'`, s.userID)
+	if pending != 1 {
+		t.Errorf("found %d pending factors, want exactly the latest one", pending)
+	}
+}

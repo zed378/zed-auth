@@ -91,6 +91,11 @@ type Deps struct {
 	// than answering with something that looks like a broken feature.
 	SetPassword http.Handler
 
+	// Passkeys serves GET and POST /account/passkeys — passkey registration on
+	// the issuer's own origin, where the relying party is (P3-10, PG-43). Nil
+	// means the route is not registered.
+	Passkeys http.Handler
+
 	// NotMe serves GET and POST /account/not-me — "this sign-in wasn't me"
 	// (P3-08). Nil means the route is not registered.
 	NotMe http.Handler
@@ -162,6 +167,9 @@ type Deps struct {
 	// under /v1/me/sessions, and a member's for an administrator.
 	SessionAPI SessionManagement
 
+	// MfaAPI implements the second-factor operations (P3-10).
+	MfaAPI FactorManagement
+
 	// V1 is the Management API chain (P1-15).
 	//
 	// The routes themselves arrive with P1-16 onward. What is registered here
@@ -222,6 +230,9 @@ func New(cfg config.HTTPConfig, deps Deps) *Server {
 	}
 	if deps.V1 != nil && deps.SessionAPI == nil {
 		panic("httpserver.New: SessionAPI is required when V1 is configured")
+	}
+	if deps.V1 != nil && deps.MfaAPI == nil {
+		panic("httpserver.New: MfaAPI is required when V1 is configured")
 	}
 
 	mux := chi.NewRouter()
@@ -381,6 +392,12 @@ func New(cfg config.HTTPConfig, deps Deps) *Server {
 		mux.Method(http.MethodGet, "/password/set", deps.SetPassword)
 		mux.Method(http.MethodPost, "/password/set", deps.SetPassword)
 	}
+	if deps.Passkeys != nil {
+		// Hand registered for the reason /login is: HTML for a browser, and on
+		// this origin because a passkey is bound to it.
+		mux.Method(http.MethodGet, "/account/passkeys", deps.Passkeys)
+		mux.Method(http.MethodPost, "/account/passkeys", deps.Passkeys)
+	}
 	if deps.NotMe != nil {
 		// The link in a login-anomaly notice (P3-08). Unauthenticated for the
 		// reason /password/set is — the token is the credential — and GET only
@@ -410,6 +427,7 @@ func New(cfg config.HTTPConfig, deps Deps) *Server {
 		Users:             deps.UserAPI,
 		AuditLog:          deps.AuditAPI,
 		SessionManagement: deps.SessionAPI,
+		FactorManagement:  deps.MfaAPI,
 	}
 	// The two error paths the generated wrapper would otherwise answer with
 	// http.Error — a bare text/plain body and a status of its choosing.
@@ -560,6 +578,7 @@ type apiRoutes struct {
 	Users
 	AuditLog
 	SessionManagement
+	FactorManagement
 }
 
 // Manager is the part of the generated interface the Management API implements.
@@ -682,6 +701,16 @@ type SessionManagement interface {
 	RevokeMyOtherSessions(ctx context.Context, request api.RevokeMyOtherSessionsRequestObject) (api.RevokeMyOtherSessionsResponseObject, error)
 	ListUserSessions(ctx context.Context, request api.ListUserSessionsRequestObject) (api.ListUserSessionsResponseObject, error)
 	RevokeUserSession(ctx context.Context, request api.RevokeUserSessionRequestObject) (api.RevokeUserSessionResponseObject, error)
+}
+
+// FactorManagement is the second-factor resource (P3-10).
+type FactorManagement interface {
+	GetMyMfa(ctx context.Context, request api.GetMyMfaRequestObject) (api.GetMyMfaResponseObject, error)
+	BeginMyTotpEnrolment(ctx context.Context, request api.BeginMyTotpEnrolmentRequestObject) (api.BeginMyTotpEnrolmentResponseObject, error)
+	ConfirmMyTotpEnrolment(ctx context.Context, request api.ConfirmMyTotpEnrolmentRequestObject) (api.ConfirmMyTotpEnrolmentResponseObject, error)
+	RemoveMyFactor(ctx context.Context, request api.RemoveMyFactorRequestObject) (api.RemoveMyFactorResponseObject, error)
+	RegenerateMyRecoveryCodes(ctx context.Context, request api.RegenerateMyRecoveryCodesRequestObject) (api.RegenerateMyRecoveryCodesResponseObject, error)
+	GetUserMfa(ctx context.Context, request api.GetUserMfaRequestObject) (api.GetUserMfaResponseObject, error)
 }
 
 var _ api.StrictServerInterface = apiRoutes{}

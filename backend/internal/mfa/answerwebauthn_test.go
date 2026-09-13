@@ -345,3 +345,56 @@ func TestAnOfferWithoutAWebAuthnFactorIsNotAPasskey(t *testing.T) {
 		t.Error("a passkey form would render with no ceremony behind it")
 	}
 }
+
+// --- wired the way the service wires it (found in P3-10) -----------------------------
+
+// A passkey-only user is challenged when the registry holds only TOTP.
+//
+// **This is how cmd/authservice wires the framework**: the registry holds the
+// code-based verifiers, and the passkey ceremony is Framework.WebAuthn, because
+// a WebAuthn assertion is not a code and the real verifier does not implement
+// the code Verifier. Every passkey test above put a FAKE WebAuthn verifier in
+// the registry, which is not how anything runs — and Required skipped any
+// factor type with no registry entry. So in the running service a user whose
+// only factor was a passkey signed in with a password alone, and a user with
+// both was never offered the passkey. Found by P3-10's end-to-end test, the
+// first thing to register a passkey and then sign in with it for real.
+func TestAPasskeyIsChallengedWithTheRegistryAsProductionWiresIt(t *testing.T) {
+	f, _, _ := passkeyFramework(t)
+	f.Registry = NewRegistry(&fakeVerifier{kind: TypeTOTP, correct: "123456"})
+
+	decision := issuedPasskey(t, f, "pending-1")
+
+	offer, err := f.Peek(context.Background(), decision.Handle)
+	if err != nil {
+		t.Fatalf("Peek: %v", err)
+	}
+	if !offer.Passkey() {
+		t.Errorf("the re-rendered challenge offers no passkey: %+v", offer)
+	}
+}
+
+// With no code verifier at all — a build that serves passkeys only — a passkey
+// is still challenged.
+func TestAPasskeyIsChallengedWithAnEmptyRegistry(t *testing.T) {
+	f, _, _ := passkeyFramework(t)
+	f.Registry = NewRegistry()
+
+	issuedPasskey(t, f, "pending-1")
+}
+
+// And without a ceremony, a passkey cannot be answered and is not offered —
+// the rollback case the registry check exists for.
+func TestAPasskeyIsNotOfferedWithoutACeremony(t *testing.T) {
+	f, _, _ := passkeyFramework(t)
+	f.Registry = NewRegistry(&fakeVerifier{kind: TypeTOTP, correct: "123456"})
+	f.WebAuthn = nil
+
+	decision, err := f.Required(context.Background(), "u1", "o1", "pending-1")
+	if err != nil {
+		t.Fatalf("Required: %v", err)
+	}
+	if decision.Challenge {
+		t.Error("a passkey was challenged with no ceremony to answer it")
+	}
+}

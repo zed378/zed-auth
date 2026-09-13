@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 
 import { Badge, statusTone } from "../components/Badge";
 import { Button } from "../components/Button";
@@ -12,6 +12,7 @@ import type { Column } from "../components/Table";
 import { api, queryKeys } from "../lib/api/client";
 import { useOrgId, useProjects, useUserGrants } from "../lib/api/queries";
 import { useAuth } from "../lib/auth/AuthProvider";
+import { MfaTab } from "./MfaTab";
 
 /**
  * User detail (P1-23, `docs/UI-UX/08`).
@@ -30,7 +31,11 @@ type Tab = "profile" | "grants" | "sessions" | "mfa";
 export function UserDetailPage() {
   const { userId } = useParams<{ userId: string }>();
   const orgId = useOrgId();
-  const [tab, setTab] = useState<Tab>("profile");
+  // `?tab=` so a return from signing in again, or from the hosted passkey page,
+  // lands on the tab the user left rather than on Profile (P3-10).
+  const [search] = useSearchParams();
+  const initial = search.get("tab");
+  const [tab, setTab] = useState<Tab>(initial === "mfa" || initial === "grants" ? initial : "profile");
 
   const user = useQuery({
     queryKey: [...queryKeys.users, orgId, "detail", userId],
@@ -72,7 +77,7 @@ export function UserDetailPage() {
             ["profile", "Profile", true],
             ["grants", "Grants", true],
             ["sessions", "Sessions", false],
-            ["mfa", "Multi-factor", false],
+            ["mfa", "Multi-factor", true],
           ] as [Tab, string, boolean][]
         ).map(([key, label, available]) => (
           <button
@@ -109,6 +114,8 @@ export function UserDetailPage() {
           />
         ) : tab === "grants" ? (
           <GrantsTab orgId={orgId} userId={userId ?? null} />
+        ) : tab === "mfa" ? (
+          <MfaTab orgId={orgId} userId={userId ?? ""} />
         ) : (
           <NotYet tab={tab} />
         )}
@@ -289,20 +296,16 @@ function GrantsTab({ orgId, userId }: { orgId: string | null; userId: string | n
 }
 
 function NotYet({ tab }: { tab: Tab }) {
-  const copy: Record<Exclude<Tab, "profile" | "grants">, { title: string; body: string }> = {
+  const copy: Record<Exclude<Tab, "profile" | "grants" | "mfa">, { title: string; body: string }> = {
     sessions: {
       title: "Sessions are not shown here yet",
       body:
         "The service tracks and revokes sessions today — deactivating a user ends them — but a " +
         "screen for listing and revoking them individually is later work.",
     },
-    mfa: {
-      title: "Multi-factor is not available yet",
-      body: "Enrolment and factor management arrive in Phase 3.",
-    },
   };
 
-  const { title, body } = copy[tab as Exclude<Tab, "profile" | "grants">];
+  const { title, body } = copy[tab as Exclude<Tab, "profile" | "grants" | "mfa">];
 
   return (
     <div className="rounded border border-border bg-bg-surface p-5">

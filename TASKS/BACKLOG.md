@@ -377,6 +377,30 @@ The cost of the omission is smaller than it looks today, because both claims are
 
 ---
 
+### PG-43 — A passkey cannot be registered from the console's page
+
+**Affects**: `TASKS/PHASE-3-ADVANCED-SECURITY.md` § P3-05, P3-10, P3-12, `docs/PLAN/06-FRONTEND-ARCHITECTURE.md` (the console's deployment), `docs/UI-UX/08` (MFA tab, personal settings).
+
+WebAuthn binds a credential to a relying party ID, and the browser checks that the page running the ceremony belongs to it. `P3-05` made the relying party this service's own origin — deliberately; that binding is what stops a lookalike page from harvesting a passkey. `docs/PLAN/06` deploys the console as a separate static bundle on its own origin. A registration started in the console page is therefore refused by the browser before the service ever sees it, and `docs/UI-UX/08` specifies "register passkey" on a console screen without saying so.
+
+**How `P3-10` resolved it**: registration happens on a hosted page on the issuer's origin, `/account/passkeys`, authenticated by the SSO session cookie and requiring a recent sign-in. The console sends the user there with its `client_id` and a `return_to` that must be one of that application's registered origins (ADR-020), and the page links back. It is the second page carrying script in the hosted flow, under `PG-40`'s rules.
+
+**Recommendation**: `docs/UI-UX/08` should say that passkey registration leaves the console, and `docs/PLAN/06` should note that the console cannot run WebAuthn ceremonies for this service's relying party. Through the deliberate plan-change process.
+
+---
+
+### PG-42 — No task owns the factor-management API
+
+**Affects**: `TASKS/PHASE-3-ADVANCED-SECURITY.md` § P3-02, P3-04, P3-05, P3-10, P3-12; `docs/PLAN/05-API-CONTRACT.md` § Endpoint Structure; FR-14 (API-first).
+
+`P3-02` built TOTP enrolment, `P3-04` recovery codes, `P3-05` passkey registration — each as a mechanism, each deferring "the endpoint" to `P3-12`'s screen. `P3-10` (the MFA tab) comes first, is marked console-only, and its own steps (enrol, remove, regenerate) need that API. `docs/PLAN/05` lists no MFA routes at all. Built as a console feature, FR-14 would be broken on day one: the console would gain a capability the API does not have.
+
+**How `P3-10` resolved it**: the API was built with the tab — `GET /v1/me/mfa`, TOTP begin and confirm, factor removal, recovery-code regeneration, and a read-only administrator view — carrying the three requirements the earlier tasks passed forward: recent authentication (10 minutes, via the session's authentication time, answered `REAUTHENTICATION_REQUIRED` so the client re-authenticates through the normal sign-in), audit events, and recovery codes issued with the first factor.
+
+**Recommendation**: `docs/PLAN/05`'s endpoint summary should list `/v1/me/mfa` and `/v1/organizations/{org_id}/users/{user_id}/mfa`, and the P3 card set should say which task owns an API that several screens consume. Through the deliberate plan-change process.
+
+---
+
 ### PG-41 — New-location and impossible-travel detection need a geolocation source, and no plan document names one
 
 **Affects**: `TASKS/PHASE-3-ADVANCED-SECURITY.md` § P3-08 steps 2–3, `docs/PLAN/09-SECURITY.md` § Audit & Anomaly Detection, `docs/PLAN/07-BACKEND-ARCHITECTURE.md` (dependencies), `docs/PLAN/14-DEPLOYMENT.md` (what an operator provisions).
@@ -422,6 +446,8 @@ A **hash**, not a nonce: a nonce changes per response and authorises whatever th
 The script reads one JSON blob already in the page, calls one browser API, fills a hidden field and submits a form that was already there. No framework, no `fetch`, no dynamic code. `connect-src` is still absent, so it cannot talk anywhere.
 
 **The residual, stated plainly**: this is the one page in the estate where a content-injection bug could reach a script context. That is the price of phishing resistance, it is contained to one step of one flow, and three tests hold the line. It is not free and it is not pretended to be.
+
+**Extended by `P3-10`**: a second scripted page, `/account/passkeys` (registration — `PG-43`), under exactly the same rules: one inline script pinned by hash, no `fetch`, no `connect-src`, one browser API and one form submit. The page where a password is typed still has none.
 
 **Recommendation**: `docs/PLAN/02` FR-2 and whichever `docs/UI-UX/` document inherits `P1-12`'s "no script" rule should both state the exception and its boundary, so the next person reading either one finds the decision rather than an apparent contradiction. Through the deliberate plan-change process.
 

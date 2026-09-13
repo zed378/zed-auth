@@ -156,6 +156,40 @@ export function useUserGrants(orgId: string | null, userId: string | null) {
   });
 }
 
+/**
+ * The caller's own second factors (P3-10).
+ *
+ * Keyed on the organization like every other key (PF-20), even though the
+ * route takes the user from the token: switching organizations switches the
+ * token, and with it whose factors these are.
+ */
+export function useMyMfa(orgId: string | null, enabled: boolean) {
+  return useQuery({
+    queryKey: [...queryKeys.mfa, orgId, "me"],
+    enabled: orgId !== null && enabled,
+    queryFn: async () => {
+      const { data, error } = await api.GET("/v1/me/mfa");
+      if (error !== undefined) throw asFailure(error);
+      return data;
+    },
+  });
+}
+
+/** A member's factors, read-only, for an administrator (P3-10). */
+export function useUserMfa(orgId: string | null, userId: string | null, enabled: boolean) {
+  return useQuery({
+    queryKey: [...queryKeys.mfa, orgId, userId],
+    enabled: orgId !== null && userId !== null && enabled,
+    queryFn: async () => {
+      const { data, error } = await api.GET("/v1/organizations/{org_id}/users/{user_id}/mfa", {
+        params: { path: { org_id: orgId as string, user_id: userId as string } },
+      });
+      if (error !== undefined) throw asFailure(error);
+      return data;
+    },
+  });
+}
+
 export function useUsers(orgId: string | null, search: string) {
   return useQuery({
     queryKey: [...queryKeys.users, orgId, search],
@@ -223,7 +257,7 @@ export class ApiFailure extends Error {
   }
 }
 
-function asFailure(error: unknown): ApiFailure {
+export function asFailure(error: unknown): ApiFailure {
   const envelope = error as { error?: { code?: string; message?: string } } | undefined;
   return new ApiFailure(
     envelope?.error?.code ?? "SERVER_ERROR",
