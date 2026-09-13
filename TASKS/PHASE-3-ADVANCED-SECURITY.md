@@ -309,7 +309,7 @@
 
 | | |
 |---|---|
-| **Status** | TODO |
+| **Status** | DONE except DoD item 4 — 2026-09-13, [record](../MEMORY/records/2026-09-13-P3-08-login-anomaly-detection.md), [spec](../MEMORY/specs/P3-08-login-anomaly-detection.md). The false-positive measurement needs staging, which is unreachable; notifications ship **off** until it is done |
 | **Depends on** | P1-11, P1-14 |
 | **Plan refs** | `docs/PLAN/09-SECURITY.md` § Audit & Anomaly Detection, `docs/PLAN/13-OBSERVABILITY.md` § Alerting, `docs/SECURITY/03-DETECTION-AND-MONITORING.md` |
 | **Spec required** | Yes — detection control |
@@ -327,12 +327,12 @@
 7. Decide whether anomalies trigger step-up or only notification. Step-up on a false positive is disruptive; notification alone is passive. Record the decision and its reasoning.
 
 **Definition of Done**
-- [ ] New-device and new-location logins are detected and notified.
-- [ ] Impossible travel is detected and tested with synthetic data.
-- [ ] The "this wasn't me" path revokes sessions and forces a credential change.
-- [ ] The false-positive rate is measured against real staging traffic before enabling notifications broadly.
-- [ ] The step-up-versus-notify decision is recorded in `MEMORY/DECISIONS.md`.
-- [ ] Signals appear in monitoring per `docs/SECURITY/03`.
+- [x] New-device and new-location logins are detected and notified. New-location needs an operator-supplied geolocation file — no plan document names a source, recorded as `PG-41`; without one, new-device detection still runs and startup says the location signals are off.
+- [x] Impossible travel is detected and tested with synthetic data — synthetic coordinates for the computation (distances verified two ways), and a synthetic MaxMind database written by the test for the reader.
+- [x] The "this wasn't me" path revokes sessions and forces a credential change — every session, every refresh token and every outstanding link, and the password is **cleared**, because ending sessions alone leaves the stranger a working password. Confirm on GET, act on POST. Building it found `/password/set` accepting any token purpose; fixed before any report link existed.
+- [ ] The false-positive rate is measured against real staging traffic before enabling notifications broadly. **Not claimable**: staging is unreachable. Honoured in intent — `AUTH_ANOMALY_NOTIFY` defaults off, detection and `auth_login_anomalies_total` default on, so the measurement can be taken without anybody being emailed.
+- [x] The step-up-versus-notify decision is recorded in `MEMORY/DECISIONS.md` — ADR-024: notify only.
+- [x] Signals appear in monitoring per `docs/SECURITY/03` — the metric labelled by signal, and two alert rules with thresholds marked provisional until measured. Adding them found `P3-06`'s reuse alert had never been written; it is now.
 
 ---
 

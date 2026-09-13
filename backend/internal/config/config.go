@@ -67,6 +67,10 @@ type Config struct {
 	// all, which is a valid deployment and says so at startup.
 	MFA MFAConfig
 
+	// Anomaly is login anomaly detection (P3-08). Detection is on by default;
+	// notifying users is off by default.
+	Anomaly AnomalyConfig
+
 	// Mail is ADR-018: plain SMTP by URL, no provider SDK. Unset means no
 	// outbound mail, which is a valid deployment — it says so once at startup
 	// rather than failing silently at the first invitation.
@@ -222,6 +226,30 @@ type MFAConfig struct {
 // Enabled reports whether the factor framework should be built.
 func (c MFAConfig) Enabled() bool { return c.SealKeyRef != "" }
 
+// AnomalyConfig is login anomaly detection (P3-08).
+//
+// **Three switches, because they are three decisions.** Detection writes an
+// audit row and a metric and tells nobody; notification emails users; the
+// geolocation database is a file with a licence an operator has to accept.
+// Folding them into one switch would mean the false-positive rate could not be
+// measured without emailing everybody — the exact order the card forbids.
+type AnomalyConfig struct {
+	// Detect runs detection after every login. Default true: it is invisible to
+	// users and it is what produces the measurement notifications wait for.
+	Detect bool
+
+	// Notify emails a user when their login looked unusual. **Default false**,
+	// until the false-positive rate has been measured on real traffic
+	// (MEMORY/specs/P3-08 § 21). Needs outbound mail; without it this is
+	// ignored and startup says so.
+	Notify bool
+
+	// GeoIPPath is a MaxMind-format city database. Empty means new-location
+	// and impossible-travel detection are off and new-device detection still
+	// runs. No database ships with this service (PG-41).
+	GeoIPPath string
+}
+
 // TracingConfig configures OTLP export. Empty endpoint disables tracing.
 type TracingConfig struct {
 	Endpoint    string
@@ -332,6 +360,11 @@ func LoadFrom(getenv Getenv) (*Config, error) {
 		},
 		MFA: MFAConfig{
 			SealKeyRef: l.optional("AUTH_MFA_SEAL_KEY_REF", ""),
+		},
+		Anomaly: AnomalyConfig{
+			Detect:    l.boolean("AUTH_ANOMALY_DETECT", true),
+			Notify:    l.boolean("AUTH_ANOMALY_NOTIFY", false),
+			GeoIPPath: l.optional("AUTH_ANOMALY_GEOIP_PATH", ""),
 		},
 		Tracing: TracingConfig{
 			Endpoint:    l.optional("AUTH_OTLP_ENDPOINT", ""),

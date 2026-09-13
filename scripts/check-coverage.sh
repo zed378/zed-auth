@@ -39,6 +39,7 @@ internal/login:$FLOOR:P1-12
 internal/ratelimit:$FLOOR:P1-13
 internal/oauth/userinfo:$FLOOR:P1-08
 internal/mfa:$FLOOR:P3-01
+internal/anomaly:$FLOOR:P3-08
 "
 
 profile=$(mktemp)

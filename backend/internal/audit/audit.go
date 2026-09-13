@@ -92,6 +92,19 @@ const (
 	// EventMFAEnrolled is a factor that became usable.
 	EventMFAEnrolled EventType = "user.mfa.enrolled"
 
+	// Login anomalies (P3-08).
+	//
+	// EventLoginAnomaly records every detection, notified or not, so the
+	// false-positive rate can be measured before notifications are turned on
+	// broadly — the card's own precondition. The payload names which signals
+	// fired and a coarse location, never the full IP.
+	EventLoginAnomaly EventType = "user.login.anomaly"
+
+	// EventLoginReportedNotMe is the owner confirming a sign-in was not theirs.
+	// Among the highest-signal rows in the log: a user saying, in so many words,
+	// that somebody else has their credentials.
+	EventLoginReportedNotMe EventType = "user.login.reported_not_me"
+
 	// EventTokenIssued records a successful exchange at the token endpoint
 	// (P1-07). The payload names the client, the grant and the scope, and
 	// never a token — the whole point of the event is to reconstruct who was
