@@ -49,6 +49,7 @@ import (
 	"github.com/zed378/zed-auth/backend/internal/ratelimit"
 	"github.com/zed378/zed-auth/backend/internal/role"
 	"github.com/zed378/zed-auth/backend/internal/session"
+	"github.com/zed378/zed-auth/backend/internal/sessionapi"
 	"github.com/zed378/zed-auth/backend/internal/signing"
 	"github.com/zed378/zed-auth/backend/internal/storage/postgres"
 	"github.com/zed378/zed-auth/backend/internal/user"
@@ -611,11 +612,19 @@ func run() error {
 		Passwords: userStore,
 	}
 
-	// Login anomaly detection (P3-08). Fatal only when an operator named a
-	// geolocation file that cannot be opened — a detector silently running
-	// without the data it was configured with would report "no unusual
-	// locations" for as long as nobody looked.
-	anomalies, err := buildAnomalyDetection(cfg, db, auditor, mailer, userStore, mailQuotas, metrics, log)
+	// The geolocation database (PG-41), opened once and shared: detection
+	// compares locations (P3-08) and the sessions API shows them (P3-09).
+	// Fatal only when an operator named a file that cannot be opened — running
+	// silently without the data it was configured with would report "no
+	// unusual locations" and "location unknown" for as long as nobody looked.
+	locator, err := openLocator(cfg, log)
+	if err != nil {
+		log.Error("the geolocation database could not be opened", "error", err.Error())
+		return err
+	}
+
+	// Login anomaly detection (P3-08).
+	anomalies, err := buildAnomalyDetection(cfg, db, auditor, mailer, userStore, mailQuotas, metrics, locator, log)
 	if err != nil {
 		log.Error("login anomaly detection could not be configured", "error", err.Error())
 		return err
@@ -689,6 +698,22 @@ func run() error {
 			"remedy", "run: keyctl rotate")
 	}
 
+	// The sessions resource (P3-09). The same manager and refresh store the
+	// logout and deactivation paths use, so a session ended here is ended the
+	// same way — rows, cache tombstones and refresh tokens together.
+	sessionAPI := &sessionapi.Handler{
+		Audit:    auditor,
+		Sessions: sessions,
+		Refresh:  token.NewRefreshStore(),
+		Members:  userStore,
+		DB:       db,
+		Policy:   session.DefaultPolicy,
+		Log:      log,
+	}
+	if locator != nil {
+		sessionAPI.Locator = locator
+	}
+
 	srv := httpserver.New(cfg.HTTP, httpserver.Deps{
 		Logger:         log,
 		Health:         health,
@@ -717,6 +742,7 @@ func run() error {
 		AuthzAPI:       authzChecks,
 		UserAPI:        users,
 		AuditAPI:       &auditlog.Handler{DB: db, Log: log},
+		SessionAPI:     sessionAPI,
 		// Explicit configuration, not inferred from the environment: see the
 		// comment on config.HTTPConfig.TrustProxyHeaders. Defaults to false,
 		// so a deployment behind a proxy that forwards client headers
@@ -872,9 +898,30 @@ func resolveSecrets(cfg *config.Config) (serviceSecrets, error) {
 //
 // Returns the concrete type so a disabled detector is a nil pointer the caller
 // checks, never a nil pointer inside a non-nil interface.
+// openLocator opens the configured geolocation database, or returns nil when
+// none is configured.
+//
+// Returns the concrete pointer, and callers assign it to an interface only when
+// it is non-nil, so "no database" is a nil interface rather than a nil pointer
+// inside one.
+func openLocator(cfg *config.Config, log *slog.Logger) (*anomaly.FileLocator, error) {
+	if cfg.Anomaly.GeoIPPath == "" {
+		log.Info("no geolocation database is configured; new-location and impossible-travel detection are off, "+
+			"and session locations are not shown",
+			"set", "AUTH_ANOMALY_GEOIP_PATH")
+		return nil, nil
+	}
+	locator, err := anomaly.OpenLocator(cfg.Anomaly.GeoIPPath)
+	if err != nil {
+		return nil, fmt.Errorf("open the geolocation database: %w", err)
+	}
+	return locator, nil
+}
+
 func buildAnomalyDetection(
 	cfg *config.Config, db *postgres.DB, auditor *audit.Writer, mailer *mail.SMTP,
-	users *user.Store, mailQuotas *ratelimit.Quotas, metrics *observability.Metrics, log *slog.Logger,
+	users *user.Store, mailQuotas *ratelimit.Quotas, metrics *observability.Metrics,
+	locator *anomaly.FileLocator, log *slog.Logger,
 ) (*anomaly.Detector, error) {
 	if !cfg.Anomaly.Detect {
 		log.Info("login anomaly detection is switched off", "set", "AUTH_ANOMALY_DETECT=true")
@@ -888,14 +935,7 @@ func buildAnomalyDetection(
 		Log:      log,
 	}
 
-	if cfg.Anomaly.GeoIPPath == "" {
-		log.Info("no geolocation database is configured; new-location and impossible-travel detection are off",
-			"set", "AUTH_ANOMALY_GEOIP_PATH")
-	} else {
-		locator, err := anomaly.OpenLocator(cfg.Anomaly.GeoIPPath)
-		if err != nil {
-			return nil, fmt.Errorf("open the geolocation database: %w", err)
-		}
+	if locator != nil {
 		detector.Locator = locator
 	}
 

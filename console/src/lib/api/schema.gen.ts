@@ -456,6 +456,105 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/me/sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the caller's sign-in sessions
+         * @description The caller's own live sessions, newest first. Requires only a valid
+         *     access token: the user comes from the token, and nothing in the request
+         *     names one, so this cannot describe anybody else (`FR-5`).
+         *
+         *     Each entry describes a device and a place in the least detail that lets
+         *     a person recognise it: the browser family and operating system, and a
+         *     city and country when the deployment has a geolocation database. **No
+         *     IP address and no raw user agent**, for the user or for an
+         *     administrator: the audit log keeps the address for an investigation,
+         *     and a session list is not one.
+         *
+         *     Only sessions that can still be used are listed: not ended, not past
+         *     their expiry, not idle past the timeout.
+         *
+         *     `current` marks the session the caller's token was issued through. A
+         *     `client_credentials` token has no session and no user sessions.
+         */
+        get: operations["listMySessions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/me/sessions/{session_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The sign-in session this operation acts on. */
+                session_id: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * End one of the caller's sessions
+         * @description Ends the session and revokes every refresh token issued through it, for
+         *     every application it signed into. **Effective on the next request**,
+         *     including through the session cache.
+         *
+         *     Ending the caller's own current session is allowed. It is a sign-out,
+         *     and the token used for this request stops working.
+         *
+         *     A session that is not the caller's, in any organization, is `404`, the
+         *     same answer as one that does not exist. A session of the caller's that
+         *     has already ended is `204`: a repeated click is not an error.
+         *
+         *     Applications that validate access tokens locally keep accepting one
+         *     already issued until it expires, at most ten minutes. Everything this
+         *     service answers (userinfo, introspection, refresh and this API)
+         *     refuses it at once.
+         */
+        delete: operations["revokeMySession"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/me/sessions/revoke-others": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * End every session but the current one
+         * @description What a person who suspects their account is in use somewhere else
+         *     actually wants: everything else signed out, without losing the device
+         *     in their hand. Refresh tokens issued through the ended sessions are
+         *     revoked too.
+         *
+         *     **Needs a token issued through a sign-in session.** A token with no
+         *     session (`client_credentials`) has no "current" to keep, and is
+         *     refused with `400` rather than taken to mean "end all of them".
+         */
+        post: operations["revokeMyOtherSessions"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/organizations": {
         parameters: {
             query?: never;
@@ -1239,6 +1338,83 @@ export interface paths {
          */
         post: operations["resetUserMfa"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/organizations/{org_id}/users/{user_id}/sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The organization that owns the resource. Every request is scoped to exactly one. */
+                org_id: components["parameters"]["OrganizationId"];
+                /** @description The user this operation acts on. */
+                user_id: components["parameters"]["UserId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * List a member's sign-in sessions
+         * @description Requires `ORG_ADMIN` over the member's organization. The member's live
+         *     sessions, newest first: the first question in an offboarding or an
+         *     incident is where somebody is still signed in.
+         *
+         *     Each entry describes a device and a place in the least detail that lets
+         *     a person recognise it: the browser family and operating system, and a
+         *     city and country when the deployment has a geolocation database. **No
+         *     IP address and no raw user agent**, for the user or for an
+         *     administrator: the audit log keeps the address for an investigation,
+         *     and a session list is not one.
+         *
+         *     Only sessions that can still be used are listed: not ended, not past
+         *     their expiry, not idle past the timeout.
+         *
+         *     `current` is true only for the session the caller's own token came from,
+         *     so it is false throughout unless an administrator is looking at
+         *     themselves.
+         */
+        get: operations["listUserSessions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/organizations/{org_id}/users/{user_id}/sessions/{session_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The organization that owns the resource. Every request is scoped to exactly one. */
+                org_id: components["parameters"]["OrganizationId"];
+                /** @description The user this operation acts on. */
+                user_id: components["parameters"]["UserId"];
+                /** @description The sign-in session this operation acts on. */
+                session_id: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * End one of a member's sessions
+         * @description Requires `ORG_ADMIN`, the same as deactivating the member, and ending
+         *     one session is strictly less than that. The session and every refresh
+         *     token issued through it end, effective on the next request.
+         *
+         *     The session must belong to the member in the path. One that belongs to
+         *     someone else, or to no one, is `404`. One that has already ended is
+         *     `204`.
+         *
+         *     Audited as `session.revoked` with the administrator as actor and the
+         *     member as target.
+         */
+        delete: operations["revokeUserSession"];
         options?: never;
         head?: never;
         patch?: never;
@@ -2356,6 +2532,58 @@ export interface components {
             };
         };
         /**
+         * @description One sign-in session, in the least detail that lets a person recognise
+         *     it. There is deliberately no IP address and no user agent string.
+         */
+        Session: {
+            id: components["schemas"]["ResourceId"];
+            device: components["schemas"]["SessionDevice"];
+            /**
+             * @description "City, CC", or just the country code, when the deployment has a
+             *     geolocation database and the address resolves. Null otherwise.
+             * @example Jakarta, ID
+             */
+            location: string | null;
+            /**
+             * @description How the session was authenticated, as RFC 8176 `amr` values.
+             * @example [
+             *       "pwd",
+             *       "otp"
+             *     ]
+             */
+            auth_methods: string[];
+            /** Format: date-time */
+            created_at: string;
+            /**
+             * Format: date-time
+             * @description When the session was last used. Recorded at most once a minute, so
+             *     it may trail real activity by that much.
+             */
+            last_active_at: string;
+            /**
+             * Format: date-time
+             * @description The absolute end of the session, whatever its activity.
+             */
+            expires_at: string;
+            /** @description Whether this is the session the caller's own token was issued through. */
+            current: boolean;
+        };
+        /** @description The browser family and operating system. Null where unrecognised; API clients and scripts usually are. */
+        SessionDevice: {
+            /** @example Chrome */
+            browser: string | null;
+            /** @example Windows */
+            os: string | null;
+        };
+        SessionList: {
+            sessions: components["schemas"]["Session"][];
+            page_info?: components["schemas"]["PageInfo"];
+        };
+        SessionRevocation: {
+            /** @description How many sessions were ended. Zero when there were no others. */
+            revoked: number;
+        };
+        /**
          * @description The pagination envelope every collection response embeds.
          *
          *     Token-based rather than offset-based: an offset re-reads rows that
@@ -2481,6 +2709,8 @@ export interface components {
         OrganizationId: components["schemas"]["ResourceId"];
         /** @description The user this operation acts on. */
         UserId: components["schemas"]["ResourceId"];
+        /** @description The sign-in session this operation acts on. */
+        SessionId: components["schemas"]["ResourceId"];
         /** @description The application. This value is also its OIDC `client_id`. */
         ApplicationId: components["schemas"]["ResourceId"];
         /** @description The project the resource belongs to. */
@@ -3080,6 +3310,101 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AdministeredOrganizationList"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            429: components["responses"]["RateLimited"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    listMySessions: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Maximum items to return. The server may return fewer, and returning
+                 *     fewer never means the collection is exhausted — only an absent
+                 *     `next_page_token` means that.
+                 */
+                page_size?: components["parameters"]["PageSize"];
+                /**
+                 * @description The `next_page_token` from the previous response. Opaque: its contents
+                 *     are not part of the contract and must not be constructed, parsed, or
+                 *     persisted by a client.
+                 */
+                page_token?: components["parameters"]["PageToken"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The caller's live sessions. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionList"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            429: components["responses"]["RateLimited"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    revokeMySession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The sign-in session this operation acts on. */
+                session_id: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The session is over. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["RateLimited"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    revokeMyOtherSessions: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description A client-generated key making a retried `POST` safe. Replaying a
+                 *     request with the same key returns the original result rather than
+                 *     creating a second resource — which matters most for automated
+                 *     provisioning, where a network timeout is indistinguishable from a
+                 *     failure (`docs/PLAN/05` Part B).
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The other sessions are over. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionRevocation"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -4389,6 +4714,80 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["MfaReset"];
                 };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["RateLimited"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    listUserSessions: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Maximum items to return. The server may return fewer, and returning
+                 *     fewer never means the collection is exhausted — only an absent
+                 *     `next_page_token` means that.
+                 */
+                page_size?: components["parameters"]["PageSize"];
+                /**
+                 * @description The `next_page_token` from the previous response. Opaque: its contents
+                 *     are not part of the contract and must not be constructed, parsed, or
+                 *     persisted by a client.
+                 */
+                page_token?: components["parameters"]["PageToken"];
+            };
+            header?: never;
+            path: {
+                /** @description The organization that owns the resource. Every request is scoped to exactly one. */
+                org_id: components["parameters"]["OrganizationId"];
+                /** @description The user this operation acts on. */
+                user_id: components["parameters"]["UserId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The member's live sessions. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionList"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["RateLimited"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    revokeUserSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The organization that owns the resource. Every request is scoped to exactly one. */
+                org_id: components["parameters"]["OrganizationId"];
+                /** @description The user this operation acts on. */
+                user_id: components["parameters"]["UserId"];
+                /** @description The sign-in session this operation acts on. */
+                session_id: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The session is over. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
