@@ -169,6 +169,9 @@ type Challenger interface {
 	// AnswerRecovery completes a challenge with a recovery code (P3-04).
 	AnswerRecovery(ctx context.Context, handle, pendingID, code string) (mfa.Outcome, error)
 
+	// AnswerWebAuthn completes a challenge with a signed assertion (P3-05).
+	AnswerWebAuthn(ctx context.Context, handle, pendingID string, assertion []byte) (mfa.Outcome, error)
+
 	// Peek reports what a live challenge may be answered with, consuming
 	// nothing — for re-rendering the page.
 	Peek(ctx context.Context, handle string) (mfa.Offer, error)
@@ -660,7 +663,11 @@ func (h *Handler) authenticate(
 		return attempt{
 			result: resultChallenge,
 			handle: decision.Handle,
-			offer:  mfa.Offer{Types: decision.Offered, Recovery: decision.Recovery},
+			offer: mfa.Offer{
+				Types:           decision.Offered,
+				Recovery:        decision.Recovery,
+				WebAuthnOptions: decision.WebAuthnOptions,
+			},
 		}, session.Session{}, nil
 	}
 
