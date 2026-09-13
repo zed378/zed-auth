@@ -58,6 +58,15 @@ type Metrics struct {
 	// names a misconfigured service account.
 	TokenErrors *prometheus.CounterVec
 
+	// RefreshReuse counts rotated refresh tokens presented again (P3-06).
+	//
+	// Unlabelled and deliberately so. A label would invite a dashboard that
+	// breaks it down by client and a threshold per series; this is a counter
+	// whose correct alert threshold is **any increase at all**, because a
+	// refresh token existing in two places is never routine. Labels would make
+	// it look like something to be tolerated at a low rate.
+	RefreshReuse prometheus.Counter
+
 	// TokenDuration is bucketed on docs/PLAN/12's targets (p50 < 50ms, p95 < 200ms,
 	// p99 < 400ms) so a quantile query answers "did we meet it" without
 	// interpolating across a wide bucket — the same reasoning P0-11 applied to
@@ -288,6 +297,10 @@ func NewMetrics(service, version string) *Metrics {
 			"auth_token_errors_total",
 			"Token endpoint failures by grant and OAuth error code.",
 			"grant", "error"),
+		RefreshReuse: factory.counter(
+			"auth_refresh_reuse_detected_total",
+			"Rotated refresh tokens presented again. docs/PLAN/13 § Alerting: page on any increase — "+
+				"this counter has no routine baseline, unlike auth_token_errors_total."),
 		TokenDuration: factory.histogramVec(
 			"auth_token_duration_seconds",
 			"Token endpoint latency by grant, bucketed on docs/PLAN/12's targets.",

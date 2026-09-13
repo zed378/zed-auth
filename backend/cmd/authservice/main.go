@@ -1412,3 +1412,7 @@ func (o tokenObserver) Issued(grant string, d time.Duration) {
 func (o tokenObserver) Denied(grant, errorCode string) {
 	o.m.TokenErrors.WithLabelValues(grant, errorCode).Inc()
 }
+
+func (o tokenObserver) RefreshReuse() {
+	o.m.RefreshReuse.Inc()
+}

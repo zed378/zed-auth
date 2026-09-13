@@ -82,7 +82,16 @@ const (
 	EventTokenIssued EventType = "token.issued"
 
 	EventTokenRevoked EventType = "token.revoked"
-	EventTokenReuse   EventType = "token.reuse_detected"
+
+	// EventRefreshReuseDetected is a rotated refresh token presented again
+	// (P3-06).
+	//
+	// One of the strongest theft signals this service can emit: it means a
+	// refresh token exists in two places. The payload names the family, the
+	// client and how many tokens the kill revoked — never a token and never a
+	// hash.
+	EventRefreshReuseDetected EventType = "token.refresh.reuse_detected"
+	EventTokenReuse           EventType = "token.reuse_detected"
 )
 
 // User lifecycle (P1-19).

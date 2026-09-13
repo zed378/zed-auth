@@ -41,6 +41,19 @@ var ErrRefreshNotFound = errors.New("token: refresh token not found")
 
 const refreshBytes = 32
 
+// newRefreshPlaintext mints the opaque value a client holds.
+//
+// Shared with rotation rather than duplicated, so a successor is the same kind
+// of thing as an original issuance — a second generator is a second chance to
+// pick a different length.
+func newRefreshPlaintext() (string, error) {
+	buf := make([]byte, refreshBytes)
+	if _, err := io.ReadFull(rand.Reader, buf); err != nil {
+		return "", fmt.Errorf("token: generating refresh token: %w", err)
+	}
+	return base64.RawURLEncoding.EncodeToString(buf), nil
+}
+
 // RefreshToken is a plaintext refresh token on its way to the client.
 //
 // The same redacting type as client.Secret and session.Token, for the same
@@ -92,11 +105,10 @@ func NewRefreshStore() *RefreshStore { return &RefreshStore{} }
 func (s *RefreshStore) Issue(
 	ctx context.Context, tx *postgres.Tx, in Refresh, familyID string, now time.Time,
 ) (RefreshToken, string, error) {
-	buf := make([]byte, refreshBytes)
-	if _, err := io.ReadFull(rand.Reader, buf); err != nil {
-		return RefreshToken{}, "", fmt.Errorf("token: generating refresh token: %w", err)
+	plaintext, err := newRefreshPlaintext()
+	if err != nil {
+		return RefreshToken{}, "", err
 	}
-	plaintext := base64.RawURLEncoding.EncodeToString(buf)
 
 	expires := now.Add(RefreshTokenLifetime)
 	familyExpires := now.Add(FamilyLifetime)
@@ -111,7 +123,7 @@ func (s *RefreshStore) Issue(
 	}
 
 	var id, storedFamily string
-	err := tx.QueryRow(ctx, `
+	err = tx.QueryRow(ctx, `
 		INSERT INTO refresh_tokens
 			(user_id, client_id, org_id, session_id, family_id, token_hash,
 			 scope, expires_at, family_expires_at)
