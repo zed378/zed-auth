@@ -133,7 +133,7 @@ func (d *Detector) Observe(ctx context.Context, c Current) {
 		SessionID: c.SessionID,
 		At:        c.At,
 		Signals:   signals,
-		Where:     describe(current.Location),
+		Where:     current.Location.Describe(),
 	}
 
 	if d.Observer != nil {
@@ -163,8 +163,12 @@ func (d *Detector) warn(msg string, err error) {
 	log.Warn(msg, "error", err.Error())
 }
 
-// describe renders a coarse location for a person to read.
-func describe(l Location) string {
+// Describe renders a coarse location for a person to read: "City, CC", or the
+// country alone, or empty when unknown.
+//
+// Distinct from Place, which is a comparison key and not something to show
+// anybody. The sessions API (P3-09) uses this one.
+func (l Location) Describe() string {
 	if !l.Known() {
 		return ""
 	}

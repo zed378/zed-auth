@@ -26,6 +26,7 @@ import (
 	"github.com/zed378/zed-auth/backend/internal/organization"
 	"github.com/zed378/zed-auth/backend/internal/project"
 	"github.com/zed378/zed-auth/backend/internal/ratelimit"
+	"github.com/zed378/zed-auth/backend/internal/sessionapi"
 	"github.com/zed378/zed-auth/backend/internal/signing"
 	"github.com/zed378/zed-auth/backend/internal/testsupport"
 	"github.com/zed378/zed-auth/backend/internal/user"
@@ -109,6 +110,7 @@ func setupAPI(t *testing.T) *apiFixture {
 		GrantAPI:       grant.New(base.db, auditor, discard()),
 		AuthzAPI:       stubAuthz{},
 		UserAPI:        &user.Handler{Store: user.NewStore(), DB: base.db, Audit: auditor, Log: discard()},
+		SessionAPI:     &sessionapi.Handler{}, // not exercised here
 		AuditAPI:       &auditlog.Handler{DB: base.db, Log: discard()},
 	})
 

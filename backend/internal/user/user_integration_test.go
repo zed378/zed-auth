@@ -13,6 +13,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -98,6 +99,9 @@ type fixture struct {
 	refresh  *token.RefreshStore
 	rdb      *redis.Client
 
+	// guard counts successful mutations that recorded nothing (P3-09).
+	guard *countingGuard
+
 	// api is the very handler the server routes to, so a test that changes a
 	// field on it changes what the next request meets — not a copy that only
 	// looks like it.
@@ -146,6 +150,7 @@ func setup(t *testing.T) *fixture {
 	sessions := session.NewManager(db, session.NewCache(rdb, nil), auditor, discard())
 	refresh := token.NewRefreshStore()
 	mailer := &capturingMailer{}
+	guard := &countingGuard{}
 
 	chain := &management.Chain{
 		Auth: &management.Middleware{
@@ -157,7 +162,7 @@ func setup(t *testing.T) *fixture {
 				WithQuota(ratelimit.Quota{Limit: 500, Window: time.Minute}, ""),
 		},
 		Idempotency: &management.Idempotency{Claims: management.NewDBClaims(db), Log: discard()},
-		Audit:       &management.AuditGuard{Log: discard()},
+		Audit:       &management.AuditGuard{Log: discard(), Observer: guard},
 		BufferBody:  true,
 	}
 
@@ -183,13 +188,14 @@ func setup(t *testing.T) *fixture {
 		GrantAPI:       stubGrants{},
 		AuthzAPI:       stubAuthz{},
 		UserAPI:        users,
+		SessionAPI:     notWiredSessions{},
 		AuditAPI:       &auditlog.Handler{DB: db, Log: discard()},
 	})
 
 	return &fixture{
 		db: db, store: store, factory: factory, handler: srv.Handler(),
 		signer: signing.NewSigner(keys), mailer: mailer,
-		sessions: sessions, refresh: refresh, rdb: rdb, api: users,
+		sessions: sessions, refresh: refresh, rdb: rdb, api: users, guard: guard,
 		orgA: orgA, orgB: orgB, userID: adminID, clientID: clientID,
 	}
 }
@@ -1354,4 +1360,87 @@ type stubAuthz struct{}
 
 func (stubAuthz) CheckAuthorization(context.Context, api.CheckAuthorizationRequestObject) (api.CheckAuthorizationResponseObject, error) {
 	return nil, errNotWired
+}
+
+// notWiredSessions satisfies the sessions resource for a server that does not
+// exercise it. The user package cannot import sessionapi, which imports user.
+type notWiredSessions struct{}
+
+var errSessionsNotWired = errors.New("the sessions API is not wired in this test")
+
+func (notWiredSessions) ListMySessions(context.Context, api.ListMySessionsRequestObject) (api.ListMySessionsResponseObject, error) {
+	return nil, errSessionsNotWired
+}
+
+func (notWiredSessions) RevokeMySession(context.Context, api.RevokeMySessionRequestObject) (api.RevokeMySessionResponseObject, error) {
+	return nil, errSessionsNotWired
+}
+
+func (notWiredSessions) RevokeMyOtherSessions(context.Context, api.RevokeMyOtherSessionsRequestObject) (api.RevokeMyOtherSessionsResponseObject, error) {
+	return nil, errSessionsNotWired
+}
+
+func (notWiredSessions) ListUserSessions(context.Context, api.ListUserSessionsRequestObject) (api.ListUserSessionsResponseObject, error) {
+	return nil, errSessionsNotWired
+}
+
+func (notWiredSessions) RevokeUserSession(context.Context, api.RevokeUserSessionRequestObject) (api.RevokeUserSessionResponseObject, error) {
+	return nil, errSessionsNotWired
+}
+
+// countingGuard counts successful mutations that recorded nothing.
+type countingGuard struct {
+	mu     sync.Mutex
+	missed []string
+}
+
+func (c *countingGuard) MutationNotAudited(route string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.missed = append(c.missed, route)
+}
+
+func (c *countingGuard) count() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return len(c.missed)
+}
+
+// A deliberate no-op is not an unaudited mutation (found in P3-09).
+//
+// A profile update that changes nothing and a second deactivation both rightly
+// write no event — and both used to trip the audit guard: an ERROR log line and
+// an increment of a metric documented as permanently zero, on correct
+// behaviour. They now declare themselves unchanged.
+func TestADeliberateNoOpIsNotReportedAsAnUnauditedMutation(t *testing.T) {
+	f := setup(t)
+	f.grant(management.OrgAdmin, f.orgA)
+
+	created, _ := f.invite(t, "noop@example.test")
+	one := f.users(f.orgA) + "/" + created.Id.String()
+
+	// The control: a real change is audited, so the guard stays quiet for the
+	// right reason and a broken observer cannot pass this test.
+	if w := f.call(t, http.MethodPatch, one, `{"display_name":"Changed"}`); w.Code != http.StatusOK {
+		t.Fatalf("a real update answered %d: %s", w.Code, w.Body.String())
+	}
+	if n := f.guard.count(); n != 0 {
+		t.Fatalf("a real, audited update was reported: %v", f.guard.missed)
+	}
+
+	if w := f.call(t, http.MethodPatch, one, `{"display_name":"Changed"}`); w.Code != http.StatusOK {
+		t.Fatalf("a no-op update answered %d: %s", w.Code, w.Body.String())
+	}
+	if n := f.guard.count(); n != 0 {
+		t.Errorf("a no-op update was reported as an unaudited mutation: %v", f.guard.missed)
+	}
+
+	for i := 0; i < 2; i++ {
+		if w := f.call(t, http.MethodPost, one+"/deactivate", ""); w.Code != http.StatusNoContent {
+			t.Fatalf("deactivation %d answered %d: %s", i+1, w.Code, w.Body.String())
+		}
+	}
+	if n := f.guard.count(); n != 0 {
+		t.Errorf("a repeated deactivation was reported as an unaudited mutation: %v", f.guard.missed)
+	}
 }

@@ -148,6 +148,42 @@ const sidebar: SidebarsConfig = {
     },
     {
       type: "category",
+      label: "Sessions",
+      items: [
+        {
+          type: "doc",
+          id: "api-reference/list-my-sessions",
+          label: "List the caller's sign-in sessions",
+          className: "api-method get",
+        },
+        {
+          type: "doc",
+          id: "api-reference/revoke-my-session",
+          label: "End one of the caller's sessions",
+          className: "api-method delete",
+        },
+        {
+          type: "doc",
+          id: "api-reference/revoke-my-other-sessions",
+          label: "End every session but the current one",
+          className: "api-method post",
+        },
+        {
+          type: "doc",
+          id: "api-reference/list-user-sessions",
+          label: "List a member's sign-in sessions",
+          className: "api-method get",
+        },
+        {
+          type: "doc",
+          id: "api-reference/revoke-user-session",
+          label: "End one of a member's sessions",
+          className: "api-method delete",
+        },
+      ],
+    },
+    {
+      type: "category",
       label: "Authorization",
       items: [
         {

@@ -158,6 +158,10 @@ type Deps struct {
 	// AuditAPI implements the audit log read (P1-20).
 	AuditAPI AuditLog
 
+	// SessionAPI implements the session operations (P3-09): a person's own
+	// under /v1/me/sessions, and a member's for an administrator.
+	SessionAPI SessionManagement
+
 	// V1 is the Management API chain (P1-15).
 	//
 	// The routes themselves arrive with P1-16 onward. What is registered here
@@ -215,6 +219,9 @@ func New(cfg config.HTTPConfig, deps Deps) *Server {
 	}
 	if deps.V1 != nil && deps.AuditAPI == nil {
 		panic("httpserver.New: AuditAPI is required when V1 is configured")
+	}
+	if deps.V1 != nil && deps.SessionAPI == nil {
+		panic("httpserver.New: SessionAPI is required when V1 is configured")
 	}
 
 	mux := chi.NewRouter()
@@ -392,16 +399,17 @@ func New(cfg config.HTTPConfig, deps Deps) *Server {
 	//
 	// The probes keep their quiet: AccessLog skips them by path.
 	routes := apiRoutes{
-		Health:       deps.Health,
-		Handler:      deps.Discovery,
-		Manager:      deps.Organizations,
-		Projects:     deps.ProjectAPI,
-		Applications: deps.ApplicationAPI,
-		Roles:        deps.RoleAPI,
-		Grants:       deps.GrantAPI,
-		Authz:        deps.AuthzAPI,
-		Users:        deps.UserAPI,
-		AuditLog:     deps.AuditAPI,
+		Health:            deps.Health,
+		Handler:           deps.Discovery,
+		Manager:           deps.Organizations,
+		Projects:          deps.ProjectAPI,
+		Applications:      deps.ApplicationAPI,
+		Roles:             deps.RoleAPI,
+		Grants:            deps.GrantAPI,
+		Authz:             deps.AuthzAPI,
+		Users:             deps.UserAPI,
+		AuditLog:          deps.AuditAPI,
+		SessionManagement: deps.SessionAPI,
 	}
 	// The two error paths the generated wrapper would otherwise answer with
 	// http.Error — a bare text/plain body and a status of its choosing.
@@ -551,6 +559,7 @@ type apiRoutes struct {
 	Authz
 	Users
 	AuditLog
+	SessionManagement
 }
 
 // Manager is the part of the generated interface the Management API implements.
@@ -664,6 +673,15 @@ type Users interface {
 // test asserting the router serves nothing else under this resource.
 type AuditLog interface {
 	ListEvents(ctx context.Context, request api.ListEventsRequestObject) (api.ListEventsResponseObject, error)
+}
+
+// SessionManagement is the sessions resource (P3-09).
+type SessionManagement interface {
+	ListMySessions(ctx context.Context, request api.ListMySessionsRequestObject) (api.ListMySessionsResponseObject, error)
+	RevokeMySession(ctx context.Context, request api.RevokeMySessionRequestObject) (api.RevokeMySessionResponseObject, error)
+	RevokeMyOtherSessions(ctx context.Context, request api.RevokeMyOtherSessionsRequestObject) (api.RevokeMyOtherSessionsResponseObject, error)
+	ListUserSessions(ctx context.Context, request api.ListUserSessionsRequestObject) (api.ListUserSessionsResponseObject, error)
+	RevokeUserSession(ctx context.Context, request api.RevokeUserSessionRequestObject) (api.RevokeUserSessionResponseObject, error)
 }
 
 var _ api.StrictServerInterface = apiRoutes{}

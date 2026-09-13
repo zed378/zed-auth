@@ -317,10 +317,11 @@ func (m *Middleware) authenticate(r *http.Request) (Caller, error) {
 	}
 
 	return Caller{
-		UserID:   token.Subject,
-		ClientID: token.ClientID,
-		OrgID:    token.OrgID,
-		Grants:   grants,
+		UserID:    token.Subject,
+		ClientID:  token.ClientID,
+		OrgID:     token.OrgID,
+		SessionID: token.SessionID,
+		Grants:    grants,
 	}, nil
 }
 

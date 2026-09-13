@@ -13,6 +13,8 @@ import (
 	"io"
 	"time"
 
+	"github.com/lib/pq"
+
 	"github.com/zed378/zed-auth/backend/internal/storage/postgres"
 )
 
@@ -272,6 +274,35 @@ func (s *RefreshStore) RevokeForSessionAndClient(
 		 WHERE session_id = $1 AND client_id = $2 AND NOT revoked`, sessionID, clientID)
 	if err != nil {
 		return 0, fmt.Errorf("token: revoking refresh tokens for a session: %w", err)
+	}
+	affected, _ := result.RowsAffected()
+	return affected, nil
+}
+
+// RevokeForSessions revokes every refresh token issued through the given
+// sessions, for every client (P3-09).
+//
+// Unlike RevokeForSessionAndClient, deliberately across clients. That one
+// serves a single application's logout, which must not cost other applications
+// their tokens. This one serves a person or an administrator ending a SESSION —
+// "sign that laptop out" — and every application that laptop signed into is
+// exactly what they mean.
+//
+// An empty list revokes nothing rather than building a predicate that could
+// match rows with no session.
+func (s *RefreshStore) RevokeForSessions(
+	ctx context.Context, tx *postgres.Tx, sessionIDs []string,
+) (int64, error) {
+	if len(sessionIDs) == 0 {
+		return 0, nil
+	}
+
+	result, err := tx.Exec(ctx, `
+		UPDATE refresh_tokens
+		   SET revoked = true
+		 WHERE session_id = ANY($1::uuid[]) AND NOT revoked`, pq.Array(sessionIDs))
+	if err != nil {
+		return 0, fmt.Errorf("token: revoking refresh tokens for sessions: %w", err)
 	}
 	affected, _ := result.RowsAffected()
 	return affected, nil
