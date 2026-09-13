@@ -31,6 +31,14 @@ func TestOnlyNamedPlacesBypassTheTenantScope(t *testing.T) {
 	allowed := map[string]string{
 		"internal/oauth/client/store.go":  "resolving a client_id before any tenant is known (P1-29's SECURITY DEFINER lookups)",
 		"internal/oauth/token/refresh.go": "resolving a refresh token by hash, which is what tells us the organization",
+
+		// P3-06. Reuse detection has to see a token whose family may ALREADY be
+		// revoked, which is the one question `refresh_token_by_hash` cannot
+		// answer — it filters dead tokens out on purpose. `refresh_token_lineage`
+		// is a second SECURITY DEFINER read that returns the family and the
+		// tenant and nothing else: no user, no client, no scope, because a
+		// caller asking this question may be holding a stolen token.
+		"internal/oauth/token/rotation.go": "reading a refresh token's lineage for reuse detection, before a tenant is known",
 		"internal/session/manager.go":     "resolving a session cookie, likewise",
 		"internal/session/store.go":       "resolving a session cookie, likewise",
 		"cmd/authservice/main.go":         "infrastructure: connection-pool metrics and the signing key store, neither of which is tenant data",

@@ -36,6 +36,15 @@ type Sessions interface {
 type Observer interface {
 	Issued(grant string, d time.Duration)
 	Denied(grant, errorCode string)
+
+	// RefreshReuse counts a rotated refresh token presented again (P3-06).
+	//
+	// Its own metric rather than a `Denied` label, because the two are read
+	// differently: `docs/PLAN/13` § Alerting expects token errors to have a
+	// non-zero baseline — expired tokens, clients that never clean up — and
+	// reuse has none. An operator pages on ANY of this, which is only possible
+	// if it is not buried in a counter that is always moving.
+	RefreshReuse()
 }
 
 // Handler serves POST /oauth/token.
@@ -236,7 +245,7 @@ func (h *Handler) authorizationCode(
 		Scope:       code.Scope,
 	}
 
-	out, err := h.issue(ctx, app, subject, code.Scope, true, now)
+	out, err := h.issue(ctx, app, subject, code.Scope, true, true, now)
 	return out, code.UserID, err
 }
 
@@ -248,6 +257,24 @@ func (h *Handler) refreshToken(
 	presented := form.Get("refresh_token")
 	if presented == "" {
 		return response{}, "", badRequest(ErrInvalidRequest, "refresh_token is required")
+	}
+
+	// Reuse detection comes FIRST, before the liveness lookup (P3-06).
+	//
+	// It has to: rotation leaves the predecessor un-revoked but linked, and a
+	// family kill revokes everything — so by the time `Lookup` filters a token
+	// out as dead, the evidence of what happened to it is gone. Asking the
+	// lineage first is what makes "this was rotated away" distinguishable from
+	// "this was never real".
+	reuse, supersede, err := h.detectReuse(ctx, presented, app, now)
+	if err != nil {
+		return response{}, "", err
+	}
+	if reuse {
+		// Answered exactly as every other refusal is. A thief who could tell
+		// "reuse detected" from "unknown token" would learn that their copy was
+		// genuine and that they have been caught.
+		return response{}, "", badRequest(ErrInvalidGrant, "the refresh token is not valid")
 	}
 
 	stored, err := h.Refresh.Lookup(ctx, h.DB, presented, now)
@@ -285,8 +312,166 @@ func (h *Handler) refreshToken(
 		// false statement with a fresh timestamp on it.
 	}
 
-	out, err := h.issue(ctx, app, subject, scope, false, now)
-	return out, stored.UserID, err
+	out, err := h.issue(ctx, app, subject, scope, false, false, now)
+	if err != nil {
+		return response{}, stored.UserID, err
+	}
+
+	// The successor, in the SAME family and inheriting its absolute expiry
+	// (P3-06 F-1, F-5).
+	//
+	// Replacing what `issue` would otherwise have minted: that path starts a
+	// fresh family with a fresh absolute lifetime, which is how a session could
+	// be extended forever by refreshing — and, because it left `replaced_by`
+	// unwritten, why reuse detection was impossible rather than merely absent.
+	rotated, err := h.rotate(ctx, stored, scope, supersede, now)
+	if err != nil {
+		return response{}, stored.UserID, err
+	}
+	out.RefreshToken = rotated
+
+	return out, stored.UserID, nil
+}
+
+// detectReuse reports whether a presented token has already been rotated away,
+// and kills its family when it has.
+//
+// A token this service never issued answers "not reuse", and that is clarity
+// rather than a control: a family kill needs a real, rotated lineage, so an
+// invented token could not reach one however this branch answered. An earlier
+// comment here claimed it stopped somebody killing a family by guessing — a
+// mutation run showed the branch makes no behavioural difference at all, which
+// is how the overstatement was found. The guard stays because a function that
+// reported an unknown token as reuse would be lying to its caller, and the next
+// caller might act on it.
+//
+// It also reports the successor a legitimate retry must supersede, empty on
+// every other path.
+func (h *Handler) detectReuse(
+	ctx context.Context, presented string, app client.Application, now time.Time,
+) (reuse bool, supersede string, err error) {
+	if h.Refresh == nil {
+		return false, "", nil
+	}
+
+	lineage, err := h.Refresh.LookupLineage(ctx, h.DB, presented)
+	switch {
+	case errors.Is(err, ErrRefreshNotFound):
+		return false, "", nil
+	case err != nil:
+		return false, "", h.wrap("reading a refresh token's lineage", err)
+	}
+
+	if !lineage.Rotated() {
+		return false, "", nil
+	}
+
+	// The legitimate race: a client retrying after a response it never
+	// received. Admitted only while the successor is untouched — see
+	// Lineage.LegitimateRetry, where the reasoning lives.
+	if lineage.LegitimateRetry(now, RotationGrace) {
+		if h.Log != nil {
+			h.Log.Info("a refresh token was presented again within the rotation grace window",
+				"client_id", app.ID, "family_id", lineage.FamilyID)
+		}
+		return false, lineage.ReplacedBy, nil
+	}
+
+	if lineage.Revoked {
+		// The family is already dead — this is a second presentation after the
+		// kill. Refused, but not re-killed and not re-alerted: an attacker
+		// retrying a dead token should not be able to generate an alert per
+		// attempt.
+		return true, "", nil
+	}
+
+	h.killFamily(ctx, lineage, app, now)
+	return true, "", nil
+}
+
+// killFamily revokes an entire lineage and raises the alarm (F-2, F-3).
+//
+// Every token descended from one original issuance, including the successor the
+// legitimate client is holding right now. That logs out the victim along with
+// the thief, and it is the right trade: the alternative is deciding which of
+// two identical presentations is genuine, which cannot be done. The alert is
+// what makes it actionable rather than merely disruptive.
+func (h *Handler) killFamily(
+	ctx context.Context, lineage Lineage, app client.Application, now time.Time,
+) {
+	var revoked int64
+
+	err := h.DB.WithTenant(ctx, lineage.OrgID, func(tx *postgres.Tx) error {
+		count, err := h.Refresh.RevokeFamily(ctx, tx, lineage.FamilyID)
+		if err != nil {
+			return err
+		}
+		revoked = count
+
+		if h.Audit == nil {
+			return nil
+		}
+		return h.Audit.Write(ctx, tx, audit.Event{
+			OrgID: lineage.OrgID,
+			Type:  audit.EventRefreshReuseDetected,
+			Payload: map[string]any{
+				"family_id":      lineage.FamilyID,
+				"client_id":      app.ID,
+				"tokens_revoked": revoked,
+				// How long after rotation the stale token appeared. An
+				// operator triaging this wants to know whether it was seconds
+				// (a broken client, probably) or hours (a copy).
+				"seconds_after_rotation": int(now.Sub(lineage.ReplacedAt).Seconds()),
+			},
+		})
+	})
+	if err != nil && h.Log != nil {
+		h.Log.Error("failed to revoke a refresh family after reuse was detected",
+			"family_id", lineage.FamilyID, "error", err.Error())
+	}
+
+	if h.Log != nil {
+		// ERROR, not warn. `docs/PLAN/13` § Alerting: ordinary refresh failures
+		// are routine — expired tokens, clients that never clean up — and reuse
+		// never is. It means a credential was copied or a client is broken, and
+		// both want a human.
+		h.Log.Error("a rotated refresh token was presented again; the family has been revoked",
+			"family_id", lineage.FamilyID, "client_id", app.ID, "tokens_revoked", revoked)
+	}
+	if h.Observer != nil {
+		h.Observer.RefreshReuse()
+	}
+}
+
+// rotate issues the successor to a presented token.
+func (h *Handler) rotate(
+	ctx context.Context, stored Refresh, scope []string, supersede string, now time.Time,
+) (string, error) {
+	var plaintext string
+
+	err := h.DB.WithTenant(ctx, stored.OrgID, func(tx *postgres.Tx) error {
+		successor, err := h.Refresh.Rotate(ctx, tx, Refresh{
+			ID:        stored.ID,
+			UserID:    stored.UserID,
+			ClientID:  stored.ClientID,
+			OrgID:     stored.OrgID,
+			SessionID: stored.SessionID,
+			FamilyID:  stored.FamilyID,
+			Scope:     scope,
+		}, supersede, now)
+		if err != nil {
+			return err
+		}
+		plaintext = successor.Reveal()
+		return nil
+	})
+	if err != nil {
+		if errors.Is(err, ErrRefreshReuse) || errors.Is(err, ErrRefreshNotFound) {
+			return "", badRequest(ErrInvalidGrant, "the refresh token is not valid")
+		}
+		return "", h.wrap("rotating a refresh token", err)
+	}
+	return plaintext, nil
 }
 
 // --- client_credentials --------------------------------------------------------------
@@ -360,7 +545,7 @@ func (h *Handler) rolesFor(ctx context.Context, subject Subject, app client.Appl
 
 func (h *Handler) issue(
 	ctx context.Context, app client.Application, subject Subject,
-	scope []string, withIDToken bool, now time.Time,
+	scope []string, withIDToken bool, mintRefresh bool, now time.Time,
 ) (response, error) {
 	// Read here rather than at each call site, so both grants that produce a
 	// user token — the authorization code and the refresh — carry the same
@@ -395,7 +580,15 @@ func (h *Handler) issue(
 		}
 	}
 
-	if slices.Contains(scope, "offline_access") {
+	// `mintRefresh` is false on the REFRESH path, where a successor is rotated
+	// from the presented token instead (P3-06).
+	//
+	// Without the flag this branch also fired, so every refresh produced TWO
+	// tokens: a successor in the right family, and an orphan starting a brand
+	// new one with a brand new absolute lifetime. The orphan is what made
+	// `family_expires_at` look extendable and what left `replaced_by`
+	// pointing at a lineage nobody was using.
+	if mintRefresh && slices.Contains(scope, "offline_access") {
 		err := h.DB.WithTenant(ctx, subject.OrgID, func(tx *postgres.Tx) error {
 			refresh, _, err := h.Refresh.Issue(ctx, tx, Refresh{
 				UserID:    subject.UserID,
