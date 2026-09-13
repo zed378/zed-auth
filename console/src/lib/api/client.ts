@@ -148,5 +148,6 @@ export const queryKeys = {
   roles: ["roles"] as const,
   grants: ["grants"] as const,
   users: ["users"] as const,
+  mfa: ["mfa"] as const,
   events: ["events"] as const,
 } as const;

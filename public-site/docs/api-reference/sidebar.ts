@@ -148,6 +148,48 @@ const sidebar: SidebarsConfig = {
     },
     {
       type: "category",
+      label: "MFA",
+      items: [
+        {
+          type: "doc",
+          id: "api-reference/get-my-mfa",
+          label: "Read the caller's second factors",
+          className: "api-method get",
+        },
+        {
+          type: "doc",
+          id: "api-reference/begin-my-totp-enrolment",
+          label: "Begin enrolling an authenticator app",
+          className: "api-method post",
+        },
+        {
+          type: "doc",
+          id: "api-reference/confirm-my-totp-enrolment",
+          label: "Confirm an authenticator app with a code",
+          className: "api-method post",
+        },
+        {
+          type: "doc",
+          id: "api-reference/remove-my-factor",
+          label: "Remove one of the caller's factors",
+          className: "api-method delete",
+        },
+        {
+          type: "doc",
+          id: "api-reference/regenerate-my-recovery-codes",
+          label: "Replace the caller's recovery codes",
+          className: "api-method post",
+        },
+        {
+          type: "doc",
+          id: "api-reference/get-user-mfa",
+          label: "Read a member's second factors",
+          className: "api-method get",
+        },
+      ],
+    },
+    {
+      type: "category",
       label: "Sessions",
       items: [
         {

@@ -265,6 +265,10 @@ type Handler struct {
 	// (P3-08). Nil means no detection.
 	Anomalies AnomalyDetector
 
+	// PasskeyRegistration is the hosted passkey page (P3-10, PG-43). Nil means
+	// this deployment cannot register passkeys, and the page says so.
+	PasskeyRegistration *PasskeyRegistration
+
 	// Now is overridable for tests.
 	Now func() time.Time
 }

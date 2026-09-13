@@ -287,10 +287,12 @@ func TestEveryEnrolledTypeIsOffered(t *testing.T) {
 		confirmedTOTP("f1"),
 		{ID: "f2", UserID: "u1", OrgID: "o1", Type: TypeWebAuthn, Status: StatusActive},
 	}
-	f, _ := framework(t, []Verifier{
-		&fakeVerifier{kind: TypeTOTP},
-		&fakeVerifier{kind: TypeWebAuthn},
-	}, factors)
+	// The passkey is answered by a CEREMONY, as the service wires it — not by
+	// a WebAuthn entry in the code-verifier registry, which is how this test
+	// was first written and which masked that the real wiring offered no
+	// passkey at all (P3-10).
+	f, _ := framework(t, []Verifier{&fakeVerifier{kind: TypeTOTP}}, factors)
+	f.WebAuthn = &fakeCeremony{options: []byte(`{"publicKey":{}}`), session: []byte(`{}`)}
 
 	decision, err := f.Required(context.Background(), "u1", "o1", "p1")
 	if err != nil {

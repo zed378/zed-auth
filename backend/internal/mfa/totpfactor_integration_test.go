@@ -352,3 +352,52 @@ func TestTheFrameworkChallengesWithARealFactor(t *testing.T) {
 		}
 	}
 }
+
+// An abandoned enrolment does not block the next one (found in P3-10).
+//
+// The one-TOTP index covers PENDING rows too, and nothing removed an abandoned
+// one. So a user routed into P3-07's forced enrolment who closed the tab could
+// never begin again: every later sign-in hit a unique violation and answered
+// 500 — locked out of their own account until an administrator reset them.
+func TestAnAbandonedEnrolmentDoesNotBlockTheNextOne(t *testing.T) {
+	f := factorSetup(t)
+	at := time.Unix(1_700_000_000, 0).UTC()
+	totp := f.totp(t, func() time.Time { return at })
+
+	abandoned, err := totp.Begin(context.Background(), f.userID, f.orgID, "first try")
+	if err != nil {
+		t.Fatalf("first Begin: %v", err)
+	}
+
+	again, err := totp.Begin(context.Background(), f.userID, f.orgID, "second try")
+	if err != nil {
+		t.Fatalf("a second Begin after an abandoned one failed: %v", err)
+	}
+	if again.FactorID == abandoned.FactorID {
+		t.Fatal("the second enrolment reused the abandoned factor, and with it a secret already shown once")
+	}
+
+	// The abandoned secret is gone: its code proves nothing.
+	code := totpCodeAt(t, again.Secret, at)
+	if err := totp.Confirm(context.Background(), abandoned.FactorID, code); err == nil {
+		t.Error("the abandoned enrolment could still be confirmed")
+	}
+	if err := totp.Confirm(context.Background(), again.FactorID, code); err != nil {
+		t.Fatalf("the new enrolment could not be confirmed: %v", err)
+	}
+
+	// With an ACTIVE factor, a new enrolment is refused by name rather than by a
+	// constraint error — replacing an active authenticator is a removal first.
+	if _, err := totp.Begin(context.Background(), f.userID, f.orgID, "third"); !errors.Is(err, ErrAlreadyEnrolled) {
+		t.Errorf("Begin with an active TOTP: err = %v, want ErrAlreadyEnrolled", err)
+	}
+}
+
+func totpCodeAt(t *testing.T, encoded string, at time.Time) string {
+	t.Helper()
+	secret, err := DecodeTOTPSecret(encoded)
+	if err != nil {
+		t.Fatalf("decoding a secret: %v", err)
+	}
+	return TOTPCode(secret, TOTPCounter(at))
+}

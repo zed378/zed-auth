@@ -51,6 +51,16 @@ var Policy = map[string]Requirement{
 	"DELETE /v1/me/sessions/{session_id}": {Role: Member, Scope: ScopeSelf},
 	"POST /v1/me/sessions/revoke-others":  {Role: Member, Scope: ScopeSelf},
 
+	// The caller's own second factors (P3-10). Self-scoped: the user comes
+	// from the token. The writes additionally demand RECENT authentication,
+	// which is the handler's check rather than a role — see mfaapi.
+	"GET /v1/me/mfa":                                     {Role: Member, Scope: ScopeSelf},
+	"POST /v1/me/mfa/totp":                               {Role: Member, Scope: ScopeSelf},
+	"POST /v1/me/mfa/totp/{factor_id}/confirm":           {Role: Member, Scope: ScopeSelf},
+	"DELETE /v1/me/mfa/factors/{factor_id}":              {Role: Member, Scope: ScopeSelf},
+	"POST /v1/me/mfa/recovery-codes":                     {Role: Member, Scope: ScopeSelf},
+	"GET /v1/organizations/{org_id}/users/{user_id}/mfa": {Role: OrgAdmin, Scope: ScopeOrganization},
+
 	// A member's sessions (P3-09). ORG_ADMIN, the same as deactivating the
 	// member: ending one session is strictly less than ending all of them.
 	"GET /v1/organizations/{org_id}/users/{user_id}/sessions":                 {Role: OrgAdmin, Scope: ScopeOrganization},
