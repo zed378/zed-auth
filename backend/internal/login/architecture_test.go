@@ -138,3 +138,38 @@ func TestTheChallengeHandleIsOnlyEverReadFromACookie(t *testing.T) {
 		t.Fatal("nothing reads the challenge cookie; this test is asserting against the wrong file")
 	}
 }
+
+// P3-08: the report page and the detector are wired, and the route exists. A
+// notice carrying a link to an unregistered route would tell somebody who
+// believes a stranger is in their account to click a 404.
+func TestTheReportPageAndDetectorAreWired(t *testing.T) {
+	src := mainSource(t)
+
+	for _, want := range []string{
+		"loginHandler.Reports = &login.NotMeFlow{",
+		"loginHandler.Anomalies = anomalies",
+		"buildAnomalyDetection(cfg,",
+		"NotMe:          http.HandlerFunc(loginHandler.NotMe)",
+		"detector.Notifier = &login.AnomalyMail{",
+	} {
+		if !strings.Contains(src, want) {
+			t.Errorf("main.go does not contain %q", want)
+		}
+	}
+
+	body, err := os.ReadFile(filepath.Join("..", "httpserver", "server.go"))
+	if err != nil {
+		t.Fatalf("reading server.go: %v", err)
+	}
+	for _, want := range []string{
+		`mux.Method(http.MethodGet, "/account/not-me"`,
+		`mux.Method(http.MethodPost, "/account/not-me"`,
+	} {
+		if !strings.Contains(string(body), want) {
+			t.Errorf("server.go does not register %s", want)
+		}
+	}
+	if NotMePath != "/account/not-me" {
+		t.Errorf("NotMePath is %q but the registered route is /account/not-me", NotMePath)
+	}
+}

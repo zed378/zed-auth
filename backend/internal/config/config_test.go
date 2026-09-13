@@ -441,3 +441,34 @@ func TestLoadFrom_CleartextSMTPOutsideLocalIsRefusedUnlessAsserted(t *testing.T)
 		}
 	})
 }
+
+// P3-08: detection on, notifications off, no geolocation file — until somebody
+// decides otherwise. Notifications defaulting on would email every user before
+// the false-positive rate had ever been measured.
+func TestLoadFrom_AnomalyNotificationsDefaultOff(t *testing.T) {
+	cfg, err := LoadFrom(env(valid()))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if !cfg.Anomaly.Detect {
+		t.Error("detection must default on: it is invisible to users and produces the measurement notifications wait for")
+	}
+	if cfg.Anomaly.Notify {
+		t.Error("notifications must default off until the false-positive rate is known")
+	}
+	if cfg.Anomaly.GeoIPPath != "" {
+		t.Errorf("GeoIPPath defaulted to %q; no database ships with the service", cfg.Anomaly.GeoIPPath)
+	}
+
+	m := valid()
+	m["AUTH_ANOMALY_DETECT"] = "false"
+	m["AUTH_ANOMALY_NOTIFY"] = "true"
+	m["AUTH_ANOMALY_GEOIP_PATH"] = "/var/lib/geoip/city.mmdb"
+	cfg, err = LoadFrom(env(m))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if cfg.Anomaly.Detect || !cfg.Anomaly.Notify || cfg.Anomaly.GeoIPPath != "/var/lib/geoip/city.mmdb" {
+		t.Errorf("the anomaly settings were not read: %+v", cfg.Anomaly)
+	}
+}

@@ -123,6 +123,13 @@ services:
       #   sudo ./secrets.sh mfa-seal-key
       #   AUTH_MFA_SEAL_KEY_REF=file:/run/secrets/mfa-seal-key
       AUTH_MFA_SEAL_KEY_REF: ${AUTH_MFA_SEAL_KEY_REF:-}
+      # Login anomaly detection (P3-08). Detection is on and tells nobody;
+      # notifications stay OFF until the false-positive rate has been read off
+      # auth_login_anomalies_total on real traffic. No geolocation database
+      # ships (PG-41) — mount one and set the path to enable location signals.
+      AUTH_ANOMALY_DETECT: ${AUTH_ANOMALY_DETECT:-true}
+      AUTH_ANOMALY_NOTIFY: ${AUTH_ANOMALY_NOTIFY:-false}
+      AUTH_ANOMALY_GEOIP_PATH: ${AUTH_ANOMALY_GEOIP_PATH:-}
       AUTH_OTLP_ENDPOINT: ${AUTH_OTLP_ENDPOINT:-}
       AUTH_TRACE_SAMPLE_RATIO: ${AUTH_TRACE_SAMPLE_RATIO:-0.05}
 
