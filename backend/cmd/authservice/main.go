@@ -19,12 +19,12 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
-	"strings"
 	"syscall"
 	"time"
 
 	"github.com/redis/go-redis/v9"
 
+	"github.com/zed378/zed-auth/backend/internal/account"
 	"github.com/zed378/zed-auth/backend/internal/anomaly"
 	"github.com/zed378/zed-auth/backend/internal/application"
 	"github.com/zed378/zed-auth/backend/internal/audit"
@@ -263,14 +263,14 @@ func run() error {
 	// failure. "Somebody turned it off" and "it has been broken for three
 	// weeks" must be visible in the same place (ADR-015).
 	//
-	// Nothing consumes these yet, and the startup log says so rather than
-	// leaving an operator to infer from a quiet metric that the check is
-	// working. The first password-set path is P1-12's hosted form; P1-19's
-	// user-creation endpoint is the second.
+	// Consumed through one authn.PasswordValidator by every path that sets a
+	// password (below). Until P3-12 this was built and handed to NOTHING: the
+	// set-password page checked the policy alone, so the breach check guarded
+	// no password, and the log line here still claimed no path existed.
 	passwords := newPasswordChecks(cfg, log)
 	log.Info("password policy ready",
 		"breach_check", passwords.state,
-		"enforced_at", "no password-set path exists yet (P1-12, P1-19)")
+		"enforced_at", "the set-password page and the self-service password change")
 
 	// The signing key set, read from the database rather than from a
 	// configured path (P1-03).
@@ -566,6 +566,17 @@ func run() error {
 	// The hosted login page (P1-12). It closes the loop: /oauth/authorize
 	// sends a browser here when there is no session, and Resume sends it back
 	// with a code once there is one.
+	// Every check a chosen password must pass — the organization's policy AND
+	// the breach corpus, counted and audited — shared by every password-set
+	// path so none can take one half without the other (P1-02, P3-12).
+	passwordValidator := &authn.PasswordValidator{
+		Policies: passwords.policies,
+		Breaches: passwords.breaches,
+		Observer: passwordObserver{metrics},
+		Audit:    auditor,
+		Log:      log,
+	}
+
 	loginHandler := &login.Handler{
 		Authorization: authorizeHandler,
 		Sessions:      sessions,
@@ -593,7 +604,7 @@ func run() error {
 		// the narrow Tenant interface.
 		Password: &login.PasswordFlow{
 			Users:     userStore,
-			Policy:    passwordPolicy{store: authn.NewPolicyStore(log)},
+			Policy:    passwordValidator,
 			BaseURL:   cfg.Issuer,
 			MailLimit: mailQuotas,
 			Lookup: func(ctx context.Context, tok string, now time.Time) (user.Claim, error) {
@@ -618,6 +629,11 @@ func run() error {
 				Clients:  lookup.ByClientID,
 			}
 		}
+	}
+
+	// Recovery codes at forced enrolment (P3-12), only where enrolment exists.
+	if loginHandler.Enrol != nil {
+		loginHandler.EnrolRecovery = mfa.NewRecoveryStore()
 	}
 
 	// "This sign-in wasn't me" (P3-08 F-5). Resets through PasswordFlow, so it
@@ -730,6 +746,24 @@ func run() error {
 		sessionAPI.Locator = locator
 	}
 
+	// The caller's own account (P3-12). The password change shares sign-in's
+	// per-address limiter, so wrong guesses here count toward the same
+	// cooldown, and it validates through the same PasswordValidator the
+	// set-password page uses.
+	accountAPI := &account.Handler{
+		DB:            db,
+		Audit:         auditor,
+		Credentials:   authn.NewUserStore(),
+		Passwords:     userStore,
+		Validator:     passwordValidator,
+		Policies:      passwords.policies,
+		Limiter:       limiter,
+		Sessions:      sessions,
+		Refresh:       token.NewRefreshStore(),
+		BreachChecked: passwords.breaches != nil,
+		Log:           log,
+	}
+
 	// Second factors (P3-10). Reads work on every deployment; the writes need
 	// the factor framework, and without it they answer that MFA is not
 	// available rather than failing.
@@ -779,6 +813,7 @@ func run() error {
 		AuditAPI:       &auditlog.Handler{DB: db, Log: log},
 		SessionAPI:     sessionAPI,
 		MfaAPI:         mfaAPI,
+		AccountAPI:     accountAPI,
 		// Explicit configuration, not inferred from the environment: see the
 		// comment on config.HTTPConfig.TrustProxyHeaders. Defaults to false,
 		// so a deployment behind a proxy that forwards client headers
@@ -1538,31 +1573,20 @@ func (o mailObserver) MailSendFailed(reason string) {
 	}
 }
 
-// passwordPolicy applies P1-02's rules to a password chosen through a link.
-//
-// The same evaluator the login page uses, reading the same per-organization
-// settings — a set-password page with rules of its own would be a second
-// password policy, and the one nobody remembers to update.
-type passwordPolicy struct{ store *authn.PolicyStore }
+// passwordObserver counts the password validator's decisions (P1-02's two
+// metrics, which nothing incremented until P3-12).
+type passwordObserver struct{ m *observability.Metrics }
 
-func (p passwordPolicy) Validate(
-	ctx context.Context, tx *postgres.Tx, orgID, _ string, password string,
-) error {
-	policy, err := p.store.Policy(ctx, tx, orgID)
-	if err != nil {
-		return err
+func (o passwordObserver) PolicyRejection(rule string) {
+	if o.m != nil {
+		o.m.PasswordPolicyRejections.WithLabelValues(rule).Inc()
 	}
-	if violations := authn.Evaluate(password, policy); len(violations) > 0 {
-		// Every rule that failed, not the first: somebody fixing three
-		// problems should learn about three (P1-16's reasoning for settings,
-		// and it is the same person's afternoon either way).
-		reasons := make([]string, 0, len(violations))
-		for _, v := range violations {
-			reasons = append(reasons, v.Message)
-		}
-		return errors.New(strings.Join(reasons, " "))
+}
+
+func (o passwordObserver) BreachCheck(outcome string) {
+	if o.m != nil {
+		o.m.PasswordBreachChecks.WithLabelValues(outcome).Inc()
 	}
-	return nil
 }
 
 type logoutObserver struct{ m *observability.Metrics }

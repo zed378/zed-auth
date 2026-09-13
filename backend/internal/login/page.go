@@ -547,6 +547,46 @@ var enrolTemplate = template.Must(template.New("enrol").Parse(`<!DOCTYPE html>
 </html>
 `))
 
+// EnrolCodesPage shows recovery codes once, between a forced enrolment and the
+// sign-in it was standing in front of (P3-12).
+//
+// It EMBEDS Page, for the reason the enrolment page does, and carries no script:
+// the codes are text a person copies or writes down.
+type EnrolCodesPage struct {
+	Page
+	Codes []string
+}
+
+var enrolCodesTemplate = template.Must(template.New("enrol-codes").Parse(`<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>Save your recovery codes</title>
+<style>{{.Style}}</style>
+</head>
+<body>
+<main>
+<div class="card">
+{{if .Branding.LogoURL}}<img class="mark" src="{{.Branding.LogoURL}}" alt="">{{end}}
+<h1>Save your recovery codes</h1>
+<p class="note" role="status"><strong>They will not be shown again.</strong> If you lose the device your authenticator app is on, each code gets you in once. Keep them somewhere safe and private.</p>
+<ul id="recovery-codes">
+{{range .Codes}}<li><code>{{.}}</code></li>
+{{end}}</ul>
+<form method="post" action="/login/mfa/enrol">
+<input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+<input type="hidden" name="request" value="{{.RequestID}}">
+<input type="hidden" name="continue" value="1">
+<button type="submit">I have saved them — continue</button>
+</form>
+</div>
+</main>
+</body>
+</html>
+`))
+
 // ChallengePage is the second step (P3-03).
 //
 // It EMBEDS Page rather than copying its fields, so the stylesheet, the CSP,

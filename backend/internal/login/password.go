@@ -2,6 +2,7 @@ package login
 
 import (
 	"context"
+	"errors"
 	"html/template"
 	"net/http"
 	"net/url"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/zed378/zed-auth/backend/internal/audit"
+	"github.com/zed378/zed-auth/backend/internal/authn"
 	"github.com/zed378/zed-auth/backend/internal/mail"
 	"github.com/zed378/zed-auth/backend/internal/ratelimit"
 	"github.com/zed378/zed-auth/backend/internal/storage/postgres"
@@ -298,7 +300,15 @@ func (h *Handler) SetPassword(w http.ResponseWriter, r *http.Request) {
 		if h.Password.Policy != nil {
 			if problem := h.Password.Policy.Validate(
 				r.Context(), tx, claim.OrgID, claim.UserID, password); problem != nil {
-				policyProblem = problem.Error()
+				// A refused password is shown to the person choosing it. A
+				// failure to DECIDE is not a problem with their password, and
+				// rendering its text on the form would put an internal error in
+				// front of them as if it were a rule they broke.
+				var rejected authn.PasswordRejected
+				if !errors.As(problem, &rejected) {
+					return problem
+				}
+				policyProblem = rejected.Error()
 				return nil
 			}
 		}

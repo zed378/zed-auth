@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/zed378/zed-auth/backend/internal/audit"
 	"github.com/zed378/zed-auth/backend/internal/authn"
@@ -87,6 +88,18 @@ type EnrolState struct {
 
 	// Attempts counts wrong codes, bounded like a challenge's.
 	Attempts int `json:"attempts"`
+
+	// Confirmed is set server-side once the code proved the factor and the
+	// recovery codes were shown (P3-12). The Continue step checks it, so the
+	// sign-in cannot be completed by posting "continue" without a code.
+	Confirmed bool `json:"confirmed,omitempty"`
+}
+
+// EnrolRecoveryCodes issues recovery codes at forced enrolment. Satisfied by
+// mfa.RecoveryStore.
+type EnrolRecoveryCodes interface {
+	Remaining(ctx context.Context, tx *postgres.Tx, userID string) (int, error)
+	Issue(ctx context.Context, tx *postgres.Tx, userID, orgID string, count int, now time.Time) ([]string, string, error)
 }
 
 // EnrolStore holds forced-enrolment state.
@@ -307,6 +320,23 @@ func (h *Handler) submitEnrolment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The Continue step after the recovery codes were shown (P3-12). Only a
+	// state the code already confirmed may continue; anything else is a form
+	// posted without proving the factor.
+	if r.PostForm.Get("continue") == "1" {
+		if !state.Confirmed {
+			h.enrolmentGone(w, r, page)
+			return
+		}
+		h.completeEnrolment(w, r, pending, id, state, handle)
+		return
+	}
+	if state.Confirmed {
+		// Already proven; a second code post must not re-run the confirmation.
+		h.enrolmentGone(w, r, page)
+		return
+	}
+
 	// The defensive half of the attempt bound.
 	//
 	// The block after `Confirm` below is what increments, spends and DESTROYS a
@@ -343,7 +373,63 @@ func (h *Handler) submitEnrolment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.completeEnrolment(w, r, pending, id, state, handle)
+	// Recovery codes arrive with the factor (P3-04 step 1), shown once, before
+	// the sign-in completes. Until P3-12 this flow issued none, so a user forced
+	// through enrolment had a factor and no way back if they lost it.
+	codes, err := h.enrolmentCodes(r.Context(), state)
+	if err != nil {
+		h.serverError(w, r, "issuing recovery codes at enrolment", err)
+		return
+	}
+	if len(codes) == 0 {
+		h.completeEnrolment(w, r, pending, id, state, handle)
+		return
+	}
+
+	state.Confirmed = true
+	if err := h.Enrolments.Replace(r.Context(), handle, state); err != nil {
+		h.serverError(w, r, "recording a confirmed enrolment", err)
+		return
+	}
+	h.showEnrolmentCodes(w, r, page, codes)
+}
+
+// enrolmentCodes issues recovery codes when the user holds none.
+//
+// None when the deployment wires no store, or when the user already has codes —
+// issuing a new batch would silently invalidate ones somebody wrote down.
+func (h *Handler) enrolmentCodes(ctx context.Context, state EnrolState) ([]string, error) {
+	if h.EnrolRecovery == nil {
+		return nil, nil
+	}
+	var codes []string
+	err := h.DB.WithTenant(ctx, state.OrgID, func(tx *postgres.Tx) error {
+		remaining, err := h.EnrolRecovery.Remaining(ctx, tx, state.UserID)
+		if err != nil || remaining > 0 {
+			return err
+		}
+		if codes, _, err = h.EnrolRecovery.Issue(ctx, tx, state.UserID, state.OrgID, mfa.RecoveryCodeCount, h.now()); err != nil {
+			return err
+		}
+		if h.Audit == nil {
+			return nil
+		}
+		return h.Audit.Write(ctx, tx, audit.Event{
+			OrgID: state.OrgID, ActorUserID: state.UserID, Type: audit.EventMFACodesIssued,
+			Payload: map[string]any{"count": len(codes), "initiator": "forced-enrolment"},
+		})
+	})
+	return codes, err
+}
+
+func (h *Handler) showEnrolmentCodes(w http.ResponseWriter, r *http.Request, page Page, codes []string) {
+	view := EnrolCodesPage{Page: page, Codes: codes}
+	body, err := render(enrolCodesTemplate, view)
+	if err != nil {
+		h.serverError(w, r, "rendering the recovery codes", err)
+		return
+	}
+	h.write(w, http.StatusOK, view.ContentSecurityPolicy(), body)
 }
 
 // completeEnrolment issues the session the enrolment was standing in front of.

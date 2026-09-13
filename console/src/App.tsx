@@ -1,11 +1,14 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter } from "react-router-dom";
+import { BrowserRouter, Route, Routes } from "react-router-dom";
 
 import { ErrorBoundary } from "./app/ErrorBoundary";
 import { AuthProvider } from "./lib/auth/AuthProvider";
 import { OrgProvider } from "./lib/org/OrgProvider";
 import { AppRoutes } from "./app/routes";
+import { AccountShell } from "./app/shell/AccountShell";
 import { AppShell } from "./app/shell/AppShell";
+import { RequireAuth } from "./app/RequireAuth";
+import { AccountPage } from "./pages/AccountPage";
 
 /**
  * TanStack Query holds all cached server data.
@@ -60,9 +63,31 @@ export function App() {
               the switcher and has to know what it is switching.
             */}
             <OrgProvider>
-              <AppShell>
-                <AppRoutes />
-              </AppShell>
+              {/*
+                Personal settings is the one screen for a phone (P3-12), so it
+                renders in its own shell, outside the console's narrow-screen
+                guard. Everything else keeps the console shell.
+              */}
+              <Routes>
+                <Route
+                  path="/account"
+                  element={
+                    <AccountShell>
+                      <RequireAuth>
+                        <AccountPage />
+                      </RequireAuth>
+                    </AccountShell>
+                  }
+                />
+                <Route
+                  path="*"
+                  element={
+                    <AppShell>
+                      <AppRoutes />
+                    </AppShell>
+                  }
+                />
+              </Routes>
             </OrgProvider>
           </AuthProvider>
         </BrowserRouter>

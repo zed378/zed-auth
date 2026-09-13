@@ -62,6 +62,10 @@ SHIPPED = {
     "/v1/me/sessions/revoke-others",
     # P3-10. The caller's own second factors, and a member's for an
     # administrator, read-only.
+    # P3-12. The caller's own account, and a password change that needs the
+    # current password and shares sign-in's bound.
+    "/v1/me",
+    "/v1/me/password",
     "/v1/me/mfa",
     "/v1/me/mfa/totp",
     "/v1/me/mfa/totp/{factor_id}/confirm",

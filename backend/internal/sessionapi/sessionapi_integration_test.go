@@ -27,6 +27,7 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/redis/go-redis/v9"
 
+	"github.com/zed378/zed-auth/backend/internal/account"
 	"github.com/zed378/zed-auth/backend/internal/anomaly"
 	"github.com/zed378/zed-auth/backend/internal/application"
 	"github.com/zed378/zed-auth/backend/internal/audit"
@@ -190,7 +191,8 @@ func setup(t *testing.T) *fixture {
 		AuthzAPI:       &authz.Handler{DB: db, Log: discard()},
 		UserAPI:        &user.Handler{Store: user.NewStore(), DB: db, Audit: auditor, Log: discard()},
 		SessionAPI:     api,
-		MfaAPI:         &mfaapi.Handler{}, // not exercised here
+		MfaAPI:         &mfaapi.Handler{},  // not exercised here
+		AccountAPI:     &account.Handler{}, // not exercised here
 		AuditAPI:       &auditlog.Handler{DB: db, Log: discard()},
 	})
 
