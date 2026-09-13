@@ -169,12 +169,12 @@ func TestPeekConsumesNothing(t *testing.T) {
 	handle := issued(t, store, "pending-1", "f1")
 
 	for i := 0; i < 3; i++ {
-		offered, err := f.Peek(context.Background(), handle)
+		offer, err := f.Peek(context.Background(), handle)
 		if err != nil {
 			t.Fatalf("Peek %d: %v", i, err)
 		}
-		if len(offered) != 1 || offered[0] != TypeTOTP {
-			t.Fatalf("Peek %d offered %v", i, offered)
+		if len(offer.Types) != 1 || offer.Types[0] != TypeTOTP {
+			t.Fatalf("Peek %d offered %v", i, offer.Types)
 		}
 	}
 
@@ -196,18 +196,23 @@ func TestPeekStopsOfferingAFactorThatHasGone(t *testing.T) {
 	}
 	handle := issued(t, challenges, "pending-1", "f1")
 
-	if offered, _ := f.Peek(context.Background(), handle); len(offered) != 1 {
-		t.Fatalf("the factor was not offered to begin with: %v", offered)
+	if offer, _ := f.Peek(context.Background(), handle); len(offer.Types) != 1 {
+		t.Fatalf("the factor was not offered to begin with: %v", offer.Types)
 	}
 
 	store.factors = nil
 
-	offered, err := f.Peek(context.Background(), handle)
+	offer, err := f.Peek(context.Background(), handle)
 	if err != nil {
 		t.Fatalf("Peek: %v", err)
 	}
-	if len(offered) != 0 {
-		t.Errorf("a removed factor is still offered: %v", offered)
+	if len(offer.Types) != 0 {
+		t.Errorf("a removed factor is still offered: %v", offer.Types)
+	}
+	// And with no recovery store, nothing else is offered either — so the
+	// caller's "nothing to answer with" branch is reachable.
+	if !offer.Empty() {
+		t.Errorf("the offer is not empty: %+v", offer)
 	}
 }
 

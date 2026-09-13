@@ -116,6 +116,15 @@ var Policy = map[string]Requirement{
 	"POST /v1/organizations/{org_id}/users/{user_id}/reactivate":     {Role: OrgAdmin, Scope: ScopeOrganization},
 	"POST /v1/organizations/{org_id}/users/{user_id}/password-reset": {Role: OrgAdmin, Scope: ScopeOrganization},
 
+	// Clearing somebody else's second factor (P3-04).
+	//
+	// ORG_ADMIN, the same level as the password reset beside it, and for the
+	// same reason: both hand an account back to somebody who cannot currently
+	// reach it, and neither gives the administrator a credential of their own.
+	// A lower bar would make the recovery path the cheapest way into any
+	// account in the organization.
+	"POST /v1/organizations/{org_id}/users/{user_id}/mfa-reset": {Role: OrgAdmin, Scope: ScopeOrganization},
+
 	// --- User grants (P2-03) ---
 	//
 	// ORG_ADMIN over the organization, NOT the project scope `P2-02` uses.

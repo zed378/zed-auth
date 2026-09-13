@@ -342,6 +342,12 @@ const sidebar: SidebarsConfig = {
           label: "Send a password-reset link",
           className: "api-method post",
         },
+        {
+          type: "doc",
+          id: "api-reference/reset-user-mfa",
+          label: "Clear a user's two-step verification",
+          className: "api-method post",
+        },
       ],
     },
     {

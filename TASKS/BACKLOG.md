@@ -377,6 +377,28 @@ The cost of the omission is smaller than it looks today, because both claims are
 
 ---
 
+### PG-39 — "hashed with the same rigor as a password" is the wrong primitive for a recovery code
+
+**Affects**: `docs/PLAN/04-DATA-MODEL.md` § `user_recovery_codes`, implemented by `P3-04`.
+
+The plan specifies:
+
+> | code_hash | text | hashed with the same rigor as a password — these are credentials |
+
+The intent is right and the mechanism it points at is wrong. `P3-04` stores **SHA-256 into `bytea`** instead, and this is the record of that decision rather than a silent substitution.
+
+**A slow KDF buys nothing here.** Argon2 exists because passwords are low-entropy and human-chosen, so an offline attacker can enumerate the plausible ones and the defence is to make each guess expensive. A recovery code is 80 bits from the CSPRNG. There is no candidate list to enumerate, and SHA-256 and Argon2 are equally uncrackable against an input like that — the stronger-sounding primitive is not stronger. The rigor the plan is asking for is delivered by **the entropy of the code**, which is the property that actually decides whether a dump is exploitable.
+
+**And it costs a denial of service.** A user holds ten codes; a submitted code is compared against all of them. At Argon2id's tuned parameters that is ten memory-hard computations — hundreds of megabytes touched — per attempt, on a path an attacker who already holds the password can drive as fast as they like. The control meant to protect the account would become the cheapest way to exhaust the service.
+
+**`text` → `bytea`** for a smaller reason: a 32-byte digest in a `text` column is a digest in some encoding nobody wrote down, and the first person to compare two of them across encodings gets a silent mismatch. `bytea` with a `CHECK (length(code_hash) = 32)` makes the shape a property of the column.
+
+**What is NOT weakened**: the codes are single-use, bounded by `P3-03`'s per-user attempt counter (shared with factor guesses, so an attacker cannot get two allowances by choosing which form to guess in), and never logged or returned after issue.
+
+**Recommendation**: `docs/PLAN/04` should say what it means rather than what it implies — something like *"stored as a digest of a high-entropy generated value; the entropy is the defence, so a fast hash is correct and a slow KDF is a denial-of-service vector"*. Through the deliberate plan-change process.
+
+---
+
 ### BL-07 — `authn`'s login-policy code has no unit tests and reads 0% coverage
 
 **Affects**: `internal/authn/loginpolicy.go` (`ParseLoginPolicy`, `LoginPolicy.Allows`, `PolicyStore.LoginPolicy`), introduced by `P2-10`.
