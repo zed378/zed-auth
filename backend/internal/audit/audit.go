@@ -64,6 +64,17 @@ const (
 	// login path can tell an operator.
 	EventMFAChallenged EventType = "user.mfa.challenged"
 
+	// Recovery (P3-04), at elevated visibility.
+	//
+	// These two and `user.mfa.challenged` are the rows an incident review looks
+	// for first (`docs/SECURITY/04`), because each means somebody reached an
+	// account without the factor protecting it — or removed that factor for
+	// somebody else. Neither payload ever carries a code, a hash of one, or the
+	// batch a code could be recovered from.
+	EventMFARecoveryUsed EventType = "user.mfa.recovery_used"
+	EventMFACodesIssued  EventType = "user.mfa.codes_generated"
+	EventMFAResetByAdmin EventType = "user.mfa.reset_by_admin"
+
 	// EventTokenIssued records a successful exchange at the token endpoint
 	// (P1-07). The payload names the client, the grant and the scope, and
 	// never a token — the whole point of the event is to reconstruct who was

@@ -121,6 +121,31 @@ const (
 	// who will actually see it.
 	MsgSessionProblem = "This page has been open for a while. Please try again."
 
+	// MsgRecoveryLabel and MsgRecoveryHint are the recovery form's copy (P3-04).
+	//
+	// "One of your recovery codes" rather than "your backup code": the user was
+	// given ten and told to keep them, and the plural is what makes the sentence
+	// match the piece of paper they are holding.
+	MsgRecoveryLabel = "Recovery code"
+	MsgRecoveryHint  = "Lost your device? Enter one of the recovery codes you saved when you set up two-step verification. Each code works once."
+
+	// MsgRecoveryUsed is shown after a recovery code completes a login.
+	//
+	// It is not an error and is not styled as one. It exists because the user
+	// has just spent a credential they cannot get back, and the moment they will
+	// act on that is now — not the next time they sign in.
+	MsgRecoveryUsed = "You signed in with a recovery code, so that code has now been used."
+
+	// MsgRecoveryLow warns when the remaining codes are running out (F-4).
+	MsgRecoveryLow = "You are running low on recovery codes. Generate a new set from your account settings."
+
+	// MsgRecoveryExhausted is the last one.
+	//
+	// Said plainly, because the consequence is specific and the user can still
+	// act on it while they are signed in: without codes AND without the device,
+	// the only path left is an administrator.
+	MsgRecoveryExhausted = "That was your last recovery code. Generate a new set from your account settings — without one, only an administrator can restore access."
+
 	MsgEmailRequired    = "Enter your email address."
 	MsgPasswordRequired = "Enter your password."
 
@@ -402,6 +427,41 @@ type ChallengePage struct {
 
 	// Problem is the form-level message, one of the constants above.
 	Problem string
+
+	// Recovery is true when this user holds an unspent recovery code (P3-04).
+	//
+	// Read from server-side state when the challenge was RAISED, never from the
+	// request — so the form appears for somebody who can actually use it, and a
+	// user with no codes is not shown a way in that leads nowhere.
+	//
+	// It does not say HOW MANY. The count is a fact about the account, and a
+	// page reachable with only a password must not answer questions about the
+	// account beyond the one it was opened to ask.
+	Recovery bool
+}
+
+// RecoveryLabel and RecoveryHint are the recovery form's copy.
+//
+// Methods rather than fields, so the template cannot be handed a value from
+// anywhere else — the copy on this page is a constant in this file, and that is
+// the property that makes it safe to render without escaping worries.
+func (c ChallengePage) RecoveryLabel() string { return MsgRecoveryLabel }
+func (c ChallengePage) RecoveryHint() string  { return MsgRecoveryHint }
+
+// RecoveryNotice is what to tell somebody who just spent a code.
+//
+// Returns the empty string when there is nothing to say, so the caller does not
+// have to know the thresholds — they live here with the messages they choose
+// between.
+func RecoveryNotice(remaining int) string {
+	switch {
+	case remaining == 0:
+		return MsgRecoveryExhausted
+	case remaining <= mfa.RecoveryLowWaterMark:
+		return MsgRecoveryLow
+	default:
+		return MsgRecoveryUsed
+	}
 }
 
 // OfferedFactor is one kind of factor, as the page shows it.
@@ -481,6 +541,21 @@ var challengeTemplate = template.Must(template.New("challenge").Parse(`<!DOCTYPE
  {{if and (eq $index 0) (not $.Problem)}}autofocus{{end}}>
 </div>
 <button type="submit">Verify</button>
+</form>
+{{end}}
+{{if .Recovery}}
+<form method="post" action="/login/mfa">
+<input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+<input type="hidden" name="request" value="{{.RequestID}}">
+<input type="hidden" name="factor" value="recovery">
+<div class="field">
+<label for="recovery-code">{{.RecoveryLabel}}</label>
+<p class="note">{{.RecoveryHint}}</p>
+<input id="recovery-code" name="code" type="text" autocomplete="one-time-code"
+ autocapitalize="characters" spellcheck="false" required
+ {{if and (not .Offered) (not .Problem)}}autofocus{{end}}>
+</div>
+<button type="submit">Use a recovery code</button>
 </form>
 {{end}}
 <p class="foot"><a href="{{.ForgotPath}}">Having trouble?</a></p>

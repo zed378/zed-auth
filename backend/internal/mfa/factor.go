@@ -273,3 +273,41 @@ func AuthMethods(password bool, used ...Type) []string {
 	sort.Strings(out)
 	return out
 }
+
+// AuthMethodsWithRecovery builds `amr` for an authentication that may have used
+// a recovery code (P3-04).
+//
+// **A recovery code gets `mfa` and no method value of its own**, and both
+// halves of that are decisions worth stating.
+//
+// No method value, because RFC 8176 has none that fits and inventing one would
+// put a value in a standard claim that no consumer can interpret. It is
+// emphatically not `otp`: a consumer refusing a payment unless `amr` contains
+// `otp` is asking whether a one-time-password DEVICE was used, and answering yes
+// because the user typed a code off a piece of paper is precisely the lie this
+// claim exists to prevent. So a session opened with a recovery code will fail a
+// step-up check that demands `otp`, and that is correct — the user no longer has
+// the device, and the right next step is to re-enrol rather than to be waved
+// through.
+//
+// But `mfa` IS claimed, because it is true: RFC 8176 defines it as more than one
+// factor, and a password plus a recovery code is something known plus something
+// held. Withholding it would understate the authentication and would make a
+// recovery login indistinguishable from a password-only one in the session
+// record — which is the fact an incident review most needs to see.
+func AuthMethodsWithRecovery(password, recovery bool, used ...Type) []string {
+	methods := AuthMethods(password, used...)
+	if !recovery {
+		return methods
+	}
+
+	for _, existing := range methods {
+		if existing == MethodMultiFactor {
+			return methods
+		}
+	}
+
+	methods = append(methods, MethodMultiFactor)
+	sort.Strings(methods)
+	return methods
+}

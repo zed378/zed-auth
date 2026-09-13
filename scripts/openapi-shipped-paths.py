@@ -82,6 +82,12 @@ SHIPPED = {
     "/v1/organizations/{org_id}/users/{user_id}/deactivate",
     "/v1/organizations/{org_id}/users/{user_id}/reactivate",
     "/v1/organizations/{org_id}/users/{user_id}/password-reset",
+    # P3-04. The administrator-assisted MFA reset: clears a user's factors and
+    # recovery codes, returns no credential. The runbook it points at
+    # (deploy/RUNBOOK-mfa-recovery.md) is part of what makes it shipped —
+    # the endpoint without the documented verification step would be the
+    # undocumented reset path the task exists to replace.
+    "/v1/organizations/{org_id}/users/{user_id}/mfa-reset",
     # P1-20. The audit log, read-only and deliberately so.
     "/v1/organizations/{org_id}/events",
 }

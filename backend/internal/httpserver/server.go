@@ -617,6 +617,7 @@ type Users interface {
 	DeactivateUser(ctx context.Context, request api.DeactivateUserRequestObject) (api.DeactivateUserResponseObject, error)
 	ReactivateUser(ctx context.Context, request api.ReactivateUserRequestObject) (api.ReactivateUserResponseObject, error)
 	ResetUserPassword(ctx context.Context, request api.ResetUserPasswordRequestObject) (api.ResetUserPasswordResponseObject, error)
+	ResetUserMfa(ctx context.Context, request api.ResetUserMfaRequestObject) (api.ResetUserMfaResponseObject, error)
 }
 
 // AuditLog is the audit log's read view (P1-20).

@@ -1192,6 +1192,58 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/organizations/{org_id}/users/{user_id}/mfa-reset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The organization that owns the resource. Every request is scoped to exactly one. */
+                org_id: components["parameters"]["OrganizationId"];
+                /** @description The user this operation acts on. */
+                user_id: components["parameters"]["UserId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Clear a user's two-step verification
+         * @description Requires `ORG_ADMIN`. Removes every enrolled factor and every recovery
+         *     code the user holds, returning them to a state where a password alone
+         *     signs them in — and where they can enrol again.
+         *
+         *     **This is the last resort, not the first.** It exists because a user
+         *     whose device is gone and whose recovery codes are spent has no path back
+         *     that does not involve another person, and an undocumented version of
+         *     that path is an authentication mechanism with no threat model. The
+         *     documented process, including the identity verification an administrator
+         *     must perform out-of-band BEFORE calling this, is in
+         *     `deploy/RUNBOOK-mfa-recovery.md`. No technical control here can replace
+         *     it: this endpoint cannot tell an administrator who verified a caller from
+         *     one who was talked into it.
+         *
+         *     **It destroys credentials and mints none.** There is no response body
+         *     carrying codes, no session, and no way for an administrator to obtain a
+         *     credential for another account — an endpoint that returned working
+         *     recovery codes would let anyone holding `ORG_ADMIN` take over any account
+         *     in the organization, which is a far worse power than the one this is
+         *     meant to grant. The user gets back in with their password and enrols
+         *     again.
+         *
+         *     Audited as `user.mfa.reset_by_admin`, naming the actor and the target.
+         *     With `user.mfa.recovery_used`, these are the events an incident review
+         *     looks for first.
+         *
+         *     Idempotent in effect: a user with nothing enrolled is not an error, and
+         *     the response reports zero removed.
+         */
+        post: operations["resetUserMfa"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/organizations/{org_id}/events": {
         parameters: {
             query?: never;
@@ -1881,6 +1933,28 @@ export interface components {
             email?: string;
             username?: string | null;
             display_name?: string | null;
+        };
+        /**
+         * @description What an administrator-assisted reset destroyed.
+         *
+         *     Counts rather than identifiers: an administrator is entitled to know
+         *     that the reset did something, and is not entitled to a list of which
+         *     devices somebody had enrolled.
+         */
+        MfaReset: {
+            /**
+             * @description How many enrolled factors were removed.
+             * @example 1
+             */
+            factors_removed: number;
+            /**
+             * @description How many recovery codes were destroyed, spent ones included — a
+             *     used code is a spent credential of an account being handed back,
+             *     and its row would otherwise keep a hash of something somebody once
+             *     wrote down.
+             * @example 10
+             */
+            recovery_codes_removed: number;
         };
         ResetRequested: {
             /**
@@ -4204,6 +4278,45 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ResetRequested"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["RateLimited"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    resetUserMfa: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description A client-generated key making a retried `POST` safe. Replaying a
+                 *     request with the same key returns the original result rather than
+                 *     creating a second resource — which matters most for automated
+                 *     provisioning, where a network timeout is indistinguishable from a
+                 *     failure (`docs/PLAN/05` Part B).
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                /** @description The organization that owns the resource. Every request is scoped to exactly one. */
+                org_id: components["parameters"]["OrganizationId"];
+                /** @description The user this operation acts on. */
+                user_id: components["parameters"]["UserId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The user's factors and recovery codes were cleared. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MfaReset"];
                 };
             };
             401: components["responses"]["Unauthorized"];

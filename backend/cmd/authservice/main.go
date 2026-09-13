@@ -470,6 +470,18 @@ func run() error {
 		users.Mailer = mailer
 	}
 
+	// The administrator-assisted reset (P3-04 step 4).
+	//
+	// Set unconditionally rather than only when MFA is configured: the handler
+	// refuses with a clear conflict when factors are unavailable, and the
+	// alternative — a nil field on a build that does have factors — would be an
+	// endpoint reporting a successful reset of nothing to an administrator who
+	// is on the phone to a locked-out user.
+	users.MFA = &mfa.AdminReset{
+		Factors:  &mfa.Store{},
+		Recovery: mfa.NewRecoveryStore(),
+	}
+
 	v1 := &management.Chain{
 		Auth: &management.Middleware{
 			Issuer:   cfg.Issuer,
@@ -860,6 +872,10 @@ func buildMFA(
 	return &mfa.Framework{
 		Registry: mfa.NewRegistry(totp),
 		Store:    &mfa.PostgresFactors{Store: factorStore, DB: db},
+		// Recovery codes (P3-04). Wired here rather than left nil, because a
+		// deployment with factors and no recovery path is one where a lost
+		// phone is a support ticket at best and a lost account at worst.
+		Recovery: &mfa.PostgresRecovery{Store: mfa.NewRecoveryStore(), DB: db},
 		// The challenge and the attempt counter share one Redis, which is what
 		// lets the counter fail CLOSED without that being a decision about
 		// availability: a Redis that cannot count cannot hold a challenge
