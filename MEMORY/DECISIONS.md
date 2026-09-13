@@ -629,6 +629,13 @@ The cost is a heavier landing page than a purpose-built marketing SSG would prod
 
 ### ADR-015 — The breached-password check fails open, and says so every time
 
+> **Correction, 2026-09-13 (`P3-12`).** Until `P3-12` this decision was not in
+> effect anywhere: the corpus client was built at start-up and passed to no
+> password-set path, so no password was checked, no skip was audited, and the
+> counter never moved. It is now enforced through `authn.PasswordValidator` on the
+> set-password page and the self-service password change. See
+> [the P3-12 record](./records/2026-09-13-P3-12-personal-settings.md).
+
 | | |
 |---|---|
 | **Date** | 2026-09-09 |

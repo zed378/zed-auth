@@ -857,6 +857,69 @@ paths:
         "429": { $ref: "#/components/responses/RateLimited" }
         "500": { $ref: "#/components/responses/InternalError" }
 
+  /v1/me:
+    get:
+      tags: [Account]
+      operationId: getMe
+      summary: Read the caller's own account
+      description: |
+        The caller's profile, their organization's name, and the password rules
+        that apply to them — so a client can show the requirements **before** a
+        new password is typed rather than only after it is refused (`P3-12`).
+
+        Requires only a valid access token; the user comes from the token. A
+        member with no administrative role reads their own account here, which
+        the organization's user routes (`ORG_ADMIN`) would refuse them.
+      responses:
+        "200":
+          description: The caller's account.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Me"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+  /v1/me/password:
+    post:
+      tags: [Account]
+      operationId: changeMyPassword
+      summary: Change the caller's password
+      description: |
+        Requires the **current** password as well as the new one. A live session
+        is not proof that the person at the keyboard is the account's owner, and
+        a stolen session that could change the password would lock the owner out.
+
+        The current password is checked against the **same per-address bound as
+        sign-in** (`P1-13`): wrong guesses here count toward the same cooldown,
+        so this endpoint is not a second, unthrottled way to guess a password.
+        A refusal during a cooldown is `429`.
+
+        The new password must satisfy the organization's policy and must not
+        appear in the breached-password corpus (`P1-02`, ADR-015). Every rule
+        it fails is listed under `new_password`.
+
+        On success every **other** session is signed out and their refresh
+        tokens revoked; the session this request came from is kept. A password
+        change is what somebody does when they think somebody else knows it.
+        Audited as `user.password.changed`.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PasswordChange"
+      responses:
+        "204":
+          description: The password is changed and other sessions are signed out.
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
   /v1/me/mfa:
     get:
       tags: [MFA]
@@ -4120,6 +4183,64 @@ components:
               description: Field-level problems. Omitted when there are none.
               items:
                 $ref: "#/components/schemas/ErrorDetail"
+
+    Me:
+      type: object
+      required: [id, email, display_name, organization, password_policy, password_changed_at]
+      additionalProperties: false
+      properties:
+        id:
+          $ref: "#/components/schemas/ResourceId"
+        email:
+          type: string
+        display_name:
+          type: string
+          nullable: true
+        organization:
+          type: object
+          required: [id, name]
+          additionalProperties: false
+          properties:
+            id:
+              $ref: "#/components/schemas/ResourceId"
+            name:
+              type: string
+        password_policy:
+          $ref: "#/components/schemas/MyPasswordPolicy"
+        password_changed_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: When the password was last set; null when never recorded.
+
+    MyPasswordPolicy:
+      type: object
+      description: The rules a new password must meet, as the organization has configured them.
+      required: [min_length, require_uppercase, max_age_days, breach_checked]
+      additionalProperties: false
+      properties:
+        min_length:
+          type: integer
+        require_uppercase:
+          type: boolean
+        max_age_days:
+          type: integer
+          description: Days before a password expires. Zero means it does not.
+        breach_checked:
+          type: boolean
+          description: Whether new passwords are checked against a breached-password corpus on this service.
+
+    PasswordChange:
+      type: object
+      required: [current_password, new_password]
+      additionalProperties: false
+      properties:
+        current_password:
+          type: string
+          format: password
+        new_password:
+          type: string
+          format: password
 
     MfaFactor:
       type: object

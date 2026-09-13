@@ -32,7 +32,11 @@ type Factor = components["schemas"]["MfaFactor"];
 export function MfaTab({ orgId, userId }: { orgId: string | null; userId: string }) {
   const { claims } = useAuth();
   const self = claims !== null && claims.subject === userId;
-  return self ? <MyFactors orgId={orgId} userId={userId} /> : <MemberFactors orgId={orgId} userId={userId} />;
+  return self ? (
+    <MyFactors orgId={orgId} returnPath={`/users/${userId}?tab=mfa`} />
+  ) : (
+    <MemberFactors orgId={orgId} userId={userId} />
+  );
 }
 
 // --- somebody else's ------------------------------------------------------------------------
@@ -123,7 +127,15 @@ function MemberFactors({ orgId, userId }: { orgId: string | null; userId: string
 
 const PASSKEY_RECENCY_MS = 9 * 60 * 1000;
 
-function MyFactors({ orgId, userId }: { orgId: string | null; userId: string }) {
+/** `mfa.RecoveryLowWaterMark` — when a user is told to replace their codes. */
+const LOW_RECOVERY_CODES = 3;
+
+/**
+ * One's own factors, managed. Exported for personal settings (P3-12), which
+ * shows the same component; `returnPath` is where re-authentication and the
+ * hosted passkey page send the user back to.
+ */
+export function MyFactors({ orgId, returnPath }: { orgId: string | null; returnPath: string }) {
   const { login } = useAuth();
   const queryClient = useQueryClient();
   const mfa = useMyMfa(orgId, true);
@@ -134,7 +146,6 @@ function MyFactors({ orgId, userId }: { orgId: string | null; userId: string }) 
   const [codes, setCodes] = useState<string[] | null>(null);
   const [needsSignIn, setNeedsSignIn] = useState(false);
 
-  const returnPath = `/users/${userId}?tab=mfa`;
   const refresh = () => void queryClient.invalidateQueries({ queryKey: [...queryKeys.mfa, orgId] });
 
   /** Routes a refusal: a stale session asks for sign-in; anything else is thrown on. */
@@ -292,7 +303,19 @@ function MyFactors({ orgId, userId }: { orgId: string | null; userId: string }) 
         </div>
       ) : null}
 
-      {factors.length > 0 && remaining > 0 ? (
+      {factors.length > 0 && remaining > 0 && remaining <= LOW_RECOVERY_CODES ? (
+        // P3-04 F-4: warn while there are still codes to spend, not after.
+        <div role="status" className="mt-4 rounded border border-border bg-bg-surface p-5">
+          <h2 className="text-heading-3 font-medium text-text-primary">
+            Only {remaining} recovery {remaining === 1 ? "code" : "codes"} left
+          </h2>
+          <p className="mt-1 max-w-prose text-body text-text-secondary">
+            Replace them before you run out, while you can still sign in.
+          </p>
+        </div>
+      ) : null}
+
+      {factors.length > 0 && remaining > LOW_RECOVERY_CODES ? (
         <p className="mt-3 text-small text-text-secondary">Unused recovery codes: {remaining}</p>
       ) : null}
 

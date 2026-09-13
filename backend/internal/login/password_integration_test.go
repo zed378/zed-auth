@@ -11,6 +11,7 @@ package login
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -663,5 +664,42 @@ func TestAReportNotMeTokenDoesNotRenderAPasswordForm(t *testing.T) {
 
 	if strings.Contains(w.Body.String(), `name="password"`) {
 		t.Errorf("a report_not_me token rendered a password form:\n%s", w.Body.String())
+	}
+}
+
+// --- the breach corpus, wired (found in P3-12) ----------------------------------------------
+
+// breachedCorpus says every password is breached.
+type breachedCorpus struct{}
+
+func (breachedCorpus) Breached(context.Context, string) (bool, error) { return true, nil }
+
+// A password from a breach list is refused on the set-password page.
+//
+// Before P3-12 this page validated against the organization's policy only, and
+// the breach client built at start-up was handed to nothing — so a password on a
+// public breach list was accepted here, which is the one page every new account
+// passes through.
+func TestTheSetPasswordPageRefusesABreachedPassword(t *testing.T) {
+	s := setup(t)
+	s.login.Password.Policy = &authn.PasswordValidator{
+		Policies: authn.NewPolicyStore(discard()),
+		Breaches: breachedCorpus{},
+		Audit:    audit.NewWriter(s.db, discard(), nil),
+	}
+	userID, token := s.inviteToken(t, "breached@example.test")
+
+	w := s.setPassword(t, token, "Correct Horse Battery Staple 42")
+
+	if strings.Contains(w.Body.String(), "password is set") {
+		t.Fatal("a breached password was accepted by the set-password page")
+	}
+	if !strings.Contains(w.Body.String(), "known data breach") {
+		t.Errorf("the refusal does not say why:\n%s", w.Body.String())
+	}
+	var hash sql.NullString
+	s.factory.QueryRow(&hash, `SELECT password_hash FROM users WHERE id = $1`, userID)
+	if hash.Valid {
+		t.Error("a breached password was stored")
 	}
 }

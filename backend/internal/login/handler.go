@@ -248,6 +248,10 @@ type Handler struct {
 	Enrol      Enroller
 	Enrolments EnrolStore
 
+	// EnrolRecovery issues recovery codes at forced enrolment (P3-12). Nil
+	// skips the step, which is what a deployment without recovery codes gets.
+	EnrolRecovery EnrolRecoveryCodes
+
 	// Policy is the session policy. P2-10 makes it per organization.
 	Policy session.Policy
 

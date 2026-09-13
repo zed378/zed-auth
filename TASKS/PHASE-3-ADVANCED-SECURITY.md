@@ -482,7 +482,7 @@
 
 | | |
 |---|---|
-| **Status** | TODO |
+| **Status** | DONE — 2026-09-13, [record](../MEMORY/records/2026-09-13-P3-12-personal-settings.md). **Found that the breached-password check had guarded no password since P1-02**; fixed for every password-set path |
 | **Depends on** | P3-09, P3-10 |
 | **Plan refs** | `docs/UI-UX/08-PAGE-SPECIFICATIONS.md` (Personal account settings), `docs/UI-UX/16-MOBILE-UX.md`, `docs/UI-UX/12-RESPONSIVE-BEHAVIOR.md` |
 | **Spec required** | No — implementation chain mandatory |
@@ -500,11 +500,11 @@
 7. Reachable from anywhere in the console, since a user may arrive at it from any context.
 
 **Definition of Done**
-- [ ] Every action works on a real mobile viewport, verified against `docs/UI-UX/16`.
-- [ ] Password change enforces the org policy and shows requirements up front.
-- [ ] MFA and session management are fully self-service here.
-- [ ] Social login is shown as unavailable rather than broken.
-- [ ] Accessibility requirements are met at mobile width as well as desktop.
+- [x] Every action works on a real mobile viewport, verified against `docs/UI-UX/16` — at 390×844 with touch in Chromium: no sideways scroll, 24×24 targets, and a password changed on a phone that then signs in.
+- [x] Password change enforces the org policy and shows requirements up front — plus the breach corpus, needs the current password, and shares sign-in's cooldown.
+- [x] MFA and session management are fully self-service here — `P3-10`'s and `P3-11`'s components; forced enrolment now hands over recovery codes; the low-count warning shows at three.
+- [x] Social login is shown as unavailable rather than broken — a "Not available" badge and nothing to press.
+- [x] Accessibility requirements are met at mobile width as well as desktop — axe-clean, labelled fields with requirements and errors wired by `aria-describedby`, landmarks once each.
 
 ---
 
