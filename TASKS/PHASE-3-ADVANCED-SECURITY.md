@@ -229,7 +229,7 @@
 
 | | |
 |---|---|
-| **Status** | TODO |
+| **Status** | DONE — 2026-09-13, [record](../MEMORY/records/2026-09-13-P3-06-refresh-rotation.md), [spec](../MEMORY/specs/P3-06-refresh-rotation.md). **Two bugs were already shipping** — see below |
 | **Depends on** | P1-07 |
 | **Plan refs** | `docs/PLAN/09-SECURITY.md` § Tokens & Keys, `docs/PLAN/11-TESTING.md` § Security Testing, `docs/PLAN/17-ACCEPTANCE-CRITERIA.md` § Phase 3, `docs/PLAN/10-THREAT-MODEL.md` |
 | **Spec required** | Yes — token security core |
@@ -248,11 +248,18 @@
 8. Bind refresh tokens to the client, and consider binding to the session where the flow allows.
 
 **Definition of Done**
-- [ ] A rotated refresh token cannot be reused — automated test, per `docs/PLAN/17`.
-- [ ] Reuse revokes the entire family and raises an alert.
-- [ ] The retry grace window is documented and tested for both the legitimate and the malicious case.
-- [ ] Only hashes are stored.
-- [ ] Family absolute and idle lifetimes are enforced.
+- [x] A rotated refresh token cannot be reused — `TestARotatedRefreshTokenCannotBeReused`, `docs/PLAN/17`'s literal sentence, against real Postgres.
+- [x] Reuse revokes the entire family and raises an alert — including the legitimate client's newest token, deliberately: the alternative is deciding which of two identical presentations is genuine, which cannot be done. `auth_refresh_reuse_detected_total` is unlabelled on purpose, because its correct threshold is **any increase at all** and a label invites a dashboard that tolerates a low rate.
+- [x] The retry grace window is documented and tested for both the legitimate and the malicious case — the two tests differ **only** in whether the successor was spent, and both are well inside the window, so it is the successor rather than the clock that distinguishes them.
+- [x] Only hashes are stored — asserted after rotation, because rotation writes new rows and a regression there would be invisible.
+- [x] Family absolute and idle lifetimes are enforced — the absolute expiry is **inherited** on every rotation, and the successor's own expiry is capped at it.
+
+**Two bugs were already shipping**, both producing perfectly working refreshes:
+
+- **A refresh started a new family.** `issue()` passed an empty family id on every path, so `replaced_by` had **never been written in the history of this service**. Reuse detection was not absent — it was impossible, while the schema had said since Phase 1 that this is how it works.
+- **The absolute family lifetime was recomputed on every issuance**, so continuous refreshing extended a session forever. That is this card's own step-6 abuse case, live since Phase 1.
+
+**And the mutation run found two tests proving less than their names.** The absolute-lifetime test compared expiries with a one-second tolerance — `FamilyLifetime` is ninety days, so the bug it exists for passed straight through it; it now asserts exactly one distinct expiry across the family. A comment claimed a guard stopped somebody killing a family by guessing, which mutating it showed to be untrue. Both corrected in the source.
 
 **Abuse cases to test**
 - Token replay after rotation (`docs/PLAN/10` § High-Priority Abuse Scenarios).
