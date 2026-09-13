@@ -149,5 +149,6 @@ export const queryKeys = {
   grants: ["grants"] as const,
   users: ["users"] as const,
   mfa: ["mfa"] as const,
+  sessions: ["sessions"] as const,
   events: ["events"] as const,
 } as const;
