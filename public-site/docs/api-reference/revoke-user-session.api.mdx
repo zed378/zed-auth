@@ -1,0 +1,79 @@
+---
+id: revoke-user-session
+title: "End one of a member's sessions"
+description: "Requires `ORG_ADMIN`, the same as deactivating the member, and ending"
+sidebar_label: "End one of a member's sessions"
+hide_title: true
+hide_table_of_contents: true
+api: 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
+sidebar_class_name: "delete api-method"
+info_path: docs/api-reference/zed-auth-management-api
+custom_edit_url: null
+---
+
+import MethodEndpoint from "@theme/ApiExplorer/MethodEndpoint";
+import ParamsDetails from "@theme/ParamsDetails";
+import RequestSchema from "@theme/RequestSchema";
+import StatusCodes from "@theme/StatusCodes";
+import OperationTabs from "@theme/OperationTabs";
+import TabItem from "@theme/TabItem";
+import Heading from "@theme/Heading";
+import Translate from "@docusaurus/Translate";
+
+<Heading
+  as={"h1"}
+  className={"openapi__heading"}
+  children={"End one of a member's sessions"}
+>
+</Heading>
+
+<MethodEndpoint
+  method={"delete"}
+  path={"/v1/organizations/{org_id}/users/{user_id}/sessions/{session_id}"}
+  context={"endpoint"}
+>
+  
+</MethodEndpoint>
+
+
+
+Requires `ORG_ADMIN`, the same as deactivating the member, and ending
+one session is strictly less than that. The session and every refresh
+token issued through it end, effective on the next request.
+
+The session must belong to the member in the path. One that belongs to
+someone else, or to no one, is `404`. One that has already ended is
+`204`.
+
+Audited as `session.revoked` with the administrator as actor and the
+member as target.
+
+
+<Heading
+  id={"request"}
+  as={"h2"}
+  className={"openapi-tabs__heading"}
+>
+  <Translate id="theme.openapi.request.title">Request</Translate>
+</Heading>
+
+<ParamsDetails
+  {...require("./revoke-user-session.ParamsDetails.json")}
+>
+  
+</ParamsDetails>
+
+<RequestSchema
+  {...require("./revoke-user-session.RequestSchema.json")}
+>
+  
+</RequestSchema>
+
+<StatusCodes
+  {...require("./revoke-user-session.StatusCodes.json")}
+>
+  
+</StatusCodes>
+
+
+      

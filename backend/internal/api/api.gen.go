@@ -1332,6 +1332,79 @@ type RotatedSecret struct {
 	PreviousSecretExpiresAt nullable.Nullable[time.Time] `json:"previous_secret_expires_at,omitempty"`
 }
 
+// Session One sign-in session, in the least detail that lets a person recognise
+// it. There is deliberately no IP address and no user agent string.
+type Session struct {
+	// AuthMethods How the session was authenticated, as RFC 8176 `amr` values.
+	AuthMethods []string  `json:"auth_methods"`
+	CreatedAt   time.Time `json:"created_at"`
+
+	// Current Whether this is the session the caller's own token was issued through.
+	Current bool `json:"current"`
+
+	// Device The browser family and operating system. Null where unrecognised; API clients and scripts usually are.
+	Device SessionDevice `json:"device"`
+
+	// ExpiresAt The absolute end of the session, whatever its activity.
+	ExpiresAt time.Time `json:"expires_at"`
+
+	// Id A resource's stable identifier. Not sequential and not guessable.
+	//
+	// **This was specified as a prefixed, sortable identifier** — `usr_`,
+	// `org_`, `prj_` — and is a UUID instead. The change is deliberate and is
+	// recorded as `PG-23`.
+	//
+	// The prefix has a real benefit: an id pasted into a support ticket is
+	// self-describing, and passing a project id where a user id belongs is
+	// visible on sight rather than at the database. What it cannot survive is
+	// being applied to only part of the surface. `docs/PLAN/04` makes every
+	// primary key a UUID, the access token's `org_id` claim is a UUID, and
+	// OpenID Connect's `sub` — already shipped by `P1-08` — is a UUID that
+	// callers store as a user's permanent key.
+	//
+	// Prefixing only the Management API would give the same user two
+	// identifiers and make every consumer convert between them, which is a
+	// larger and more permanent papercut than the one the prefix removes.
+	// Prefixing everything means changing `sub`, which is a protocol field
+	// with its own conventions and a value integrators have already stored.
+	//
+	// So: UUIDs everywhere, and if prefixed identifiers are wanted later they
+	// arrive everywhere at once or not at all.
+	Id ResourceId `json:"id"`
+
+	// LastActiveAt When the session was last used. Recorded at most once a minute, so
+	// it may trail real activity by that much.
+	LastActiveAt time.Time `json:"last_active_at"`
+
+	// Location "City, CC", or just the country code, when the deployment has a
+	// geolocation database and the address resolves. Null otherwise.
+	Location nullable.Nullable[string] `json:"location"`
+}
+
+// SessionDevice The browser family and operating system. Null where unrecognised; API clients and scripts usually are.
+type SessionDevice struct {
+	Browser nullable.Nullable[string] `json:"browser"`
+	Os      nullable.Nullable[string] `json:"os"`
+}
+
+// SessionList defines model for SessionList.
+type SessionList struct {
+	// PageInfo The pagination envelope every collection response embeds.
+	//
+	// Token-based rather than offset-based: an offset re-reads rows that
+	// shifted under concurrent writes, silently skipping or duplicating
+	// entries. For an audit log or a user list that is a correctness bug that
+	// nobody notices.
+	PageInfo *PageInfo `json:"page_info,omitempty"`
+	Sessions []Session `json:"sessions"`
+}
+
+// SessionRevocation defines model for SessionRevocation.
+type SessionRevocation struct {
+	// Revoked How many sessions were ended. Zero when there were no others.
+	Revoked int `json:"revoked"`
+}
+
 // TokenResponse A successful token response (RFC 6749 § 5.1).
 type TokenResponse struct {
 	// AccessToken A JWT with `typ: at+jwt`. Verify it against the JWKS at
@@ -1669,6 +1742,30 @@ type ProjectId = ResourceId
 // arrive everywhere at once or not at all.
 type RoleId = ResourceId
 
+// SessionId A resource's stable identifier. Not sequential and not guessable.
+//
+// **This was specified as a prefixed, sortable identifier** — `usr_`,
+// `org_`, `prj_` — and is a UUID instead. The change is deliberate and is
+// recorded as `PG-23`.
+//
+// The prefix has a real benefit: an id pasted into a support ticket is
+// self-describing, and passing a project id where a user id belongs is
+// visible on sight rather than at the database. What it cannot survive is
+// being applied to only part of the surface. `docs/PLAN/04` makes every
+// primary key a UUID, the access token's `org_id` claim is a UUID, and
+// OpenID Connect's `sub` — already shipped by `P1-08` — is a UUID that
+// callers store as a user's permanent key.
+//
+// Prefixing only the Management API would give the same user two
+// identifiers and make every consumer convert between them, which is a
+// larger and more permanent papercut than the one the prefix removes.
+// Prefixing everything means changing `sub`, which is a protocol field
+// with its own conventions and a value integrators have already stored.
+//
+// So: UUIDs everywhere, and if prefixed identifiers are wanted later they
+// arrive everywhere at once or not at all.
+type SessionId = ResourceId
+
 // UserId A resource's stable identifier. Not sequential and not guessable.
 //
 // **This was specified as a prefixed, sortable identifier** — `usr_`,
@@ -1739,6 +1836,29 @@ type ListAdministeredOrganizationsParams struct {
 	// are not part of the contract and must not be constructed, parsed, or
 	// persisted by a client.
 	PageToken *PageToken `form:"page_token,omitempty" json:"page_token,omitempty"`
+}
+
+// ListMySessionsParams defines parameters for ListMySessions.
+type ListMySessionsParams struct {
+	// PageSize Maximum items to return. The server may return fewer, and returning
+	// fewer never means the collection is exhausted — only an absent
+	// `next_page_token` means that.
+	PageSize *PageSize `form:"page_size,omitempty" json:"page_size,omitempty"`
+
+	// PageToken The `next_page_token` from the previous response. Opaque: its contents
+	// are not part of the contract and must not be constructed, parsed, or
+	// persisted by a client.
+	PageToken *PageToken `form:"page_token,omitempty" json:"page_token,omitempty"`
+}
+
+// RevokeMyOtherSessionsParams defines parameters for RevokeMyOtherSessions.
+type RevokeMyOtherSessionsParams struct {
+	// IdempotencyKey A client-generated key making a retried `POST` safe. Replaying a
+	// request with the same key returns the original result rather than
+	// creating a second resource — which matters most for automated
+	// provisioning, where a network timeout is indistinguishable from a
+	// failure (`docs/PLAN/05` Part B).
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
 // ListOrganizationsParams defines parameters for ListOrganizations.
@@ -1993,6 +2113,19 @@ type ReactivateUserParams struct {
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
+// ListUserSessionsParams defines parameters for ListUserSessions.
+type ListUserSessionsParams struct {
+	// PageSize Maximum items to return. The server may return fewer, and returning
+	// fewer never means the collection is exhausted — only an absent
+	// `next_page_token` means that.
+	PageSize *PageSize `form:"page_size,omitempty" json:"page_size,omitempty"`
+
+	// PageToken The `next_page_token` from the previous response. Opaque: its contents
+	// are not part of the contract and must not be constructed, parsed, or
+	// persisted by a client.
+	PageToken *PageToken `form:"page_token,omitempty" json:"page_token,omitempty"`
+}
+
 // CheckAuthorizationJSONRequestBody defines body for CheckAuthorization for application/json ContentType.
 type CheckAuthorizationJSONRequestBody = AuthorizationCheck
 
@@ -2052,6 +2185,15 @@ type ServerInterface interface {
 	// List the organizations the caller administers
 	// (GET /v1/me/organizations)
 	ListAdministeredOrganizations(w http.ResponseWriter, r *http.Request, params ListAdministeredOrganizationsParams)
+	// List the caller's sign-in sessions
+	// (GET /v1/me/sessions)
+	ListMySessions(w http.ResponseWriter, r *http.Request, params ListMySessionsParams)
+	// End every session but the current one
+	// (POST /v1/me/sessions/revoke-others)
+	RevokeMyOtherSessions(w http.ResponseWriter, r *http.Request, params RevokeMyOtherSessionsParams)
+	// End one of the caller's sessions
+	// (DELETE /v1/me/sessions/{session_id})
+	RevokeMySession(w http.ResponseWriter, r *http.Request, sessionId SessionId)
 	// List organizations
 	// (GET /v1/organizations)
 	ListOrganizations(w http.ResponseWriter, r *http.Request, params ListOrganizationsParams)
@@ -2157,6 +2299,12 @@ type ServerInterface interface {
 	// Reactivate a user
 	// (POST /v1/organizations/{org_id}/users/{user_id}/reactivate)
 	ReactivateUser(w http.ResponseWriter, r *http.Request, orgId OrganizationId, userId UserId, params ReactivateUserParams)
+	// List a member's sign-in sessions
+	// (GET /v1/organizations/{org_id}/users/{user_id}/sessions)
+	ListUserSessions(w http.ResponseWriter, r *http.Request, orgId OrganizationId, userId UserId, params ListUserSessionsParams)
+	// End one of a member's sessions
+	// (DELETE /v1/organizations/{org_id}/users/{user_id}/sessions/{session_id})
+	RevokeUserSession(w http.ResponseWriter, r *http.Request, orgId OrganizationId, userId UserId, sessionId SessionId)
 }
 
 // Unimplemented server implementation that returns http.StatusNotImplemented for each endpoint.
@@ -2196,6 +2344,24 @@ func (_ Unimplemented) CheckAuthorization(w http.ResponseWriter, r *http.Request
 // List the organizations the caller administers
 // (GET /v1/me/organizations)
 func (_ Unimplemented) ListAdministeredOrganizations(w http.ResponseWriter, r *http.Request, params ListAdministeredOrganizationsParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// List the caller's sign-in sessions
+// (GET /v1/me/sessions)
+func (_ Unimplemented) ListMySessions(w http.ResponseWriter, r *http.Request, params ListMySessionsParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// End every session but the current one
+// (POST /v1/me/sessions/revoke-others)
+func (_ Unimplemented) RevokeMyOtherSessions(w http.ResponseWriter, r *http.Request, params RevokeMyOtherSessionsParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// End one of the caller's sessions
+// (DELETE /v1/me/sessions/{session_id})
+func (_ Unimplemented) RevokeMySession(w http.ResponseWriter, r *http.Request, sessionId SessionId) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -2409,6 +2575,18 @@ func (_ Unimplemented) ReactivateUser(w http.ResponseWriter, r *http.Request, or
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// List a member's sign-in sessions
+// (GET /v1/organizations/{org_id}/users/{user_id}/sessions)
+func (_ Unimplemented) ListUserSessions(w http.ResponseWriter, r *http.Request, orgId OrganizationId, userId UserId, params ListUserSessionsParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// End one of a member's sessions
+// (DELETE /v1/organizations/{org_id}/users/{user_id}/sessions/{session_id})
+func (_ Unimplemented) RevokeUserSession(w http.ResponseWriter, r *http.Request, orgId OrganizationId, userId UserId, sessionId SessionId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // ServerInterfaceWrapper converts contexts to parameters.
 type ServerInterfaceWrapper struct {
 	Handler            ServerInterface
@@ -2526,6 +2704,124 @@ func (siw *ServerInterfaceWrapper) ListAdministeredOrganizations(w http.Response
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListAdministeredOrganizations(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListMySessions operation middleware
+func (siw *ServerInterfaceWrapper) ListMySessions(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, Oauth2Scopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListMySessionsParams
+
+	// ------------- Optional query parameter "page_size" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "page_size", r.URL.Query(), &params.PageSize)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "page_size", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "page_token" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "page_token", r.URL.Query(), &params.PageToken)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "page_token", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListMySessions(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RevokeMyOtherSessions operation middleware
+func (siw *ServerInterfaceWrapper) RevokeMyOtherSessions(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, Oauth2Scopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params RevokeMyOtherSessionsParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RevokeMyOtherSessions(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RevokeMySession operation middleware
+func (siw *ServerInterfaceWrapper) RevokeMySession(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "session_id" -------------
+	var sessionId SessionId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "session_id", chi.URLParam(r, "session_id"), &sessionId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "session_id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, Oauth2Scopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RevokeMySession(w, r, sessionId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4412,6 +4708,114 @@ func (siw *ServerInterfaceWrapper) ReactivateUser(w http.ResponseWriter, r *http
 	handler.ServeHTTP(w, r)
 }
 
+// ListUserSessions operation middleware
+func (siw *ServerInterfaceWrapper) ListUserSessions(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "org_id" -------------
+	var orgId OrganizationId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "org_id", chi.URLParam(r, "org_id"), &orgId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "org_id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "user_id" -------------
+	var userId UserId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "user_id", chi.URLParam(r, "user_id"), &userId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "user_id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, Oauth2Scopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListUserSessionsParams
+
+	// ------------- Optional query parameter "page_size" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "page_size", r.URL.Query(), &params.PageSize)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "page_size", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "page_token" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "page_token", r.URL.Query(), &params.PageToken)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "page_token", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListUserSessions(w, r, orgId, userId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RevokeUserSession operation middleware
+func (siw *ServerInterfaceWrapper) RevokeUserSession(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "org_id" -------------
+	var orgId OrganizationId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "org_id", chi.URLParam(r, "org_id"), &orgId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "org_id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "user_id" -------------
+	var userId UserId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "user_id", chi.URLParam(r, "user_id"), &userId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "user_id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "session_id" -------------
+	var sessionId SessionId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "session_id", chi.URLParam(r, "session_id"), &sessionId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "session_id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, Oauth2Scopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RevokeUserSession(w, r, orgId, userId, sessionId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 type UnescapedCookieParamError struct {
 	ParamName string
 	Err       error
@@ -4544,6 +4948,15 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Get(options.BaseURL+"/v1/me/organizations", wrapper.ListAdministeredOrganizations)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/v1/me/sessions", wrapper.ListMySessions)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/me/sessions/revoke-others", wrapper.RevokeMyOtherSessions)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/v1/me/sessions/{session_id}", wrapper.RevokeMySession)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/v1/organizations", wrapper.ListOrganizations)
 	})
 	r.Group(func(r chi.Router) {
@@ -4647,6 +5060,12 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/v1/organizations/{org_id}/users/{user_id}/reactivate", wrapper.ReactivateUser)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/v1/organizations/{org_id}/users/{user_id}/sessions", wrapper.ListUserSessions)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/v1/organizations/{org_id}/users/{user_id}/sessions/{session_id}", wrapper.RevokeUserSession)
 	})
 
 	return r
@@ -4900,6 +5319,176 @@ func (response ListAdministeredOrganizations429JSONResponse) VisitListAdminister
 type ListAdministeredOrganizations500JSONResponse struct{ InternalErrorJSONResponse }
 
 func (response ListAdministeredOrganizations500JSONResponse) VisitListAdministeredOrganizationsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListMySessionsRequestObject struct {
+	Params ListMySessionsParams
+}
+
+type ListMySessionsResponseObject interface {
+	VisitListMySessionsResponse(w http.ResponseWriter) error
+}
+
+type ListMySessions200JSONResponse SessionList
+
+func (response ListMySessions200JSONResponse) VisitListMySessionsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListMySessions400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response ListMySessions400JSONResponse) VisitListMySessionsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListMySessions401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ListMySessions401JSONResponse) VisitListMySessionsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListMySessions429JSONResponse struct{ RateLimitedJSONResponse }
+
+func (response ListMySessions429JSONResponse) VisitListMySessionsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Retry-After", fmt.Sprint(response.Headers.RetryAfter))
+	w.Header().Set("X-RateLimit-Limit", fmt.Sprint(response.Headers.XRateLimitLimit))
+	w.Header().Set("X-RateLimit-Remaining", fmt.Sprint(response.Headers.XRateLimitRemaining))
+	w.Header().Set("X-RateLimit-Reset", fmt.Sprint(response.Headers.XRateLimitReset))
+	w.WriteHeader(429)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type ListMySessions500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response ListMySessions500JSONResponse) VisitListMySessionsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type RevokeMyOtherSessionsRequestObject struct {
+	Params RevokeMyOtherSessionsParams
+}
+
+type RevokeMyOtherSessionsResponseObject interface {
+	VisitRevokeMyOtherSessionsResponse(w http.ResponseWriter) error
+}
+
+type RevokeMyOtherSessions200JSONResponse SessionRevocation
+
+func (response RevokeMyOtherSessions200JSONResponse) VisitRevokeMyOtherSessionsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type RevokeMyOtherSessions400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response RevokeMyOtherSessions400JSONResponse) VisitRevokeMyOtherSessionsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type RevokeMyOtherSessions401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response RevokeMyOtherSessions401JSONResponse) VisitRevokeMyOtherSessionsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type RevokeMyOtherSessions429JSONResponse struct{ RateLimitedJSONResponse }
+
+func (response RevokeMyOtherSessions429JSONResponse) VisitRevokeMyOtherSessionsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Retry-After", fmt.Sprint(response.Headers.RetryAfter))
+	w.Header().Set("X-RateLimit-Limit", fmt.Sprint(response.Headers.XRateLimitLimit))
+	w.Header().Set("X-RateLimit-Remaining", fmt.Sprint(response.Headers.XRateLimitRemaining))
+	w.Header().Set("X-RateLimit-Reset", fmt.Sprint(response.Headers.XRateLimitReset))
+	w.WriteHeader(429)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type RevokeMyOtherSessions500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response RevokeMyOtherSessions500JSONResponse) VisitRevokeMyOtherSessionsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type RevokeMySessionRequestObject struct {
+	SessionId SessionId `json:"session_id"`
+}
+
+type RevokeMySessionResponseObject interface {
+	VisitRevokeMySessionResponse(w http.ResponseWriter) error
+}
+
+type RevokeMySession204Response struct {
+}
+
+func (response RevokeMySession204Response) VisitRevokeMySessionResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type RevokeMySession401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response RevokeMySession401JSONResponse) VisitRevokeMySessionResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type RevokeMySession404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response RevokeMySession404JSONResponse) VisitRevokeMySessionResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type RevokeMySession429JSONResponse struct{ RateLimitedJSONResponse }
+
+func (response RevokeMySession429JSONResponse) VisitRevokeMySessionResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Retry-After", fmt.Sprint(response.Headers.RetryAfter))
+	w.Header().Set("X-RateLimit-Limit", fmt.Sprint(response.Headers.XRateLimitLimit))
+	w.Header().Set("X-RateLimit-Remaining", fmt.Sprint(response.Headers.XRateLimitRemaining))
+	w.Header().Set("X-RateLimit-Reset", fmt.Sprint(response.Headers.XRateLimitReset))
+	w.WriteHeader(429)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type RevokeMySession500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response RevokeMySession500JSONResponse) VisitRevokeMySessionResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(500)
 
@@ -7551,6 +8140,150 @@ func (response ReactivateUser500JSONResponse) VisitReactivateUserResponse(w http
 	return json.NewEncoder(w).Encode(response)
 }
 
+type ListUserSessionsRequestObject struct {
+	OrgId  OrganizationId `json:"org_id"`
+	UserId UserId         `json:"user_id"`
+	Params ListUserSessionsParams
+}
+
+type ListUserSessionsResponseObject interface {
+	VisitListUserSessionsResponse(w http.ResponseWriter) error
+}
+
+type ListUserSessions200JSONResponse SessionList
+
+func (response ListUserSessions200JSONResponse) VisitListUserSessionsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListUserSessions400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response ListUserSessions400JSONResponse) VisitListUserSessionsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListUserSessions401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ListUserSessions401JSONResponse) VisitListUserSessionsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListUserSessions403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response ListUserSessions403JSONResponse) VisitListUserSessionsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListUserSessions404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response ListUserSessions404JSONResponse) VisitListUserSessionsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListUserSessions429JSONResponse struct{ RateLimitedJSONResponse }
+
+func (response ListUserSessions429JSONResponse) VisitListUserSessionsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Retry-After", fmt.Sprint(response.Headers.RetryAfter))
+	w.Header().Set("X-RateLimit-Limit", fmt.Sprint(response.Headers.XRateLimitLimit))
+	w.Header().Set("X-RateLimit-Remaining", fmt.Sprint(response.Headers.XRateLimitRemaining))
+	w.Header().Set("X-RateLimit-Reset", fmt.Sprint(response.Headers.XRateLimitReset))
+	w.WriteHeader(429)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type ListUserSessions500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response ListUserSessions500JSONResponse) VisitListUserSessionsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type RevokeUserSessionRequestObject struct {
+	OrgId     OrganizationId `json:"org_id"`
+	UserId    UserId         `json:"user_id"`
+	SessionId SessionId      `json:"session_id"`
+}
+
+type RevokeUserSessionResponseObject interface {
+	VisitRevokeUserSessionResponse(w http.ResponseWriter) error
+}
+
+type RevokeUserSession204Response struct {
+}
+
+func (response RevokeUserSession204Response) VisitRevokeUserSessionResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type RevokeUserSession401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response RevokeUserSession401JSONResponse) VisitRevokeUserSessionResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type RevokeUserSession403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response RevokeUserSession403JSONResponse) VisitRevokeUserSessionResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type RevokeUserSession404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response RevokeUserSession404JSONResponse) VisitRevokeUserSessionResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type RevokeUserSession429JSONResponse struct{ RateLimitedJSONResponse }
+
+func (response RevokeUserSession429JSONResponse) VisitRevokeUserSessionResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Retry-After", fmt.Sprint(response.Headers.RetryAfter))
+	w.Header().Set("X-RateLimit-Limit", fmt.Sprint(response.Headers.XRateLimitLimit))
+	w.Header().Set("X-RateLimit-Remaining", fmt.Sprint(response.Headers.XRateLimitRemaining))
+	w.Header().Set("X-RateLimit-Reset", fmt.Sprint(response.Headers.XRateLimitReset))
+	w.WriteHeader(429)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type RevokeUserSession500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response RevokeUserSession500JSONResponse) VisitRevokeUserSessionResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
 	// JSON Web Key Set
@@ -7571,6 +8304,15 @@ type StrictServerInterface interface {
 	// List the organizations the caller administers
 	// (GET /v1/me/organizations)
 	ListAdministeredOrganizations(ctx context.Context, request ListAdministeredOrganizationsRequestObject) (ListAdministeredOrganizationsResponseObject, error)
+	// List the caller's sign-in sessions
+	// (GET /v1/me/sessions)
+	ListMySessions(ctx context.Context, request ListMySessionsRequestObject) (ListMySessionsResponseObject, error)
+	// End every session but the current one
+	// (POST /v1/me/sessions/revoke-others)
+	RevokeMyOtherSessions(ctx context.Context, request RevokeMyOtherSessionsRequestObject) (RevokeMyOtherSessionsResponseObject, error)
+	// End one of the caller's sessions
+	// (DELETE /v1/me/sessions/{session_id})
+	RevokeMySession(ctx context.Context, request RevokeMySessionRequestObject) (RevokeMySessionResponseObject, error)
 	// List organizations
 	// (GET /v1/organizations)
 	ListOrganizations(ctx context.Context, request ListOrganizationsRequestObject) (ListOrganizationsResponseObject, error)
@@ -7676,6 +8418,12 @@ type StrictServerInterface interface {
 	// Reactivate a user
 	// (POST /v1/organizations/{org_id}/users/{user_id}/reactivate)
 	ReactivateUser(ctx context.Context, request ReactivateUserRequestObject) (ReactivateUserResponseObject, error)
+	// List a member's sign-in sessions
+	// (GET /v1/organizations/{org_id}/users/{user_id}/sessions)
+	ListUserSessions(ctx context.Context, request ListUserSessionsRequestObject) (ListUserSessionsResponseObject, error)
+	// End one of a member's sessions
+	// (DELETE /v1/organizations/{org_id}/users/{user_id}/sessions/{session_id})
+	RevokeUserSession(ctx context.Context, request RevokeUserSessionRequestObject) (RevokeUserSessionResponseObject, error)
 }
 
 type StrictHandlerFunc = strictnethttp.StrictHTTPHandlerFunc
@@ -7853,6 +8601,84 @@ func (sh *strictHandler) ListAdministeredOrganizations(w http.ResponseWriter, r 
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ListAdministeredOrganizationsResponseObject); ok {
 		if err := validResponse.VisitListAdministeredOrganizationsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListMySessions operation middleware
+func (sh *strictHandler) ListMySessions(w http.ResponseWriter, r *http.Request, params ListMySessionsParams) {
+	var request ListMySessionsRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListMySessions(ctx, request.(ListMySessionsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListMySessions")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListMySessionsResponseObject); ok {
+		if err := validResponse.VisitListMySessionsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RevokeMyOtherSessions operation middleware
+func (sh *strictHandler) RevokeMyOtherSessions(w http.ResponseWriter, r *http.Request, params RevokeMyOtherSessionsParams) {
+	var request RevokeMyOtherSessionsRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RevokeMyOtherSessions(ctx, request.(RevokeMyOtherSessionsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RevokeMyOtherSessions")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RevokeMyOtherSessionsResponseObject); ok {
+		if err := validResponse.VisitRevokeMyOtherSessionsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RevokeMySession operation middleware
+func (sh *strictHandler) RevokeMySession(w http.ResponseWriter, r *http.Request, sessionId SessionId) {
+	var request RevokeMySessionRequestObject
+
+	request.SessionId = sessionId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RevokeMySession(ctx, request.(RevokeMySessionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RevokeMySession")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RevokeMySessionResponseObject); ok {
+		if err := validResponse.VisitRevokeMySessionResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -8898,6 +9724,62 @@ func (sh *strictHandler) ReactivateUser(w http.ResponseWriter, r *http.Request, 
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ReactivateUserResponseObject); ok {
 		if err := validResponse.VisitReactivateUserResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListUserSessions operation middleware
+func (sh *strictHandler) ListUserSessions(w http.ResponseWriter, r *http.Request, orgId OrganizationId, userId UserId, params ListUserSessionsParams) {
+	var request ListUserSessionsRequestObject
+
+	request.OrgId = orgId
+	request.UserId = userId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListUserSessions(ctx, request.(ListUserSessionsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListUserSessions")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListUserSessionsResponseObject); ok {
+		if err := validResponse.VisitListUserSessionsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RevokeUserSession operation middleware
+func (sh *strictHandler) RevokeUserSession(w http.ResponseWriter, r *http.Request, orgId OrganizationId, userId UserId, sessionId SessionId) {
+	var request RevokeUserSessionRequestObject
+
+	request.OrgId = orgId
+	request.UserId = userId
+	request.SessionId = sessionId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RevokeUserSession(ctx, request.(RevokeUserSessionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RevokeUserSession")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RevokeUserSessionResponseObject); ok {
+		if err := validResponse.VisitRevokeUserSessionResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

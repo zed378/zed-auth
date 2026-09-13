@@ -98,6 +98,23 @@ func TestAnAuditedMutationIsNotReported(t *testing.T) {
 	}
 }
 
+// A mutation that changed nothing, and says so, is not reported (P3-09).
+func TestADeclaredNoOpIsNotReported(t *testing.T) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		Unchanged(r.Context())
+		w.WriteHeader(http.StatusNoContent)
+	})
+
+	_, observer, logged := guarded(t, handler, post("", `{}`))
+
+	if len(observer.missed) != 0 || strings.Contains(logged, "without writing an audit event") {
+		t.Errorf("a declared no-op was reported as an unaudited mutation: %v\n%s", observer.missed, logged)
+	}
+
+	// Outside a guarded request it is harmless.
+	Unchanged(context.Background())
+}
+
 // A FAILED write must not satisfy the guard. Marking the trail before the write
 // would let a broken audit path report itself as healthy, which is precisely
 // the reassurance the guard exists to withhold.

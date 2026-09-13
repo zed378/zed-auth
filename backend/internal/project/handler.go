@@ -167,7 +167,8 @@ func (h *Handler) UpdateProject(
 		if before.Name == updated.Name {
 			// A rename to the same name changed nothing. No event, because an
 			// audit log full of "renamed Billing to Billing" is an audit log
-			// nobody reads.
+			// nobody reads — declared, so the guard does not report it.
+			management.Unchanged(ctx)
 			return nil
 		}
 		return h.write(ctx, tx, audit.EventProjectUpdated, map[string]any{

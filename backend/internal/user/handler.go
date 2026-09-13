@@ -286,6 +286,7 @@ func (h *Handler) UpdateUser(
 			before.DisplayName == updated.DisplayName {
 			// Nothing changed. No event, for the reason a rename to the same
 			// name writes none (P1-17).
+			management.Unchanged(ctx)
 			return nil
 		}
 		payload := map[string]any{"user_id": updated.ID}
@@ -375,6 +376,7 @@ func (h *Handler) DeactivateUser(
 			// idempotent and cheap, and running them makes a repeat request a
 			// way to be sure rather than a no-op. No event, because nothing
 			// changed.
+			management.Unchanged(ctx)
 			return nil
 		}
 

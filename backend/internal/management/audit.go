@@ -86,6 +86,25 @@ func Audit(ctx context.Context, recorder Recorder, tx *postgres.Tx, e audit.Even
 	return nil
 }
 
+// Unchanged declares that a successful mutating request changed nothing, and so
+// has nothing to record (P3-09).
+//
+// Several operations are deliberately idempotent — a rename to the same name, a
+// second deactivation, ending a session that already ended — and each rightly
+// writes no event, because an audit log full of non-events is one nobody reads.
+// Before this existed, every such request also tripped the guard: an ERROR log
+// line and an increment of a metric documented as permanently zero. A signal
+// that fires on correct behaviour is a signal people learn to ignore.
+//
+// **A declaration, not a silencer.** Call it only on the branch that has
+// established nothing changed — never at the top of a handler. The guard still
+// reports any success that neither audited nor declared.
+func Unchanged(ctx context.Context) {
+	if t, ok := ctx.Value(trailKey{}).(*trail); ok {
+		t.written = true
+	}
+}
+
 // ipKey carries the client address for the audit record.
 type ipKey struct{}
 
