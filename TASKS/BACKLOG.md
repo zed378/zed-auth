@@ -1012,6 +1012,7 @@ Carried over from `docs/PLAN/01-PRODUCT-SCOPE.md` § Out of Scope, recorded here
 | DF-10 | CAPTCHA after repeated login failures | Optional / later per `docs/PLAN/05` | Rate limiting alone proves insufficient |
 | DF-11 | Multi-region deployment | Per `docs/PLAN/15`, only on confirmed need | A cross-region HA requirement is confirmed |
 | DF-12 | Separate event store instead of the `events` table | Per `docs/PLAN/07`, evaluate if volume grows | `events` volume becomes a performance problem — see PG-10 |
+| DF-13 | "Remember this device" — skipping the second factor on a known browser | Optional per `P3-03` step 6 ("only if designed properly … omit it rather than shipping a weak version"); carried to `P3-11`, **not built there** | Users report the second factor as friction on a device they use daily. Built then, it needs all four things `P3-11`'s card lists: a signed device token, a bounded lifetime, a row beside the user's sessions, and revocation from that row — plus a decision on whether an organization's MFA mandate allows it at all. A token that skips the factor and that nobody can see is a second factor the user has silently stopped having |
 
 ---
 

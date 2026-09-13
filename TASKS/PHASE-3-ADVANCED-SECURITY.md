@@ -416,7 +416,7 @@
 
 | | |
 |---|---|
-| **Status** | TODO |
+| **Status** | DONE except DoD item 5 at phone width — 2026-09-13, [record](../MEMORY/records/2026-09-13-P3-11-sessions-tab.md). "Remember this device" not built: deferred as `DF-13` |
 | **Depends on** | P3-09 |
 | **Plan refs** | `docs/UI-UX/08-PAGE-SPECIFICATIONS.md` (Sessions tab), `docs/UI-UX/04-USER-FLOWS.md` Flow 4, `docs/UI-UX/19-FRONTEND-IMPLEMENTATION-CHAIN.md` § Worked Example |
 | **Spec required** | No — implementation chain mandatory |
@@ -433,11 +433,11 @@
 6. Empty state: "no other active sessions" reads differently from "no sessions," since the current one always exists.
 
 **Definition of Done**
-- [ ] The implementation matches `docs/UI-UX/19`'s worked example on every one of its twelve rows.
-- [ ] The screen-reader label disambiguates between sessions.
-- [ ] Optimistic update with rollback is covered by a component test.
-- [ ] Flow 4 is covered end-to-end by an E2E test.
-- [ ] The revoke target is usable at mobile width.
+- [x] The implementation matches `docs/UI-UX/19`'s worked example on every one of its twelve rows — restated in the component's own header with this implementation's answer to each. One deliberate exception: revoking the CURRENT session asks first, because it signs the person out of the console they are using.
+- [x] The screen-reader label disambiguates between sessions — "Revoke session on Safari on iOS"; a test fails if a bare "Revoke" exists.
+- [x] Optimistic update with rollback is covered by a component test — the row goes before the API answers and returns, with its error, when the API refuses; the test fails with the rollback removed.
+- [x] Flow 4 is covered end-to-end by an E2E test — two browsers, one revokes the other, and the revoked browser's reload asks it to sign in.
+- [~] The revoke target is usable at mobile width — **verified at 768px**, the narrowest width the console serves (24×24 or larger, no sideways scroll). Below that the console refuses by design (`docs/UI-UX/12`); the phone-width screen is `P3-12`'s personal settings, which reuses this tab, and the check belongs there.
 
 ---
 
@@ -449,7 +449,9 @@
 > regeneration, the zero-codes warning on the MFA tab, and passkey registration
 > (`PG-43`). **Still open for this task**: recovery codes at `P3-07`'s *forced*
 > enrolment during sign-in, the low-count (≤3) warning, and reusing `P3-10`'s
-> components on the mobile personal settings screen.
+> components on the mobile personal settings screen — and **`P3-11`'s revoke target
+> verified at phone width** (the console refuses below 768px, so only this screen
+> can show it).
 >
 > **Also carries three items from `P3-04`**, whose mechanism exists and whose
 > screen does not:
