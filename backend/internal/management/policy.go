@@ -51,6 +51,11 @@ var Policy = map[string]Requirement{
 	"DELETE /v1/me/sessions/{session_id}": {Role: Member, Scope: ScopeSelf},
 	"POST /v1/me/sessions/revoke-others":  {Role: Member, Scope: ScopeSelf},
 
+	// The caller's own account (P3-12). Self-scoped; the password change also
+	// demands the current password, which is the handler's check.
+	"GET /v1/me":           {Role: Member, Scope: ScopeSelf},
+	"POST /v1/me/password": {Role: Member, Scope: ScopeSelf},
+
 	// The caller's own second factors (P3-10). Self-scoped: the user comes
 	// from the token. The writes additionally demand RECENT authentication,
 	// which is the handler's check rather than a role — see mfaapi.

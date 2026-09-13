@@ -29,6 +29,7 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
+	"github.com/zed378/zed-auth/backend/internal/account"
 	"github.com/zed378/zed-auth/backend/internal/api"
 	"github.com/zed378/zed-auth/backend/internal/audit"
 	"github.com/zed378/zed-auth/backend/internal/auditlog"
@@ -190,6 +191,7 @@ func setup(t *testing.T) *fixture {
 		UserAPI:        users,
 		SessionAPI:     notWiredSessions{},
 		MfaAPI:         notWiredFactors{},
+		AccountAPI:     &account.Handler{}, // not exercised here
 		AuditAPI:       &auditlog.Handler{DB: db, Log: discard()},
 	})
 

@@ -42,6 +42,7 @@ internal/mfa:$FLOOR:P3-01
 internal/anomaly:$FLOOR:P3-08
 internal/sessionapi:$FLOOR:P3-09
 internal/mfaapi:$FLOOR:P3-10
+internal/account:$FLOOR:P3-12
 "
 
 profile=$(mktemp)

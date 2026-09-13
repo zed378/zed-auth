@@ -1,3 +1,5 @@
+import { Link } from "react-router-dom";
+
 import { useAuth } from "../../lib/auth/AuthProvider";
 
 /**
@@ -24,6 +26,14 @@ export function SessionBar() {
       <span className="text-text-secondary">
         Signed in as <span className="text-text-primary">{claims.subject}</span>
       </span>
+
+      {/*
+        Personal settings, reachable from every screen (P3-12 step 7): a person
+        may arrive at "I want to change my password" from anywhere.
+      */}
+      <Link to="/account" className="rounded px-2 py-1 text-text-primary underline">
+        Your account
+      </Link>
 
       <button
         type="button"

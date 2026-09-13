@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -516,5 +517,111 @@ func TestAnAbandonedForcedEnrolmentDoesNotLockTheUserOut(t *testing.T) {
 		`SELECT count(*) FROM user_mfa_factors WHERE user_id = $1 AND status = 'pending'`, s.userID)
 	if pending != 1 {
 		t.Errorf("found %d pending factors, want exactly the latest one", pending)
+	}
+}
+
+// Forced enrolment hands over recovery codes before the sign-in completes
+// (P3-12). Until then this flow issued none: a user forced through enrolment had
+// a factor and no way back in if they lost it.
+func TestForcedEnrolmentShowsRecoveryCodesBeforeContinuing(t *testing.T) {
+	s := setup(t)
+
+	sealer, err := mfa.NewSealer([]byte("an-integration-test-key-long-enough"))
+	if err != nil {
+		t.Fatalf("NewSealer: %v", err)
+	}
+	factorStore := mfa.NewStore()
+	totp := &mfa.TOTP{
+		Store: factorStore, DB: s.db, Sealer: sealer, Log: discard(), Issuer: "auth.example.test",
+		OrgOf: func(ctx context.Context, factorID string) (string, error) {
+			var orgID string
+			err := s.db.SQL().QueryRowContext(ctx, `SELECT mfa_factor_org($1)`, factorID).Scan(&orgID)
+			return orgID, err
+		},
+	}
+	s.login.MFA = &mfa.Framework{
+		Registry: mfa.NewRegistry(totp), Store: &mfa.PostgresFactors{Store: factorStore, DB: s.db},
+		Challenges: mfa.NewRedisChallenges(s.rdb), Attempts: &mfa.RedisAttempts{Client: s.rdb}, Log: discard(),
+	}
+	s.login.Enrol = totp
+	s.login.Enrolments = NewRedisEnrolments(s.rdb)
+	s.login.EnrolRecovery = mfa.NewRecoveryStore()
+	s.setSettings(t, s.orgID, `{"mfa_required": true, "mfa_required_since": "2020-01-01T00:00:00Z"}`)
+
+	id := s.begin(t)
+	csrf := s.form(t, id)
+	w := s.submit(t, id, csrf, testEmail, testPassword)
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `name="code"`) {
+		t.Fatalf("the sign-in did not reach enrolment (%d):\n%s", w.Code, w.Body.String())
+	}
+	secretMatch := regexp.MustCompile(`id="enrol-secret" type="text" value="([A-Z2-7]+)"`).FindStringSubmatch(w.Body.String())
+	if secretMatch == nil {
+		t.Fatalf("the enrolment page shows no secret:\n%s", w.Body.String())
+	}
+	var enrolCookie *http.Cookie
+	for _, c := range w.Result().Cookies() {
+		if c.Name == EnrolCookieName {
+			enrolCookie = &http.Cookie{Name: c.Name, Value: c.Value}
+		}
+	}
+	if enrolCookie == nil {
+		t.Fatal("no enrolment cookie")
+	}
+
+	post := func(form url.Values) *httptest.ResponseRecorder {
+		form.Set(csrfField, csrf)
+		form.Set("request", id)
+		r := httptest.NewRequest(http.MethodPost, "/login/mfa/enrol", strings.NewReader(form.Encode()))
+		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		r.AddCookie(&http.Cookie{Name: CSRFCookieName, Value: csrf})
+		r.AddCookie(enrolCookie)
+		rec := httptest.NewRecorder()
+		s.login.EnrolStep(rec, r)
+		return rec
+	}
+
+	// "continue" before the code is proven completes nothing.
+	if early := post(url.Values{"continue": {"1"}}); early.Code == http.StatusFound {
+		t.Fatal("posting continue without a code completed the sign-in")
+	}
+
+	// The enrolment above was destroyed by that refusal; start again.
+	id = s.begin(t)
+	csrf = s.form(t, id)
+	w = s.submit(t, id, csrf, testEmail, testPassword)
+	secretMatch = regexp.MustCompile(`id="enrol-secret" type="text" value="([A-Z2-7]+)"`).FindStringSubmatch(w.Body.String())
+	if secretMatch == nil {
+		t.Fatalf("the second enrolment shows no secret:\n%s", w.Body.String())
+	}
+	for _, c := range w.Result().Cookies() {
+		if c.Name == EnrolCookieName {
+			enrolCookie = &http.Cookie{Name: c.Name, Value: c.Value}
+		}
+	}
+	secret, err := mfa.DecodeTOTPSecret(secretMatch[1])
+	if err != nil {
+		t.Fatalf("decoding: %v", err)
+	}
+
+	confirmed := post(url.Values{"code": {mfa.TOTPCode(secret, mfa.TOTPCounter(time.Now()))}})
+	if confirmed.Code != http.StatusOK {
+		t.Fatalf("a correct code answered %d, want the codes page:\n%s", confirmed.Code, confirmed.Body.String())
+	}
+	if n := strings.Count(confirmed.Body.String(), "<li><code>"); n != mfa.RecoveryCodeCount {
+		t.Fatalf("the codes page shows %d codes, want %d:\n%s", n, mfa.RecoveryCodeCount, confirmed.Body.String())
+	}
+	var sessions int
+	s.factory.QueryRow(&sessions, `SELECT count(*) FROM sessions WHERE user_id = $1`, s.userID)
+	if sessions != 0 {
+		t.Error("a session was issued before the codes were acknowledged")
+	}
+
+	done := post(url.Values{"continue": {"1"}})
+	if done.Code != http.StatusFound {
+		t.Fatalf("continuing answered %d:\n%s", done.Code, done.Body.String())
+	}
+	s.factory.QueryRow(&sessions, `SELECT count(*) FROM sessions WHERE user_id = $1`, s.userID)
+	if sessions != 1 {
+		t.Errorf("found %d sessions after continuing, want 1", sessions)
 	}
 }

@@ -170,6 +170,9 @@ type Deps struct {
 	// MfaAPI implements the second-factor operations (P3-10).
 	MfaAPI FactorManagement
 
+	// AccountAPI implements the caller's own account (P3-12).
+	AccountAPI AccountManagement
+
 	// V1 is the Management API chain (P1-15).
 	//
 	// The routes themselves arrive with P1-16 onward. What is registered here
@@ -233,6 +236,9 @@ func New(cfg config.HTTPConfig, deps Deps) *Server {
 	}
 	if deps.V1 != nil && deps.MfaAPI == nil {
 		panic("httpserver.New: MfaAPI is required when V1 is configured")
+	}
+	if deps.V1 != nil && deps.AccountAPI == nil {
+		panic("httpserver.New: AccountAPI is required when V1 is configured")
 	}
 
 	mux := chi.NewRouter()
@@ -428,6 +434,7 @@ func New(cfg config.HTTPConfig, deps Deps) *Server {
 		AuditLog:          deps.AuditAPI,
 		SessionManagement: deps.SessionAPI,
 		FactorManagement:  deps.MfaAPI,
+		AccountManagement: deps.AccountAPI,
 	}
 	// The two error paths the generated wrapper would otherwise answer with
 	// http.Error — a bare text/plain body and a status of its choosing.
@@ -579,6 +586,7 @@ type apiRoutes struct {
 	AuditLog
 	SessionManagement
 	FactorManagement
+	AccountManagement
 }
 
 // Manager is the part of the generated interface the Management API implements.
@@ -701,6 +709,12 @@ type SessionManagement interface {
 	RevokeMyOtherSessions(ctx context.Context, request api.RevokeMyOtherSessionsRequestObject) (api.RevokeMyOtherSessionsResponseObject, error)
 	ListUserSessions(ctx context.Context, request api.ListUserSessionsRequestObject) (api.ListUserSessionsResponseObject, error)
 	RevokeUserSession(ctx context.Context, request api.RevokeUserSessionRequestObject) (api.RevokeUserSessionResponseObject, error)
+}
+
+// AccountManagement is the caller's own account (P3-12).
+type AccountManagement interface {
+	GetMe(ctx context.Context, request api.GetMeRequestObject) (api.GetMeResponseObject, error)
+	ChangeMyPassword(ctx context.Context, request api.ChangeMyPasswordRequestObject) (api.ChangeMyPasswordResponseObject, error)
 }
 
 // FactorManagement is the second-factor resource (P3-10).
