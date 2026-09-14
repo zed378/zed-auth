@@ -13,13 +13,18 @@ across organizations.
 
 :::info[Where the project is]
 
-Phase 1 is built: single sign-on over OIDC and OAuth 2.1, the management API for
-organizations, projects, applications and users, the hosted login and password pages,
-and the audit log. The [quickstart](/docs/quickstart) was executed end to end against a
-running deployment — every command on it is a command that ran.
+Phases 1 and 2 are built: single sign-on over OIDC and OAuth 2.1, the management API, the
+hosted login and password pages, the audit log, per-project roles and grants, live
+authorization checks, and more than one organization. The
+[quickstart](/docs/quickstart) was executed end to end against a running deployment —
+every command on it is a command that ran.
 
-Roles and permissions arrive in Phase 2; Project Grants and attribute-based policies in
-Phase 4. Pages describing those say so rather than describing something you can call
+Phase 3 — two-step verification with authenticator apps and passkeys, recovery codes,
+refresh token rotation, session management and sign-in anomaly detection — is built and
+in its final testing. Its guides describe what the code does today.
+
+Project Grants, social sign-in and SAML arrive in Phase 4; attribute-based policies in
+Phase 4b. Pages describing those say so rather than describing something you can call
 today. The [roadmap board](https://github.com/zed378/zed-auth/blob/main/TASKS/PROGRESS.md)
 is what the project actually works from.
 

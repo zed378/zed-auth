@@ -240,4 +240,62 @@ func TestTheImpactReportsTheDeadlineOnlyWhenThereIsOne(t *testing.T) {
 	if after["mfa_required"] != true {
 		t.Errorf("mfa_required = %v, want true", after["mfa_required"])
 	}
+	if after["grace_period_days"] != float64(authn.MFAGracePeriod/(24*time.Hour)) {
+		t.Errorf("grace_period_days = %v, want the service's own grace", after["grace_period_days"])
+	}
+}
+
+// --- created with the mandate already on (P3-13) --------------------------------------
+
+// An organization created with `mfa_required: true` is stamped, so its grace
+// ends. Before P3-13 creation skipped the stamp, and a missing stamp reads as
+// "inside the grace" for ever: the setting said MFA was required and nobody was
+// ever asked for it.
+func TestAnOrganizationCreatedWithTheMandateIsStampedAndAudited(t *testing.T) {
+	e := setupEndpoints(t)
+	e.grant(management.InstanceOwner, e.instance)
+
+	before := time.Now().Add(-time.Minute)
+	w := e.call(t, http.MethodPost, "/v1/organizations",
+		`{"name":"Mandated","settings":{"mfa_required":true}}`)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create = %d: %s", w.Code, w.Body.String())
+	}
+	created := decodeOrg(t, w).Id.String()
+
+	var raw string
+	e.factory.QueryRow(&raw, `SELECT settings::text FROM organizations WHERE id = $1`, created)
+	policy, _ := authn.ParseLoginPolicy(json.RawMessage(raw))
+	if policy.MFARequiredSince.Before(before) {
+		t.Fatalf("mfa_required_since = %s — the mandate is on and its grace never ends", policy.MFARequiredSince)
+	}
+	if got := authn.RequireMFA(policy, false, policy.MFARequiredSince.Add(authn.MFAGracePeriod)); got != authn.MFAEnrolmentRequired {
+		t.Errorf("at the deadline RequireMFA = %v, want enrolment required", got)
+	}
+
+	var events int
+	e.factory.QueryRow(&events, `SELECT count(*) FROM events WHERE org_id = $1 AND event_type = $2`,
+		created, "organization.mfa_required.enabled")
+	if events != 1 {
+		t.Errorf("found %d enable events for the new organization, want 1", events)
+	}
+}
+
+// Creating without the mandate stamps nothing and audits no enablement.
+func TestAnOrganizationCreatedWithoutTheMandateIsNotStamped(t *testing.T) {
+	e := setupEndpoints(t)
+	e.grant(management.InstanceOwner, e.instance)
+
+	w := e.call(t, http.MethodPost, "/v1/organizations",
+		`{"name":"Relaxed","settings":{"session_lifetime_hours":8}}`)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create = %d: %s", w.Code, w.Body.String())
+	}
+	created := decodeOrg(t, w).Id.String()
+
+	var raw string
+	e.factory.QueryRow(&raw, `SELECT settings::text FROM organizations WHERE id = $1`, created)
+	if strings.Contains(raw, "mfa_required_since") {
+		t.Errorf("settings = %s — a deadline for a mandate nobody enabled", raw)
+	}
 }

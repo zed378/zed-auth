@@ -12,8 +12,11 @@ organizations, projects, applications, users, roles and grants.
 
 :::note[What exists today]
 
-Sign-in, the organization overview, projects, applications, users and the audit log.
-Roles and grants are not there because they are not built — Phases 2 and 4.
+Everything an organization administrator needs for Phases 1 to 3: projects and
+applications, users, roles and who holds them, access policies including required
+two-step verification, each member's sessions and second factors, the audit log, and
+**Your account** for everybody. Granted Projects is Phase 4. Organization settings
+(branding) is specified and not scheduled.
 
 Screens are built alongside the API endpoints they use, and never ahead of them: a
 screen with no endpoint behind it is a screen that has to lie about something.
@@ -43,11 +46,14 @@ That is a deliberate constraint rather than an implementation detail. It means:
 | Sign in | The same Authorization Code + PKCE flow every other application uses. The token is held in memory for the tab and never in `localStorage`. |
 | Organization overview | Whether anything needs attention, in five seconds: active users, projects, pending invitations, and recent activity. |
 | Projects | Projects and, inside one, its applications — registering a client, rotating its secret, editing its redirect URIs. |
-| Users | The list, the detail, and the two-step invitation. Step two is where access is considered, and "no access yet" is an explicit choice rather than a skipped step. |
+| Roles and Authorizations | Inside a project: the roles it defines and the permission keys each carries, and which users hold which roles. |
+| Users | The list, the detail, and the two-step invitation. A user's detail has a **Sessions** tab, where an administrator can see and revoke where that member is signed in, and a **Multi-factor** tab, read-only except for the reset used when somebody has lost their device and their recovery codes. |
+| Policies | Password rules, session lifetime, permitted sign-in methods, and whether a second factor is required — with how many members have none before you switch it on. A change that takes access away asks for confirmation and says who it affects. |
 | Audit log | Newest first, filterable by event type, actor and time range, with each event's payload as it was stored. |
+| Your account | For every signed-in user, not only administrators, and the one screen built for a phone: profile, password change, second factors and recovery codes, and every place you are signed in. |
 
-Not there yet: roles and grants (Phases 2 and 4), sessions per user (the service revokes
-them today; the screen is what is missing), and instance-wide administration.
+Not there yet: Granted Projects (Phase 4), organization settings such as branding (not
+scheduled), and instance-wide administration.
 
 The full inventory is specified in
 [`docs/UI-UX/08-PAGE-SPECIFICATIONS.md`](https://github.com/zed378/zed-auth/blob/main/docs/UI-UX/08-PAGE-SPECIFICATIONS.md).

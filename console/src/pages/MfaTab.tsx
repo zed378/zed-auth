@@ -125,6 +125,41 @@ function MemberFactors({ orgId, userId }: { orgId: string | null; userId: string
 
 // --- one's own --------------------------------------------------------------------------------
 
+/**
+ * The mandate, for somebody who does not yet meet it (P3-13).
+ *
+ * `P3-07` gives an organization's members fourteen days from the moment the
+ * mandate is switched on, and wrote the warning for that period — which nothing
+ * displayed. A person inside the grace learnt the rule existed at the sign-in
+ * that would no longer let them through without enrolling. Said here, with the
+ * date, while doing it is still a choice.
+ *
+ * Not `color-danger`: nothing is being destroyed, and nothing has gone wrong.
+ */
+function MandateNotice({ graceEndsAt }: { graceEndsAt: string | null }) {
+  const deadline = graceEndsAt === null ? null : new Date(graceEndsAt);
+  const known = deadline !== null && !Number.isNaN(deadline.getTime());
+  // Read once, when the notice first renders: a deadline passing while the
+  // page is open is not worth a timer, and the next load says so.
+  const [now] = useState(() => Date.now());
+  const passed = known && deadline.getTime() <= now;
+
+  return (
+    <div role="status" className="mb-4 rounded border border-border bg-bg-surface p-5">
+      <h2 className="text-heading-3 font-medium text-text-primary">
+        Your organization requires a second factor
+      </h2>
+      <p className="mt-1 max-w-prose text-body text-text-secondary">
+        {!known
+          ? "Add one now. You may be asked to set up an authenticator app the next time you sign in."
+          : passed
+            ? "The time to set one up has ended. You will be asked to set up an authenticator app the next time you sign in — add one now to do it here instead."
+            : `Add one before ${deadline.toLocaleString()}. After that you will be asked to set up an authenticator app when you sign in, before you can continue.`}
+      </p>
+    </div>
+  );
+}
+
 const PASSKEY_RECENCY_MS = 9 * 60 * 1000;
 
 /** `mfa.RecoveryLowWaterMark` — when a user is told to replace their codes. */
@@ -260,7 +295,9 @@ export function MyFactors({ orgId, returnPath }: { orgId: string | null; returnP
         </div>
       ) : null}
 
-      {required ? (
+      {required && factors.length === 0 && types.length > 0 ? (
+        <MandateNotice graceEndsAt={mfa.data.grace_ends_at ?? null} />
+      ) : required ? (
         <p className="mb-3 max-w-prose text-body text-text-secondary">
           Your organization requires a second factor to sign in.
         </p>

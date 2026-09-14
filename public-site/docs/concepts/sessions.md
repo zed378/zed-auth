@@ -11,12 +11,14 @@ Single sign-on is one sentence — log in once, reach every registered applicati
 sitting on top of a few pieces worth understanding separately, because they fail
 separately.
 
-This describes the design. Token issuance arrives in Phase 1.
-
 ## The session
 
 When a user logs in, Zed Auth creates a **session**: the record that this person
-authenticated, when, and how strongly. The session lives with Zed Auth, not with the
+authenticated, when, and how strongly. "How strongly" is concrete: the session records
+the methods actually used — a password, an authenticator app code, a passkey — and the
+ID token carries them as `amr`, with the time as `auth_time`. An application that needs a
+recent or multi-factor sign-in for one action can check both, and ask for a fresh sign-in
+when they fall short: see [require a stronger sign-in](/docs/guides/step-up-with-amr). The session lives with Zed Auth, not with the
 application the user was heading to.
 
 That is what makes the second application's login invisible. It redirects the user to
@@ -47,7 +49,10 @@ noticing the leak.
 **The refresh token** obtains a new access token when the old one expires, without
 sending the user through login again. It is long-lived, which makes it the most valuable
 thing an attacker can steal, so it is rotated on every use — a refresh token that is
-presented twice is treated as evidence of theft and the whole chain is revoked.
+presented twice is treated as evidence of theft and the whole chain is revoked. The one
+exception is a retry within 30 seconds whose replacement was never used, which is what a
+lost response looks like. Clients that refresh from two places at once trip this, so
+read [refresh token rotation](/docs/guides/refresh-token-rotation) before building one.
 
 ## Signing and verification
 
@@ -74,3 +79,11 @@ Ending the Zed Auth session means the next application to ask will require a fre
 login. Existing access tokens elsewhere remain valid until they expire — which is why
 they are short-lived, and why a genuine "log out everywhere" needs session revocation
 rather than only clearing a cookie.
+
+Session revocation exists and is self-service. A user sees every place they are signed in
+under **Your account** in the console, with the device and, where it is known, the
+approximate location, and can
+revoke any one of them or all but the current one; an administrator can do the same for
+a member. Revoking a session also revokes the refresh tokens issued through it, so an
+application holding one finds out at its next refresh. Changing a password signs out
+every other session the same way.

@@ -338,9 +338,10 @@ type myMfa struct {
 		Type  string  `json:"type"`
 		Label *string `json:"label"`
 	} `json:"factors"`
-	RecoveryCodesRemaining int      `json:"recovery_codes_remaining"`
-	MfaRequired            bool     `json:"mfa_required"`
-	AvailableTypes         []string `json:"available_types"`
+	RecoveryCodesRemaining int        `json:"recovery_codes_remaining"`
+	MfaRequired            bool       `json:"mfa_required"`
+	GraceEndsAt            *time.Time `json:"grace_ends_at"`
+	AvailableTypes         []string   `json:"available_types"`
 }
 
 func (f *fixture) mine(t *testing.T, bearer string) myMfa {
@@ -589,6 +590,27 @@ func TestTheLastFactorCannotBeRemovedUnderAMandate(t *testing.T) {
 	}
 	if f.factorStatus(t, factorID) != "gone" || f.events(t, string(audit.EventMFARemoved)) != 1 {
 		t.Error("the removal did not happen or was not audited")
+	}
+}
+
+// The deadline reaches the caller (P3-13), so a person inside the grace can be
+// told before the sign-in that stops them — and it is absent without a mandate.
+func TestTheGraceDeadlineIsReportedToTheCaller(t *testing.T) {
+	f := setup(t)
+	bearer := f.signedIn(t, f.orgA, f.member, time.Now())
+
+	if got := f.mine(t, bearer); got.GraceEndsAt != nil {
+		t.Errorf("a deadline was reported with no mandate: %s", got.GraceEndsAt)
+	}
+
+	f.factory.Exec(`UPDATE organizations SET settings = '{"mfa_required": true, "mfa_required_since": "2026-09-01T00:00:00Z"}' WHERE id = $1`, f.orgA)
+
+	got := f.mine(t, bearer)
+	if got.GraceEndsAt == nil {
+		t.Fatal("no deadline reported under a mandate")
+	}
+	if want := time.Date(2026, 9, 15, 0, 0, 0, 0, time.UTC); !got.GraceEndsAt.Equal(want) {
+		t.Errorf("grace_ends_at = %s, want %s — fourteen days from activation", got.GraceEndsAt, want)
 	}
 }
 
