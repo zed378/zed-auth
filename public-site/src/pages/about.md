@@ -44,10 +44,11 @@ wrong, and changed — that history is more useful than a clean one.
 
 ## Status
 
-In development. The service runs and is deployed; the authentication and authorization
-endpoints are being built. The [changelog](/changelog) records what has actually
-shipped, and the [concepts documentation](/docs/concepts/model) describes the model the
-implementation is working toward.
+In development, in phases. Single sign-on, the management API, roles and multiple
+organizations are built, and two-step verification, passkeys and refresh token rotation
+are in final testing. Delegation across organizations, social sign-in and SAML come next.
+The [changelog](/changelog) records what has actually shipped, and the
+[concepts documentation](/docs/concepts/model) says which parts of the model are built.
 
 Source, plan and decision records: [github.com/zed378/zed-auth](https://github.com/zed378/zed-auth).
 

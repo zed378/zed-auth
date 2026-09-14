@@ -98,6 +98,9 @@ func (h *Handler) GetMfaImpact(
 		Members:       impact.Members,
 		WithoutFactor: impact.WithoutFactor,
 		MfaRequired:   impact.MFARequired,
+		// Stated by the service, so the console's "they will have N days"
+		// is this constant rather than a copy of it (P3-13).
+		GracePeriodDays: int(authn.MFAGracePeriod / (24 * time.Hour)),
 	}
 	if !impact.GraceEndsAt.IsZero() {
 		body.GraceEndsAt.Set(impact.GraceEndsAt)

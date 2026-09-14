@@ -46,7 +46,8 @@ internal/account:$FLOOR:P3-12
 "
 
 profile=$(mktemp)
-trap 'rm -f "$profile"' EXIT
+testlog=$(mktemp)
+trap 'rm -f "$profile" "$testlog"' EXIT
 
 echo "Coverage floors (P0-15):"
 
@@ -82,8 +83,11 @@ for entry in $PACKAGES; do
   # worth a floor. Measuring a subset of the suite is measuring the wrong
   # thing, the same mistake as testing a compiler's input instead of its
   # output.
-  if ! (cd backend && go test -tags=integration -coverprofile="$profile" -covermode=atomic "./$pkg/..." >/dev/null 2>&1); then
+  if ! (cd backend && go test -tags=integration -coverprofile="$profile" -covermode=atomic "./$pkg/..." >"$testlog" 2>&1); then
     printf '  ✗  %-20s tests failed\n' "$pkg"
+    # Which tests, and why. "tests failed" alone sends somebody to re-run the
+    # package, and a flaky failure then passes and is never seen again.
+    grep -E -e '--- FAIL' -e '_test\.go:[0-9]+:' -e '^panic' -e '^FAIL' "$testlog" | head -20 | sed 's/^/       /'
     failed=$((failed + 1))
     continue
   fi

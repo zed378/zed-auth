@@ -1,13 +1,15 @@
 import { useMemo, useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { Badge } from "../components/Badge";
 import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { ErrorState, Skeleton } from "../components/states";
 import { api, queryKeys } from "../lib/api/client";
 import { LOGIN_METHODS, SETTINGS_BOUNDS, SETTINGS_DEFAULTS } from "../lib/api/settings.gen";
-import { useOrganization, useOrgId } from "../lib/api/queries";
+import { asFailure, useOrganization, useOrgId } from "../lib/api/queries";
+import type { components } from "../lib/api/schema.gen";
+
+type MfaImpact = components["schemas"]["MfaImpact"];
 
 type PasswordPolicy = {
   min_length?: number;
@@ -46,10 +48,13 @@ type Settings = {
  * explain; a form that restates the defaults keeps showing yesterday's numbers
  * after the service changes them.
  *
- * **Nothing claims enforcement that does not exist.** `mfa_required` is stored
- * and validated by the API and enforced by nothing until Phase 3, so it is
- * shown as what it is — a recorded intention — rather than as a control
- * (`P2-14` step 3, `docs/UI-UX/21`'s governance rule).
+ * **Nothing claims enforcement that does not exist — or denies one that
+ * does.** Through Phase 2 `mfa_required` was stored and enforced by nothing,
+ * and this screen said so. `P3-07` made it enforced and the screen went on
+ * saying "setting this changes nothing today" for a whole task — the reverse
+ * failure, and the more dangerous one, because an administrator told a switch
+ * is inert has no reason to warn anybody before flipping it. `P3-13` replaced
+ * it with what the switch now does and how many people it reaches.
  *
  * **Changes that reduce access are confirmed with their blast radius named.**
  * Shortening a session lifetime signs people out. Removing a login method
@@ -85,6 +90,20 @@ export function PoliciesPage() {
 
   const current = draft ?? stored;
 
+  // Who the MFA mandate reaches (P3-07's endpoint, first used here in P3-13).
+  // Under the organization's key, so saving the policies refreshes it.
+  const impact = useQuery({
+    queryKey: [...queryKeys.organizations, orgId, "mfa-impact"],
+    enabled: orgId !== null,
+    queryFn: async (): Promise<MfaImpact> => {
+      const { data, error } = await api.GET("/v1/organizations/{org_id}/mfa-impact", {
+        params: { path: { org_id: orgId as string } },
+      });
+      if (error !== undefined) throw asFailure(error);
+      return data;
+    },
+  });
+
   const save = useMutation({
     mutationFn: async (settings: Settings) => {
       const { error } = await api.PATCH("/v1/organizations/{org_id}", {
@@ -110,7 +129,10 @@ export function PoliciesPage() {
   });
 
   const problems = useMemo(() => validate(current), [current]);
-  const reductions = useMemo(() => reducesAccess(stored, current), [stored, current]);
+  const reductions = useMemo(
+    () => reducesAccess(stored, current, impact.data ?? null),
+    [stored, current, impact.data],
+  );
   const changed = useMemo(
     () => JSON.stringify(normalise(stored)) !== JSON.stringify(normalise(current)),
     [stored, current],
@@ -288,18 +310,8 @@ export function PoliciesPage() {
           ) : null}
         </fieldset>
 
-        {/*
-          Step 3: shown, and shown as what it is. `mfa_required` is accepted and
-          stored by the API today and enforced by nothing until Phase 3.
-          Presenting it as a working control would be the console claiming a
-          capability that does not exist — the exact thing `docs/UI-UX/21`'s
-          governance rule forbids — and an administrator who switched it on
-          would believe their organization was protected.
-        */}
         <fieldset className="mt-5 rounded border border-border bg-bg-surface p-5">
-          <legend className="px-2 text-heading-3 font-medium text-text-primary">
-            Multi-factor <Badge tone="attention">Not enforced yet</Badge>
-          </legend>
+          <legend className="px-2 text-heading-3 font-medium text-text-primary">Multi-factor</legend>
 
           <BooleanField
             id="mfa-required"
@@ -309,13 +321,7 @@ export function PoliciesPage() {
             onChange={(value) => update({ ...current, mfa_required: value })}
           />
 
-          <p className="mt-2 max-w-prose text-small text-text-secondary">
-            <strong className="font-medium text-text-primary">
-              Setting this changes nothing today.
-            </strong>{" "}
-            It is recorded, and it will take effect when multi-factor enrolment ships in Phase 3.
-            Until then nobody is asked for a second factor, whatever this says.
-          </p>
+          <MandateEffect impact={impact.data ?? null} failed={impact.isError} on={current.mfa_required ?? SETTINGS_DEFAULTS.mfa_required} />
         </fieldset>
 
         {problem !== null ? (
@@ -529,8 +535,21 @@ function validate(settings: Settings): Record<string, string> {
  * furniture — `docs/UI-UX/07` is explicit that friction has to stay rare to
  * stay meaningful.
  */
-function reducesAccess(stored: Settings, next: Settings): string[] {
+function reducesAccess(stored: Settings, next: Settings, impact: MfaImpact | null): string[] {
   const out: string[] = [];
+
+  const wasMandate = stored.mfa_required ?? SETTINGS_DEFAULTS.mfa_required;
+  const nowMandate = next.mfa_required ?? SETTINGS_DEFAULTS.mfa_required;
+  if (nowMandate && !wasMandate) {
+    // Nobody is signed out, so this is not a reduction today. It is one on a
+    // date, for a number of people this screen can name — and the time to
+    // decide whether to tell them first is before saving, not after.
+    out.push(
+      impact === null
+        ? "Everyone without a second factor must set one up. After the grace period they are sent into enrolment when they sign in, before they can continue."
+        : `${impact.without_factor} of ${impact.members} active ${impact.members === 1 ? "member has" : "members have"} no second factor. They have ${impact.grace_period_days} days from now; after that they are sent into enrolment when they sign in, before they can continue.`,
+    );
+  }
 
   const wasLifetime = stored.session_lifetime_hours ?? SETTINGS_DEFAULTS.session_lifetime_hours;
   const nowLifetime = next.session_lifetime_hours ?? SETTINGS_DEFAULTS.session_lifetime_hours;
@@ -562,6 +581,48 @@ function reducesAccess(stored: Settings, next: Settings): string[] {
   }
 
   return out;
+}
+
+/**
+ * What the mandate does, stated as what it does (P3-13).
+ *
+ * The count comes from the service and the grace length with it, so neither is
+ * a copy that can drift. Counts only — the endpoint deliberately never names
+ * who has no factor.
+ */
+function MandateEffect({ impact, failed, on }: { impact: MfaImpact | null; failed: boolean; on: boolean }) {
+  const deadline =
+    impact?.grace_ends_at !== undefined && impact.grace_ends_at !== null ? new Date(impact.grace_ends_at) : null;
+  const [now] = useState(() => Date.now());
+  const graceOver = deadline !== null && deadline.getTime() <= now;
+
+  return (
+    <div className="mt-2 max-w-prose text-small text-text-secondary">
+      <p>
+        When on, everyone who signs in through this organization needs a second factor. People
+        without one get {impact !== null ? `${impact.grace_period_days} days` : "a grace period"} from
+        the moment it is switched on; after that, signing in sends them into setting up an
+        authenticator app before they can continue. Nobody is signed out when you save.
+      </p>
+      {failed ? (
+        <p className="mt-2">Could not count who this affects right now.</p>
+      ) : impact !== null ? (
+        <p className="mt-2">
+          <strong className="font-medium text-text-primary">
+            {impact.without_factor} of {impact.members} active{" "}
+            {impact.members === 1 ? "member has" : "members have"} no second factor.
+          </strong>
+          {impact.mfa_required && deadline !== null
+            ? graceOver
+              ? " The grace period has ended: they will be asked to set one up at their next sign-in."
+              : ` The grace period ends ${deadline.toLocaleString()}.`
+            : on
+              ? ""
+              : " Consider telling them before you switch this on."}
+        </p>
+      ) : null}
+    </div>
+  );
 }
 
 // --- helpers -----------------------------------------------------------------

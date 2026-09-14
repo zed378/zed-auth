@@ -181,6 +181,20 @@ describe("navigation", () => {
     }
   });
 
+  // P3-13: a "P1" badge sat on Projects, Users, Policies and the Audit Log
+  // long after all four shipped, each with the tooltip "Arrives in phase P1".
+  it("badges only the destinations that are not built", () => {
+    renderShell();
+    const nav = screen.getByRole("navigation");
+
+    const badged = within(nav)
+      .getAllByRole("link")
+      .filter((link) => link.querySelector("[title]") !== null)
+      .map((link) => link.getAttribute("href"));
+
+    expect(badged).toEqual(["/granted-projects", "/settings"]);
+  });
+
   it("does not show the instance-owner section yet", () => {
     // docs/PLAN/06 puts Instance administration behind INSTANCE_OWNER. The console
     // cannot read a role claim until P1-03, and showing it to everyone

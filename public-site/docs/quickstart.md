@@ -20,8 +20,9 @@ This is the **integrator's** path: you have a Zed Auth to point at, and you are
 connecting an application to it. Single sign-on, the management API, users and the
 audit log are all built and working.
 
-Roles do not appear in tokens yet, and Project Grants and attribute-based policies are
-not built — those are Phases 2 and 4. Nothing on this page depends on them.
+Roles, refresh token rotation and two-step verification are built too, and have their
+own [guides](/docs/guides). Project Grants and attribute-based policies are not built —
+those are Phases 4 and 4b. Nothing on this page depends on any of them.
 
 :::
 
@@ -400,12 +401,15 @@ So that you do not go looking for it:
 
 | | Arrives in |
 |---|---|
-| Roles and permissions in tokens | Phase 2 |
-| Refresh token rotation with reuse detection | Phase 3 |
-| Multi-factor authentication | Phase 3 |
 | Project Grants — delegating a project to another organization | Phase 4 |
-| Attribute-based policies | Phase 4b |
+| Sign-in with Google, Microsoft and other social providers | Phase 4 |
 | SAML | Phase 4 |
+| Attribute-based policies | Phase 4b |
+
+Roles in tokens, refresh token rotation and two-step verification are built — see the
+[guides](/docs/guides) for each. If you request `offline_access`, read
+[refresh token rotation](/docs/guides/refresh-token-rotation) before writing the code that
+stores the refresh token.
 
 The [roadmap](https://github.com/zed378/zed-auth/blob/main/TASKS/PROGRESS.md) is the
 board the project actually works from, not a marketing summary.

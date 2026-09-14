@@ -49,11 +49,16 @@ func TestSpecDefaultsMatchTheService(t *testing.T) {
 			SpecDefaults.AllowedLoginMethods, authn.DefaultLoginPolicy.AllowedMethods)
 	}
 
-	// `mfa_required` has no enforcement to compare against, by design — Phase 3
-	// brings it. The contract must publish `false`, because publishing `true`
-	// would describe a control that does not exist (`docs/UI-UX/21`).
+	// `mfa_required` defaults off, in the contract and in the service. A
+	// default of `true` would send every member of every new organization into
+	// enrolment 14 days after creation, which is a decision an organization
+	// makes rather than one it inherits.
+	if SpecDefaults.MFARequired != authn.DefaultLoginPolicy.MFARequired {
+		t.Errorf("the contract publishes mfa_required: %v; the service applies %v",
+			SpecDefaults.MFARequired, authn.DefaultLoginPolicy.MFARequired)
+	}
 	if SpecDefaults.MFARequired {
-		t.Error("the contract publishes mfa_required: true, which claims an enforcement that does not exist until Phase 3")
+		t.Error("the contract publishes mfa_required: true — every new organization would be mandated by default")
 	}
 }
 

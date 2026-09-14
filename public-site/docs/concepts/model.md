@@ -11,10 +11,10 @@ Everything in Zed Auth hangs off six objects. This page explains what each one i
 more usefully, why the boundaries fall where they do — the shape only makes sense once
 you know which problem each division solves.
 
-Four of the six — organizations, projects, applications and users — are creatable and
-manageable through the API today, and the [quickstart](/docs/quickstart) walks through
-two of them. Roles and grants are the model as designed; they arrive in Phases 2 and 4,
-and the sections below say so where they appear.
+All six — organizations, projects, applications, users, roles and grants — are creatable
+and manageable through the API today, and the [quickstart](/docs/quickstart) walks
+through two of them. The one part not built is the *project* grant, which delegates a
+project to another organization; it arrives in Phase 4, and the section below says so.
 
 ## The hierarchy
 
@@ -94,9 +94,9 @@ in a support project are different roles with different meanings. There is no am
 "administrator" who can do everything everywhere — except the instance owner, whose
 powers are deliberately few.
 
-*Arrives in Phase 2.* The claim namespace a token will carry them in is already
-reserved and served empty, so a consumer written today does not change shape when they
-appear.
+Built. A user's roles in a project appear in the access token under a claim named for
+that project — see [validate role claims](/docs/guides/validate-role-claims) for the
+exact format.
 
 ## Grant
 
@@ -115,7 +115,7 @@ constrain grants that already exist, or revocation is advisory.
 
 Both kinds of grant are covered in more detail in [authorization](/docs/concepts/authorization).
 
-*Direct grants arrive in Phase 2, project grants in Phase 4.*
+*Direct grants are built. Project grants arrive in Phase 4.*
 
 ## Why not something simpler
 
