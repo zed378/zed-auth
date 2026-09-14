@@ -120,7 +120,7 @@ export function AppRoutes() {
         path="/settings"
         element={
           <RequireAuth>
-            <PlaceholderPage title="Settings" phase="1" />
+            <PlaceholderPage title="Settings" phase={null} />
           </RequireAuth>
         }
       />

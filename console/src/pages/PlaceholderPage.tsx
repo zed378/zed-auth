@@ -7,15 +7,18 @@
  * shipped — the honesty rule `docs/UI-UX/21` applies to marketing copy, applied to
  * a screen.
  */
-export function PlaceholderPage({ title, phase }: { title: string; phase: string }) {
+export function PlaceholderPage({ title, phase }: { title: string; phase: string | null }) {
   return (
     <div className="flex flex-col gap-4">
       <h1 className="text-heading-1 font-bold text-text-primary">{title}</h1>
 
       <p className="max-w-prose text-body text-text-secondary">
-        This screen is specified in <code>docs/UI-UX/08-PAGE-SPECIFICATIONS.md</code> and is
-        built in phase {phase}. The route exists now because the navigation structure is a
-        decision already made; the screen behind it is not built yet.
+        This screen is specified in <code>docs/UI-UX/08-PAGE-SPECIFICATIONS.md</code>{" "}
+        {phase === null
+          ? "and is not scheduled on the roadmap yet."
+          : `and is built in phase ${phase}.`}{" "}
+        The route exists now because the navigation structure is a decision already made; the
+        screen behind it is not built.
       </p>
     </div>
   );

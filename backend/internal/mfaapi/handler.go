@@ -138,6 +138,15 @@ func (h *Handler) GetMyMfa(ctx context.Context, _ api.GetMyMfaRequestObject) (ap
 			return err
 		}
 		out.Factors, out.RecoveryCodesRemaining, out.MfaRequired = factors, remaining, policy.MFARequired
+		// The deadline, so the account screen can warn somebody inside the
+		// grace (P3-13). `P3-07` defined that warning and nothing displayed
+		// it: a user learnt the mandate existed at the sign-in that refused to
+		// let them through without enrolling.
+		if deadline := authn.MFADeadline(policy); !deadline.IsZero() {
+			out.GraceEndsAt.Set(deadline.UTC())
+		} else {
+			out.GraceEndsAt.SetNull()
+		}
 		return nil
 	}); err != nil {
 		return nil, internal("reading the caller's factors", err)

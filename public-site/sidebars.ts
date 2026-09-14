@@ -28,12 +28,18 @@ const sidebars: SidebarsConfig = {
       label: "Guides",
       // Reading order, not alphabetical: define roles before reading them
       // out of a token, and read them out of a token before deciding when a
-      // token is not good enough.
+      // token is not good enough. Then how strong and how recent a sign-in
+      // was, keeping a session alive without breaking it, and the two guides
+      // written for people who are not integrating anything.
       items: [
         "guides/guides-index",
         "guides/define-roles",
         "guides/validate-role-claims",
         "guides/authorization-checks",
+        "guides/step-up-with-amr",
+        "guides/refresh-token-rotation",
+        "guides/require-mfa",
+        "guides/two-step-verification",
       ],
     },
     {

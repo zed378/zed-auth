@@ -114,6 +114,43 @@ describe("one's own factors", () => {
     expect(screen.getByText(/cannot be removed/)).toBeInTheDocument();
   });
 
+  it("tells somebody inside the grace when the mandate starts applying to them", async () => {
+    const deadline = new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString();
+    stubApi(() => ({ status: 200, body: mine({ mfa_required: true, grace_ends_at: deadline }) }));
+    const { container } = renderScreen(<MfaTab orgId="org-1" userId={SELF} />);
+
+    const notice = await screen.findByRole("status");
+    expect(notice).toHaveTextContent("Your organization requires a second factor");
+    expect(notice).toHaveTextContent(`Add one before ${new Date(deadline).toLocaleString()}`);
+    await expectNoAxeViolations(container);
+  });
+
+  it("says the grace is over once it is, without inventing a date", async () => {
+    stubApi(() => ({
+      status: 200,
+      body: mine({ mfa_required: true, grace_ends_at: "2020-01-15T00:00:00Z" }),
+    }));
+    renderScreen(<MfaTab orgId="org-1" userId={SELF} />);
+
+    expect(await screen.findByRole("status")).toHaveTextContent(/has ended/);
+  });
+
+  it("does not warn somebody who already meets the mandate", async () => {
+    stubApi(() => ({
+      status: 200,
+      body: mine({
+        factors: [totpFactor],
+        recovery_codes_remaining: 10,
+        mfa_required: true,
+        grace_ends_at: new Date(Date.now() + 86_400_000).toISOString(),
+      }),
+    }));
+    renderScreen(<MfaTab orgId="org-1" userId={SELF} />);
+
+    expect(await screen.findByText("Authenticator app")).toBeInTheDocument();
+    expect(screen.queryByText(/Add one before/)).not.toBeInTheDocument();
+  });
+
   it("warns plainly when a factor has no recovery codes", async () => {
     stubApi(() => ({ status: 200, body: mine({ factors: [totpFactor], recovery_codes_remaining: 0 }) }));
     renderScreen(<MfaTab orgId="org-1" userId={SELF} />);

@@ -6,17 +6,25 @@ import { OrgSwitcher } from "./OrgSwitcher";
  * Architecture, which mirrors docs/PLAN/04-DATA-MODEL.md almost 1:1 on purpose:
  * navigation should never require a concept the data model does not have.
  *
- * Every destination here is a Phase 1+ screen and currently renders a
- * placeholder saying so. That is deliberate rather than lazy — the IA is a
- * decision already made, and encoding it now means Phase 1 adds page bodies
- * rather than renegotiating structure. `docs/PLAN/16` forbids building Phase N+1
- * features early; a route with a placeholder is not the feature.
+ * The IA was encoded before its screens existed, each destination badged with
+ * the phase that would build it — the IA is a decision already made, and a
+ * route with a placeholder is not the feature (`docs/PLAN/16`).
+ *
+ * **A badge on a built screen is the same lie in the other direction.**
+ * Projects, Users, Policies and the Audit Log shipped in Phases 1 and 2 and
+ * went on carrying "Arrives in phase P1" until `P3-13` noticed. So `phase`
+ * now marks only what is genuinely not built, and a test fails if a
+ * destination with a real screen carries one.
  */
 
 interface NavItem {
   label: string;
   to: string;
-  /** Roadmap phase that fills this in. Rendered so the shell is honest. */
+  /**
+   * Set only on a destination with no screen yet: the roadmap phase that
+   * builds it, or "Later" for one no roadmap task owns. Rendered so the shell
+   * is honest; absent on everything that works.
+   */
   phase?: string;
 }
 
@@ -43,12 +51,15 @@ const SECTIONS: NavSection[] = [
   {
     label: "Organization",
     items: [
-      { label: "Projects", to: "/projects", phase: "P1" },
-      { label: "Users", to: "/users", phase: "P1" },
+      { label: "Projects", to: "/projects" },
+      { label: "Users", to: "/users" },
       { label: "Granted Projects", to: "/granted-projects", phase: "P4" },
-      { label: "Policies", to: "/policies", phase: "P1" },
-      { label: "Audit Log", to: "/audit-log", phase: "P1" },
-      { label: "Settings", to: "/settings", phase: "P1" },
+      { label: "Policies", to: "/policies" },
+      { label: "Audit Log", to: "/audit-log" },
+      // Organization settings (branding, domain verification) has a
+      // specification and no roadmap task — `PG-16` settled where branding is
+      // stored, not when the screen is built.
+      { label: "Settings", to: "/settings", phase: "Later" },
     ],
   },
 ];
@@ -137,7 +148,11 @@ export function SideNav() {
                       // nav item that goes nowhere.
                       <span
                         className="ml-2 rounded border border-border px-1 text-small text-text-secondary"
-                        title={`Arrives in phase ${item.phase}`}
+                        title={
+                          item.phase === "Later"
+                            ? "Not built, and not scheduled on the roadmap yet"
+                            : `Arrives in phase ${item.phase.replace(/^P/, "")}`
+                        }
                       >
                         {item.phase}
                       </span>

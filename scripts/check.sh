@@ -437,13 +437,18 @@ fi
 
 section "Coverage"
 
-if sh scripts/check-coverage.sh >/dev/null 2>&1; then
+# ONE run, and the report is that run's output. This used to run the script
+# twice — once to decide, once to print — so a failure caused by one flaky
+# test was reported with the SECOND run's table, which passed: a red gate
+# showing sixteen green lines and nothing that failed (found at P3-13).
+coverage_out=$(sh scripts/check-coverage.sh 2>&1) && coverage_ok=1 || coverage_ok=0
+if [ "$coverage_ok" -eq 1 ]; then
   # The message differs by whether the packages exist yet, so it is shown
   # rather than summarised: "0 of 3 floors apply" is the useful fact in Phase 0.
-  pass "coverage floors ($(sh scripts/check-coverage.sh | tail -1))"
+  pass "coverage floors ($(printf '%s\n' "$coverage_out" | tail -1))"
 else
   fail "coverage floors"
-  sh scripts/check-coverage.sh 2>&1 | sed 's/^/      /'
+  printf '%s\n' "$coverage_out" | sed 's/^/      /'
 fi
 
 # --- API contract -----------------------------------------------------------

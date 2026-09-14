@@ -512,7 +512,7 @@
 
 | | |
 |---|---|
-| **Status** | TODO |
+| **Status** | DONE — 2026-09-14, [record](../MEMORY/records/2026-09-14-P3-13-docs.md). **The audit found a mandate that could never be enforced and a console that said it did nothing** — both fixed, see the record |
 | **Depends on** | P3-05, P3-06 |
 | **Plan refs** | `docs/PLAN/20-PUBLIC-SITE-ARCHITECTURE.md`, `docs/UI-UX/21-CONTENT-AND-COPY-STRATEGY.md` |
 | **Spec required** | No |
@@ -527,10 +527,10 @@
 6. Audit for unshipped claims — SAML and social login remain Phase 4.
 
 **Definition of Done**
-- [ ] The refresh-rotation guide accurately describes reuse detection and the grace window.
-- [ ] The `amr` guide matches the values actually emitted.
-- [ ] The lost-device process matches what `P3-04` implemented.
-- [ ] No page claims a Phase 4 capability.
+- [x] The refresh-rotation guide accurately describes reuse detection and the grace window — both conditions (30 seconds **and** an unused replacement), traced through `Rotate` for the concurrent-refresh case. `backend/internal/docsdrift` pins the window, every lifetime, the event name and the refusal string; changing the page to "60 seconds" turns it red.
+- [x] The `amr` guide matches the values actually emitted — its table rows are asserted equal to `mfa.AuthMethods`/`AuthMethodsWithRecovery` rendered, and its vocabulary to exactly the four emitted values. Giving the recovery-code row `otp` turns it red.
+- [x] The lost-device process matches what `P3-04` implemented — the runbook's paths B and C, with the code count, low-water mark, attempt bound and the challenge page's button label asserted against the code.
+- [x] No page claims a Phase 4 capability — asserted per docs section; it caught "create a Project Grant" offered as an example how-to. The audit mostly found the opposite failure: nine places still describing Phase 1–3 capabilities as unbuilt, including the landing status, the model page, and the OpenAPI description of `mfa_required` in the generated reference.
 
 ---
 
