@@ -76,8 +76,18 @@ type Handler struct {
 	// then it is the instance default.
 	Policy session.Policy
 
+	// Mandate turns a live session into "no session" when the organization's
+	// MFA mandate now requires the user to enrol (P3-14). Satisfied by
+	// authn.MandateCheck; nil checks nothing.
+	Mandate Mandate
+
 	// Now is overridable for tests.
 	Now func() time.Time
+}
+
+// Mandate reports whether an organization's MFA mandate is unmet for a user.
+type Mandate interface {
+	Unmet(ctx context.Context, orgID, userID string, now time.Time) (bool, error)
 }
 
 func (h *Handler) now() time.Time {
@@ -213,6 +223,24 @@ func (h *Handler) session(
 	// authenticated, which is not the same as how recently they were active.
 	if req.MaxAge != nil && now.Sub(current.CreatedAt) > *req.MaxAge {
 		return session.Session{}, false
+	}
+
+	// The organization's MFA mandate (P3-14, P3-07's A-2). A session opened
+	// before the grace ended would otherwise go on issuing codes silently for
+	// its whole lifetime. Treated as no session: the user signs in, and the
+	// login routes them into enrolment. A mandate that cannot be read is also
+	// "no session" — a login prompt is recoverable, a silent code is not.
+	if h.Mandate != nil {
+		unmet, err := h.Mandate.Unmet(ctx, current.OrgID, current.UserID, now)
+		if err != nil {
+			if h.Log != nil {
+				h.Log.Warn("reading the MFA mandate failed during authorize", "error", err.Error())
+			}
+			return session.Session{}, false
+		}
+		if unmet {
+			return session.Session{}, false
+		}
 	}
 
 	return current, true

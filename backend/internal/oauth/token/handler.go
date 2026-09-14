@@ -70,7 +70,17 @@ type Handler struct {
 	// would take down every login in the deployment.
 	Roles Roles
 
+	// Mandate refuses a refresh for a user the organization's MFA mandate now
+	// sends into enrolment (P3-14, P3-07's A-2). Satisfied by
+	// authn.MandateCheck. Nil checks nothing — tests of unrelated behaviour.
+	Mandate Mandate
+
 	Now func() time.Time
+}
+
+// Mandate reports whether an organization's MFA mandate is unmet for a user.
+type Mandate interface {
+	Unmet(ctx context.Context, orgID, userID string, now time.Time) (bool, error)
 }
 
 // Roles reads what a token should say about a user (P2-04).
@@ -290,6 +300,32 @@ func (h *Handler) refreshToken(
 	// revoked one: P3-09 makes this systematic and Phase 1 does the check.
 	if stored.SessionID != "" && h.Sessions != nil && !h.Sessions.IsLive(ctx, stored.SessionID, now) {
 		return response{}, "", badRequest(ErrInvalidGrant, "the refresh token is not valid")
+	}
+
+	// The organization's MFA mandate, re-read on every refresh (P3-07's A-2,
+	// implemented at P3-14). A token issued before the grace ended does not
+	// outlive it: the client is refused like any other dead token, sends the
+	// user to sign in, and signing in routes them into enrolment.
+	//
+	// The family is left alone rather than revoked. Nothing about it is
+	// suspect, and once the user enrols the refusal stops on its own — but
+	// they sign in again regardless, so there is nothing a surviving family
+	// could be used for that a fresh one would not also allow.
+	//
+	// A mandate that cannot be read refuses. Failing open would let an outage
+	// of one query switch the policy off for every refresh in the deployment.
+	if h.Mandate != nil {
+		unmet, err := h.Mandate.Unmet(ctx, stored.OrgID, stored.UserID, now)
+		if err != nil {
+			return response{}, stored.UserID, h.wrap("reading the MFA mandate for a refresh", err)
+		}
+		if unmet {
+			if h.Log != nil {
+				h.Log.Info("a refresh was refused: the organization requires MFA and the user has not enrolled",
+					"client_id", app.ID, "org_id", stored.OrgID)
+			}
+			return response{}, stored.UserID, badRequest(ErrInvalidGrant, "the refresh token is not valid")
+		}
 	}
 
 	scope, err := NarrowScope(stored.Scope, ParseScope(form.Get("scope")))
