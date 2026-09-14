@@ -74,9 +74,9 @@ const CAPABILITIES: Capability[] = [
   {
     title: "Roles that scale to delegation",
     body:
-      "Start with per-project roles. Add cross-organization delegation when a " +
-      "partner needs to manage their own team's access — without giving up which " +
-      "roles they are allowed to grant.",
+      "Per-project roles and grants are built today. Cross-organization " +
+      "delegation comes next: a partner manages their own team's access, without " +
+      "being able to grant a role you did not delegate.",
     phase: "Phase 4",
   },
   {
@@ -135,9 +135,11 @@ export default function Home(): ReactNode {
           <p className="site-lede" style={{ marginTop: "2rem" }}>
             <strong>Status: Phase 1 is built and running.</strong> Single sign-on and the
             management API work end to end — the quickstart below is executed against a
-            live deployment rather than written from the specification. Roles,
-            delegation and policies are specified and not started. There is no hosted
-            signup: you run it yourself, from source.
+            live deployment rather than written from the specification. Roles and
+            multi-tenancy (Phase 2) are built, and two-step verification, passkeys and
+            refresh token rotation (Phase 3) are in final testing; neither is on that
+            live deployment yet. Delegation and policies are specified and not started.
+            There is no hosted signup: you run it yourself, from source.
           </p>
         </div>
       </header>
@@ -158,7 +160,8 @@ export default function Home(): ReactNode {
         <div className="site-container">
           <h2>What it does, and what it will do</h2>
           <p className="site-lede" style={{ marginBottom: "2.5rem" }}>
-            Two of these are built and running; two are specified and not started. The
+            Two of these are built and running; the other two are specified and not
+            started, although the roles the third builds on already exist. The
             label on each card says which, and it is checked against the roadmap board
             on every build rather than kept true by hand.
           </p>

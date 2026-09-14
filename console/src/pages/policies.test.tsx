@@ -27,8 +27,13 @@ vi.mock("../lib/auth/oidc", async () => {
 });
 
 /** Answers the organization read with the given settings. */
-function stubSettings(settings: unknown, onWrite?: () => { status: number; body: unknown }) {
-  stubApi((_url, init) => {
+function stubSettings(
+  settings: unknown,
+  onWrite?: () => { status: number; body: unknown },
+  impact: unknown = defaultImpact,
+) {
+  stubApi((url, init) => {
+    if (url.endsWith("/mfa-impact")) return { status: 200, body: impact };
     if (init.method === "PATCH" && onWrite !== undefined) return onWrite();
     if (init.method === "PATCH") {
       return { status: 200, body: { id: "org-1", name: "Acme", settings } };
@@ -36,6 +41,8 @@ function stubSettings(settings: unknown, onWrite?: () => { status: number; body:
     return { status: 200, body: { id: "org-1", name: "Acme", settings } };
   });
 }
+
+const defaultImpact = { members: 12, without_factor: 5, mfa_required: false, grace_period_days: 14, grace_ends_at: null };
 
 /** Everything configured, deliberately unlike the service defaults. */
 const configured = {
@@ -101,17 +108,51 @@ describe("what is in force today", () => {
 });
 
 describe("multi-factor", () => {
-  it("never presents itself as enforced", async () => {
+  // `P3-07` enforces the mandate. Through P3-12 this screen still said
+  // "Setting this changes nothing today" — the reverse of the Phase 2 lie, and
+  // the more dangerous one: an administrator told the switch is inert has no
+  // reason to warn anybody before flipping it.
+  it("says what the mandate does and who it reaches, and never that it is inert", async () => {
     stubSettings(configured);
+    const { container } = renderScreen(<PoliciesPage />);
 
+    expect(await screen.findByText("5 of 12 active members have no second factor.")).toBeInTheDocument();
+    expect(screen.getByText(/get 14 days from the moment it is switched on/)).toBeInTheDocument();
+    expect(screen.queryByText(/Not enforced yet/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/changes nothing/i)).not.toBeInTheDocument();
+    await expectNoAxeViolations(container);
+  });
+
+  it("confirms switching it on, naming how many people it reaches", async () => {
+    let writes = 0;
+    stubSettings(configured, () => {
+      writes++;
+      return { status: 200, body: { id: "org-1", name: "Acme", settings: { ...configured, mfa_required: true } } };
+    });
     renderScreen(<PoliciesPage />);
 
-    // Step 3, and `docs/UI-UX/21`'s governance rule. An administrator who
-    // switched this on and believed their organization was protected would
-    // have been misled by the console, not by the API.
-    expect(await screen.findByText(/Not enforced yet/i)).toBeInTheDocument();
-    expect(screen.getByText(/Setting this changes nothing today/i)).toBeInTheDocument();
-    expect(screen.getByText(/Phase 3/i)).toBeInTheDocument();
+    await screen.findByText("5 of 12 active members have no second factor.");
+    await userEvent.click(screen.getByLabelText("Require a second factor"));
+    await userEvent.click(screen.getByRole("button", { name: "Save policies" }));
+
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog).toHaveTextContent(/5 of 12 active members have no second factor/);
+    expect(dialog).toHaveTextContent(/14 days from now/);
+    expect(writes).toBe(0);
+  });
+
+  it("shows the deadline once the mandate is on", async () => {
+    const ends = new Date(Date.now() + 3 * 86_400_000).toISOString();
+    stubSettings({ ...configured, mfa_required: true }, undefined, {
+      ...defaultImpact,
+      mfa_required: true,
+      grace_ends_at: ends,
+    });
+    renderScreen(<PoliciesPage />);
+
+    expect(await screen.findByText(/grace period ends/)).toHaveTextContent(
+      `The grace period ends ${new Date(ends).toLocaleString()}.`,
+    );
   });
 });
 

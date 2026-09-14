@@ -2044,10 +2044,13 @@ export interface components {
                 max_age_days?: number;
             };
             /**
-             * @description Stored and validated; **not enforced**. Multi-factor enrolment
-             *     arrives in Phase 3, and until it does this records an intention
-             *     rather than a control. No surface may describe it as active
-             *     (`docs/UI-UX/21` governance rule).
+             * @description Requires every member to hold a second factor. Enforced at sign-in:
+             *     members without one sign in normally for 14 days from the moment
+             *     this is switched on, then are sent into enrolment before any
+             *     session exists. The start of that period is recorded by the service
+             *     as `mfa_required_since` and cannot be supplied — a request carrying
+             *     it is refused. `GET /v1/organizations/{org_id}/mfa-impact` reports
+             *     how many members it affects and when the period ends.
              * @default false
              */
             mfa_required?: boolean;
@@ -2419,6 +2422,13 @@ export interface components {
          *     description.
          */
         MfaImpact: {
+            /**
+             * @description How long members without a factor have, from the moment the mandate
+             *     is switched on, before sign-in sends them into enrolment. The
+             *     service's value, so a client stating it cannot go stale.
+             * @example 14
+             */
+            grace_period_days: number;
             /**
              * @description Active members of this organization.
              * @example 42
@@ -2849,6 +2859,17 @@ export interface components {
             recovery_codes_remaining: number;
             /** @description Whether the caller's organization requires a second factor. When true, the last factor cannot be removed. */
             mfa_required: boolean;
+            /**
+             * Format: date-time
+             * @description When the organization's grace period for the mandate ends. After it,
+             *     a user with no active factor is sent into enrolment at sign-in
+             *     before any session exists. Null when the mandate is off.
+             *
+             *     Present whether or not the caller already has a factor — a client
+             *     decides whether to warn, and should warn only a caller with none.
+             * @example 2026-09-27T12:00:00Z
+             */
+            grace_ends_at?: string | null;
             /** @description The factor types this deployment can enrol. Empty when MFA is not configured. */
             available_types: ("totp" | "webauthn")[];
         };

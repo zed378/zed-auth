@@ -127,6 +127,18 @@ func (h *Handler) CreateOrganization(
 		return nil, err
 	}
 
+	// An organization created with the MFA mandate already on is a transition
+	// from nothing, and is stamped like one (P3-13). Before this, creation
+	// skipped the stamp and `RequireMFA` read the missing timestamp as "still
+	// inside the grace" — permanently, because nothing stamps a mandate that is
+	// already on. The organization's policy said MFA was required and nobody
+	// was ever asked for it.
+	if settings != nil {
+		if settings, err = StampMandate(nil, settings, h.now()); err != nil {
+			return nil, err
+		}
+	}
+
 	created, err := h.Store.Create(ctx, h.DB, NewOrganization{
 		Name:     name,
 		Domain:   nullableToPointer(request.Body.Domain),
@@ -141,6 +153,13 @@ func (h *Handler) CreateOrganization(
 		"name":            created.Name,
 	}); err != nil {
 		return nil, err
+	}
+	if MandateChange(nil, created.Settings) == MandateEnabled {
+		// Findable by type, as on update: "who turned MFA on, and when does the
+		// grace end" must not depend on how the organization came to have it.
+		if err := h.record(ctx, created.ID, audit.EventMFAMandateEnabled, mandatePayload(created)); err != nil {
+			return nil, err
+		}
 	}
 
 	rendered, err := render(created)

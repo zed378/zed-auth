@@ -3115,10 +3115,13 @@ components:
           type: boolean
           default: false
           description: |
-            Stored and validated; **not enforced**. Multi-factor enrolment
-            arrives in Phase 3, and until it does this records an intention
-            rather than a control. No surface may describe it as active
-            (`docs/UI-UX/21` governance rule).
+            Requires every member to hold a second factor. Enforced at sign-in:
+            members without one sign in normally for 14 days from the moment
+            this is switched on, then are sent into enrolment before any
+            session exists. The start of that period is recorded by the service
+            as `mfa_required_since` and cannot be supplied — a request carrying
+            it is refused. `GET /v1/organizations/{org_id}/mfa-impact` reports
+            how many members it affects and when the period ends.
         session_lifetime_hours:
           type: integer
           minimum: 1
@@ -3674,9 +3677,17 @@ components:
 
         Counts rather than identifiers, deliberately — see the operation's
         description.
-      required: [members, without_factor, mfa_required]
+      required: [members, without_factor, mfa_required, grace_period_days]
       additionalProperties: false
       properties:
+        grace_period_days:
+          type: integer
+          minimum: 0
+          description: |
+            How long members without a factor have, from the moment the mandate
+            is switched on, before sign-in sends them into enrolment. The
+            service's value, so a client stating it cannot go stale.
+          example: 14
         members:
           type: integer
           minimum: 0
@@ -4284,6 +4295,18 @@ components:
         mfa_required:
           type: boolean
           description: Whether the caller's organization requires a second factor. When true, the last factor cannot be removed.
+        grace_ends_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: |
+            When the organization's grace period for the mandate ends. After it,
+            a user with no active factor is sent into enrolment at sign-in
+            before any session exists. Null when the mandate is off.
+
+            Present whether or not the caller already has a factor — a client
+            decides whether to warn, and should warn only a caller with none.
+          example: "2026-09-27T12:00:00Z"
         available_types:
           type: array
           description: The factor types this deployment can enrol. Empty when MFA is not configured.
