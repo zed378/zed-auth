@@ -92,7 +92,7 @@ to `P4-06`.
 | Mutations | 4 controls broken (the granting-side filter, the role-key check, the live-organization check, the role-deletion guard), each turning its test red |
 | Security map | `tests/security` maps the lifecycle row; P4-02 and P4-04 rows are named correctly |
 | Contract | OpenAPI, the generated server, the console client and the API reference regenerated; the shipped-paths allowlist updated |
-| Gate | see the commit |
+| Gate | `scripts/check.sh`: 47 passed, 0 failed, 2 skipped |
 
 ## Not done
 
