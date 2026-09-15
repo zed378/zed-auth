@@ -117,29 +117,13 @@ jobs:
         # security bug rather than a flake.
         run: go test -race -coverprofile=coverage.out ./...
 
-      - name: Coverage floor for security-critical packages
-        working-directory: backend
-        # A repo-wide average is meaningless: it lets thorough coverage of
-        # config offset none at all of the OIDC provider. P0-15 sets a floor
-        # per package instead, for the packages where a gap is a vulnerability.
-        run: |
-          set -euo pipefail
-          FLOOR=70
-          fail=0
-          for pkg in authn authz oidc; do
-            line=$(go tool cover -func=coverage.out | grep "internal/$pkg/" | tail -1 || true)
-            if [ -z "$line" ]; then
-              echo "internal/$pkg: no code yet, skipping"
-              continue
-            fi
-            pct=$(echo "$line" | awk '{print $NF}' | tr -d '%')
-            echo "internal/$pkg: ${pct}%"
-            if [ "${pct%.*}" -lt "$FLOOR" ]; then
-              echo "::error::internal/$pkg coverage ${pct}% is below the ${FLOOR}% floor"
-              fail=1
-            fi
-          done
-          exit $fail
+      # A second, per-package coverage step used to follow here, and it was
+      # removed at P3-14 rather than fixed. It took `grep internal/$pkg/ | tail
+      # -1` of `go tool cover -func` — the LAST FUNCTION in the package, not
+      # the package total — so its floor applied to whichever function sorted
+      # last. It also measured unit tests alone against three packages, where
+      # `scripts/check-coverage.sh` above measures the real suite against
+      # sixteen. Nobody saw either problem because CI never ran.
 
   # --- Integration ----------------------------------------------------------
   integration:
