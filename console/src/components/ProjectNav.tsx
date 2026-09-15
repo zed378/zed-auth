@@ -3,8 +3,8 @@ import { NavLink } from "react-router-dom";
 /**
  * The project detail's tab strip (P2-11).
  *
- * `docs/UI-UX/08` names three tabs on this screen — Applications, Roles and,
- * from `P2-12`, Authorizations — but `docs/UI-UX/07` specifies no tab
+ * `docs/UI-UX/08` names the tabs on this screen — Applications, Roles,
+ * Authorizations from `P2-12` and Project Grants from `P4-05` — but `docs/UI-UX/07` specifies no tab
  * component. Rather than invent one that a later specification would have to
  * contradict, this is what these actually are: **links between routes**.
  *
@@ -24,6 +24,7 @@ export function ProjectNav({ projectId }: { projectId: string }) {
     { to: `/projects/${projectId}`, label: "Applications", end: true },
     { to: `/projects/${projectId}/roles`, label: "Roles", end: false },
     { to: `/projects/${projectId}/authorizations`, label: "Authorizations", end: false },
+    { to: `/projects/${projectId}/grants`, label: "Project Grants", end: false },
   ];
 
   return (

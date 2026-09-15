@@ -189,7 +189,7 @@
 
 | | |
 |---|---|
-| **Status** | TODO |
+| **Status** | DONE — 2026-09-15, [record](../MEMORY/records/2026-09-15-P4-05-project-grants-tab.md), [implementation chain](../console/docs/implementation-chain-P4-05.md). The organization is entered by ID, not searched (ADR-026) |
 | **Depends on** | P4-01 |
 | **Plan refs** | `docs/UI-UX/18-DETAILED-PAGE-SPECIFICATIONS.md` § Project Grants Tab, `docs/UI-UX/04-USER-FLOWS.md` Flow 2, `docs/UI-UX/08-PAGE-SPECIFICATIONS.md`, `docs/UI-UX/07-COMPONENT-SPECIFICATION.md` |
 | **Spec required** | No — but `docs/UI-UX/18` has a detailed spec for this screen |
@@ -207,11 +207,11 @@
 7. Use `color-danger` only for the revoke action.
 
 **Definition of Done**
-- [ ] Flow 2 from `docs/UI-UX/04` is implemented exactly and covered by an E2E test.
-- [ ] The implementation matches `docs/UI-UX/18`'s detailed spec for this page.
-- [ ] Revocation requires typed confirmation and shows the affected user count.
-- [ ] The no-roles-selected state uses `color-warning`, not `color-danger`.
-- [ ] Accessibility and responsive requirements are met.
+- [x] Flow 2 from `docs/UI-UX/04` is implemented exactly and covered by an E2E test. Two recorded departures: the organization is entered by ID (ADR-026), and "dependent user_grants invalidated immediately" is `P4-04`'s.
+- [x] The implementation matches `docs/UI-UX/18`'s detailed spec for this page.
+- [x] Revocation requires typed confirmation and shows the affected user count. Typed confirmation applies when the count is above zero, per `docs/UI-UX/18`; that branch is component-tested with a stubbed count until `P4-02` can create holders.
+- [x] The no-roles-selected state uses `color-warning`, not `color-danger`.
+- [x] Accessibility and responsive requirements are met.
 
 ---
 
