@@ -39,6 +39,7 @@ import (
 	"github.com/zed378/zed-auth/backend/internal/management"
 	"github.com/zed378/zed-auth/backend/internal/oauth/token"
 	"github.com/zed378/zed-auth/backend/internal/organization"
+	"github.com/zed378/zed-auth/backend/internal/projectgrant"
 	"github.com/zed378/zed-auth/backend/internal/ratelimit"
 	"github.com/zed378/zed-auth/backend/internal/session"
 	"github.com/zed378/zed-auth/backend/internal/signing"
@@ -183,16 +184,17 @@ func setup(t *testing.T) *fixture {
 		Organizations: &organization.Handler{
 			Store: organization.NewStore(), DB: db, Audit: auditor, Log: discard(),
 		},
-		ProjectAPI:     stubProjects{},
-		ApplicationAPI: stubApplications{},
-		RoleAPI:        stubRoles{},
-		GrantAPI:       stubGrants{},
-		AuthzAPI:       stubAuthz{},
-		UserAPI:        users,
-		SessionAPI:     notWiredSessions{},
-		MfaAPI:         notWiredFactors{},
-		AccountAPI:     &account.Handler{}, // not exercised here
-		AuditAPI:       &auditlog.Handler{DB: db, Log: discard()},
+		ProjectAPI:      stubProjects{},
+		ApplicationAPI:  stubApplications{},
+		RoleAPI:         stubRoles{},
+		GrantAPI:        stubGrants{},
+		AuthzAPI:        stubAuthz{},
+		UserAPI:         users,
+		SessionAPI:      notWiredSessions{},
+		MfaAPI:          notWiredFactors{},
+		ProjectGrantAPI: &projectgrant.Handler{}, // not exercised here
+		AccountAPI:      &account.Handler{},      // not exercised here
+		AuditAPI:        &auditlog.Handler{DB: db, Log: discard()},
 	})
 
 	return &fixture{

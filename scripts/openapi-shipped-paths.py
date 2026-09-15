@@ -88,6 +88,10 @@ SHIPPED = {
     # the path, which an organization-scoped role also satisfies (P2-05).
     "/v1/organizations/{org_id}/projects/{project_id}/roles",
     "/v1/organizations/{org_id}/projects/{project_id}/roles/{role_id}",
+    # P4-01. The delegation contract only: a grant confers no access until
+    # P4-02 and P4-04, and the operation descriptions say so.
+    "/v1/organizations/{org_id}/projects/{project_id}/grants",
+    "/v1/organizations/{org_id}/projects/{project_id}/grants/{grant_id}",
     # P2-03. The row that actually grants access. ORG_ADMIN over the
     # organization, because the path is about a user.
     "/v1/organizations/{org_id}/users/{user_id}/grants",
