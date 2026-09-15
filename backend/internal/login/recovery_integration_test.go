@@ -455,34 +455,53 @@ func TestAnAnswerThatWasValidCostsWhatAWrongOneCosts(t *testing.T) {
 		wrong = "111111"
 	}
 
-	median := func(name string, answer func(id string, h *http.Cookie) *httptest.ResponseRecorder) time.Duration {
-		const samples = 7
-		durations := make([]time.Duration, 0, samples)
-		for range samples {
-			w, took := signInWith(answer)
-			if sessionCookieSet(w) {
-				t.Fatalf("%s signed the user in; the comparison is meaningless", name)
-			}
-			durations = append(durations, took)
-		}
+	type answer func(id string, h *http.Cookie) *httptest.ResponseRecorder
+
+	medianOf := func(durations []time.Duration) time.Duration {
 		sort.Slice(durations, func(i, j int) bool { return durations[i] < durations[j] })
 		return durations[len(durations)/2]
 	}
 
-	compare := func(pair string, never, was time.Duration) {
-		ratio := float64(was) / float64(never)
-		if ratio < 0.6 || ratio > 1.6 {
+	// The two answers are sampled INTERLEAVED, never one batch after the other.
+	// The first version took seven of one and then seven of the other, and
+	// under the gate's load (other packages' containers starting beside it) the
+	// machine got faster between the batches: a replayed code measured 13ms
+	// against 24ms for a wrong one, ratio 0.57, failing a test whose code had not
+	// changed. Alternating puts any drift on both sides of the comparison.
+	//
+	// The bounds are wide on purpose. What this exists to catch is an early
+	// return that skips the expensive half — a 40ms delay on the replay path
+	// alone measured ratio 4.30 — not a few milliseconds of scheduling noise.
+	compare := func(pair string, never, was answer) {
+		const rounds = 11
+		nevers := make([]time.Duration, 0, rounds)
+		wases := make([]time.Duration, 0, rounds)
+		for range rounds {
+			for _, side := range []struct {
+				run  answer
+				into *[]time.Duration
+			}{{never, &nevers}, {was, &wases}} {
+				w, took := signInWith(side.run)
+				if sessionCookieSet(w) {
+					t.Fatalf("%s: an answer that should be refused signed the user in; the comparison is meaningless", pair)
+				}
+				*side.into = append(*side.into, took)
+			}
+		}
+		neverMedian, wasMedian := medianOf(nevers), medianOf(wases)
+		ratio := float64(wasMedian) / float64(neverMedian)
+		if ratio < 0.5 || ratio > 2.0 {
 			t.Errorf("%s: a formerly valid answer takes %s and an invalid one %s (ratio %.2f) — "+
-				"the response time says which was real", pair, was, never, ratio)
+				"the response time says which was real", pair, wasMedian, neverMedian, ratio)
 		}
 	}
 
 	compare("TOTP",
-		median("a wrong code", func(id string, h *http.Cookie) *httptest.ResponseRecorder { return s.code(t, id, wrong, h) }),
-		median("a replayed code", func(id string, h *http.Cookie) *httptest.ResponseRecorder { return s.code(t, id, used, h) }))
+		func(id string, h *http.Cookie) *httptest.ResponseRecorder { return s.code(t, id, wrong, h) },
+		func(id string, h *http.Cookie) *httptest.ResponseRecorder { return s.code(t, id, used, h) })
 	compare("recovery code",
-		median("an invented code", func(id string, h *http.Cookie) *httptest.ResponseRecorder {
+		func(id string, h *http.Cookie) *httptest.ResponseRecorder {
 			return s.recoveryCode(t, id, "ABCD-EFGH-JKLM-NPQR", h)
-		}),
-		median("a spent code", func(id string, h *http.Cookie) *httptest.ResponseRecorder { return s.recoveryCode(t, id, codes[0], h) }))
+		},
+		func(id string, h *http.Cookie) *httptest.ResponseRecorder { return s.recoveryCode(t, id, codes[0], h) })
 }

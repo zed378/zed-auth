@@ -306,7 +306,7 @@ if [ -z "$crlf" ]; then pass "no CRLF in executable scripts"; else fail "CRLF fo
 # the suite was green. This gate had no check that could see it, because it
 # re-implements CI's steps rather than reading CI's file. Now it reads the file.
 if docker info >/dev/null 2>&1; then
-  # shellcheck and pyflakes off: their notes are advisory, and this check is
+  # The shell and python linters are off: their notes are advisory, and this check is
   # about whether GitHub will run the workflow at all.
   if lint=$(MSYS_NO_PATHCONV=1 docker run --rm -v "$(pwd):/repo" -w /repo rhysd/actionlint:1.7.7 \
       -no-color -oneline -shellcheck= -pyflakes= 2>&1); then
