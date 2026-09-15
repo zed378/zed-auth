@@ -133,13 +133,14 @@ export default function Home(): ReactNode {
             button now points where the blueprint always said it should.
           */}
           <p className="site-lede" style={{ marginTop: "2rem" }}>
-            <strong>Status: Phase 1 is built and running.</strong> Single sign-on and the
-            management API work end to end — the quickstart below is executed against a
-            live deployment rather than written from the specification. Roles and
-            multi-tenancy (Phase 2) are built, and two-step verification, passkeys and
-            refresh token rotation (Phase 3) are in final testing; neither is on that
-            live deployment yet. Delegation and policies are specified and not started.
-            There is no hosted signup: you run it yourself, from source.
+            <strong>Status: Phases 1 to 3 are built and running.</strong> Single sign-on
+            and the management API work end to end — the quickstart below is executed
+            against a live deployment rather than written from the specification. Roles,
+            more than one organization, two-step verification, passkeys, session
+            management and refresh token rotation run on the same deployment, where
+            Phase 3's acceptance checks were executed against them. Delegation and
+            policies are specified and not started. There is no hosted signup: you run it
+            yourself, from source.
           </p>
         </div>
       </header>
