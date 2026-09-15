@@ -3,6 +3,7 @@ package login
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -39,6 +40,16 @@ func mainSource(t *testing.T) string {
 	return string(body)
 }
 
+// containsCode reports whether main.go contains a fragment, ignoring how runs
+// of spaces and tabs are aligned. gofmt realigns a whole struct literal when
+// one key grows longer, and a wiring test that breaks because a NEIGHBOURING
+// field was added is testing the formatter (found at P4-01, when
+// ProjectGrantAPI realigned httpserver.Deps).
+func containsCode(src, fragment string) bool {
+	collapse := regexp.MustCompile(`[ 	]+`)
+	return strings.Contains(collapse.ReplaceAllString(src, " "), collapse.ReplaceAllString(fragment, " "))
+}
+
 // The login handler is given a factor framework.
 //
 // Without this, `Handler.MFA` stays nil, `challengeFor` returns no challenge,
@@ -50,13 +61,13 @@ func TestTheLoginHandlerIsGivenAFactorFramework(t *testing.T) {
 	// put a nil pointer inside the interface on a deployment with no seal key,
 	// and every sign-in answered 500. Either wiring without the helper is wrong
 	// now, so the direct form is refused as well as the missing one.
-	if !strings.Contains(src, "MFA:           challenger(factorFramework)") {
+	if !containsCode(src, "MFA:           challenger(factorFramework)") {
 		t.Error("the login handler is not given its MFA field through challenger(); no login would ever be challenged, or a nil framework would take sign-in down")
 	}
-	if strings.Contains(src, "MFA:           factorFramework,") {
+	if containsCode(src, "MFA:           factorFramework,") {
 		t.Error("the login handler is given the *mfa.Framework directly — a nil one inside the interface passes its nil check")
 	}
-	if !strings.Contains(src, "buildMFA(") {
+	if !containsCode(src, "buildMFA(") {
 		t.Error("nothing builds the factor framework")
 	}
 }
@@ -74,10 +85,10 @@ func TestTheChallengeRouteIsRegistered(t *testing.T) {
 	}
 	src := string(body)
 
-	if !strings.Contains(src, `mux.Method(http.MethodPost, "/login/mfa"`) {
+	if !containsCode(src, `mux.Method(http.MethodPost, "/login/mfa"`) {
 		t.Error("POST /login/mfa is not registered, so no code could ever be submitted")
 	}
-	if !strings.Contains(src, `mux.Method(http.MethodGet, "/login/mfa"`) {
+	if !containsCode(src, `mux.Method(http.MethodGet, "/login/mfa"`) {
 		t.Error("GET /login/mfa is not registered, so a refresh would lose the challenge")
 	}
 
@@ -95,7 +106,7 @@ func TestTheChallengeRouteIsRegistered(t *testing.T) {
 func TestTheFactorFrameworkIsGivenItsAttemptBound(t *testing.T) {
 	src := mainSource(t)
 
-	if !strings.Contains(src, "Attempts:   &mfa.RedisAttempts{") {
+	if !containsCode(src, "Attempts:   &mfa.RedisAttempts{") {
 		t.Error("the factor framework is built without an attempt bound; codes could be guessed without limit")
 	}
 }
@@ -105,14 +116,14 @@ func TestTheFactorFrameworkIsGivenItsAttemptBound(t *testing.T) {
 func TestMFAIsNotHalfEnabled(t *testing.T) {
 	src := mainSource(t)
 
-	if !strings.Contains(src, "if !cfg.MFA.Enabled() {") {
+	if !containsCode(src, "if !cfg.MFA.Enabled() {") {
 		t.Error("buildMFA does not check whether MFA is configured before building it")
 	}
 
 	// A resolve failure must be fatal. A deployment that ASKED for MFA and
 	// could not read its key starting anyway is every enrolled user silently
 	// signing in on a password alone.
-	if !strings.Contains(src, "resolve MFA seal key: %w") {
+	if !containsCode(src, "resolve MFA seal key: %w") {
 		t.Error("a failure to resolve the seal key is not reported as a startup failure")
 	}
 }
@@ -136,12 +147,12 @@ func TestTheChallengeHandleIsOnlyEverReadFromACookie(t *testing.T) {
 		`Query().Get("challenge")`,
 		`PostForm.Get("challenge")`,
 	} {
-		if strings.Contains(src, forbidden) {
+		if containsCode(src, forbidden) {
 			t.Errorf("the challenge handle is read from %s; it must come from the cookie only", forbidden)
 		}
 	}
 
-	if !strings.Contains(src, "r.Cookie(ChallengeCookieName)") {
+	if !containsCode(src, "r.Cookie(ChallengeCookieName)") {
 		t.Fatal("nothing reads the challenge cookie; this test is asserting against the wrong file")
 	}
 }
@@ -159,7 +170,7 @@ func TestTheReportPageAndDetectorAreWired(t *testing.T) {
 		"NotMe:          http.HandlerFunc(loginHandler.NotMe)",
 		"detector.Notifier = &login.AnomalyMail{",
 	} {
-		if !strings.Contains(src, want) {
+		if !containsCode(src, want) {
 			t.Errorf("main.go does not contain %q", want)
 		}
 	}
@@ -196,11 +207,11 @@ func TestEveryPasswordSetPathUsesTheValidatorWithTheCorpus(t *testing.T) {
 		"Policy:    passwordValidator,",
 		"Validator:     passwordValidator,",
 	} {
-		if !strings.Contains(src, want) {
+		if !containsCode(src, want) {
 			t.Errorf("main.go does not contain %q", want)
 		}
 	}
-	if strings.Contains(src, "passwordPolicy{") {
+	if containsCode(src, "passwordPolicy{") {
 		t.Error("main.go still builds the policy-only adapter that skipped the breach corpus")
 	}
 }

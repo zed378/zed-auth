@@ -37,7 +37,7 @@
 
 | | |
 |---|---|
-| **Status** | TODO |
+| **Status** | DONE — 2026-09-15, [record](../MEMORY/records/2026-09-15-P4-01-project-grants.md), [spec](../MEMORY/specs/P4-01-project-grants.md). The contract only: a grant confers no access until `P4-02`/`P4-04`, and cross-organization sign-in (threat review T4-1) is an open design decision |
 | **Depends on** | P2-03, P2-05 |
 | **Plan refs** | `docs/PLAN/08-AUTHORIZATION.md` Part C, `docs/PLAN/04-DATA-MODEL.md` § `project_grants`, `docs/PLAN/19-FEATURE-SPECIFICATION-TEMPLATE.md` § Worked Example |
 | **Spec required** | Yes — and the worked example in `docs/PLAN/19` is literally this feature |
@@ -62,12 +62,12 @@
 9. Handle the edge case where a role is deleted from the project after being granted: either block the deletion or cascade it out of `granted_role_keys`, but never leave a grant referencing a role that no longer exists.
 
 **Definition of Done**
-- [ ] A grant can only reference roles that exist in the project.
-- [ ] Only `PROJECT_OWNER` or above in the granting organization can create or revoke.
-- [ ] Self-grants are rejected.
-- [ ] Revocation is a status transition and preserves history.
-- [ ] Deleting a granted role is handled deliberately, never leaving a dangling reference.
-- [ ] Creation and revocation are audited with full detail.
+- [x] A grant can only reference roles that exist in the project — checked in the creating transaction; a role from another project and an invented one are both refused, and nothing is written.
+- [x] Only `PROJECT_OWNER` or above in the granting organization can create or revoke — the policy table, plus a granting-side filter on every query that a mutation showed was the only thing stopping the receiving organization revoking through a project of its own.
+- [x] Self-grants are rejected — with the same refusal, byte for byte, as an unknown or suspended organization.
+- [x] Revocation is a status transition and preserves history — idempotent, audited once, and a trigger refuses reactivation, widening or re-pointing for every writer including the owner connection.
+- [x] Deleting a granted role is handled deliberately, never leaving a dangling reference — refused while an active grant delegates it; allowed once the grant is revoked.
+- [x] Creation and revocation are audited with full detail — grant, project, receiving organization and role keys, in the granting organization's log.
 
 **Abuse cases to test**
 - Creating a grant on a project the caller does not own (`docs/SECURITY/02` §3).

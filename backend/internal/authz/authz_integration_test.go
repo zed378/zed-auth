@@ -38,6 +38,7 @@ import (
 	"github.com/zed378/zed-auth/backend/internal/oauth/token"
 	"github.com/zed378/zed-auth/backend/internal/organization"
 	"github.com/zed378/zed-auth/backend/internal/project"
+	"github.com/zed378/zed-auth/backend/internal/projectgrant"
 	"github.com/zed378/zed-auth/backend/internal/ratelimit"
 	"github.com/zed378/zed-auth/backend/internal/role"
 	"github.com/zed378/zed-auth/backend/internal/sessionapi"
@@ -471,16 +472,17 @@ func setup(t *testing.T) *fixture {
 		Organizations: &organization.Handler{
 			Store: organization.NewStore(), DB: db, Audit: auditor, Log: discard(),
 		},
-		ProjectAPI:     &project.Handler{Store: project.NewStore(), DB: db, Audit: auditor, Log: discard()},
-		ApplicationAPI: application.New(db, auditor, discard()),
-		RoleAPI:        roleHandler,
-		GrantAPI:       grantHandler,
-		AuthzAPI:       authzHandler,
-		UserAPI:        &user.Handler{Store: user.NewStore(), DB: db, Audit: auditor, Log: discard()},
-		SessionAPI:     &sessionapi.Handler{}, // not exercised here
-		MfaAPI:         &mfaapi.Handler{},     // not exercised here
-		AccountAPI:     &account.Handler{},    // not exercised here
-		AuditAPI:       &auditlog.Handler{DB: db, Log: discard()},
+		ProjectAPI:      &project.Handler{Store: project.NewStore(), DB: db, Audit: auditor, Log: discard()},
+		ApplicationAPI:  application.New(db, auditor, discard()),
+		RoleAPI:         roleHandler,
+		GrantAPI:        grantHandler,
+		AuthzAPI:        authzHandler,
+		UserAPI:         &user.Handler{Store: user.NewStore(), DB: db, Audit: auditor, Log: discard()},
+		SessionAPI:      &sessionapi.Handler{},   // not exercised here
+		MfaAPI:          &mfaapi.Handler{},       // not exercised here
+		ProjectGrantAPI: &projectgrant.Handler{}, // not exercised here
+		AccountAPI:      &account.Handler{},      // not exercised here
+		AuditAPI:        &auditlog.Handler{DB: db, Log: discard()},
 	})
 
 	claims, err := token.AccessTokenClaims(token.Subject{

@@ -170,6 +170,9 @@ type Deps struct {
 	// MfaAPI implements the second-factor operations (P3-10).
 	MfaAPI FactorManagement
 
+	// ProjectGrantAPI implements the Project Grant operations (P4-01).
+	ProjectGrantAPI ProjectGrants
+
 	// AccountAPI implements the caller's own account (P3-12).
 	AccountAPI AccountManagement
 
@@ -236,6 +239,9 @@ func New(cfg config.HTTPConfig, deps Deps) *Server {
 	}
 	if deps.V1 != nil && deps.MfaAPI == nil {
 		panic("httpserver.New: MfaAPI is required when V1 is configured")
+	}
+	if deps.V1 != nil && deps.ProjectGrantAPI == nil {
+		panic("httpserver.New: ProjectGrantAPI is required when V1 is configured")
 	}
 	if deps.V1 != nil && deps.AccountAPI == nil {
 		panic("httpserver.New: AccountAPI is required when V1 is configured")
@@ -434,6 +440,7 @@ func New(cfg config.HTTPConfig, deps Deps) *Server {
 		AuditLog:          deps.AuditAPI,
 		SessionManagement: deps.SessionAPI,
 		FactorManagement:  deps.MfaAPI,
+		ProjectGrants:     deps.ProjectGrantAPI,
 		AccountManagement: deps.AccountAPI,
 	}
 	// The two error paths the generated wrapper would otherwise answer with
@@ -587,6 +594,7 @@ type apiRoutes struct {
 	SessionManagement
 	FactorManagement
 	AccountManagement
+	ProjectGrants
 }
 
 // Manager is the part of the generated interface the Management API implements.
@@ -725,6 +733,14 @@ type FactorManagement interface {
 	RemoveMyFactor(ctx context.Context, request api.RemoveMyFactorRequestObject) (api.RemoveMyFactorResponseObject, error)
 	RegenerateMyRecoveryCodes(ctx context.Context, request api.RegenerateMyRecoveryCodesRequestObject) (api.RegenerateMyRecoveryCodesResponseObject, error)
 	GetUserMfa(ctx context.Context, request api.GetUserMfaRequestObject) (api.GetUserMfaResponseObject, error)
+}
+
+// ProjectGrants is the delegation contract (P4-01).
+type ProjectGrants interface {
+	ListProjectGrants(ctx context.Context, request api.ListProjectGrantsRequestObject) (api.ListProjectGrantsResponseObject, error)
+	CreateProjectGrant(ctx context.Context, request api.CreateProjectGrantRequestObject) (api.CreateProjectGrantResponseObject, error)
+	GetProjectGrant(ctx context.Context, request api.GetProjectGrantRequestObject) (api.GetProjectGrantResponseObject, error)
+	RevokeProjectGrant(ctx context.Context, request api.RevokeProjectGrantRequestObject) (api.RevokeProjectGrantResponseObject, error)
 }
 
 var _ api.StrictServerInterface = apiRoutes{}

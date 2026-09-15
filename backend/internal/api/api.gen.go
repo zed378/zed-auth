@@ -100,6 +100,12 @@ const (
 	OrganizationUpdateStatusSuspended OrganizationUpdateStatus = "suspended"
 )
 
+// Defines values for ProjectGrantStatus.
+const (
+	ProjectGrantStatusActive  ProjectGrantStatus = "active"
+	ProjectGrantStatusRevoked ProjectGrantStatus = "revoked"
+)
+
 // Defines values for ReadinessStatusStatus.
 const (
 	Ready       ReadinessStatusStatus = "ready"
@@ -113,10 +119,10 @@ const (
 
 // Defines values for UserStatus.
 const (
-	Active      UserStatus = "active"
-	Deactivated UserStatus = "deactivated"
-	Invited     UserStatus = "invited"
-	Locked      UserStatus = "locked"
+	UserStatusActive      UserStatus = "active"
+	UserStatusDeactivated UserStatus = "deactivated"
+	UserStatusInvited     UserStatus = "invited"
+	UserStatusLocked      UserStatus = "locked"
 )
 
 // AdministeredOrganization One organization the caller administers, and what they hold over it.
@@ -1298,6 +1304,161 @@ type ProjectCreate struct {
 	Name string `json:"name"`
 }
 
+// ProjectGrant defines model for ProjectGrant.
+type ProjectGrant struct {
+	CreatedAt time.Time `json:"created_at"`
+
+	// GrantedOrgId A resource's stable identifier. Not sequential and not guessable.
+	//
+	// **This was specified as a prefixed, sortable identifier** — `usr_`,
+	// `org_`, `prj_` — and is a UUID instead. The change is deliberate and is
+	// recorded as `PG-23`.
+	//
+	// The prefix has a real benefit: an id pasted into a support ticket is
+	// self-describing, and passing a project id where a user id belongs is
+	// visible on sight rather than at the database. What it cannot survive is
+	// being applied to only part of the surface. `docs/PLAN/04` makes every
+	// primary key a UUID, the access token's `org_id` claim is a UUID, and
+	// OpenID Connect's `sub` — already shipped by `P1-08` — is a UUID that
+	// callers store as a user's permanent key.
+	//
+	// Prefixing only the Management API would give the same user two
+	// identifiers and make every consumer convert between them, which is a
+	// larger and more permanent papercut than the one the prefix removes.
+	// Prefixing everything means changing `sub`, which is a protocol field
+	// with its own conventions and a value integrators have already stored.
+	//
+	// So: UUIDs everywhere, and if prefixed identifiers are wanted later they
+	// arrive everywhere at once or not at all.
+	GrantedOrgId ResourceId `json:"granted_org_id"`
+
+	// GrantedOrgName The receiving organization's name, so a person revoking can check who
+	// the grant is to. Resolved only for organizations holding a grant from
+	// this one.
+	GrantedOrgName  string    `json:"granted_org_name"`
+	GrantedRoleKeys []RoleKey `json:"granted_role_keys"`
+
+	// GrantingOrgId A resource's stable identifier. Not sequential and not guessable.
+	//
+	// **This was specified as a prefixed, sortable identifier** — `usr_`,
+	// `org_`, `prj_` — and is a UUID instead. The change is deliberate and is
+	// recorded as `PG-23`.
+	//
+	// The prefix has a real benefit: an id pasted into a support ticket is
+	// self-describing, and passing a project id where a user id belongs is
+	// visible on sight rather than at the database. What it cannot survive is
+	// being applied to only part of the surface. `docs/PLAN/04` makes every
+	// primary key a UUID, the access token's `org_id` claim is a UUID, and
+	// OpenID Connect's `sub` — already shipped by `P1-08` — is a UUID that
+	// callers store as a user's permanent key.
+	//
+	// Prefixing only the Management API would give the same user two
+	// identifiers and make every consumer convert between them, which is a
+	// larger and more permanent papercut than the one the prefix removes.
+	// Prefixing everything means changing `sub`, which is a protocol field
+	// with its own conventions and a value integrators have already stored.
+	//
+	// So: UUIDs everywhere, and if prefixed identifiers are wanted later they
+	// arrive everywhere at once or not at all.
+	GrantingOrgId ResourceId `json:"granting_org_id"`
+
+	// Id A resource's stable identifier. Not sequential and not guessable.
+	//
+	// **This was specified as a prefixed, sortable identifier** — `usr_`,
+	// `org_`, `prj_` — and is a UUID instead. The change is deliberate and is
+	// recorded as `PG-23`.
+	//
+	// The prefix has a real benefit: an id pasted into a support ticket is
+	// self-describing, and passing a project id where a user id belongs is
+	// visible on sight rather than at the database. What it cannot survive is
+	// being applied to only part of the surface. `docs/PLAN/04` makes every
+	// primary key a UUID, the access token's `org_id` claim is a UUID, and
+	// OpenID Connect's `sub` — already shipped by `P1-08` — is a UUID that
+	// callers store as a user's permanent key.
+	//
+	// Prefixing only the Management API would give the same user two
+	// identifiers and make every consumer convert between them, which is a
+	// larger and more permanent papercut than the one the prefix removes.
+	// Prefixing everything means changing `sub`, which is a protocol field
+	// with its own conventions and a value integrators have already stored.
+	//
+	// So: UUIDs everywhere, and if prefixed identifiers are wanted later they
+	// arrive everywhere at once or not at all.
+	Id ResourceId `json:"id"`
+
+	// ProjectId A resource's stable identifier. Not sequential and not guessable.
+	//
+	// **This was specified as a prefixed, sortable identifier** — `usr_`,
+	// `org_`, `prj_` — and is a UUID instead. The change is deliberate and is
+	// recorded as `PG-23`.
+	//
+	// The prefix has a real benefit: an id pasted into a support ticket is
+	// self-describing, and passing a project id where a user id belongs is
+	// visible on sight rather than at the database. What it cannot survive is
+	// being applied to only part of the surface. `docs/PLAN/04` makes every
+	// primary key a UUID, the access token's `org_id` claim is a UUID, and
+	// OpenID Connect's `sub` — already shipped by `P1-08` — is a UUID that
+	// callers store as a user's permanent key.
+	//
+	// Prefixing only the Management API would give the same user two
+	// identifiers and make every consumer convert between them, which is a
+	// larger and more permanent papercut than the one the prefix removes.
+	// Prefixing everything means changing `sub`, which is a protocol field
+	// with its own conventions and a value integrators have already stored.
+	//
+	// So: UUIDs everywhere, and if prefixed identifiers are wanted later they
+	// arrive everywhere at once or not at all.
+	ProjectId ResourceId                   `json:"project_id"`
+	RevokedAt nullable.Nullable[time.Time] `json:"revoked_at"`
+	Status    ProjectGrantStatus           `json:"status"`
+}
+
+// ProjectGrantStatus defines model for ProjectGrant.Status.
+type ProjectGrantStatus string
+
+// ProjectGrantCreate defines model for ProjectGrantCreate.
+type ProjectGrantCreate struct {
+	// GrantedOrgId A resource's stable identifier. Not sequential and not guessable.
+	//
+	// **This was specified as a prefixed, sortable identifier** — `usr_`,
+	// `org_`, `prj_` — and is a UUID instead. The change is deliberate and is
+	// recorded as `PG-23`.
+	//
+	// The prefix has a real benefit: an id pasted into a support ticket is
+	// self-describing, and passing a project id where a user id belongs is
+	// visible on sight rather than at the database. What it cannot survive is
+	// being applied to only part of the surface. `docs/PLAN/04` makes every
+	// primary key a UUID, the access token's `org_id` claim is a UUID, and
+	// OpenID Connect's `sub` — already shipped by `P1-08` — is a UUID that
+	// callers store as a user's permanent key.
+	//
+	// Prefixing only the Management API would give the same user two
+	// identifiers and make every consumer convert between them, which is a
+	// larger and more permanent papercut than the one the prefix removes.
+	// Prefixing everything means changing `sub`, which is a protocol field
+	// with its own conventions and a value integrators have already stored.
+	//
+	// So: UUIDs everywhere, and if prefixed identifiers are wanted later they
+	// arrive everywhere at once or not at all.
+	GrantedOrgId ResourceId `json:"granted_org_id"`
+
+	// RoleKeys Roles of this project the receiving organization may assign. Every one must exist in this project.
+	RoleKeys []RoleKey `json:"role_keys"`
+}
+
+// ProjectGrantList defines model for ProjectGrantList.
+type ProjectGrantList struct {
+	Grants []ProjectGrant `json:"grants"`
+
+	// PageInfo The pagination envelope every collection response embeds.
+	//
+	// Token-based rather than offset-based: an offset re-reads rows that
+	// shifted under concurrent writes, silently skipping or duplicating
+	// entries. For an audit log or a user list that is a correctness bug that
+	// nobody notices.
+	PageInfo *PageInfo `json:"page_info,omitempty"`
+}
+
 // ProjectList defines model for ProjectList.
 type ProjectList struct {
 	// PageInfo The pagination envelope every collection response embeds.
@@ -1968,6 +2129,30 @@ type PageSize = int
 // PageToken defines model for PageToken.
 type PageToken = string
 
+// ProjectGrantId A resource's stable identifier. Not sequential and not guessable.
+//
+// **This was specified as a prefixed, sortable identifier** — `usr_`,
+// `org_`, `prj_` — and is a UUID instead. The change is deliberate and is
+// recorded as `PG-23`.
+//
+// The prefix has a real benefit: an id pasted into a support ticket is
+// self-describing, and passing a project id where a user id belongs is
+// visible on sight rather than at the database. What it cannot survive is
+// being applied to only part of the surface. `docs/PLAN/04` makes every
+// primary key a UUID, the access token's `org_id` claim is a UUID, and
+// OpenID Connect's `sub` — already shipped by `P1-08` — is a UUID that
+// callers store as a user's permanent key.
+//
+// Prefixing only the Management API would give the same user two
+// identifiers and make every consumer convert between them, which is a
+// larger and more permanent papercut than the one the prefix removes.
+// Prefixing everything means changing `sub`, which is a protocol field
+// with its own conventions and a value integrators have already stored.
+//
+// So: UUIDs everywhere, and if prefixed identifiers are wanted later they
+// arrive everywhere at once or not at all.
+type ProjectGrantId = ResourceId
+
 // ProjectId A resource's stable identifier. Not sequential and not guessable.
 //
 // **This was specified as a prefixed, sortable identifier** — `usr_`,
@@ -2318,6 +2503,39 @@ type RotateApplicationSecretParams struct {
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
+// ListProjectGrantsParams defines parameters for ListProjectGrants.
+type ListProjectGrantsParams struct {
+	// PageSize Maximum items to return. The server may return fewer, and returning
+	// fewer never means the collection is exhausted — only an absent
+	// `next_page_token` means that.
+	PageSize *PageSize `form:"page_size,omitempty" json:"page_size,omitempty"`
+
+	// PageToken The `next_page_token` from the previous response. Opaque: its contents
+	// are not part of the contract and must not be constructed, parsed, or
+	// persisted by a client.
+	PageToken *PageToken `form:"page_token,omitempty" json:"page_token,omitempty"`
+}
+
+// CreateProjectGrantParams defines parameters for CreateProjectGrant.
+type CreateProjectGrantParams struct {
+	// IdempotencyKey A client-generated key making a retried `POST` safe. Replaying a
+	// request with the same key returns the original result rather than
+	// creating a second resource — which matters most for automated
+	// provisioning, where a network timeout is indistinguishable from a
+	// failure (`docs/PLAN/05` Part B).
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+}
+
+// RevokeProjectGrantParams defines parameters for RevokeProjectGrant.
+type RevokeProjectGrantParams struct {
+	// IdempotencyKey A client-generated key making a retried `POST` safe. Replaying a
+	// request with the same key returns the original result rather than
+	// creating a second resource — which matters most for automated
+	// provisioning, where a network timeout is indistinguishable from a
+	// failure (`docs/PLAN/05` Part B).
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+}
+
 // ListRolesParams defines parameters for ListRoles.
 type ListRolesParams struct {
 	// PageSize Maximum items to return. The server may return fewer, and returning
@@ -2460,6 +2678,9 @@ type CreateApplicationJSONRequestBody = ApplicationCreate
 // UpdateApplicationJSONRequestBody defines body for UpdateApplication for application/json ContentType.
 type UpdateApplicationJSONRequestBody = ApplicationUpdate
 
+// CreateProjectGrantJSONRequestBody defines body for CreateProjectGrant for application/json ContentType.
+type CreateProjectGrantJSONRequestBody = ProjectGrantCreate
+
 // CreateRoleJSONRequestBody defines body for CreateRole for application/json ContentType.
 type CreateRoleJSONRequestBody = RoleCreate
 
@@ -2582,6 +2803,18 @@ type ServerInterface interface {
 	// Issue a new client secret
 	// (POST /v1/organizations/{org_id}/projects/{project_id}/applications/{application_id}/rotate-secret)
 	RotateApplicationSecret(w http.ResponseWriter, r *http.Request, orgId OrganizationId, projectId ProjectId, applicationId ApplicationId, params RotateApplicationSecretParams)
+	// List the grants that delegate this project
+	// (GET /v1/organizations/{org_id}/projects/{project_id}/grants)
+	ListProjectGrants(w http.ResponseWriter, r *http.Request, orgId OrganizationId, projectId ProjectId, params ListProjectGrantsParams)
+	// Delegate this project to another organization
+	// (POST /v1/organizations/{org_id}/projects/{project_id}/grants)
+	CreateProjectGrant(w http.ResponseWriter, r *http.Request, orgId OrganizationId, projectId ProjectId, params CreateProjectGrantParams)
+	// Revoke a grant
+	// (DELETE /v1/organizations/{org_id}/projects/{project_id}/grants/{grant_id})
+	RevokeProjectGrant(w http.ResponseWriter, r *http.Request, orgId OrganizationId, projectId ProjectId, grantId ProjectGrantId, params RevokeProjectGrantParams)
+	// Read a grant
+	// (GET /v1/organizations/{org_id}/projects/{project_id}/grants/{grant_id})
+	GetProjectGrant(w http.ResponseWriter, r *http.Request, orgId OrganizationId, projectId ProjectId, grantId ProjectGrantId)
 	// List a project's roles
 	// (GET /v1/organizations/{org_id}/projects/{project_id}/roles)
 	ListRoles(w http.ResponseWriter, r *http.Request, orgId OrganizationId, projectId ProjectId, params ListRolesParams)
@@ -2849,6 +3082,30 @@ func (_ Unimplemented) UpdateApplication(w http.ResponseWriter, r *http.Request,
 // Issue a new client secret
 // (POST /v1/organizations/{org_id}/projects/{project_id}/applications/{application_id}/rotate-secret)
 func (_ Unimplemented) RotateApplicationSecret(w http.ResponseWriter, r *http.Request, orgId OrganizationId, projectId ProjectId, applicationId ApplicationId, params RotateApplicationSecretParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// List the grants that delegate this project
+// (GET /v1/organizations/{org_id}/projects/{project_id}/grants)
+func (_ Unimplemented) ListProjectGrants(w http.ResponseWriter, r *http.Request, orgId OrganizationId, projectId ProjectId, params ListProjectGrantsParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Delegate this project to another organization
+// (POST /v1/organizations/{org_id}/projects/{project_id}/grants)
+func (_ Unimplemented) CreateProjectGrant(w http.ResponseWriter, r *http.Request, orgId OrganizationId, projectId ProjectId, params CreateProjectGrantParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Revoke a grant
+// (DELETE /v1/organizations/{org_id}/projects/{project_id}/grants/{grant_id})
+func (_ Unimplemented) RevokeProjectGrant(w http.ResponseWriter, r *http.Request, orgId OrganizationId, projectId ProjectId, grantId ProjectGrantId, params RevokeProjectGrantParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Read a grant
+// (GET /v1/organizations/{org_id}/projects/{project_id}/grants/{grant_id})
+func (_ Unimplemented) GetProjectGrant(w http.ResponseWriter, r *http.Request, orgId OrganizationId, projectId ProjectId, grantId ProjectGrantId) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -4412,6 +4669,251 @@ func (siw *ServerInterfaceWrapper) RotateApplicationSecret(w http.ResponseWriter
 	handler.ServeHTTP(w, r)
 }
 
+// ListProjectGrants operation middleware
+func (siw *ServerInterfaceWrapper) ListProjectGrants(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "org_id" -------------
+	var orgId OrganizationId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "org_id", chi.URLParam(r, "org_id"), &orgId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "org_id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "project_id" -------------
+	var projectId ProjectId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project_id", chi.URLParam(r, "project_id"), &projectId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "project_id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, Oauth2Scopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListProjectGrantsParams
+
+	// ------------- Optional query parameter "page_size" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "page_size", r.URL.Query(), &params.PageSize)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "page_size", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "page_token" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "page_token", r.URL.Query(), &params.PageToken)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "page_token", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListProjectGrants(w, r, orgId, projectId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateProjectGrant operation middleware
+func (siw *ServerInterfaceWrapper) CreateProjectGrant(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "org_id" -------------
+	var orgId OrganizationId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "org_id", chi.URLParam(r, "org_id"), &orgId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "org_id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "project_id" -------------
+	var projectId ProjectId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project_id", chi.URLParam(r, "project_id"), &projectId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "project_id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, Oauth2Scopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateProjectGrantParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateProjectGrant(w, r, orgId, projectId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RevokeProjectGrant operation middleware
+func (siw *ServerInterfaceWrapper) RevokeProjectGrant(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "org_id" -------------
+	var orgId OrganizationId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "org_id", chi.URLParam(r, "org_id"), &orgId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "org_id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "project_id" -------------
+	var projectId ProjectId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project_id", chi.URLParam(r, "project_id"), &projectId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "project_id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "grant_id" -------------
+	var grantId ProjectGrantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "grant_id", chi.URLParam(r, "grant_id"), &grantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "grant_id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, Oauth2Scopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params RevokeProjectGrantParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RevokeProjectGrant(w, r, orgId, projectId, grantId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetProjectGrant operation middleware
+func (siw *ServerInterfaceWrapper) GetProjectGrant(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "org_id" -------------
+	var orgId OrganizationId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "org_id", chi.URLParam(r, "org_id"), &orgId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "org_id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "project_id" -------------
+	var projectId ProjectId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project_id", chi.URLParam(r, "project_id"), &projectId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "project_id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "grant_id" -------------
+	var grantId ProjectGrantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "grant_id", chi.URLParam(r, "grant_id"), &grantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "grant_id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, Oauth2Scopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetProjectGrant(w, r, orgId, projectId, grantId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListRoles operation middleware
 func (siw *ServerInterfaceWrapper) ListRoles(w http.ResponseWriter, r *http.Request) {
 
@@ -5695,6 +6197,18 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/v1/organizations/{org_id}/projects/{project_id}/applications/{application_id}/rotate-secret", wrapper.RotateApplicationSecret)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/v1/organizations/{org_id}/projects/{project_id}/grants", wrapper.ListProjectGrants)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/organizations/{org_id}/projects/{project_id}/grants", wrapper.CreateProjectGrant)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/v1/organizations/{org_id}/projects/{project_id}/grants/{grant_id}", wrapper.RevokeProjectGrant)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/v1/organizations/{org_id}/projects/{project_id}/grants/{grant_id}", wrapper.GetProjectGrant)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/v1/organizations/{org_id}/projects/{project_id}/roles", wrapper.ListRoles)
@@ -7984,6 +8498,306 @@ func (response RotateApplicationSecret500JSONResponse) VisitRotateApplicationSec
 	return json.NewEncoder(w).Encode(response)
 }
 
+type ListProjectGrantsRequestObject struct {
+	OrgId     OrganizationId `json:"org_id"`
+	ProjectId ProjectId      `json:"project_id"`
+	Params    ListProjectGrantsParams
+}
+
+type ListProjectGrantsResponseObject interface {
+	VisitListProjectGrantsResponse(w http.ResponseWriter) error
+}
+
+type ListProjectGrants200JSONResponse ProjectGrantList
+
+func (response ListProjectGrants200JSONResponse) VisitListProjectGrantsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListProjectGrants400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response ListProjectGrants400JSONResponse) VisitListProjectGrantsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListProjectGrants401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ListProjectGrants401JSONResponse) VisitListProjectGrantsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListProjectGrants403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response ListProjectGrants403JSONResponse) VisitListProjectGrantsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListProjectGrants404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response ListProjectGrants404JSONResponse) VisitListProjectGrantsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListProjectGrants429JSONResponse struct{ RateLimitedJSONResponse }
+
+func (response ListProjectGrants429JSONResponse) VisitListProjectGrantsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Retry-After", fmt.Sprint(response.Headers.RetryAfter))
+	w.Header().Set("X-RateLimit-Limit", fmt.Sprint(response.Headers.XRateLimitLimit))
+	w.Header().Set("X-RateLimit-Remaining", fmt.Sprint(response.Headers.XRateLimitRemaining))
+	w.Header().Set("X-RateLimit-Reset", fmt.Sprint(response.Headers.XRateLimitReset))
+	w.WriteHeader(429)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type ListProjectGrants500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response ListProjectGrants500JSONResponse) VisitListProjectGrantsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type CreateProjectGrantRequestObject struct {
+	OrgId     OrganizationId `json:"org_id"`
+	ProjectId ProjectId      `json:"project_id"`
+	Params    CreateProjectGrantParams
+	Body      *CreateProjectGrantJSONRequestBody
+}
+
+type CreateProjectGrantResponseObject interface {
+	VisitCreateProjectGrantResponse(w http.ResponseWriter) error
+}
+
+type CreateProjectGrant201JSONResponse ProjectGrant
+
+func (response CreateProjectGrant201JSONResponse) VisitCreateProjectGrantResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type CreateProjectGrant400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response CreateProjectGrant400JSONResponse) VisitCreateProjectGrantResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type CreateProjectGrant401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response CreateProjectGrant401JSONResponse) VisitCreateProjectGrantResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type CreateProjectGrant403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response CreateProjectGrant403JSONResponse) VisitCreateProjectGrantResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type CreateProjectGrant404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response CreateProjectGrant404JSONResponse) VisitCreateProjectGrantResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type CreateProjectGrant409JSONResponse struct{ ConflictJSONResponse }
+
+func (response CreateProjectGrant409JSONResponse) VisitCreateProjectGrantResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type CreateProjectGrant429JSONResponse struct{ RateLimitedJSONResponse }
+
+func (response CreateProjectGrant429JSONResponse) VisitCreateProjectGrantResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Retry-After", fmt.Sprint(response.Headers.RetryAfter))
+	w.Header().Set("X-RateLimit-Limit", fmt.Sprint(response.Headers.XRateLimitLimit))
+	w.Header().Set("X-RateLimit-Remaining", fmt.Sprint(response.Headers.XRateLimitRemaining))
+	w.Header().Set("X-RateLimit-Reset", fmt.Sprint(response.Headers.XRateLimitReset))
+	w.WriteHeader(429)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type CreateProjectGrant500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response CreateProjectGrant500JSONResponse) VisitCreateProjectGrantResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type RevokeProjectGrantRequestObject struct {
+	OrgId     OrganizationId `json:"org_id"`
+	ProjectId ProjectId      `json:"project_id"`
+	GrantId   ProjectGrantId `json:"grant_id"`
+	Params    RevokeProjectGrantParams
+}
+
+type RevokeProjectGrantResponseObject interface {
+	VisitRevokeProjectGrantResponse(w http.ResponseWriter) error
+}
+
+type RevokeProjectGrant204Response struct {
+}
+
+func (response RevokeProjectGrant204Response) VisitRevokeProjectGrantResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type RevokeProjectGrant401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response RevokeProjectGrant401JSONResponse) VisitRevokeProjectGrantResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type RevokeProjectGrant403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response RevokeProjectGrant403JSONResponse) VisitRevokeProjectGrantResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type RevokeProjectGrant404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response RevokeProjectGrant404JSONResponse) VisitRevokeProjectGrantResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type RevokeProjectGrant429JSONResponse struct{ RateLimitedJSONResponse }
+
+func (response RevokeProjectGrant429JSONResponse) VisitRevokeProjectGrantResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Retry-After", fmt.Sprint(response.Headers.RetryAfter))
+	w.Header().Set("X-RateLimit-Limit", fmt.Sprint(response.Headers.XRateLimitLimit))
+	w.Header().Set("X-RateLimit-Remaining", fmt.Sprint(response.Headers.XRateLimitRemaining))
+	w.Header().Set("X-RateLimit-Reset", fmt.Sprint(response.Headers.XRateLimitReset))
+	w.WriteHeader(429)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type RevokeProjectGrant500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response RevokeProjectGrant500JSONResponse) VisitRevokeProjectGrantResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetProjectGrantRequestObject struct {
+	OrgId     OrganizationId `json:"org_id"`
+	ProjectId ProjectId      `json:"project_id"`
+	GrantId   ProjectGrantId `json:"grant_id"`
+}
+
+type GetProjectGrantResponseObject interface {
+	VisitGetProjectGrantResponse(w http.ResponseWriter) error
+}
+
+type GetProjectGrant200JSONResponse ProjectGrant
+
+func (response GetProjectGrant200JSONResponse) VisitGetProjectGrantResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetProjectGrant401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response GetProjectGrant401JSONResponse) VisitGetProjectGrantResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetProjectGrant403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response GetProjectGrant403JSONResponse) VisitGetProjectGrantResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetProjectGrant404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response GetProjectGrant404JSONResponse) VisitGetProjectGrantResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetProjectGrant429JSONResponse struct{ RateLimitedJSONResponse }
+
+func (response GetProjectGrant429JSONResponse) VisitGetProjectGrantResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Retry-After", fmt.Sprint(response.Headers.RetryAfter))
+	w.Header().Set("X-RateLimit-Limit", fmt.Sprint(response.Headers.XRateLimitLimit))
+	w.Header().Set("X-RateLimit-Remaining", fmt.Sprint(response.Headers.XRateLimitRemaining))
+	w.Header().Set("X-RateLimit-Reset", fmt.Sprint(response.Headers.XRateLimitReset))
+	w.WriteHeader(429)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type GetProjectGrant500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response GetProjectGrant500JSONResponse) VisitGetProjectGrantResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
 type ListRolesRequestObject struct {
 	OrgId     OrganizationId `json:"org_id"`
 	ProjectId ProjectId      `json:"project_id"`
@@ -9578,6 +10392,18 @@ type StrictServerInterface interface {
 	// Issue a new client secret
 	// (POST /v1/organizations/{org_id}/projects/{project_id}/applications/{application_id}/rotate-secret)
 	RotateApplicationSecret(ctx context.Context, request RotateApplicationSecretRequestObject) (RotateApplicationSecretResponseObject, error)
+	// List the grants that delegate this project
+	// (GET /v1/organizations/{org_id}/projects/{project_id}/grants)
+	ListProjectGrants(ctx context.Context, request ListProjectGrantsRequestObject) (ListProjectGrantsResponseObject, error)
+	// Delegate this project to another organization
+	// (POST /v1/organizations/{org_id}/projects/{project_id}/grants)
+	CreateProjectGrant(ctx context.Context, request CreateProjectGrantRequestObject) (CreateProjectGrantResponseObject, error)
+	// Revoke a grant
+	// (DELETE /v1/organizations/{org_id}/projects/{project_id}/grants/{grant_id})
+	RevokeProjectGrant(ctx context.Context, request RevokeProjectGrantRequestObject) (RevokeProjectGrantResponseObject, error)
+	// Read a grant
+	// (GET /v1/organizations/{org_id}/projects/{project_id}/grants/{grant_id})
+	GetProjectGrant(ctx context.Context, request GetProjectGrantRequestObject) (GetProjectGrantResponseObject, error)
 	// List a project's roles
 	// (GET /v1/organizations/{org_id}/projects/{project_id}/roles)
 	ListRoles(ctx context.Context, request ListRolesRequestObject) (ListRolesResponseObject, error)
@@ -10624,6 +11450,126 @@ func (sh *strictHandler) RotateApplicationSecret(w http.ResponseWriter, r *http.
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(RotateApplicationSecretResponseObject); ok {
 		if err := validResponse.VisitRotateApplicationSecretResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListProjectGrants operation middleware
+func (sh *strictHandler) ListProjectGrants(w http.ResponseWriter, r *http.Request, orgId OrganizationId, projectId ProjectId, params ListProjectGrantsParams) {
+	var request ListProjectGrantsRequestObject
+
+	request.OrgId = orgId
+	request.ProjectId = projectId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListProjectGrants(ctx, request.(ListProjectGrantsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListProjectGrants")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListProjectGrantsResponseObject); ok {
+		if err := validResponse.VisitListProjectGrantsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateProjectGrant operation middleware
+func (sh *strictHandler) CreateProjectGrant(w http.ResponseWriter, r *http.Request, orgId OrganizationId, projectId ProjectId, params CreateProjectGrantParams) {
+	var request CreateProjectGrantRequestObject
+
+	request.OrgId = orgId
+	request.ProjectId = projectId
+	request.Params = params
+
+	var body CreateProjectGrantJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateProjectGrant(ctx, request.(CreateProjectGrantRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateProjectGrant")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateProjectGrantResponseObject); ok {
+		if err := validResponse.VisitCreateProjectGrantResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RevokeProjectGrant operation middleware
+func (sh *strictHandler) RevokeProjectGrant(w http.ResponseWriter, r *http.Request, orgId OrganizationId, projectId ProjectId, grantId ProjectGrantId, params RevokeProjectGrantParams) {
+	var request RevokeProjectGrantRequestObject
+
+	request.OrgId = orgId
+	request.ProjectId = projectId
+	request.GrantId = grantId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RevokeProjectGrant(ctx, request.(RevokeProjectGrantRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RevokeProjectGrant")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RevokeProjectGrantResponseObject); ok {
+		if err := validResponse.VisitRevokeProjectGrantResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetProjectGrant operation middleware
+func (sh *strictHandler) GetProjectGrant(w http.ResponseWriter, r *http.Request, orgId OrganizationId, projectId ProjectId, grantId ProjectGrantId) {
+	var request GetProjectGrantRequestObject
+
+	request.OrgId = orgId
+	request.ProjectId = projectId
+	request.GrantId = grantId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetProjectGrant(ctx, request.(GetProjectGrantRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetProjectGrant")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetProjectGrantResponseObject); ok {
+		if err := validResponse.VisitGetProjectGrantResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

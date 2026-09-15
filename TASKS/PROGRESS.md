@@ -3,8 +3,8 @@
 Single source of truth for where the project stands. Updated in the same commit as the work it describes (`00-TASK-CONVENTIONS.md` global DoD item 8).
 
 **Last updated**: 2026-09-13
-**Current phase**: Phase 4 — Enterprise Interop (0 / 16), **gated on two design decisions** from the [Phase 4 threat review](../MEMORY/records/2026-09-15-P3-15-phase-4-threat-review.md) (T4-1 cross-organization sign-in, T4-2 subset validation at the readers). Phase 3 complete (15 / 15), tagged `v0.3.0-phase3`, **accepted on staging** — [summary](../MEMORY/records/2026-09-15-P3-phase-3-summary.md). Phase 2 complete (17 / 17), tagged `v0.2.0-phase2`. Phase 0 is 20 / 21; `P0-20` stays WIP pending the pull-based deployment re-read
-**Overall**: 81 / 178 tasks done
+**Current phase**: Phase 4 — Enterprise Interop (1 / 16), **gated on two design decisions** from the [Phase 4 threat review](../MEMORY/records/2026-09-15-P3-15-phase-4-threat-review.md) (T4-1 cross-organization sign-in, T4-2 subset validation at the readers). Phase 3 complete (15 / 15), tagged `v0.3.0-phase3`, **accepted on staging** — [summary](../MEMORY/records/2026-09-15-P3-phase-3-summary.md). Phase 2 complete (17 / 17), tagged `v0.2.0-phase2`. Phase 0 is 20 / 21; `P0-20` stays WIP pending the pull-based deployment re-read
+**Overall**: 82 / 178 tasks done
 
 > **Staging runs Phases 1–3** (2026-09-15, `P3-15`). Phase 2 was verified on a local
 > Docker stack while the VM was unreachable; access was restored and Phases 2 and 3 were
@@ -24,7 +24,7 @@ Sizes: `S` under half a day · `M` one to two days · `L` several days · `XL` m
 | [Phase 1 — MVP: Core Auth + SSO](./PHASE-1-MVP-CORE-AUTH-SSO.md) | 29 | 29 | **COMPLETE** — [summary](../MEMORY/records/2026-09-12-P1-phase-1-summary.md), tagged `v0.1.0-phase1` | Phase 0 exit checklist |
 | [Phase 2 — RBAC & Multi-Tenancy](./PHASE-2-RBAC-MULTITENANCY.md) | 17 | 17 | **COMPLETE** — [summary](../MEMORY/records/2026-09-12-P2-phase-2-summary.md), tagged `v0.2.0-phase2`. Not yet on staging | Phase 1 exit + `P1-28` — **met** 2026-09-12 |
 | [Phase 3 — Advanced Security](./PHASE-3-ADVANCED-SECURITY.md) | 15 | 15 | **Complete** — accepted on staging 2026-09-15, tagged `v0.3.0-phase3` | Phase 2 exit + threat model review |
-| [Phase 4 — Enterprise Interop](./PHASE-4-ENTERPRISE-INTEROP.md) | 16 | 0 | **Next** — Phase 3 exit met; [threat review](../MEMORY/records/2026-09-15-P3-15-phase-4-threat-review.md) done, with two findings that need a design decision first | Phase 3 exit + threat model review |
+| [Phase 4 — Enterprise Interop](./PHASE-4-ENTERPRISE-INTEROP.md) | 16 | 1 | **Next** — Phase 3 exit met; [threat review](../MEMORY/records/2026-09-15-P3-15-phase-4-threat-review.md) done, with two findings that need a design decision first | Phase 3 exit + threat model review |
 | [Phase 4b — ABAC](./PHASE-4B-ABAC.md) | 11 | 0 | **CONDITIONAL** | A concrete requirement RBAC cannot express (`P4B-00`) |
 | [Phase 5 — Hardening](./PHASE-5-HARDENING.md) | 16 | 0 | Not started | Phase 4 exit; 4b done or declined |
 | [Phase F — Frontend Implementation](./PHASE-F-FRONTEND-IMPLEMENTATION.md) | 53 | 0 | **TRACK** — runs alongside | Foundation: `P0-17`. Pages: each carries its own gate |
@@ -155,7 +155,7 @@ Sizes: `S` under half a day · `M` one to two days · `L` several days · `XL` m
 
 | ID | Task | Size | Status | Depends on |
 |---|---|---|---|---|
-| P4-01 | Project Grants — data and lifecycle | L | TODO | P2-03, P2-05 |
+| P4-01 | Project Grants — data and lifecycle | L | **DONE** — the delegation contract: create, list, read, revoke, and only ever narrow (a trigger refuses widening or reactivation for every writer). A mutation showed the granting-side filter was the only thing stopping the receiving organization revoking a grant it can see through a project of its own. Confers no access until P4-02/P4-04; T4-1 open | P2-03, P2-05 |
 | P4-02 | Delegated user grants with subset validation | L | TODO | P4-01 |
 | P4-03 | `PROJECT_GRANT_OWNER` enforcement | M | TODO | P4-01, P2-05 |
 | P4-04 | Delegated claims and revocation propagation | L | TODO | P4-02, P2-04 |

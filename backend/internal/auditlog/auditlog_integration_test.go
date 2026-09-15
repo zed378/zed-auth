@@ -34,6 +34,7 @@ import (
 	"github.com/zed378/zed-auth/backend/internal/management"
 	"github.com/zed378/zed-auth/backend/internal/mfaapi"
 	"github.com/zed378/zed-auth/backend/internal/oauth/token"
+	"github.com/zed378/zed-auth/backend/internal/projectgrant"
 	"github.com/zed378/zed-auth/backend/internal/ratelimit"
 	"github.com/zed378/zed-auth/backend/internal/sessionapi"
 	"github.com/zed378/zed-auth/backend/internal/signing"
@@ -112,20 +113,21 @@ func setup(t *testing.T) *fixture {
 		Addr: "127.0.0.1:0", ReadTimeout: 5 * time.Second, WriteTimeout: 5 * time.Second,
 		ReadHeaderTimeout: 2 * time.Second, IdleTimeout: 5 * time.Second,
 	}, httpserver.Deps{
-		Logger:         discard(),
-		Health:         &httpserver.Health{},
-		V1:             chain,
-		Organizations:  stubManager{},
-		ProjectAPI:     stubProjects{},
-		ApplicationAPI: stubApplications{},
-		RoleAPI:        stubRoles{},
-		GrantAPI:       stubGrants{},
-		AuthzAPI:       stubAuthz{},
-		UserAPI:        stubUsers{},
-		SessionAPI:     &sessionapi.Handler{}, // not exercised here
-		MfaAPI:         &mfaapi.Handler{},     // not exercised here
-		AccountAPI:     &account.Handler{},    // not exercised here
-		AuditAPI:       &Handler{DB: db, Log: discard()},
+		Logger:          discard(),
+		Health:          &httpserver.Health{},
+		V1:              chain,
+		Organizations:   stubManager{},
+		ProjectAPI:      stubProjects{},
+		ApplicationAPI:  stubApplications{},
+		RoleAPI:         stubRoles{},
+		GrantAPI:        stubGrants{},
+		AuthzAPI:        stubAuthz{},
+		UserAPI:         stubUsers{},
+		SessionAPI:      &sessionapi.Handler{},   // not exercised here
+		MfaAPI:          &mfaapi.Handler{},       // not exercised here
+		ProjectGrantAPI: &projectgrant.Handler{}, // not exercised here
+		AccountAPI:      &account.Handler{},      // not exercised here
+		AuditAPI:        &Handler{DB: db, Log: discard()},
 	})
 
 	return &fixture{
