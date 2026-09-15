@@ -538,7 +538,7 @@
 
 | | |
 |---|---|
-| **Status** | TODO |
+| **Status** | DONE — 2026-09-15, [record](../MEMORY/records/2026-09-15-P3-14-test-suite.md). **CI had never run since `P1-03` (the workflow file did not parse), and `P3-07`'s abuse case A-2 had no implementation** — both fixed, see the record |
 | **Depends on** | all Phase 3 implementation tasks |
 | **Plan refs** | `docs/PLAN/11-TESTING.md`, `docs/PLAN/10-THREAT-MODEL.md`, `docs/SECURITY/05-VERIFICATION-AND-REDTEAM-PLAN.md` |
 | **Spec required** | No |
@@ -553,10 +553,10 @@
 6. Verify anomaly detection against synthetic impossible-travel and new-device data.
 
 **Definition of Done**
-- [ ] Every Phase 3 abuse case has a passing test.
-- [ ] The rotated-refresh-token test explicitly satisfies `docs/PLAN/17`'s Phase 3 criterion.
-- [ ] Both factor types are covered end-to-end.
-- [ ] The suite is green in CI.
+- [x] Every Phase 3 abuse case has a passing test — inventoried test by test; the eleven gaps are closed, most with a mutation proving the test depends on its control. One abuse case (A-2, a pre-mandate token outliving the grace) had no CODE, and now has both. `tests/security/isolation_test.go` maps all of them, and a test fails if the map names a test that does not exist.
+- [x] The rotated-refresh-token test explicitly satisfies `docs/PLAN/17`'s Phase 3 criterion — `TestARotatedRefreshTokenCannotBeReused`, now alongside eight simultaneous presentations of one token that must leave exactly one live token.
+- [x] Both factor types are covered end-to-end — in a browser (TOTP, passkey via a virtual authenticator, a wrong code refused, a recovery code signing in once) and now through the real login handler with a genuinely signed passkey assertion.
+- [~] The suite is green in CI — the workflow parses and passes actionlint, every step that can run locally was reproduced (including the whole integration suite under `-race` on Linux, which found a data race), and the result on GitHub is recorded after the merge. See the record.
 
 ---
 
