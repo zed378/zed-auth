@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -24,13 +25,31 @@ func TestMain(m *testing.M) { os.Exit(testsupport.StartForPackage(m)) }
 
 func discard() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, nil)) }
 
+// counting records what the limiter reported.
+//
+// Locked, because the limiter calls its observer from every request goroutine
+// at once — as the production observer (Prometheus counters) is built to
+// allow. Without the lock `TestConcurrentRequestsCannotExceedTheLimit` was a
+// data race in the TEST, invisible on the Windows machines this suite ran on
+// (no cgo, no -race) and the first thing the race detector reported when
+// P3-14 ran the suite on Linux the way CI does.
 type counting struct {
+	mu          sync.Mutex
 	refused     []string
 	unavailable int
 }
 
-func (c *counting) Refused(bound string) { c.refused = append(c.refused, bound) }
-func (c *counting) Unavailable()         { c.unavailable++ }
+func (c *counting) Refused(bound string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.refused = append(c.refused, bound)
+}
+
+func (c *counting) Unavailable() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.unavailable++
+}
 
 func limiter(t *testing.T) (*Limiter, *redis.Client, *counting) {
 	t.Helper()
