@@ -774,3 +774,32 @@ func TestARevocationThatCannotBeAuditedIsRolledBack(t *testing.T) {
 		t.Error("a revocation that could not be audited took effect anyway")
 	}
 }
+
+// A-3 on the ADMINISTRATOR route (P3-14). The checks above run on the caller's
+// own list. The organization route renders the same rows for somebody else,
+// and an administrator is exactly who the card says must not receive more
+// than is justified — no IP, no raw user agent, a coarse location only.
+func TestAnAdminSeesNoFingerprintOfAMembersSession(t *testing.T) {
+	f := setup(t)
+	f.api.Locator = placeLocator{}
+	adminSession, _ := f.signIn(t, f.orgA, f.admin)
+	f.signIn(t, f.orgA, f.member)
+
+	w := f.call(t, f.bearer(t, f.orgA, f.admin, adminSession.ID), http.MethodGet,
+		"/v1/organizations/"+f.orgA+"/users/"+f.member+"/sessions")
+	list := decodeList(t, w)
+	if len(list.Sessions) != 1 {
+		t.Fatalf("the admin sees %d sessions, want the member's 1 — the leak check would be vacuous", len(list.Sessions))
+	}
+
+	body := w.Body.String()
+	if strings.Contains(body, sessionIP) {
+		t.Error("an administrator's view of a member's sessions carries the IP address")
+	}
+	if strings.Contains(body, "AppleWebKit") || strings.Contains(body, "Mozilla/5.0") {
+		t.Error("an administrator's view of a member's sessions carries the raw user agent")
+	}
+	if loc := list.Sessions[0].Location; loc == nil || *loc != "Jakarta, ID" {
+		t.Errorf("location = %v, want the coarse \"Jakarta, ID\"", loc)
+	}
+}
