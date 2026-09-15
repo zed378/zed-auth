@@ -73,6 +73,17 @@ Both are fixed in the component. Each has a test that fails without the fix.
 | `e2e/projectgrants.spec.ts` against a real local stack | pass: create and revoke, each checked against the API |
 | Full E2E suite | 32 of 33. The failure is **not this card's**: see below |
 
+### On staging
+
+Deployed 2026-09-15. Backup `staging-20260915T104255Z.dump` was taken first, migration 036
+was applied as the owner role, and image `zed-auth:p4-05` came up healthy. A smoke run
+against the live service used a throwaway administrator, application and partner
+organization, all removed afterwards. It signed in through the hosted page and created a
+role and a grant. The grant read back with `holder_count` 0 and the partner's name, was
+revoked and read back as revoked, and the role was then deleted. 7 of 7 checks passed. The
+console serves the new bundle, and deep links to `/projects/…/grants` answer. The public
+API reference, through the tunnel, carries `holder_count`.
+
 ### The E2E failure found on the way
 
 `consistency.spec.ts` › "a user created through the API appears in the console" fails
