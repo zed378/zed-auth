@@ -291,6 +291,7 @@ func render(g Grant) (api.ProjectGrant, error) {
 		GrantedOrgId:    granted,
 		GrantedOrgName:  g.GrantedOrgName,
 		GrantedRoleKeys: keys,
+		HolderCount:     g.HolderCount,
 		Status:          api.ProjectGrantStatus(g.Status),
 		CreatedAt:       g.CreatedAt,
 	}

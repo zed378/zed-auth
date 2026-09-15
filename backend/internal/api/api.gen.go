@@ -1362,6 +1362,12 @@ type ProjectGrant struct {
 	// arrive everywhere at once or not at all.
 	GrantingOrgId ResourceId `json:"granting_org_id"`
 
+	// HolderCount How many of the receiving organization's users hold a role through
+	// this grant — the number revocation takes access away from. A count,
+	// never the people: they are the other organization's users. Zero until
+	// delegated assignment ships (`P4-02`).
+	HolderCount int `json:"holder_count"`
+
 	// Id A resource's stable identifier. Not sequential and not guessable.
 	//
 	// **This was specified as a prefixed, sortable identifier** — `usr_`,
