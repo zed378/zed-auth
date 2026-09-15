@@ -556,7 +556,7 @@
 - [x] Every Phase 3 abuse case has a passing test — inventoried test by test; the eleven gaps are closed, most with a mutation proving the test depends on its control. One abuse case (A-2, a pre-mandate token outliving the grace) had no CODE, and now has both. `tests/security/isolation_test.go` maps all of them, and a test fails if the map names a test that does not exist.
 - [x] The rotated-refresh-token test explicitly satisfies `docs/PLAN/17`'s Phase 3 criterion — `TestARotatedRefreshTokenCannotBeReused`, now alongside eight simultaneous presentations of one token that must leave exactly one live token.
 - [x] Both factor types are covered end-to-end — in a browser (TOTP, passkey via a virtual authenticator, a wrong code refused, a recovery code signing in once) and now through the real login handler with a genuinely signed passkey assertion.
-- [~] The suite is green in CI — the workflow parses and passes actionlint, every step that can run locally was reproduced (including the whole integration suite under `-race` on Linux, which found a data race), and the result on GitHub is recorded after the merge. See the record.
+- [x] The suite is green in CI — run 34941502680 on `389d78b`, every job succeeding: the first green run in the repository's history. The workflow had not parsed since `P1-03`.
 
 ---
 
@@ -564,7 +564,7 @@
 
 | | |
 |---|---|
-| **Status** | TODO |
+| **Status** | DONE — 2026-09-15, [record](../MEMORY/records/2026-09-15-P3-15-acceptance.md), [phase summary](../MEMORY/records/2026-09-15-P3-phase-3-summary.md), [Phase 4 threat review](../MEMORY/records/2026-09-15-P3-15-phase-4-threat-review.md). Verified **on staging**. **Found every sign-in answering 500 on a deployment without MFA configured** — fixed |
 | **Depends on** | P3-14 |
 | **Plan refs** | `docs/PLAN/17-ACCEPTANCE-CRITERIA.md` § Phase 3, `docs/PLAN/09-SECURITY.md` |
 | **Spec required** | No |
@@ -581,10 +581,10 @@
 5. Update `PROGRESS.md`; tag; publish the changelog.
 
 **Definition of Done**
-- [ ] All three `docs/PLAN/17` Phase 3 criteria verified with evidence.
-- [ ] Login-path latency with MFA is measured against `docs/PLAN/12`.
-- [ ] The Phase 4 threat-model review is complete.
-- [ ] A phase summary exists in `MEMORY/`.
+- [x] All three `docs/PLAN/17` Phase 3 criteria verified with evidence — `scripts/acceptance-phase3.sh` on the staging VM: 19 checks, 0 failures, every refusal beside its positive control; the harness was also seen to stop (not pass) when staging briefly ran without MFA.
+- [x] Login-path latency with MFA is measured against `docs/PLAN/12` — silent authorize within target; `/oauth/token` refresh p50 ~60ms against 50ms (was 46ms at `P1-28`), attributed by a container-verified A/B to rotation and reuse detection, not the MFA mandate check, and accepted for Phase 5. The TOTP step adds a median 13.6ms to an interactive sign-in.
+- [x] The Phase 4 threat-model review is complete — 14 findings; T4-1 (cross-organization sign-in undesigned) and T4-2 (subset validation at the readers) need decisions before delegation work starts.
+- [x] A phase summary exists in `MEMORY/`.
 
 ---
 

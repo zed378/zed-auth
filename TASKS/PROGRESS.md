@@ -3,14 +3,13 @@
 Single source of truth for where the project stands. Updated in the same commit as the work it describes (`00-TASK-CONVENTIONS.md` global DoD item 8).
 
 **Last updated**: 2026-09-13
-**Current phase**: Phase 3 — Advanced Security (14 / 15). Phase 2 complete (17 / 17), tagged `v0.2.0-phase2` — [summary](../MEMORY/records/2026-09-12-P2-phase-2-summary.md). Phase 3 is gated on its threat-model review, which is [done](../MEMORY/records/2026-09-12-P2-17-phase-3-threat-review.md). Phase 0 is 20 / 21; `P0-20` stays WIP pending the pull-based deployment re-read
-**Overall**: 80 / 178 tasks done
+**Current phase**: Phase 4 — Enterprise Interop (0 / 16), **gated on two design decisions** from the [Phase 4 threat review](../MEMORY/records/2026-09-15-P3-15-phase-4-threat-review.md) (T4-1 cross-organization sign-in, T4-2 subset validation at the readers). Phase 3 complete (15 / 15), tagged `v0.3.0-phase3`, **accepted on staging** — [summary](../MEMORY/records/2026-09-15-P3-phase-3-summary.md). Phase 2 complete (17 / 17), tagged `v0.2.0-phase2`. Phase 0 is 20 / 21; `P0-20` stays WIP pending the pull-based deployment re-read
+**Overall**: 81 / 178 tasks done
 
-> **Phase 2 has not run on staging.** The VM has been unreachable since its deploy key
-> was lost with a session scratchpad. Verification moved to a local Docker stack
-> (`scripts/e2e-up.sh`), which is a real service, database, Redis and browser — the
-> E2E suite, the acceptance script and the load test all ran against it. That is not
-> staging, and restoring VM access should be the first thing Phase 3 does.
+> **Staging runs Phases 1–3** (2026-09-15, `P3-15`). Phase 2 was verified on a local
+> Docker stack while the VM was unreachable; access was restored and Phases 2 and 3 were
+> deployed together, with Phase 3's acceptance executed there. Staging's nightly backup
+> had silently stopped again in the meantime and is fixed in the unit (`P3-14`).
 
 Status values: `TODO` · `BLOCKED` · `SPEC` · `WIP` · `REVIEW` · `DONE` · `DROPPED`
 Sizes: `S` under half a day · `M` one to two days · `L` several days · `XL` must be split
@@ -24,8 +23,8 @@ Sizes: `S` under half a day · `M` one to two days · `L` several days · `XL` m
 | [Phase 0 — Foundation](./PHASE-0-FOUNDATION.md) | 21 | 20 | **ACTIVE** — `P0-20` only | — |
 | [Phase 1 — MVP: Core Auth + SSO](./PHASE-1-MVP-CORE-AUTH-SSO.md) | 29 | 29 | **COMPLETE** — [summary](../MEMORY/records/2026-09-12-P1-phase-1-summary.md), tagged `v0.1.0-phase1` | Phase 0 exit checklist |
 | [Phase 2 — RBAC & Multi-Tenancy](./PHASE-2-RBAC-MULTITENANCY.md) | 17 | 17 | **COMPLETE** — [summary](../MEMORY/records/2026-09-12-P2-phase-2-summary.md), tagged `v0.2.0-phase2`. Not yet on staging | Phase 1 exit + `P1-28` — **met** 2026-09-12 |
-| [Phase 3 — Advanced Security](./PHASE-3-ADVANCED-SECURITY.md) | 15 | 14 | **ACTIVE** — gate met: Phase 2 exit checklist verified, [threat review](../MEMORY/records/2026-09-12-P2-17-phase-3-threat-review.md) done | Phase 2 exit + threat model review |
-| [Phase 4 — Enterprise Interop](./PHASE-4-ENTERPRISE-INTEROP.md) | 16 | 0 | Not started | Phase 3 exit + threat model review |
+| [Phase 3 — Advanced Security](./PHASE-3-ADVANCED-SECURITY.md) | 15 | 15 | **Complete** — accepted on staging 2026-09-15, tagged `v0.3.0-phase3` | Phase 2 exit + threat model review |
+| [Phase 4 — Enterprise Interop](./PHASE-4-ENTERPRISE-INTEROP.md) | 16 | 0 | **Next** — Phase 3 exit met; [threat review](../MEMORY/records/2026-09-15-P3-15-phase-4-threat-review.md) done, with two findings that need a design decision first | Phase 3 exit + threat model review |
 | [Phase 4b — ABAC](./PHASE-4B-ABAC.md) | 11 | 0 | **CONDITIONAL** | A concrete requirement RBAC cannot express (`P4B-00`) |
 | [Phase 5 — Hardening](./PHASE-5-HARDENING.md) | 16 | 0 | Not started | Phase 4 exit; 4b done or declined |
 | [Phase F — Frontend Implementation](./PHASE-F-FRONTEND-IMPLEMENTATION.md) | 53 | 0 | **TRACK** — runs alongside | Foundation: `P0-17`. Pages: each carries its own gate |
@@ -148,7 +147,7 @@ Sizes: `S` under half a day · `M` one to two days · `L` several days · `XL` m
 | P3-12 | Console — personal account settings | L | **DONE** — `/account`, the one console screen built for a phone: profile, password change with the rules shown up front, MFA and sessions from P3-10/P3-11, and social sign-in shown as unavailable. The API (`/v1/me`, `/v1/me/password`) needs the current password and shares sign-in's cooldown. **Found the breached-password check had guarded no password since P1-02** — built at start-up and handed to nothing, its metrics never incremented — now one validator for every password-set path, with an architecture test on the wiring. Forced enrolment now hands over recovery codes before the sign-in completes. E2E at 390×844; 30 E2E; 18 mutations | P3-09, P3-10 |
 | P3-13 | Docs — MFA and session security | M | **DONE** — four guides (end users, step-up with `amr`, refresh rotation, requiring MFA), each asserted against the code by `internal/docsdrift`. **The audit found a required second factor that could never be enforced**: an organization created with the mandate on, or that set it during Phase 2, had no grace start date and read as "in grace" for ever — creation now stamps it and migration 034 backfills it. The Policies screen still said the mandate "changes nothing today", four working nav items were badged "arrives in phase P1", and the grace warning was shown nowhere; all fixed. Nine pages understated what had shipped. Changelog entry for Phase 3 published | P3-05, P3-06 |
 | P3-14 | Phase 3 test suite | L | **DONE** — every Phase 3 abuse case located to a test, and the eleven that had none now do, most mutation-tested. **CI had never run**: `ci.yml` stopped parsing at `P1-03`, so 112 GitHub runs had no success; fixed, and the gate now runs actionlint. **P3-07's A-2 had no code**: a refresh token or live session outlived the MFA grace — fixed on both paths. The integration suite ran under `-race` for the first time (one test-fake race). Staging had taken no backup since 2026-09-11 (226/NAMESPACE again) — fixed in the unit and verified on the VM | all above |
-| P3-15 | Phase 3 acceptance validation | M | TODO | P3-14 |
+| P3-15 | Phase 3 acceptance validation | M | **DONE** — deployed Phases 2 and 3 to staging (backup, migrate, roll out) and ran all three `docs/PLAN/17` criteria there: 19 checks, 0 failures. **A load-test A/B with the MFA key switched off found every sign-in answering 500** — a nil `*mfa.Framework` inside the login handler's interface, since `P3-03`; fixed at wiring and method, verified on staging with MFA off. Refresh p50 ~60ms vs 50ms target, attributed to rotation (not the mandate check) and accepted for Phase 5. Phase 4 threat review: 14 findings | P3-14 |
 
 ---
 

@@ -765,3 +765,14 @@ func aTestChallenge() Challenge {
 		CreatedAt: time.Now(),
 	}
 }
+
+// A nil framework challenges nobody and does not panic (P3-15). The call site
+// keeps a nil framework out of the login handler's interface; this is the
+// second line, because the failure it prevents is every sign-in answering 500.
+func TestANilFrameworkRequiresNothing(t *testing.T) {
+	var f *Framework
+	decision, err := f.Required(context.Background(), "u", "o", "p")
+	if err != nil || decision.Challenge {
+		t.Fatalf("Required on a nil framework = %+v, %v; want no challenge and no error", decision, err)
+	}
+}

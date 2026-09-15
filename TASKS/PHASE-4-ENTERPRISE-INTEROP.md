@@ -4,7 +4,7 @@
 
 **Why now**: Project Grants (the cross-organization delegation that `docs/PLAN/08` Part C describes as the reason this project needs more than plain RBAC) depend on Phase 2's role model being correct. SAML and social login are additive protocol surfaces that would have complicated Phase 1's core flow if built earlier.
 
-**Prerequisite**: Phase 3 exit checklist satisfied, plus the Phase 4 threat-model review from `P3-15`. If Phase 3 and Phase 4 were swapped per `docs/PLAN/16`'s note, substitute the Phase 2 exit and run the Phase 4 threat model at that point instead.
+**Prerequisite**: Phase 3 exit checklist satisfied, plus the Phase 4 threat-model review from `P3-15` — [done](../MEMORY/records/2026-09-15-P3-15-phase-4-threat-review.md), 2026-09-15. **Before any card starts**, its summary table says which cards change: T4-1 (cross-organization sign-in, and whose MFA mandate and sign-in methods apply to a partner's user) is a design decision `docs/PLAN/08` Part C does not make, and blocks `P4-02`/`P4-04`; T4-2 puts reader-side tests in `P4-02`/`P4-04`'s Definition of Done; T4-5's issuance-path table belongs in `P4-15` first. If Phase 3 and Phase 4 were swapped per `docs/PLAN/16`'s note, substitute the Phase 2 exit and run the Phase 4 threat model at that point instead.
 
 **Roadmap reference**: `docs/PLAN/16-IMPLEMENTATION-ROADMAP.md` § Phase 4. **Delegation source of truth**: `docs/PLAN/08-AUTHORIZATION.md` Part C.
 

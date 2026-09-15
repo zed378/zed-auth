@@ -121,7 +121,7 @@ services:
       # would be told.
       #
       #   sudo ./secrets.sh mfa-seal-key
-      #   AUTH_MFA_SEAL_KEY_REF=file:/run/secrets/mfa-seal-key
+      #   AUTH_MFA_SEAL_KEY_REF=file:/etc/zed-auth/secrets/mfa-seal-key   (where the secrets directory is mounted below — NOT /run/secrets, which this file does not mount; a set-but-unreadable key is fatal at startup)
       AUTH_MFA_SEAL_KEY_REF: ${AUTH_MFA_SEAL_KEY_REF:-}
       # Login anomaly detection (P3-08). Detection is on and tells nobody;
       # notifications stay OFF until the false-positive rate has been read off

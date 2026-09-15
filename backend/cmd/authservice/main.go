@@ -600,7 +600,7 @@ func run() error {
 		Policy:        session.DefaultPolicy,
 		Limiter:       limiter,
 		IP:            clientIP,
-		MFA:           factorFramework,
+		MFA:           challenger(factorFramework),
 
 		// Forced enrolment (P3-07). Both are nil when no factor type is
 		// configured, which is what stops an organization's mandate from
@@ -1191,6 +1191,24 @@ func mandateCheck(framework *mfa.Framework, db *postgres.DB, log *slog.Logger) *
 		types = append(types, string(mfa.TypeWebAuthn))
 	}
 	return &authn.MandateCheck{DB: db, Policies: authn.NewPolicyStore(log), Types: types}
+}
+
+// challenger is the login handler's second-factor seam, or a NIL INTERFACE.
+//
+// Not `MFA: factorFramework`. That assigned a *mfa.Framework which is nil when
+// no seal key is configured, and a nil pointer stored in an interface is not a
+// nil interface: `login.Handler`'s `h.MFA == nil` guard saw a non-nil value, and
+// every password sign-in called Required on a nil receiver and answered 500.
+// From P3-03 (2026-09-12) until P3-15 found it, a deployment without
+// AUTH_MFA_SEAL_KEY_REF — which the compose files document as a legitimate
+// configuration — could not sign anybody in. Nothing tested that configuration:
+// the E2E stack has always set a seal key since P3-10, and staging ran a
+// Phase 1 build. Found by an A/B load test that switched the key off.
+func challenger(framework *mfa.Framework) login.Challenger {
+	if framework == nil {
+		return nil
+	}
+	return framework
 }
 
 func enroller(framework *mfa.Framework) login.Enroller {
