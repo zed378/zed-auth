@@ -440,6 +440,14 @@ func faultFrom(err error) error {
 	}
 
 	var inUse ErrInUse
+	if errors.As(err, &inUse) && inUse.ProjectGrants > 0 {
+		return management.Fault{
+			Class: management.Conflict,
+			Message: fmt.Sprintf(
+				"This role is delegated to another organization by %d active project grant(s). Revoke those grants first.", inUse.ProjectGrants),
+			Reason: "role delete refused: delegated by an active project grant",
+		}
+	}
 	if errors.As(err, &inUse) {
 		return management.Fault{
 			Class: management.Conflict,

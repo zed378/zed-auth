@@ -134,6 +134,15 @@ var Policy = map[string]Requirement{
 	"PATCH /v1/organizations/{org_id}/projects/{project_id}/roles/{role_id}":  {Role: ProjectOwner, Scope: ScopeProject},
 	"DELETE /v1/organizations/{org_id}/projects/{project_id}/roles/{role_id}": {Role: ProjectOwner, Scope: ScopeProject},
 
+	// Project Grants (P4-01): the GRANTING side's routes. PROJECT_OWNER over the
+	// project, as for roles — delegating a project is its owner's decision. A
+	// receiving organization's PROJECT_GRANT_OWNER holds nothing here; its view
+	// of a grant is its own organization's routes (P4-06).
+	"GET /v1/organizations/{org_id}/projects/{project_id}/grants":               {Role: ProjectOwner, Scope: ScopeProject},
+	"POST /v1/organizations/{org_id}/projects/{project_id}/grants":              {Role: ProjectOwner, Scope: ScopeProject},
+	"GET /v1/organizations/{org_id}/projects/{project_id}/grants/{grant_id}":    {Role: ProjectOwner, Scope: ScopeProject},
+	"DELETE /v1/organizations/{org_id}/projects/{project_id}/grants/{grant_id}": {Role: ProjectOwner, Scope: ScopeProject},
+
 	// --- Users (P1-19) ---
 	//
 	// Every one is ORG_ADMIN, and nothing is raised to ORG_OWNER. That is a
