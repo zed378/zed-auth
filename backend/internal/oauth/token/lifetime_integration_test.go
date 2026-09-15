@@ -156,3 +156,67 @@ func TestAMandateThisBuildCannotEnforceRefusesNothing(t *testing.T) {
 	f.factory.Exec(`UPDATE organizations SET settings = '{"mfa_required": true, "mfa_required_since": "2020-01-01T00:00:00Z"}' WHERE id = $1`, f.orgID)
 	f.expectRefreshed(t, refresh, "no factor type is available, so refusing would lock everybody out")
 }
+
+// --- concurrency ------------------------------------------------------------------------
+
+// Simultaneous presentations of one refresh token (P3-14; docs/SECURITY/05's
+// business-logic races). Every earlier rotation test presents tokens one after
+// another, and the property that matters is only visible when they overlap:
+// however the race resolves, the family must end with EXACTLY ONE live token,
+// every answer must be a success or an ordinary refusal — never a 5xx that a
+// client would retry — and exactly one of the tokens handed out must work.
+func TestConcurrentRefreshesLeaveExactlyOneLiveToken(t *testing.T) {
+	f := setup(t)
+	refresh := f.firstRefresh(t)
+
+	const racers = 8
+	type answer struct {
+		code  int
+		token string
+	}
+	answers := make(chan answer, racers)
+	start := make(chan struct{})
+	for i := 0; i < racers; i++ {
+		go func() {
+			<-start
+			rec, body := f.refreshWith(t, refresh)
+			next, _ := body["refresh_token"].(string)
+			answers <- answer{code: rec.Code, token: next}
+		}()
+	}
+	close(start)
+
+	var issued []string
+	for i := 0; i < racers; i++ {
+		a := <-answers
+		switch a.code {
+		case http.StatusOK:
+			issued = append(issued, a.token)
+		case http.StatusBadRequest:
+		default:
+			t.Errorf("a concurrent refresh answered %d — a client retries a server error, and that retry is a reuse", a.code)
+		}
+	}
+	if len(issued) == 0 {
+		t.Fatal("no concurrent refresh succeeded; the race resolved to nobody")
+	}
+
+	var live int
+	f.factory.QueryRow(&live,
+		`SELECT count(*) FROM refresh_tokens WHERE user_id = $1 AND NOT revoked AND replaced_by IS NULL AND expires_at > now()`,
+		f.userID)
+	if live != 1 {
+		t.Errorf("the family has %d live tokens after the race, want exactly 1", live)
+	}
+
+	works := 0
+	for _, token := range issued {
+		if rec, _ := f.refreshWith(t, token); rec.Code == http.StatusOK {
+			works++
+			break // using it rotates it; the others are judged against that state
+		}
+	}
+	if works != 1 {
+		t.Errorf("none of the %d tokens handed out during the race still works", len(issued))
+	}
+}
