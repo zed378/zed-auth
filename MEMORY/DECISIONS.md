@@ -896,6 +896,108 @@ None contradicted. `docs/PLAN/06` names the dogfooding constraint and does not s
 
 ---
 
+### ADR-026 — A grant's receiving organization is named by its ID, never found by search
+
+| | |
+|---|---|
+| **Date** | 2026-09-15 |
+| **Status** | Accepted |
+| **Task** | `P4-05` (and `P4-01`'s A-5) |
+| **Deciders** | Zed |
+
+**Context**
+
+`docs/UI-UX/04` Flow 2 says the Project Owner creating a grant should "select target
+organization (search/select)". The granting organization's row-level security cannot see
+any other organization, and no API lists organizations across tenants. A search would need
+one. `P4-01` deliberately answers an unknown, a suspended and the caller's own
+organization id with the same refusal, so the endpoint cannot sort ids into real and not.
+
+**Decision**
+
+The receiving organization is identified by its **organization ID**, which the partner
+shares out of band. The console takes the ID. The partner's name appears once the grant
+exists: `granted_organization_names()` returns it only for organizations holding a grant
+from the caller's organization.
+
+**Alternatives considered**
+
+- **Search restricted to `INSTANCE_OWNER`, ID entry for everyone else.** Keeps the spec's
+  search where it cannot cross a tenant boundary. Not chosen: in this product the instance
+  owner is rarely the person delegating a project. It adds a second creation path to build
+  and test for a user the flow is not written for.
+- **Search for every Project Owner, as the spec literally says.** Rejected. Any
+  administrator of any organization could enumerate every organization's name on the
+  instance: a customer list, and the input to a phishing campaign that names real partners.
+
+**Consequences**
+
+- Creating a grant needs one exchange between the two organizations before it happens. For
+  a delegation, which is a business relationship, that is the normal order of events.
+- The creation step cannot show "you are about to grant to *Bravo Client*" before the grant
+  exists without a lookup that would be an oracle. The confirmation summary names the ID,
+  and the table names the organization immediately afterwards.
+- A mistyped ID is refused, not silently granted to someone else. A UUID collision with a
+  different live organization is not a realistic error.
+
+**Plan impact** — `docs/UI-UX/04` Flow 2's "search/select" should read "enter the
+partner's organization ID". Not amended here; `docs/` changes go through CODEOWNERS.
+
+### ADR-025 — Delegated access applies the stricter of both organizations' sign-in policies
+
+| | |
+|---|---|
+| **Date** | 2026-09-15 |
+| **Status** | Accepted |
+| **Task** | `P4-02`, `P4-04` (threat review T4-1) |
+| **Deciders** | Zed |
+
+**Context**
+
+A Project Grant lets a partner organization's users hold roles in a project the granting
+organization owns. Today a session from another organization is refused outright
+(`internal/oauth/authorize` compares the session's organization with the client's), and the
+password is looked up within the application's organization. `docs/PLAN/08` Part C
+describes delegation and does not say whose MFA mandate or permitted sign-in methods govern
+a partner's user reaching the granting organization's application. Left undecided, the first
+working implementation would pick one by accident. Picking the partner's alone makes
+delegation a way around the granting organization's mandate.
+
+**Decision**
+
+When a user reaches a project through a grant, **both organizations' policies apply, and the
+stricter wins**:
+
+- **MFA** is required if **either** organization requires it, each with its own grace rules
+  (`authn.RequireMFA` applied to each policy).
+- **Sign-in methods** are the **intersection** of what both organizations permit.
+- **Session lifetime** is the **shorter** of the two.
+
+It applies at every issuing path, not only the login page: the password step, silent
+authorize, and the refresh grant. That is the lesson of `P3-07`'s A-2 (threat review T4-5).
+
+**Alternatives considered**
+
+- **The partner's own organization only.** Simplest, because the user already lives there.
+  Rejected: the granting organization's mandate would not reach the people accessing its
+  project, and a delegation would become the way to access a mandated project without MFA.
+- **The granting organization's policy only.** Rejected: it would let delegation loosen the
+  partner's own policy. A partner requiring MFA would find its users reaching a vendor's
+  project on a password alone.
+
+**Consequences**
+
+- A partner user may be asked for a second factor, or refused a sign-in method, because of
+  another organization's policy. The sign-in page has to say which organization's policy
+  is asking, or it reads as a bug.
+- An empty intersection of sign-in methods means the user cannot reach that project. It
+  must be refused with a clear message, never resolved by falling back to either side.
+- Every issuing path reads two policies where it read one. `P4-04` should load both in the
+  transaction it already opens (measured, not assumed; see `P3-15`'s refresh latency).
+
+**Plan impact** — `docs/PLAN/08` Part C should state this rule. Not amended here; `docs/`
+changes go through CODEOWNERS.
+
 ### ADR-024 — A login anomaly notifies the user; it never triggers step-up
 
 | | |
