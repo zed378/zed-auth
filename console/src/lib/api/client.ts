@@ -146,6 +146,7 @@ export const queryKeys = {
   projects: ["projects"] as const,
   applications: ["applications"] as const,
   roles: ["roles"] as const,
+  projectGrants: ["project-grants"] as const,
   grants: ["grants"] as const,
   users: ["users"] as const,
   mfa: ["mfa"] as const,

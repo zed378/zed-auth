@@ -466,3 +466,53 @@ type stubAuthz struct{}
 func (stubAuthz) CheckAuthorization(context.Context, api.CheckAuthorizationRequestObject) (api.CheckAuthorizationResponseObject, error) {
 	return nil, errors.New("project grant tests do not wire the authorization check")
 }
+
+// The revoke dialog's blast radius (P4-05): the granting organization sees how
+// many users hold a role through a grant, and nobody else sees even that.
+//
+// The assignment is inserted from the owner connection because P4-02, which
+// creates delegated assignments through the API, is not built. What this pins
+// is the function the count comes through, not who may write the row.
+func TestTheHolderCountIsTheGrantersAndOnlyTheirs(t *testing.T) {
+	f := setup(t)
+	g := decode(t, f.create(t, "owner-pos", "cashier"))
+	if g.HolderCount != 0 {
+		t.Fatalf("a new grant reports %d holders", g.HolderCount)
+	}
+
+	// No delegated user grant can be written yet: P2-03's trigger refuses
+	// project_grant_id until P4-02 replaces its body with the subset check. The
+	// count is this card's, so the refusal is lifted for this one owner-side row
+	// and restored before anything else runs. When P4-02 lands, this becomes a
+	// delegated assignment through the API.
+	holder := f.factory.User(f.orgA, "holder@example.test")
+	f.factory.Exec(`ALTER TABLE user_grants DISABLE TRIGGER user_grants_delegation_closed`)
+	t.Cleanup(func() { f.factory.Exec(`ALTER TABLE user_grants ENABLE TRIGGER user_grants_delegation_closed`) })
+	f.factory.Exec(`INSERT INTO user_grants (user_id, project_id, org_id, role_keys, project_grant_id)
+	                VALUES ($1, $2, $3, '{cashier}', $4)`, holder, f.projectA, f.orgA, g.Id.String())
+	f.factory.Exec(`ALTER TABLE user_grants ENABLE TRIGGER user_grants_delegation_closed`)
+
+	got := decode(t, f.call(t, "owner-pos", http.MethodGet, f.grantsPath(f.orgA, f.projectA)+"/"+g.Id.String(), ""))
+	if got.HolderCount != 1 {
+		t.Errorf("holder_count = %d, want 1 — the revoke dialog would understate what it removes", got.HolderCount)
+	}
+
+	ctx := context.Background()
+	rowsFor := func(org string) int {
+		var rows int
+		if err := f.db.WithTenant(ctx, org, func(tx *postgres.Tx) error {
+			return tx.QueryRow(ctx, `SELECT count(*) FROM project_grant_holder_counts($1::uuid[])`, "{"+g.Id.String()+"}").Scan(&rows)
+		}); err != nil {
+			t.Fatalf("reading holder counts as %s: %v", org, err)
+		}
+		return rows
+	}
+	// The granting organization reads its own count through the same query, so
+	// the zero from organization C is the bound and not a broken query.
+	if n := rowsFor(f.orgA); n != 1 {
+		t.Fatalf("the granting organization read %d rows of its own holder count, want 1", n)
+	}
+	if rowsFor(f.orgC) != 0 {
+		t.Error("an organization that granted nothing read the grant's holder count")
+	}
+}

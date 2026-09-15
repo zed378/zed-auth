@@ -200,6 +200,17 @@ fi
 [ -n "$ORG_ID" ] || die "could not create the organization"
 ok "organization $ORG_ID"
 
+# A second organization, for Project Grants (`P4-05`). Seeded rather than
+# created by the suite: creating an organization needs INSTANCE_OWNER, which
+# the E2E administrator deliberately does not hold. Nobody signs in to it; it
+# exists to be the receiving side of a grant.
+PARTNER_ORG_ID=$(psql_ "SELECT id FROM organizations WHERE name = 'e2e-partner' LIMIT 1")
+if [ -z "$PARTNER_ORG_ID" ]; then
+  PARTNER_ORG_ID=$(psql_ "INSERT INTO organizations (instance_id, name) VALUES ('$INSTANCE_ID', 'e2e-partner') RETURNING id")
+fi
+[ -n "$PARTNER_ORG_ID" ] || die "could not create the partner organization"
+ok "partner organization $PARTNER_ORG_ID"
+
 ADMIN_ID=$(psql_ "SELECT id FROM users WHERE email = '$ADMIN_EMAIL' LIMIT 1")
 if [ -z "$ADMIN_ID" ]; then
   HASH=$(cd backend && PASSWORD="$ADMIN_PASSWORD" go run ./cmd/passwordhash)
@@ -438,6 +449,7 @@ cat > "$ENV_FILE" <<EOF
 # is not already a local-development placeholder.
 export E2E_AUTH_ISSUER="$ISSUER"
 export E2E_ORG_ID="$ORG_ID"
+export E2E_PARTNER_ORG_ID="$PARTNER_ORG_ID"
 export E2E_CONSOLE_CLIENT_ID="$CONSOLE_CLIENT"
 export E2E_BOOTSTRAP_REFRESH_TOKEN="$REFRESH"
 export E2E_MAILPIT_URL="$MAILPIT"

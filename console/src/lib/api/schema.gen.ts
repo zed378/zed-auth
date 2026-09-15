@@ -1950,6 +1950,13 @@ export interface components {
              */
             granted_org_name: string;
             granted_role_keys: components["schemas"]["RoleKey"][];
+            /**
+             * @description How many of the receiving organization's users hold a role through
+             *     this grant — the number revocation takes access away from. A count,
+             *     never the people: they are the other organization's users. Zero until
+             *     delegated assignment ships (`P4-02`).
+             */
+            holder_count: number;
             /** @enum {string} */
             status: "active" | "revoked";
             /** Format: date-time */

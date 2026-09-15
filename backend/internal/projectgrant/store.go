@@ -60,6 +60,7 @@ type Grant struct {
 	GrantedOrgID    string
 	GrantedOrgName  string
 	GrantedRoleKeys []string
+	HolderCount     int
 	Status          string
 	CreatedAt       time.Time
 	RevokedAt       *time.Time
@@ -266,6 +267,33 @@ func (s *Store) names(ctx context.Context, tx *postgres.Tx, grants []*Grant) err
 	}
 	for _, g := range grants {
 		g.GrantedOrgName = byID[g.GrantedOrgID]
+	}
+
+	// The blast radius, through the function that can count assignments held
+	// under the receiving organization's tenant (P4-05).
+	grantIDs := make([]string, 0, len(grants))
+	for _, g := range grants {
+		grantIDs = append(grantIDs, g.ID)
+	}
+	counts, err := tx.Query(ctx, `SELECT grant_id, holders FROM project_grant_holder_counts($1::uuid[])`, pq.Array(grantIDs))
+	if err != nil {
+		return fmt.Errorf("projectgrant: counting holders: %w", err)
+	}
+	defer func() { _ = counts.Close() }()
+	holders := map[string]int{}
+	for counts.Next() {
+		var id string
+		var n int
+		if err := counts.Scan(&id, &n); err != nil {
+			return fmt.Errorf("projectgrant: counting holders: %w", err)
+		}
+		holders[id] = n
+	}
+	if err := counts.Err(); err != nil {
+		return fmt.Errorf("projectgrant: counting holders: %w", err)
+	}
+	for _, g := range grants {
+		g.HolderCount = holders[g.ID]
 	}
 	return nil
 }

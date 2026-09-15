@@ -2981,7 +2981,7 @@ components:
 
     ProjectGrant:
       type: object
-      required: [id, project_id, granting_org_id, granted_org_id, granted_org_name, granted_role_keys, status, created_at, revoked_at]
+      required: [id, project_id, granting_org_id, granted_org_id, granted_org_name, granted_role_keys, holder_count, status, created_at, revoked_at]
       additionalProperties: false
       properties:
         id:
@@ -3002,6 +3002,14 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/RoleKey"
+        holder_count:
+          type: integer
+          minimum: 0
+          description: |
+            How many of the receiving organization's users hold a role through
+            this grant — the number revocation takes access away from. A count,
+            never the people: they are the other organization's users. Zero until
+            delegated assignment ships (`P4-02`).
         status:
           type: string
           enum: [active, revoked]
