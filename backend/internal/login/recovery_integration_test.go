@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -347,4 +348,141 @@ func TestAnAdministratorResetReturnsTheUserToPasswordOnly(t *testing.T) {
 		t.Errorf("%d recovery codes survived the reset", left)
 	}
 	_ = codes
+}
+
+// Abuse case (P3-04 card): brute-forcing recovery codes, through the real login
+// step and the real per-user bound in Redis (P3-14).
+//
+// The unit tests prove the recovery path counts a failure against a counting
+// fake. This proves the count lands in the same bound TOTP guesses do, so an
+// attacker holding the password cannot switch to the recovery form to get a
+// fresh allowance — and that once the bound is spent, a CORRECT code is refused
+// too, or the bound would only filter wrong answers.
+func TestRecoveryCodeGuessesShareThePerUserBound(t *testing.T) {
+	s := setup(t)
+	_, _ = s.enrolled(t, time.Now())
+	codes := s.withRecoveryCodes(t)
+
+	// Well-formed, so each guess reaches verification rather than being
+	// refused for its shape. Base32 letters only; never a generated code.
+	const guess = "ABCD-EFGH-JKLM-NPQR"
+	for _, real := range codes {
+		if mfa.NormaliseRecoveryCode(real) == mfa.NormaliseRecoveryCode(guess) {
+			t.Skip("astronomically unlikely: the guess is a real code")
+		}
+	}
+
+	guesses := 0
+	for restart := 0; restart < 4; restart++ {
+		id := s.begin(t)
+		handle := handleFrom(t, s.submit(t, id, s.form(t, id), testEmail, testPassword))
+
+		for i := 0; i < mfa.MaxAttempts; i++ {
+			w := s.recoveryCode(t, id, guess, handle)
+			guesses++
+			if sessionCookieSet(w) {
+				t.Fatal("a wrong recovery code signed the user in")
+			}
+			if strings.Contains(w.Body.String(), MsgCodeRateLimited) {
+				if guesses <= mfa.MaxAttemptsPerWindow {
+					t.Fatalf("refused after %d guesses; the bound is %d", guesses, mfa.MaxAttemptsPerWindow)
+				}
+				right := s.recoveryCode(t, id, codes[0], handle)
+				if sessionCookieSet(right) {
+					t.Error("an exhausted user completed the challenge with a correct recovery code")
+				}
+				return
+			}
+			if strings.Contains(w.Body.String(), MsgChallengeGone) {
+				break
+			}
+		}
+	}
+	t.Fatalf("%d recovery code guesses were accepted without the per-user bound refusing any", guesses)
+}
+
+// --- timing (P3-14 step 5) --------------------------------------------------------------
+
+// A factor answer that WAS valid must cost what one that never was costs.
+//
+// The two pairs that matter are within a factor type, because that is what an
+// attacker holding the password can learn from: whether a TOTP code they
+// captured is being refused as a replay (so it was right) or as wrong, and
+// whether a recovery code they found is spent (so it was real) or invented.
+// The content is already identical (P3-03, P3-04); this is the clock.
+//
+// Medians of several samples and a generous ratio, as the unknown-address test
+// does: it exists to catch an early return that skips the expensive half, not
+// a few percent of noise. The per-user attempt bound is cleared between
+// samples, or the test would measure the cooldown page instead.
+func TestAnAnswerThatWasValidCostsWhatAWrongOneCosts(t *testing.T) {
+	s := setup(t)
+	at := time.Now().UTC()
+	secret, at := s.enrolled(t, at)
+	codes := s.withRecoveryCodes(t)
+
+	clearAttempts := func() {
+		ctx := context.Background()
+		keys, err := s.rdb.Keys(ctx, "mfa:attempts:"+s.userID+":*").Result()
+		if err != nil {
+			t.Fatalf("listing attempt keys: %v", err)
+		}
+		if len(keys) > 0 {
+			s.rdb.Del(ctx, keys...)
+		}
+	}
+
+	signInWith := func(answer func(id string, handle *http.Cookie) *httptest.ResponseRecorder) (*httptest.ResponseRecorder, time.Duration) {
+		clearAttempts()
+		id := s.begin(t)
+		handle := handleFrom(t, s.submit(t, id, s.form(t, id), testEmail, testPassword))
+		start := time.Now()
+		w := answer(id, handle)
+		return w, time.Since(start)
+	}
+
+	// Spend one of each, so there is a replayed TOTP code and a spent recovery code.
+	used := mfa.TOTPCode(secret, mfa.TOTPCounter(at))
+	if w, _ := signInWith(func(id string, h *http.Cookie) *httptest.ResponseRecorder { return s.code(t, id, used, h) }); !sessionCookieSet(w) {
+		t.Fatal("setup: the TOTP code did not sign in")
+	}
+	if w, _ := signInWith(func(id string, h *http.Cookie) *httptest.ResponseRecorder { return s.recoveryCode(t, id, codes[0], h) }); !sessionCookieSet(w) {
+		t.Fatal("setup: the recovery code did not sign in")
+	}
+
+	wrong := "000000"
+	if wrong == used {
+		wrong = "111111"
+	}
+
+	median := func(name string, answer func(id string, h *http.Cookie) *httptest.ResponseRecorder) time.Duration {
+		const samples = 7
+		durations := make([]time.Duration, 0, samples)
+		for range samples {
+			w, took := signInWith(answer)
+			if sessionCookieSet(w) {
+				t.Fatalf("%s signed the user in; the comparison is meaningless", name)
+			}
+			durations = append(durations, took)
+		}
+		sort.Slice(durations, func(i, j int) bool { return durations[i] < durations[j] })
+		return durations[len(durations)/2]
+	}
+
+	compare := func(pair string, never, was time.Duration) {
+		ratio := float64(was) / float64(never)
+		if ratio < 0.6 || ratio > 1.6 {
+			t.Errorf("%s: a formerly valid answer takes %s and an invalid one %s (ratio %.2f) — "+
+				"the response time says which was real", pair, was, never, ratio)
+		}
+	}
+
+	compare("TOTP",
+		median("a wrong code", func(id string, h *http.Cookie) *httptest.ResponseRecorder { return s.code(t, id, wrong, h) }),
+		median("a replayed code", func(id string, h *http.Cookie) *httptest.ResponseRecorder { return s.code(t, id, used, h) }))
+	compare("recovery code",
+		median("an invented code", func(id string, h *http.Cookie) *httptest.ResponseRecorder {
+			return s.recoveryCode(t, id, "ABCD-EFGH-JKLM-NPQR", h)
+		}),
+		median("a spent code", func(id string, h *http.Cookie) *httptest.ResponseRecorder { return s.recoveryCode(t, id, codes[0], h) }))
 }

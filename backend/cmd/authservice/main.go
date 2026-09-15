@@ -563,6 +563,16 @@ func run() error {
 			"set", "AUTH_MFA_SEAL_KEY_REF")
 	}
 
+	// The mandate, on the two paths that issue tokens without a password step
+	// (P3-14, P3-07's A-2): a refresh, and a silent authorize over a live
+	// session. Only when this build can enrol somebody — the login path lets a
+	// mandated user through otherwise, and these must not be stricter than the
+	// page that would have to rescue them.
+	if mandate := mandateCheck(factorFramework, db, log); mandate != nil {
+		tokenHandler.Mandate = mandate
+		authorizeHandler.Mandate = mandate
+	}
+
 	// The hosted login page (P1-12). It closes the loop: /oauth/authorize
 	// sends a browser here when there is no session, and Resume sends it back
 	// with a code once there is one.
@@ -1167,6 +1177,22 @@ func passkeyRoute(framework *mfa.Framework, h *login.Handler) http.Handler {
 // `mfa.Verifier` already has exactly the two methods `login.Enroller` asks for,
 // so the registry's own entry is handed over rather than a wrapper being
 // written around it.
+// mandateCheck builds the mandate check for the non-login paths, or nil when
+// this build cannot enrol anybody (no TOTP enroller for the forced step).
+//
+// A concrete nil rather than a typed nil in an interface: the handlers test
+// `Mandate != nil`, and a nil *MandateCheck inside the interface would pass.
+func mandateCheck(framework *mfa.Framework, db *postgres.DB, log *slog.Logger) *authn.MandateCheck {
+	if enroller(framework) == nil {
+		return nil
+	}
+	types := []string{string(mfa.TypeTOTP)}
+	if framework.WebAuthn != nil {
+		types = append(types, string(mfa.TypeWebAuthn))
+	}
+	return &authn.MandateCheck{DB: db, Policies: authn.NewPolicyStore(log), Types: types}
+}
+
 func enroller(framework *mfa.Framework) login.Enroller {
 	if framework == nil {
 		return nil
