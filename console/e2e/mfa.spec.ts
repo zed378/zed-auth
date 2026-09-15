@@ -114,6 +114,114 @@ test.describe("adding a second factor from the console", () => {
   });
 });
 
+/**
+ * The two cases `P3-14` found existed only below the browser (P3-14 step 3).
+ *
+ * `docs/PLAN/11` names "correct password with wrong TOTP is rejected" as an
+ * end-to-end case, and `docs/PLAN/17`'s Phase 3 criterion is TOTP "including
+ * recovery from a lost device". Both had integration tests against the login
+ * handler; neither had ever been done by a browser, where the things that break
+ * are the ones a handler test cannot see — which form a button submits, whether
+ * a refusal leaves the person on a page they can retry from, and whether the
+ * console agrees afterwards about what was spent.
+ */
+test.describe("signing in with a second factor, when it goes wrong", () => {
+  test("a correct password with a wrong code is refused, and the right code still works", async ({ page, user }) => {
+    const { key } = await enrolAuthenticatorApp(page, user);
+    await signOut(page);
+
+    await page.getByRole("button", { name: /continue to sign in/i }).click();
+    await fillHostedLogin(page, user);
+
+    // A code that is certainly wrong for every step the verifier accepts: the
+    // right one for this step, plus one.
+    const code = page.locator('input[name="code"]').first();
+    await expect(code).toBeVisible();
+    const right = totp(key, Date.now() + 30_000);
+    const wrong = ((Number(right) + 1) % 1_000_000).toString().padStart(6, "0");
+    await code.fill(wrong);
+    await page.getByRole("button", { name: "Verify" }).click();
+
+    // Refused: still on the challenge, told why, and not signed in.
+    await expect(page.getByText(/That code is not correct/)).toBeVisible();
+    await expect(page.getByRole("button", { name: /sign out/i })).not.toBeVisible();
+    await expect(page.locator('input[name="code"]').first()).toBeVisible();
+
+    // Positive control: the same page, the right code. Without this the
+    // refusal above would also pass against a challenge that refuses everything.
+    await page.locator('input[name="code"]').first().fill(right);
+    await page.getByRole("button", { name: "Verify" }).click();
+    await expect(page.getByRole("button", { name: /sign out/i })).toBeVisible();
+  });
+
+  test("a lost device: a recovery code signs in once, and only once", async ({ page, user }) => {
+    const { codes } = await enrolAuthenticatorApp(page, user);
+    expect(codes).toHaveLength(10);
+    await signOut(page);
+
+    // Typed the way somebody reads it off paper: lower case, dashes kept.
+    await page.getByRole("button", { name: /continue to sign in/i }).click();
+    await fillHostedLogin(page, user);
+    await page.getByLabel("Recovery code").fill(codes[0].toLowerCase());
+    await page.getByRole("button", { name: "Use a recovery code" }).click();
+    await expect(page.getByRole("button", { name: /sign out/i })).toBeVisible();
+
+    // The account screen agrees the code is spent.
+    await page.goto("/account");
+    await expect(page.getByText("Unused recovery codes: 9")).toBeVisible();
+
+    // The same code again, on a fresh sign-in: refused.
+    await page.getByRole("button", { name: /sign out/i }).click();
+    await expect(page.getByRole("heading", { name: /sign out/i })).toBeVisible();
+    await page.getByRole("button", { name: /sign out/i }).click();
+    await page.waitForURL((url) => !url.pathname.startsWith("/oidc/logout"));
+    await page.goto("/");
+    await page.getByRole("button", { name: /continue to sign in/i }).click();
+    await fillHostedLogin(page, user);
+    await page.getByLabel("Recovery code").fill(codes[0]);
+    await page.getByRole("button", { name: "Use a recovery code" }).click();
+    await expect(page.getByText(/not correct/)).toBeVisible();
+    await expect(page.getByRole("button", { name: /sign out/i })).not.toBeVisible();
+
+    // And a different, unused code works — the refusal was about that code.
+    await page.getByLabel("Recovery code").fill(codes[1]);
+    await page.getByRole("button", { name: "Use a recovery code" }).click();
+    await expect(page.getByRole("button", { name: /sign out/i })).toBeVisible();
+  });
+});
+
+/** Enrols an authenticator app from the console and returns its key and the codes shown. */
+async function enrolAuthenticatorApp(
+  page: Page,
+  user: { id: string; email: string; password: string },
+): Promise<{ key: string; codes: string[] }> {
+  await signIn(page, user);
+  await page.goto(`/users/${user.id}?tab=mfa`);
+
+  await page.getByRole("button", { name: "Add authenticator app" }).click();
+  const dialog = page.getByRole("dialog", { name: "Add an authenticator app" });
+  const key = (await dialog.getByLabel("Setup key").textContent())?.replace(/\s+/g, "") ?? "";
+  await dialog.getByLabel(/6-digit code/).fill(totp(key, Date.now()));
+  await dialog.getByRole("button", { name: "Confirm" }).click();
+
+  const shown = page.getByRole("dialog", { name: "Save your recovery codes" });
+  const items = shown.getByRole("list", { name: "Recovery codes" }).getByRole("listitem");
+  await expect(items).toHaveCount(10);
+  const codes = (await items.allTextContents()).map((code) => code.trim());
+  await shown.getByLabel("I have saved these codes").check();
+  await shown.getByRole("button", { name: "Done" }).click();
+  await expect(page.getByRole("row", { name: /Authenticator app/ })).toBeVisible();
+
+  return { key, codes };
+}
+
+async function signOut(page: Page): Promise<void> {
+  await page.getByRole("button", { name: /sign out/i }).click();
+  await expect(page.getByRole("heading", { name: /sign out/i })).toBeVisible();
+  await page.getByRole("button", { name: /sign out/i }).click();
+  await expect(page.getByRole("heading", { name: /^sign in$/i })).toBeVisible();
+}
+
 async function signIn(page: Page, user: { email: string; password: string }): Promise<void> {
   await page.goto("/");
   await page.getByRole("button", { name: /continue to sign in/i }).click();

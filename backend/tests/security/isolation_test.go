@@ -76,8 +76,52 @@
 //	                                                         (and console/e2e, which is what found the
 //	                                                          policy that blocked every sign-in)
 //
+//	# Phase 3 (re-audited at P3-14, every row read and most mutation-tested)
+//
+//	A rotated refresh token cannot be reused
+//	  (docs/PLAN/17 Phase 3) .............................. internal/oauth/token:
+//	                                                         TestARotatedRefreshTokenCannotBeReused
+//	                                                         TestReuseRevokesTheWholeFamily
+//	                                                         TestConcurrentRefreshesLeaveExactlyOneLiveToken
+//	                                                         TestARefreshTokenIsBoundToItsClient
+//	                                                         TestARefreshTokenInAnExpiredFamilyIsRefused
+//
+//	A revoked session is immediately unusable ............. internal/oauth/token:
+//	                                                         TestARefreshTokenFromARevokedSessionIsRefused
+//	                                                        internal/sessionapi, console/e2e/sessions.spec.ts
+//
+//	Skipping the second factor ............................ internal/mfa:
+//	                                                         TestAChallengeHandleIsNotASessionToken
+//	                                                        console/e2e/mfa.spec.ts (a wrong code, in a browser)
+//
+//	Brute-forcing a TOTP or recovery code ................. internal/login:
+//	                                                         TestGuessesAreBoundedAcrossChallengesNotJustWithinOne
+//	                                                         TestRecoveryCodeGuessesShareThePerUserBound
+//
+//	A factor answer's validity leaks through timing ....... internal/login:
+//	                                                         TestAnAnswerThatWasValidCostsWhatAWrongOneCosts
+//
+//	Passkey phishing, replay, and another user's
+//	  credential .......................................... internal/mfa:
+//	                                                         TestAnAssertionFromALookalikeOriginIsRefused
+//	                                                         TestAnAssertionForAnotherChallengeIsRefused
+//	                                                        internal/login:
+//	                                                         TestAPasskeyRegistersOnlyToTheSignedInUser
+//	                                                         TestAnAssertionFromAnUnregisteredKeyIsRefused
+//
+//	The MFA mandate: backdated, or outlived by an old
+//	  token or session .................................... internal/organization:
+//	                                                         TestACallerCannotBackdateTheGrace
+//	                                                        internal/oauth/token:
+//	                                                         TestARefreshIsRefusedOnceTheMandateRequiresEnrolment
+//	                                                        internal/oauth/authorize:
+//	                                                         TestAnUnmetMandateSendsALiveSessionToSignIn
+//
+//	The administrator MFA reset used across tenants ....... internal/user:
+//	                                                         TestAnAdministratorCannotResetAcrossOrganizations
+//	                                                         TestAMemberCannotResetAnotherMembersFactors
+//
 //	Not yet testable — the feature does not exist:
-//	  Rotated refresh token cannot be reused ............... P3-06
 //	  Receiving org cannot assign a role outside its grant .. P4-01
 //	  Revoked Project Grant invalidates access immediately .. P4-01
 //
@@ -85,7 +129,10 @@
 // down. It was stale for three tasks before `P1-27` re-read it: three rows
 // said "not yet testable" against features that had shipped, and the tests
 // covering them existed. A checklist that is only read when it is written is a
-// document about the past.
+// document about the past. It went stale again through all of Phase 3 — the
+// rotation row said "P3-06" for eight tasks after P3-06 — so
+// `TestTheCoverageMapNamesTestsThatExist` now fails if a name here stops
+// matching a test.
 package security
 
 import (
