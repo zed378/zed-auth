@@ -266,11 +266,18 @@ jobs:
         # Docker installed" true, and it removed a worse problem: these tests
         # used to call t.Skipf when nothing answered at the configured DSN, so
         # a misconfigured runner reported success having run nothing.
+        #
         # -p 1: one package's test binary at a time. Each starts its own
-          # containers, and four sets initialising the testcontainers provider
-          # concurrently races — surfacing as "rootless Docker is not
-          # supported", in a different package on each run.
-          run: go test -race -shuffle=on -p 1 -tags=integration ./...
+        # containers, and four sets initialising the testcontainers provider
+        # concurrently races — surfacing as "rootless Docker is not
+        # supported", in a different package on each run.
+        #
+        # The `run:` key below was indented two spaces deeper than this step
+        # from P1-03 until P3-14. That is not a style problem: the file did not
+        # parse, GitHub ran no job at all, and every push for a phase and a half
+        # was a red X nobody opened. `scripts/check.sh` now parses every
+        # workflow so the gate fails first.
+        run: go test -race -shuffle=on -p 1 -tags=integration ./...
 
   # --- API contract ---------------------------------------------------------
   api-contract:
@@ -676,16 +683,28 @@ jobs:
           sh scripts/hooks/commit-msg /tmp/msg
 
       - name: Deployment compose files are valid
+        # Every compose file the project deploys, not only the two that existed
+        # when this step was written. The VM file gained required variables
+        # (AUTH_ENV, AUTH_ISSUER, AUTH_ADMIN_TOKEN_REF, …) after it, so this
+        # step had been failing on placeholders since Phase 1 — a failure
+        # nobody saw because the file stopped parsing first (P3-14).
         run: |
           set -euo pipefail
           docker compose -f deploy/docker-compose.yml config -q
-          # The VM compose file requires the deployed environment's variables;
+          # The VM compose files require the deployed environment's variables;
           # supply placeholders so the syntax is still validated in CI.
-          AUTH_DOMAIN=ci.example.com \
-          AUTH_IMAGE=ghcr.io/example/app@sha256:0000000000000000000000000000000000000000000000000000000000000000 \
-          AUTH_POSTGRES_OWNER_PASSWORD=ci_only_password \
-          AUTH_REDIS_PASSWORD=ci_only_password \
-            docker compose -f deploy/vm/docker-compose.yml config -q
+          export AUTH_ENV=staging AUTH_DOMAIN=ci.example.com AUTH_ISSUER=https://ci.example.com \
+            AUTH_IMAGE=ghcr.io/example/app@sha256:0000000000000000000000000000000000000000000000000000000000000000 \
+            AUTH_POSTGRES_DSN=postgres://auth_app:ci_only_password@postgres:5432/auth \
+            AUTH_POSTGRES_APP_PASSWORD=ci_only_password AUTH_POSTGRES_OWNER_PASSWORD=ci_only_password \
+            AUTH_REDIS_PASSWORD=ci_only_password \
+            AUTH_SECRETS_DIR=/tmp/secrets AUTH_ADMIN_TOKEN_REF=file:/tmp/secrets/metrics-token
+          docker compose -f deploy/vm/docker-compose.yml config -q
+          docker compose -f deploy/vm/docker-compose.tunnel.yml config -q
+          docker compose -f deploy/vm/docker-compose.yml -f deploy/vm/docker-compose.metrics-port.yml config -q
+          DEMO_ISSUER=https://ci.example.com DEMO_WEBAPP_CLIENT_ID=app-a DEMO_WEBAPP_CLIENT_SECRET=secret \
+            DEMO_WEBAPP_BASE_URL=https://a.ci.example.com DEMO_SPA_CLIENT_ID=app-b DEMO_SPA_BASE_URL=https://b.ci.example.com \
+            docker compose -f deploy/demo/docker-compose.yml config -q
 
       - name: The repository contains no PEM private key block
         # The pre-commit hook and gitleaks both refuse these, and test fixtures
