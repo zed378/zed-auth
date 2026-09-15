@@ -358,6 +358,36 @@ const sidebar: SidebarsConfig = {
     },
     {
       type: "category",
+      label: "Project Grants",
+      items: [
+        {
+          type: "doc",
+          id: "api-reference/list-project-grants",
+          label: "List the grants that delegate this project",
+          className: "api-method get",
+        },
+        {
+          type: "doc",
+          id: "api-reference/create-project-grant",
+          label: "Delegate this project to another organization",
+          className: "api-method post",
+        },
+        {
+          type: "doc",
+          id: "api-reference/get-project-grant",
+          label: "Read a grant",
+          className: "api-method get",
+        },
+        {
+          type: "doc",
+          id: "api-reference/revoke-project-grant",
+          label: "Revoke a grant",
+          className: "api-method delete",
+        },
+      ],
+    },
+    {
+      type: "category",
       label: "Applications",
       items: [
         {

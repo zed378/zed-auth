@@ -121,9 +121,19 @@
 //	                                                         TestAnAdministratorCannotResetAcrossOrganizations
 //	                                                         TestAMemberCannotResetAnotherMembersFactors
 //
+//	# Phase 4
+//
+//	A Project Grant delegates only this project's roles,
+//	  only from its owner, and never widens ................ internal/projectgrant:
+//	                                                         TestAGrantNamesOnlyThisProjectsRoles
+//	                                                         TestOnlyTheGrantingProjectsOwnerMayActOnItsGrants
+//	                                                         TestAGrantOnlyEverNarrowsEvenForTheOwnerConnection
+//	                                                         TestTheReceivingSideReadsAndABystanderSeesNothing
+//	                                                         TestADelegatedRoleCannotBeDeletedUntilTheGrantIsRevoked
+//
 //	Not yet testable — the feature does not exist:
-//	  Receiving org cannot assign a role outside its grant .. P4-01
-//	  Revoked Project Grant invalidates access immediately .. P4-01
+//	  Receiving org cannot assign a role outside its grant .. P4-02
+//	  Revoked Project Grant invalidates access immediately .. P4-04
 //
 // **What this map cannot do** is notice a Phase 1 abuse case nobody wrote
 // down. It was stale for three tasks before `P1-27` re-read it: three rows

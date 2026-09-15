@@ -27,6 +27,7 @@ import (
 	"github.com/zed378/zed-auth/backend/internal/oauth/token"
 	"github.com/zed378/zed-auth/backend/internal/organization"
 	"github.com/zed378/zed-auth/backend/internal/project"
+	"github.com/zed378/zed-auth/backend/internal/projectgrant"
 	"github.com/zed378/zed-auth/backend/internal/ratelimit"
 	"github.com/zed378/zed-auth/backend/internal/sessionapi"
 	"github.com/zed378/zed-auth/backend/internal/signing"
@@ -106,16 +107,17 @@ func setupAPI(t *testing.T) *apiFixture {
 		Organizations: &organization.Handler{
 			Store: organization.NewStore(), DB: base.db, Audit: auditor, Log: discard(),
 		},
-		ProjectAPI:     &project.Handler{Store: project.NewStore(), DB: base.db, Audit: auditor, Log: discard()},
-		ApplicationAPI: application.New(base.db, auditor, discard()),
-		RoleAPI:        New(base.db, auditor, discard()),
-		GrantAPI:       grant.New(base.db, auditor, discard()),
-		AuthzAPI:       stubAuthz{},
-		UserAPI:        &user.Handler{Store: user.NewStore(), DB: base.db, Audit: auditor, Log: discard()},
-		SessionAPI:     &sessionapi.Handler{}, // not exercised here
-		MfaAPI:         &mfaapi.Handler{},     // not exercised here
-		AccountAPI:     &account.Handler{},    // not exercised here
-		AuditAPI:       &auditlog.Handler{DB: base.db, Log: discard()},
+		ProjectAPI:      &project.Handler{Store: project.NewStore(), DB: base.db, Audit: auditor, Log: discard()},
+		ApplicationAPI:  application.New(base.db, auditor, discard()),
+		RoleAPI:         New(base.db, auditor, discard()),
+		GrantAPI:        grant.New(base.db, auditor, discard()),
+		AuthzAPI:        stubAuthz{},
+		UserAPI:         &user.Handler{Store: user.NewStore(), DB: base.db, Audit: auditor, Log: discard()},
+		SessionAPI:      &sessionapi.Handler{},   // not exercised here
+		MfaAPI:          &mfaapi.Handler{},       // not exercised here
+		ProjectGrantAPI: &projectgrant.Handler{}, // not exercised here
+		AccountAPI:      &account.Handler{},      // not exercised here
+		AuditAPI:        &auditlog.Handler{DB: base.db, Log: discard()},
 	})
 
 	mint := func(userID string) string {

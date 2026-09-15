@@ -35,10 +35,15 @@ var ErrNotFound = errors.New("role: not found")
 // ErrInUse is returned when a delete is refused because grants reference the
 // role. It carries the count, which is what an operator needs; it does not
 // carry who holds them, which from Phase 4 is another tenant's data.
-type ErrInUse struct{ Grants int }
+type ErrInUse struct {
+	Grants int
+
+	// ProjectGrants is active project grants delegating the role (P4-01).
+	ProjectGrants int
+}
 
 func (e ErrInUse) Error() string {
-	return fmt.Sprintf("role: still referenced by %d grant(s)", e.Grants)
+	return fmt.Sprintf("role: still referenced by %d grant(s) and %d project grant(s)", e.Grants, e.ProjectGrants)
 }
 
 // ErrBuiltin is returned when a built-in role is re-keyed or deleted.
@@ -251,6 +256,25 @@ func (s *Store) Delete(ctx context.Context, tx *postgres.Tx, id string) error {
 	}
 	if referencing > 0 {
 		return ErrInUse{Grants: referencing}
+	}
+
+	// An ACTIVE project grant that delegates this role (P4-01). Checked here,
+	// in the owning organization's transaction where RLS shows the grant, and
+	// not left to the user-grant count above: once P4-02 exists, the receiving
+	// organization's assignments of a delegated role live under ITS tenant and
+	// are invisible from this one. Deleting the role would leave a partner's
+	// grant naming a key that no longer exists. A revoked grant does not block
+	// it — it is history, and keeps the key as a record.
+	var delegating int
+	if err := tx.QueryRow(ctx, `
+		SELECT count(*) FROM project_grants
+		 WHERE project_id = $1 AND status = 'active' AND $2 = ANY(granted_role_keys)`,
+		existing.ProjectID, existing.Key,
+	).Scan(&delegating); err != nil {
+		return fmt.Errorf("role: counting project grants: %w", err)
+	}
+	if delegating > 0 {
+		return ErrInUse{ProjectGrants: delegating}
 	}
 
 	result, err := tx.Exec(ctx, `DELETE FROM roles WHERE id = $1`, id)

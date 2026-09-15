@@ -1873,6 +1873,134 @@ paths:
         "429": { $ref: "#/components/responses/RateLimited" }
         "500": { $ref: "#/components/responses/InternalError" }
 
+  /v1/organizations/{org_id}/projects/{project_id}/grants:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationId"
+      - $ref: "#/components/parameters/ProjectId"
+
+    get:
+      tags: [Project Grants]
+      operationId: listProjectGrants
+      summary: List the grants that delegate this project
+      description: |
+        Requires `PROJECT_OWNER` over this project, or any organization-scoped
+        role over the organization that owns it — the **granting** side. The
+        receiving organization sees its grants through its own routes, not this
+        one.
+
+        Active and revoked grants alike, newest first: a revoked grant is the
+        record that a delegation existed and ended (`docs/PLAN/08` Part C).
+      parameters:
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+      responses:
+        "200":
+          description: A page of grants.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectGrantList"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+    post:
+      tags: [Project Grants]
+      operationId: createProjectGrant
+      summary: Delegate this project to another organization
+      description: |
+        Requires `PROJECT_OWNER` over this project, or any organization-scoped
+        role over the organization that owns it.
+
+        Lends the project to `granted_org_id` with the subset of its roles in
+        `role_keys`. Every key must be a role that exists in **this** project.
+        An organization cannot grant to itself, and a project can have one
+        active grant per receiving organization — a second is `409`.
+
+        **A grant cannot be changed after it is created.** There is no update:
+        widening a delegation in place is the privilege escalation this feature
+        has to rule out, so a different set of roles means revoking this grant
+        and creating another.
+
+        **What a grant does not do yet.** Assigning the delegated roles to the
+        receiving organization's users arrives with `P4-02`, and delegated roles
+        in tokens and authorization checks with `P4-04`. Until then a grant is
+        the recorded contract and confers no access.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProjectGrantCreate"
+      responses:
+        "201":
+          description: The grant was created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectGrant"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+  /v1/organizations/{org_id}/projects/{project_id}/grants/{grant_id}:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationId"
+      - $ref: "#/components/parameters/ProjectId"
+      - $ref: "#/components/parameters/ProjectGrantId"
+
+    get:
+      tags: [Project Grants]
+      operationId: getProjectGrant
+      summary: Read a grant
+      description: |
+        Requires `PROJECT_OWNER` over this project, or any organization-scoped
+        role over the organization that owns it.
+      responses:
+        "200":
+          description: The grant.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectGrant"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+    delete:
+      tags: [Project Grants]
+      operationId: revokeProjectGrant
+      summary: Revoke a grant
+      description: |
+        Requires `PROJECT_OWNER` over this project, or any organization-scoped
+        role over the organization that owns it.
+
+        A status transition, not a deletion: the grant stays, marked `revoked`
+        with its `revoked_at`, so the history of the delegation survives. A
+        revoked grant cannot be reactivated. Revoking one that is already
+        revoked succeeds and changes nothing.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "204":
+          description: The grant is revoked.
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
   /v1/organizations/{org_id}/projects/{project_id}/applications:
     parameters:
       - $ref: "#/components/parameters/OrganizationId"
@@ -2694,6 +2822,14 @@ components:
       schema:
         $ref: "#/components/schemas/ResourceId"
 
+    ProjectGrantId:
+      name: grant_id
+      in: path
+      required: true
+      description: A project grant — the delegation of one project to one organization.
+      schema:
+        $ref: "#/components/schemas/ResourceId"
+
     RoleId:
       name: role_id
       in: path
@@ -2842,6 +2978,68 @@ components:
             Optional. Duplicates are **refused**, not folded: silently changing
             what was sent means the stored row does not match the request, and
             the caller finds out from a later read.
+
+    ProjectGrant:
+      type: object
+      required: [id, project_id, granting_org_id, granted_org_id, granted_org_name, granted_role_keys, status, created_at, revoked_at]
+      additionalProperties: false
+      properties:
+        id:
+          $ref: "#/components/schemas/ResourceId"
+        project_id:
+          $ref: "#/components/schemas/ResourceId"
+        granting_org_id:
+          $ref: "#/components/schemas/ResourceId"
+        granted_org_id:
+          $ref: "#/components/schemas/ResourceId"
+        granted_org_name:
+          type: string
+          description: |
+            The receiving organization's name, so a person revoking can check who
+            the grant is to. Resolved only for organizations holding a grant from
+            this one.
+        granted_role_keys:
+          type: array
+          items:
+            $ref: "#/components/schemas/RoleKey"
+        status:
+          type: string
+          enum: [active, revoked]
+        created_at:
+          type: string
+          format: date-time
+        revoked_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    ProjectGrantList:
+      type: object
+      required: [grants]
+      additionalProperties: false
+      properties:
+        grants:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProjectGrant"
+        page_info:
+          $ref: "#/components/schemas/PageInfo"
+
+    ProjectGrantCreate:
+      type: object
+      required: [granted_org_id, role_keys]
+      additionalProperties: false
+      properties:
+        granted_org_id:
+          $ref: "#/components/schemas/ResourceId"
+        role_keys:
+          type: array
+          minItems: 1
+          maxItems: 50
+          uniqueItems: true
+          description: Roles of this project the receiving organization may assign. Every one must exist in this project.
+          items:
+            $ref: "#/components/schemas/RoleKey"
 
     RoleUpdate:
       type: object

@@ -102,7 +102,14 @@ const CAPABILITY_CLAIMS = [
   {
     label: "Roles that scale to delegation",
     phase: "Phase 4",
-    tasks: ["P4-01"],
+    // Every task a visitor needs before delegation does anything — the lesson
+    // the single sign-on card taught above, applied before it could repeat.
+    // `P4-01` alone is the contract and confers no access: the receiving
+    // organization cannot assign (`P4-02`), tokens and checks do not carry the
+    // roles (`P4-04`), and neither side has a screen (`P4-05`, `P4-06`). With
+    // only `P4-01` listed, marking it done would have made this check DEMAND
+    // the card say "Shipped" for a capability nobody can use.
+    tasks: ["P4-01", "P4-02", "P4-03", "P4-04", "P4-05", "P4-06"],
   },
   {
     label: "Policies when roles are not enough",
