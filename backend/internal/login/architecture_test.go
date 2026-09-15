@@ -46,8 +46,15 @@ func mainSource(t *testing.T) string {
 func TestTheLoginHandlerIsGivenAFactorFramework(t *testing.T) {
 	src := mainSource(t)
 
-	if !strings.Contains(src, "MFA:           factorFramework") {
-		t.Error("the login handler is constructed without its MFA field; no login would ever be challenged")
+	// Through `challenger`, since P3-15: assigning the *mfa.Framework directly
+	// put a nil pointer inside the interface on a deployment with no seal key,
+	// and every sign-in answered 500. Either wiring without the helper is wrong
+	// now, so the direct form is refused as well as the missing one.
+	if !strings.Contains(src, "MFA:           challenger(factorFramework)") {
+		t.Error("the login handler is not given its MFA field through challenger(); no login would ever be challenged, or a nil framework would take sign-in down")
+	}
+	if strings.Contains(src, "MFA:           factorFramework,") {
+		t.Error("the login handler is given the *mfa.Framework directly — a nil one inside the interface passes its nil check")
 	}
 	if !strings.Contains(src, "buildMFA(") {
 		t.Error("nothing builds the factor framework")

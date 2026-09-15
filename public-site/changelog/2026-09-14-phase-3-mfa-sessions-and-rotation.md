@@ -77,5 +77,11 @@ integration can get wrong in ways that look like the service's fault:
 Signing in with Google, Microsoft or another social provider is Phase 4, with SAML and
 Project Grants. A passkey is a second step, not a replacement for the password, and cannot
 be set up on the forced enrolment step. You cannot ask for a particular factor with
-`acr_values`: the user chooses, and your application checks `amr`. Phase 3's acceptance
-run is still in progress, and none of this is on the live demonstration deployment yet.
+`acr_values`: the user chooses, and your application checks `amr`.
+
+*Updated 2026-09-15:* Phase 3 is on the live deployment, and its acceptance checks —
+enrolling a factor, signing in with it, recovering from a lost device, reusing a rotated
+refresh token, revoking a session — were executed against it. That run also found one more
+thing worth saying: **a deployment with no second factors configured could not sign
+anybody in**, from the first Phase 3 build that challenged for a factor until the fix in
+this release. Every test environment had a factor key configured, so nothing noticed.

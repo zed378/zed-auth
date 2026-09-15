@@ -45,8 +45,8 @@ wrong, and changed — that history is more useful than a clean one.
 ## Status
 
 In development, in phases. Single sign-on, the management API, roles and multiple
-organizations are built, and two-step verification, passkeys and refresh token rotation
-are in final testing. Delegation across organizations, social sign-in and SAML come next.
+organizations are built, and so are two-step verification, passkeys, session management
+and refresh token rotation. Delegation across organizations, social sign-in and SAML come next.
 The [changelog](/changelog) records what has actually shipped, and the
 [concepts documentation](/docs/concepts/model) says which parts of the model are built.
 

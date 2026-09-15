@@ -164,6 +164,13 @@ func (f *Framework) answerable(t Type) bool {
 }
 
 func (f *Framework) Required(ctx context.Context, userID, orgID, pendingID string) (Decision, error) {
+	// A nil framework has nothing to challenge with. Answered here as well as
+	// kept out of the interface at the call site (cmd/authservice.challenger),
+	// because the failure it prevents is total: every sign-in answering 500 on
+	// a deployment with no second factors configured (found at P3-15).
+	if f == nil {
+		return Decision{}, nil
+	}
 	if f.Registry.Empty() && f.WebAuthn == nil {
 		// No factor type is implemented in this build, so there is nothing to
 		// challenge with. Not an optimisation: a challenge offering nothing
