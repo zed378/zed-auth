@@ -625,3 +625,23 @@ func TestForcedEnrolmentShowsRecoveryCodesBeforeContinuing(t *testing.T) {
 		t.Errorf("found %d sessions after continuing, want 1", sessions)
 	}
 }
+
+// A deployment with no second factors configured signs people in (P3-15).
+//
+// The handler is given a nil *mfa.Framework INSIDE its interface — exactly what
+// cmd/authservice wired from P3-03 until P3-15, when a load test with the seal
+// key switched off found every sign-in answering 500. The wiring is fixed and
+// tested in cmd/authservice; this is the handler-level proof that the same slip
+// can no longer take sign-in down.
+func TestSignInWorksWithNoFactorFrameworkConfigured(t *testing.T) {
+	s := setup(t)
+	var unconfigured *mfa.Framework
+	s.login.MFA = unconfigured
+
+	id := s.begin(t)
+	w := s.submit(t, id, s.form(t, id), testEmail, testPassword)
+	if w.Code != http.StatusFound || !sessionCookieSet(w) {
+		t.Fatalf("a password sign-in with no factor framework answered %d (session cookie %v):\n%s",
+			w.Code, sessionCookieSet(w), w.Body.String())
+	}
+}

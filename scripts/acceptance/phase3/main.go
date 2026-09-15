@@ -461,10 +461,81 @@ func main() {
 		pass("while the user's own session carries on")
 	}
 
+	if os.Getenv("ACCEPT_MEASURE") != "" {
+		measure(e, enrolment.Secret)
+	}
+
 	fmt.Printf("\n\033[1m%d passed, %d failed\033[0m\n", passed, failed)
 	if failed > 0 {
 		os.Exit(1)
 	}
+}
+
+// measure times what a second factor adds to an interactive sign-in (P3-15 step
+// 2): the password POST that now answers with a challenge page instead of a
+// redirect, and the challenge POST that completes it.
+//
+// docs/PLAN/12 sets no target for an interactive sign-in — a person typing is
+// not a latency budget — so this is reported, not judged. The paths with
+// targets (silent authorize, token) are the load test's.
+//
+// The TOTP sample is small on purpose rather than by accident: a code can be
+// used once per 30-second step (the replay bound), so each sample waits for a
+// new step. Six samples take three minutes.
+func measure(e *env, secret string) {
+	section("Measured: the cost of the second factor on an interactive sign-in")
+
+	median := func(d []time.Duration) time.Duration {
+		sort.Slice(d, func(i, j int) bool { return d[i] < d[j] })
+		return d[len(d)/2]
+	}
+	timed := func(fn func()) time.Duration {
+		start := time.Now()
+		fn()
+		return time.Since(start)
+	}
+
+	var passwordSteps, challengeSteps []time.Duration
+	const samples = 6
+	// Start past any step the walk above may already have spent: it used the
+	// current step and the next one.
+	lastStep := time.Now().Unix()/30 + 1
+	for i := 0; i < samples; i++ {
+		for time.Now().Unix()/30 <= lastStep {
+			time.Sleep(500 * time.Millisecond)
+		}
+		lastStep = time.Now().Unix() / 30
+
+		c := newClient(e.base, e.host)
+		v, ch := pkce()
+		r := e.authorize(c, ch, "")
+		page := c.get(strings.TrimPrefix(r.location, "https://"+c.host), "")
+		csrf, req := reCSRF.FindStringSubmatch(page.body), reRequest.FindStringSubmatch(page.body)
+		if csrf == nil || req == nil {
+			die("measure: no login form")
+		}
+		var challenge, done result
+		passwordSteps = append(passwordSteps, timed(func() {
+			challenge = c.form("/login", url.Values{
+				"csrf_token": {csrf[1]}, "request": {req[1]}, "email": {e.email}, "password": {e.password},
+			})
+		}))
+		challengeSteps = append(challengeSteps, timed(func() {
+			done = answer(c, challenge, "totp", totp(secret, time.Now()))
+		}))
+		if code, _ := codeFrom(done.location); code == "" {
+			die("measure: sample %d did not complete the sign-in (status %d)", i+1, done.status)
+		}
+		_ = e.exchange(c, mustCode(done.location), v)
+	}
+	note("password step (argon2id verification, then the challenge page): median %s over %d", median(passwordSteps), samples)
+	note("TOTP step (verify, record the counter, open the session, redirect):  median %s over %d", median(challengeSteps), samples)
+	pass("measured over %d complete sign-ins with a second factor", samples)
+}
+
+func mustCode(location string) string {
+	code, _ := codeFrom(location)
+	return code
 }
 
 func must(k string) string {
