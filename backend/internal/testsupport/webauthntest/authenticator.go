@@ -33,6 +33,7 @@ const credentialIDLength = 32
 type Authenticator struct {
 	key          *ecdsa.PrivateKey
 	credentialID []byte
+	signCount    uint32
 }
 
 // New creates an authenticator with a fresh P-256 key and credential id.
@@ -125,4 +126,57 @@ func ChallengeFrom(t testing.TB, options []byte) string {
 		t.Fatalf("the options carry no challenge (%v):\n%s", err, options)
 	}
 	return parsed.PublicKey.Challenge
+}
+
+// Assert produces the JSON a browser posts after navigator.credentials.get
+// (P3-14), signed by this authenticator's key over the given challenge.
+//
+// Added so a sign-in with a passkey can be driven through the real login
+// handler and relying party. Until then the only assertions outside the mfa
+// package came from fake ceremonies that accepted anything, so nothing above
+// the verifier had ever checked a real signature on the login path.
+//
+// The signature counter advances on every call, as a real authenticator's
+// does; the relying party treats a counter that fails to advance as a possible
+// clone.
+func (a *Authenticator) Assert(t testing.TB, rpID, origin, challenge string) []byte {
+	t.Helper()
+
+	a.signCount++
+	rpHash := sha256.Sum256([]byte(rpID))
+	authData := append([]byte{}, rpHash[:]...)
+	authData = append(authData, 0x01|0x04) // UP, UV
+	counter := make([]byte, 4)
+	binary.BigEndian.PutUint32(counter, a.signCount+1) // registration used 1
+	authData = append(authData, counter...)
+
+	clientDataJSON, err := json.Marshal(map[string]any{
+		"type": "webauthn.get", "challenge": challenge, "origin": origin, "crossOrigin": false,
+	})
+	if err != nil {
+		t.Fatalf("encoding client data: %v", err)
+	}
+
+	clientHash := sha256.Sum256(clientDataJSON)
+	signed := sha256.Sum256(append(append([]byte{}, authData...), clientHash[:]...))
+	signature, err := ecdsa.SignASN1(rand.Reader, a.key, signed[:])
+	if err != nil {
+		t.Fatalf("signing an assertion: %v", err)
+	}
+
+	response, err := json.Marshal(map[string]any{
+		"id":    base64.RawURLEncoding.EncodeToString(a.credentialID),
+		"rawId": base64.RawURLEncoding.EncodeToString(a.credentialID),
+		"type":  "public-key",
+		"response": map[string]any{
+			"authenticatorData": base64.RawURLEncoding.EncodeToString(authData),
+			"clientDataJSON":    base64.RawURLEncoding.EncodeToString(clientDataJSON),
+			"signature":         base64.RawURLEncoding.EncodeToString(signature),
+			"userHandle":        "",
+		},
+	})
+	if err != nil {
+		t.Fatalf("encoding an assertion: %v", err)
+	}
+	return response
 }

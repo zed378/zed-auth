@@ -298,6 +298,27 @@ while IFS= read -r f; do
 done < <(find scripts deploy -type f \( -name '*.sh' -o -path 'scripts/hooks/*' \) 2>/dev/null)
 if [ -z "$crlf" ]; then pass "no CRLF in executable scripts"; else fail "CRLF found:$crlf"; fi
 
+# The CI workflows parse, and GitHub would accept them.
+#
+# From P1-03 to P3-14 `.github/workflows/ci.yml` did not parse: one `run:` key
+# indented deeper than its step. GitHub ran no job, recorded every push as a
+# failure under the file's path, and 94 red runs went unread while records said
+# the suite was green. This gate had no check that could see it, because it
+# re-implements CI's steps rather than reading CI's file. Now it reads the file.
+if docker info >/dev/null 2>&1; then
+  # The shell and python linters are off: their notes are advisory, and this check is
+  # about whether GitHub will run the workflow at all.
+  if lint=$(MSYS_NO_PATHCONV=1 docker run --rm -v "$(pwd):/repo" -w /repo rhysd/actionlint:1.7.7 \
+      -no-color -oneline -shellcheck= -pyflakes= 2>&1); then
+    pass "CI workflows parse and pass actionlint"
+  else
+    fail "CI workflows are invalid"
+    printf '%s\n' "$lint" | sed 's/^/      /'
+  fi
+else
+  skip "CI workflow lint" "docker not running"
+fi
+
 nonexec=""
 for h in scripts/hooks/*; do
   [ -f "$h" ] || continue
