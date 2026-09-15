@@ -26,6 +26,24 @@ WorkingDirectory=/home/infra/auth/deploy/vm
 Environment=AUTH_ENV_FILE=/home/infra/auth-state/.env
 Environment=AUTH_COMPOSE_FILE=docker-compose.tunnel.yml
 
+# The destination is set HERE, beside the ReadWritePaths it must equal, rather
+# than left to the environment file. Twice this directory and its setting have
+# come apart: the P0-14 relocation left ReadWritePaths behind, and on
+# 2026-09-11 `.env` was rebuilt from `docker inspect` after ~/auth-state was
+# deleted — which recovers what the CONTAINERS receive and nothing else, so
+# AUTH_BACKUP_DEST was gone and backup.sh fell back to /var/backups. Two
+# settings in two files that must agree will eventually disagree; one file
+# cannot. (The environment file can still override it, deliberately.)
+Environment=AUTH_BACKUP_DEST=/home/infra/auth-state/backups
+
+# Create the directory before the sandbox is built. `+` runs this one command
+# outside ProtectHome/ReadWritePaths, so a missing directory is created rather
+# than failing the whole unit with 226/NAMESPACE before a line of backup.sh
+# runs — which is what happened, silently, every night from 2026-09-11 to
+# 2026-09-15 (P3-14), after the 2026-09-11 restore rebuilt everything in
+# ~/auth-state except this directory.
+ExecStartPre=+/usr/bin/install -d -o infra -g infra -m 0700 /home/infra/auth-state/backups
+
 ExecStart=/home/infra/auth/deploy/vm/backup.sh
 
 # A backup that hangs is worse than one that fails: the next run cannot start,
@@ -51,4 +69,12 @@ ProtectHome=read-only
 # reporting the timer as healthy because the TIMER was fine. A backup that
 # stops happening is silent unless something is watching for the absence
 # (BL-01).
-ReadWritePaths=/home/infra/auth-state/backups
+#
+# The leading `-` makes a missing path non-fatal to namespace setup, which
+# systemd performs separately for EVERY Exec command — including the `+`
+# ExecStartPre above, which is why `+` alone did not help (verified on the VM,
+# P3-14). With it, ExecStartPre creates the directory, and ExecStart's own
+# namespace then finds it and makes it writable. If the directory somehow still
+# does not exist, backup.sh's mkdir fails against a read-only home and the unit
+# fails loudly with the script's own message — not silently with 226.
+ReadWritePaths=-/home/infra/auth-state/backups
