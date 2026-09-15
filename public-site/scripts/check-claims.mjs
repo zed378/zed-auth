@@ -271,11 +271,13 @@ for (const claim of CAPABILITY_CLAIMS) {
 // --- the site's own status statement ---------------------------------------
 
 // The landing page carries one status sentence, and it is the sentence a
-// visitor reads before any card. It said "in development" through Phase 0 and
-// now says Phase 1 is built — changed on the page, here and in CLAIMS.md in
-// one commit, which is what the old message asked for. Pinning the current
-// wording means the next change has to be deliberate too.
-const STATUS = "Status: Phase 1 is built and running";
+// visitor reads before any card. It said "in development" through Phase 0,
+// "Phase 1 is built and running" through Phases 1 and 2, and says Phases 1 to 3
+// since P3-15 put Phases 2 and 3 on the live deployment and ran Phase 3's
+// acceptance against them — changed on the page, here and in CLAIMS.md in one
+// commit. Pinning the current wording means the next change has to be
+// deliberate too.
+const STATUS = "Status: Phases 1 to 3 are built and running";
 if (!landingText.includes(STATUS)) {
   problems.push(
     `the landing page no longer carries its "${STATUS}" statement — ` +
