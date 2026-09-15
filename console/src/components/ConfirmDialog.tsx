@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { Button } from "./Button";
 import { Modal } from "./Modal";
@@ -44,6 +44,20 @@ export function ConfirmDialog({
   typeToConfirm?: string;
 }) {
   const [typed, setTyped] = useState("");
+  const input = useRef<HTMLInputElement>(null);
+
+  // What was typed belongs to ONE opening. Kept across a cancel, reopening the
+  // dialog for another row with the same name would arrive already unlocked —
+  // the friction spent before anyone read the new consequence.
+  if (!open && typed !== "") setTyped("");
+
+  // The typed input takes focus when the dialog opens (`docs/UI-UX/18` §
+  // Project Grants Tab). This effect runs after `Modal`'s own, which focuses
+  // the panel, so it wins; the panel's focus trap still holds.
+  const typing = open && typeToConfirm !== undefined;
+  useEffect(() => {
+    if (typing) input.current?.focus();
+  }, [typing]);
 
   // Case-sensitive. "acme corp" and "Acme Corp" being interchangeable defeats
   // the point of typing it (P1-16 made the same call server-side).
@@ -79,7 +93,10 @@ export function ConfirmDialog({
             Type <span className="font-mono text-text-primary">{typeToConfirm}</span> to confirm
           </label>
           <input
+            ref={input}
             id="confirm-text"
+            autoComplete="off"
+            spellCheck={false}
             value={typed}
             onChange={(event) => setTyped(event.currentTarget.value)}
             className="mt-1 w-full rounded border border-border bg-bg-base px-3 py-2 font-mono text-body text-text-primary"
