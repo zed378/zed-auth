@@ -460,24 +460,51 @@ func TestTheUnknownAddressPathCostsTheSame(t *testing.T) {
 	id := s.begin(t)
 	token := s.form(t, id)
 
-	measure := func(email string) time.Duration {
-		const samples = 7
-		durations := make([]time.Duration, 0, samples)
-		for range samples {
-			start := time.Now()
-			s.submit(t, id, token, email, "a password that is wrong")
-			durations = append(durations, time.Since(start))
+	// Every sample must measure VERIFICATION, not the limiter. The login limit
+	// allows five failures per address before a cooldown, and a refused attempt
+	// never reaches a hash — so the first version, which made eight wrong
+	// attempts at one address, was measuring the fast refusal path for its later
+	// samples, with a median sitting on the boundary between the two. It failed
+	// under load at ratio 0.56 (P3-14). The limiter's keys are cleared before
+	// each sample, so every one pays for the path the test is about.
+	clearLimits := func() {
+		ctx := context.Background()
+		keys, err := s.rdb.Keys(ctx, "ratelimit:login:*").Result()
+		if err != nil {
+			t.Fatalf("listing rate-limit keys: %v", err)
 		}
+		if len(keys) > 0 {
+			s.rdb.Del(ctx, keys...)
+		}
+	}
+	sample := func(email string) time.Duration {
+		clearLimits()
+		start := time.Now()
+		w := s.submit(t, id, token, email, "a password that is wrong")
+		took := time.Since(start)
+		if !strings.Contains(w.Body.String(), MsgCredentials) {
+			t.Fatalf("a sample for %s was not a credential refusal — it measured some other path", email)
+		}
+		return took
+	}
+	median := func(durations []time.Duration) time.Duration {
 		sort.Slice(durations, func(i, j int) bool { return durations[i] < durations[j] })
 		return durations[len(durations)/2]
 	}
 
 	// Warm the connection pool and the query plan, so the first sample of the
 	// first case does not carry the setup cost of both.
-	s.submit(t, id, token, testEmail, "warm")
+	sample(testEmail)
 
-	known := measure(testEmail)
-	unknown := measure("nobody-here@example.test")
+	// Interleaved, so any drift in the machine's speed lands on both sides.
+	const rounds = 9
+	knowns := make([]time.Duration, 0, rounds)
+	unknowns := make([]time.Duration, 0, rounds)
+	for range rounds {
+		knowns = append(knowns, sample(testEmail))
+		unknowns = append(unknowns, sample("nobody-here@example.test"))
+	}
+	known, unknown := median(knowns), median(unknowns)
 
 	ratio := float64(unknown) / float64(known)
 	if ratio < 0.6 || ratio > 1.6 {
