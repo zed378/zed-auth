@@ -130,6 +130,33 @@ export function useRoles(orgId: string | null, projectId: string | null) {
 }
 
 /**
+ * The Project Grants a project has given, active and revoked (P4-05).
+ *
+ * Revoked grants are listed on purpose: a delegation that ended last week is
+ * the answer to "why can the partner no longer assign that role", and hiding it
+ * would make the table read as though it never existed.
+ */
+export function useProjectGrants(orgId: string | null, projectId: string | null) {
+  return useQuery({
+    queryKey: [...queryKeys.projectGrants, orgId, projectId],
+    enabled: orgId !== null && projectId !== null,
+    queryFn: async () => {
+      const { data, error } = await api.GET(
+        "/v1/organizations/{org_id}/projects/{project_id}/grants",
+        {
+          params: {
+            path: { org_id: orgId as string, project_id: projectId as string },
+            query: { page_size: 100 },
+          },
+        },
+      );
+      if (error !== undefined) throw asFailure(error);
+      return data.grants;
+    },
+  });
+}
+
+/**
  * Every grant one user holds, across every project (P2-12).
  *
  * Addressed by user rather than by project because that is the only shape the
