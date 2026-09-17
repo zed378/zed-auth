@@ -1315,8 +1315,9 @@ export interface paths {
         /**
          * List the roles assigned through a received grant
          * @description Requires `ORG_ADMIN` over this organization, which must be the
-         *     organization the grant was made **to**. The granting organization gets
-         *     a 404 here: it lends the project, and does not administer the
+         *     organization the grant was made **to**, or `PROJECT_GRANT_OWNER` of
+         *     this grant while it is active. The granting organization gets a 404
+         *     here: it lends the project, and does not administer the
          *     receiving organization's people.
          *
          *     Listed under a revoked grant too, as history. A delegated role confers
@@ -1330,7 +1331,8 @@ export interface paths {
         /**
          * Assign delegated roles to one of this organization's users
          * @description Requires `ORG_ADMIN` over this organization, which must be the
-         *     organization the grant was made to. The user must be a member of it.
+         *     organization the grant was made to, or `PROJECT_GRANT_OWNER` of this
+         *     grant. The user must be a member of it.
          *
          *     **Every role key must be one the grant delegates**, checked against the
          *     grant as it stands at this moment, on every request (`docs/PLAN/08`
@@ -1369,23 +1371,94 @@ export interface paths {
         post?: never;
         /**
          * Remove a user's delegated roles
-         * @description Requires `ORG_ADMIN` over the organization the grant was made to.
+         * @description Requires `ORG_ADMIN` over the organization the grant was made to, or
+         *     `PROJECT_GRANT_OWNER` of this grant while it is active.
          *
-         *     Allowed under a revoked grant, so a partner can clear assignments a
-         *     vendor's revocation already made inert.
+         *     Allowed under a revoked grant for an administrator, so a partner can
+         *     clear assignments a vendor's revocation already made inert.
          */
         delete: operations["removeDelegatedRoles"];
         options?: never;
         head?: never;
         /**
          * Replace a user's delegated roles
-         * @description Requires `ORG_ADMIN` over the organization the grant was made to.
+         * @description Requires `ORG_ADMIN` over the organization the grant was made to, or
+         *     `PROJECT_GRANT_OWNER` of this grant.
          *
          *     Replaces the set entirely, and every key is checked against the grant
          *     as it stands now, like an assignment. A revoked grant refuses with
          *     `409`. To remove the roles, delete them.
          */
         patch: operations["replaceDelegatedRoles"];
+        trace?: never;
+    };
+    "/v1/organizations/{org_id}/project-grants/{grant_id}/owners": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The organization that owns the resource. Every request is scoped to exactly one. */
+                org_id: components["parameters"]["OrganizationId"];
+                /** @description A project grant — the delegation of one project to one organization. */
+                grant_id: components["parameters"]["ProjectGrantId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * List who may assign a received grant's roles
+         * @description Requires `ORG_ADMIN` over this organization, which must be the
+         *     organization the grant was made to.
+         *
+         *     A `PROJECT_GRANT_OWNER` administers the delegated roles of exactly one
+         *     grant, for this organization's users, and nothing else: not the
+         *     project, its roles or applications, not the grant, and not other
+         *     grants. The granting organization's administrators hold nothing here.
+         */
+        get: operations["listProjectGrantOwners"];
+        put?: never;
+        /**
+         * Make one of this organization's users an owner of a received grant
+         * @description Requires `ORG_ADMIN` over the organization the grant was made to. The
+         *     grant must be active and the user a member of this organization. A
+         *     caller cannot make themselves an owner.
+         *
+         *     The role works only while the grant is active. A grant revoked and
+         *     granted again has a new id, and owners of the old one are not owners
+         *     of the new one.
+         */
+        post: operations["assignProjectGrantOwner"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/organizations/{org_id}/project-grants/{grant_id}/owners/{user_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The organization that owns the resource. Every request is scoped to exactly one. */
+                org_id: components["parameters"]["OrganizationId"];
+                /** @description A project grant — the delegation of one project to one organization. */
+                grant_id: components["parameters"]["ProjectGrantId"];
+                /** @description The user this operation acts on. */
+                user_id: components["parameters"]["UserId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Remove an owner of a received grant
+         * @description Requires `ORG_ADMIN` over the organization the grant was made to.
+         *     Allowed under a revoked grant, as cleanup.
+         */
+        delete: operations["removeProjectGrantOwner"];
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/v1/organizations/{org_id}/projects/{project_id}/applications": {
@@ -2109,6 +2182,18 @@ export interface components {
         GrantCreate: {
             project_id: components["schemas"]["ResourceId"];
             role_keys: components["schemas"]["RoleKey"][];
+        };
+        ProjectGrantOwner: {
+            user_id: components["schemas"]["ResourceId"];
+            grant_id: components["schemas"]["ResourceId"];
+            /** Format: date-time */
+            created_at: string;
+        };
+        ProjectGrantOwnerList: {
+            owners: components["schemas"]["ProjectGrantOwner"][];
+        };
+        ProjectGrantOwnerCreate: {
+            user_id: components["schemas"]["ResourceId"];
         };
         DelegatedGrantList: {
             grants: components["schemas"]["Grant"][];
@@ -5329,6 +5414,120 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
+            429: components["responses"]["RateLimited"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    listProjectGrantOwners: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The organization that owns the resource. Every request is scoped to exactly one. */
+                org_id: components["parameters"]["OrganizationId"];
+                /** @description A project grant — the delegation of one project to one organization. */
+                grant_id: components["parameters"]["ProjectGrantId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The grant's owners. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectGrantOwnerList"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["RateLimited"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    assignProjectGrantOwner: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description A client-generated key making a retried `POST` safe. Replaying a
+                 *     request with the same key returns the original result rather than
+                 *     creating a second resource — which matters most for automated
+                 *     provisioning, where a network timeout is indistinguishable from a
+                 *     failure (`docs/PLAN/05` Part B).
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                /** @description The organization that owns the resource. Every request is scoped to exactly one. */
+                org_id: components["parameters"]["OrganizationId"];
+                /** @description A project grant — the delegation of one project to one organization. */
+                grant_id: components["parameters"]["ProjectGrantId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProjectGrantOwnerCreate"];
+            };
+        };
+        responses: {
+            /** @description The owner. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectGrantOwner"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["RateLimited"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    removeProjectGrantOwner: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description A client-generated key making a retried `POST` safe. Replaying a
+                 *     request with the same key returns the original result rather than
+                 *     creating a second resource — which matters most for automated
+                 *     provisioning, where a network timeout is indistinguishable from a
+                 *     failure (`docs/PLAN/05` Part B).
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                /** @description The organization that owns the resource. Every request is scoped to exactly one. */
+                org_id: components["parameters"]["OrganizationId"];
+                /** @description A project grant — the delegation of one project to one organization. */
+                grant_id: components["parameters"]["ProjectGrantId"];
+                /** @description The user this operation acts on. */
+                user_id: components["parameters"]["UserId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The user is no longer an owner of this grant. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
             429: components["responses"]["RateLimited"];
             500: components["responses"]["InternalError"];
         };

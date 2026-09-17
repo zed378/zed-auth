@@ -3,8 +3,8 @@
 Single source of truth for where the project stands. Updated in the same commit as the work it describes (`00-TASK-CONVENTIONS.md` global DoD item 8).
 
 **Last updated**: 2026-09-17
-**Current phase**: Phase 4 — Enterprise Interop (3 / 16). The [Phase 4 threat review](../MEMORY/records/2026-09-15-P3-15-phase-4-threat-review.md)'s T4-1 is decided (ADR-025: the stricter of both organizations' policies applies); T4-2, subset validation at the readers, is `P4-02`/`P4-04`'s to build. Phase 3 complete (15 / 15), tagged `v0.3.0-phase3`, **accepted on staging** — [summary](../MEMORY/records/2026-09-15-P3-phase-3-summary.md). Phase 2 complete (17 / 17), tagged `v0.2.0-phase2`. Phase 0 is 20 / 21; `P0-20` stays WIP pending the pull-based deployment re-read
-**Overall**: 84 / 178 tasks done
+**Current phase**: Phase 4 — Enterprise Interop (4 / 16). The [Phase 4 threat review](../MEMORY/records/2026-09-15-P3-15-phase-4-threat-review.md)'s T4-1 is decided (ADR-025: the stricter of both organizations' policies applies); T4-2, subset validation at the readers, is `P4-02`/`P4-04`'s to build. Phase 3 complete (15 / 15), tagged `v0.3.0-phase3`, **accepted on staging** — [summary](../MEMORY/records/2026-09-15-P3-phase-3-summary.md). Phase 2 complete (17 / 17), tagged `v0.2.0-phase2`. Phase 0 is 20 / 21; `P0-20` stays WIP pending the pull-based deployment re-read
+**Overall**: 85 / 178 tasks done
 
 > **Staging runs Phases 1–3** (2026-09-15, `P3-15`). Phase 2 was verified on a local
 > Docker stack while the VM was unreachable; access was restored and Phases 2 and 3 were
@@ -24,7 +24,7 @@ Sizes: `S` under half a day · `M` one to two days · `L` several days · `XL` m
 | [Phase 1 — MVP: Core Auth + SSO](./PHASE-1-MVP-CORE-AUTH-SSO.md) | 29 | 29 | **COMPLETE** — [summary](../MEMORY/records/2026-09-12-P1-phase-1-summary.md), tagged `v0.1.0-phase1` | Phase 0 exit checklist |
 | [Phase 2 — RBAC & Multi-Tenancy](./PHASE-2-RBAC-MULTITENANCY.md) | 17 | 17 | **COMPLETE** — [summary](../MEMORY/records/2026-09-12-P2-phase-2-summary.md), tagged `v0.2.0-phase2`. Not yet on staging | Phase 1 exit + `P1-28` — **met** 2026-09-12 |
 | [Phase 3 — Advanced Security](./PHASE-3-ADVANCED-SECURITY.md) | 15 | 15 | **Complete** — accepted on staging 2026-09-15, tagged `v0.3.0-phase3` | Phase 2 exit + threat model review |
-| [Phase 4 — Enterprise Interop](./PHASE-4-ENTERPRISE-INTEROP.md) | 16 | 3 | **ACTIVE** — Phase 3 exit met; [threat review](../MEMORY/records/2026-09-15-P3-15-phase-4-threat-review.md) done; T4-1 decided (ADR-025) | Phase 3 exit + threat model review |
+| [Phase 4 — Enterprise Interop](./PHASE-4-ENTERPRISE-INTEROP.md) | 16 | 4 | **ACTIVE** — Phase 3 exit met; [threat review](../MEMORY/records/2026-09-15-P3-15-phase-4-threat-review.md) done; T4-1 decided (ADR-025) | Phase 3 exit + threat model review |
 | [Phase 4b — ABAC](./PHASE-4B-ABAC.md) | 11 | 0 | **CONDITIONAL** | A concrete requirement RBAC cannot express (`P4B-00`) |
 | [Phase 5 — Hardening](./PHASE-5-HARDENING.md) | 16 | 0 | Not started | Phase 4 exit; 4b done or declined |
 | [Phase F — Frontend Implementation](./PHASE-F-FRONTEND-IMPLEMENTATION.md) | 53 | 0 | **TRACK** — runs alongside | Foundation: `P0-17`. Pages: each carries its own gate |
@@ -157,7 +157,7 @@ Sizes: `S` under half a day · `M` one to two days · `L` several days · `XL` m
 |---|---|---|---|---|
 | P4-01 | Project Grants — data and lifecycle | L | **DONE** — the delegation contract: create, list, read, revoke, and only ever narrow (a trigger refuses widening or reactivation for every writer). A mutation showed the granting-side filter was the only thing stopping the receiving organization revoking a grant it can see through a project of its own. Confers no access until P4-02/P4-04; T4-1 open | P2-03, P2-05 |
 | P4-02 | Delegated user grants with subset validation | L | **DONE** — the receiving organization assigns, replaces, lists and removes delegated roles; every write reads the grant `FOR SHARE` and checks grantee, active, subset and membership, and a trigger repeats every rule for any writer. The old trigger fired on `project_grant_id` only, so a delegated row could have been widened by the direct `PATCH`; it now fires on every column the rule reads. 8 mutations, all red. No reader sees delegated rows until `P4-04` adds the join (T4-2) | P4-01 |
-| P4-03 | `PROJECT_GRANT_OWNER` enforcement | M | TODO | P4-01, P2-05 |
+| P4-03 | `PROJECT_GRANT_OWNER` enforcement | M | **DONE** — scoped to one grant, in the organization it was granted to, while active; appointed only by that organization's administrators (first manager-role write API). `PROJECT_OWNER` does not satisfy it, which answers T4-4 by scope (`PG-44`). The exhaustive table found a project-scope loop that honoured a grant-owner row by `scope_id` alone. 6 mutations, all red | P4-01, P2-05 |
 | P4-04 | Delegated claims and revocation propagation | L | TODO | P4-02, P2-04 |
 | P4-05 | Console — Project Grants tab | L | **DONE** — Flow 2 with the partner named by ID (ADR-026: a search would enumerate every organization). Every project role listed, the unshared ones in words; the summary builds live; a second step confirms. Revocation states `holder_count`, added to the API for it, and asks for the partner's name when it is above zero. Fixed `ConfirmDialog`: typed text survived a cancel, and the typed input never took focus | P4-01 |
 | P4-06 | Console — Granted Projects list | L | TODO | P4-02 |

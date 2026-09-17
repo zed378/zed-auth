@@ -143,16 +143,23 @@ var Policy = map[string]Requirement{
 	"GET /v1/organizations/{org_id}/projects/{project_id}/grants/{grant_id}":    {Role: ProjectOwner, Scope: ScopeProject},
 	"DELETE /v1/organizations/{org_id}/projects/{project_id}/grants/{grant_id}": {Role: ProjectOwner, Scope: ScopeProject},
 
-	// Delegated roles (P4-02): the RECEIVING organization's routes. The path
-	// organization is the one the grant was made to, and the handler finds the
-	// grant only by `granted_org_id` — so the granting organization's
-	// administrators, who hold nothing over the receiving organization, are
-	// refused here and could not find the grant if they were not (threat
-	// review T4-4). P4-03 adds PROJECT_GRANT_OWNER at grant scope.
-	"GET /v1/organizations/{org_id}/project-grants/{grant_id}/user-grants":              {Role: OrgAdmin, Scope: ScopeOrganization},
-	"POST /v1/organizations/{org_id}/project-grants/{grant_id}/user-grants":             {Role: OrgAdmin, Scope: ScopeOrganization},
-	"PATCH /v1/organizations/{org_id}/project-grants/{grant_id}/user-grants/{user_id}":  {Role: OrgAdmin, Scope: ScopeOrganization},
-	"DELETE /v1/organizations/{org_id}/project-grants/{grant_id}/user-grants/{user_id}": {Role: OrgAdmin, Scope: ScopeOrganization},
+	// Delegated roles (P4-02, P4-03): the RECEIVING organization's routes.
+	// PROJECT_GRANT_OWNER of the grant in the path, or an organization role
+	// over the path organization, which satisfies it. The handler finds the
+	// grant only by granted_org_id, so the granting organization's
+	// administrators could not act here even through their own path (T4-4),
+	// and it refuses a grant owner whose grant is revoked.
+	"GET /v1/organizations/{org_id}/project-grants/{grant_id}/user-grants":              {Role: ProjectGrantOwner, Scope: ScopeProjectGrant},
+	"POST /v1/organizations/{org_id}/project-grants/{grant_id}/user-grants":             {Role: ProjectGrantOwner, Scope: ScopeProjectGrant},
+	"PATCH /v1/organizations/{org_id}/project-grants/{grant_id}/user-grants/{user_id}":  {Role: ProjectGrantOwner, Scope: ScopeProjectGrant},
+	"DELETE /v1/organizations/{org_id}/project-grants/{grant_id}/user-grants/{user_id}": {Role: ProjectGrantOwner, Scope: ScopeProjectGrant},
+
+	// Who owns a received grant (P4-03). ORG_ADMIN of the receiving
+	// organization: a grant owner cannot appoint another, and the granting
+	// organization cannot appoint anyone.
+	"GET /v1/organizations/{org_id}/project-grants/{grant_id}/owners":              {Role: OrgAdmin, Scope: ScopeOrganization},
+	"POST /v1/organizations/{org_id}/project-grants/{grant_id}/owners":             {Role: OrgAdmin, Scope: ScopeOrganization},
+	"DELETE /v1/organizations/{org_id}/project-grants/{grant_id}/owners/{user_id}": {Role: OrgAdmin, Scope: ScopeOrganization},
 
 	// --- Users (P1-19) ---
 	//

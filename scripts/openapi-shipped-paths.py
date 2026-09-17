@@ -96,6 +96,9 @@ SHIPPED = {
     # a subset checked against the grant on every request.
     "/v1/organizations/{org_id}/project-grants/{grant_id}/user-grants",
     "/v1/organizations/{org_id}/project-grants/{grant_id}/user-grants/{user_id}",
+    # P4-03. PROJECT_GRANT_OWNER: the one role scoped to a single grant.
+    "/v1/organizations/{org_id}/project-grants/{grant_id}/owners",
+    "/v1/organizations/{org_id}/project-grants/{grant_id}/owners/{user_id}",
     # P2-03. The row that actually grants access. ORG_ADMIN over the
     # organization, because the path is about a user.
     "/v1/organizations/{org_id}/users/{user_id}/grants",

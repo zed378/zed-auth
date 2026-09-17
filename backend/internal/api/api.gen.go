@@ -1512,6 +1512,91 @@ type ProjectGrantList struct {
 	PageInfo *PageInfo `json:"page_info,omitempty"`
 }
 
+// ProjectGrantOwner defines model for ProjectGrantOwner.
+type ProjectGrantOwner struct {
+	CreatedAt time.Time `json:"created_at"`
+
+	// GrantId A resource's stable identifier. Not sequential and not guessable.
+	//
+	// **This was specified as a prefixed, sortable identifier** — `usr_`,
+	// `org_`, `prj_` — and is a UUID instead. The change is deliberate and is
+	// recorded as `PG-23`.
+	//
+	// The prefix has a real benefit: an id pasted into a support ticket is
+	// self-describing, and passing a project id where a user id belongs is
+	// visible on sight rather than at the database. What it cannot survive is
+	// being applied to only part of the surface. `docs/PLAN/04` makes every
+	// primary key a UUID, the access token's `org_id` claim is a UUID, and
+	// OpenID Connect's `sub` — already shipped by `P1-08` — is a UUID that
+	// callers store as a user's permanent key.
+	//
+	// Prefixing only the Management API would give the same user two
+	// identifiers and make every consumer convert between them, which is a
+	// larger and more permanent papercut than the one the prefix removes.
+	// Prefixing everything means changing `sub`, which is a protocol field
+	// with its own conventions and a value integrators have already stored.
+	//
+	// So: UUIDs everywhere, and if prefixed identifiers are wanted later they
+	// arrive everywhere at once or not at all.
+	GrantId ResourceId `json:"grant_id"`
+
+	// UserId A resource's stable identifier. Not sequential and not guessable.
+	//
+	// **This was specified as a prefixed, sortable identifier** — `usr_`,
+	// `org_`, `prj_` — and is a UUID instead. The change is deliberate and is
+	// recorded as `PG-23`.
+	//
+	// The prefix has a real benefit: an id pasted into a support ticket is
+	// self-describing, and passing a project id where a user id belongs is
+	// visible on sight rather than at the database. What it cannot survive is
+	// being applied to only part of the surface. `docs/PLAN/04` makes every
+	// primary key a UUID, the access token's `org_id` claim is a UUID, and
+	// OpenID Connect's `sub` — already shipped by `P1-08` — is a UUID that
+	// callers store as a user's permanent key.
+	//
+	// Prefixing only the Management API would give the same user two
+	// identifiers and make every consumer convert between them, which is a
+	// larger and more permanent papercut than the one the prefix removes.
+	// Prefixing everything means changing `sub`, which is a protocol field
+	// with its own conventions and a value integrators have already stored.
+	//
+	// So: UUIDs everywhere, and if prefixed identifiers are wanted later they
+	// arrive everywhere at once or not at all.
+	UserId ResourceId `json:"user_id"`
+}
+
+// ProjectGrantOwnerCreate defines model for ProjectGrantOwnerCreate.
+type ProjectGrantOwnerCreate struct {
+	// UserId A resource's stable identifier. Not sequential and not guessable.
+	//
+	// **This was specified as a prefixed, sortable identifier** — `usr_`,
+	// `org_`, `prj_` — and is a UUID instead. The change is deliberate and is
+	// recorded as `PG-23`.
+	//
+	// The prefix has a real benefit: an id pasted into a support ticket is
+	// self-describing, and passing a project id where a user id belongs is
+	// visible on sight rather than at the database. What it cannot survive is
+	// being applied to only part of the surface. `docs/PLAN/04` makes every
+	// primary key a UUID, the access token's `org_id` claim is a UUID, and
+	// OpenID Connect's `sub` — already shipped by `P1-08` — is a UUID that
+	// callers store as a user's permanent key.
+	//
+	// Prefixing only the Management API would give the same user two
+	// identifiers and make every consumer convert between them, which is a
+	// larger and more permanent papercut than the one the prefix removes.
+	// Prefixing everything means changing `sub`, which is a protocol field
+	// with its own conventions and a value integrators have already stored.
+	//
+	// So: UUIDs everywhere, and if prefixed identifiers are wanted later they
+	// arrive everywhere at once or not at all.
+	UserId ResourceId `json:"user_id"`
+}
+
+// ProjectGrantOwnerList defines model for ProjectGrantOwnerList.
+type ProjectGrantOwnerList struct {
+	Owners []ProjectGrantOwner `json:"owners"`
+}
+
 // ProjectList defines model for ProjectList.
 type ProjectList struct {
 	// PageInfo The pagination envelope every collection response embeds.
@@ -2467,6 +2552,26 @@ type ListEventsParams struct {
 	To *time.Time `form:"to,omitempty" json:"to,omitempty"`
 }
 
+// AssignProjectGrantOwnerParams defines parameters for AssignProjectGrantOwner.
+type AssignProjectGrantOwnerParams struct {
+	// IdempotencyKey A client-generated key making a retried `POST` safe. Replaying a
+	// request with the same key returns the original result rather than
+	// creating a second resource — which matters most for automated
+	// provisioning, where a network timeout is indistinguishable from a
+	// failure (`docs/PLAN/05` Part B).
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+}
+
+// RemoveProjectGrantOwnerParams defines parameters for RemoveProjectGrantOwner.
+type RemoveProjectGrantOwnerParams struct {
+	// IdempotencyKey A client-generated key making a retried `POST` safe. Replaying a
+	// request with the same key returns the original result rather than
+	// creating a second resource — which matters most for automated
+	// provisioning, where a network timeout is indistinguishable from a
+	// failure (`docs/PLAN/05` Part B).
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+}
+
 // ListDelegatedUserGrantsParams defines parameters for ListDelegatedUserGrants.
 type ListDelegatedUserGrantsParams struct {
 	// PageSize Maximum items to return. The server may return fewer, and returning
@@ -2752,6 +2857,9 @@ type CreateOrganizationJSONRequestBody = OrganizationCreate
 // UpdateOrganizationJSONRequestBody defines body for UpdateOrganization for application/json ContentType.
 type UpdateOrganizationJSONRequestBody = OrganizationUpdate
 
+// AssignProjectGrantOwnerJSONRequestBody defines body for AssignProjectGrantOwner for application/json ContentType.
+type AssignProjectGrantOwnerJSONRequestBody = ProjectGrantOwnerCreate
+
 // AssignDelegatedRolesJSONRequestBody defines body for AssignDelegatedRoles for application/json ContentType.
 type AssignDelegatedRolesJSONRequestBody = DelegatedGrantCreate
 
@@ -2862,6 +2970,15 @@ type ServerInterface interface {
 	// How many members would be affected by requiring two-step verification
 	// (GET /v1/organizations/{org_id}/mfa-impact)
 	GetMfaImpact(w http.ResponseWriter, r *http.Request, orgId OrganizationId)
+	// List who may assign a received grant's roles
+	// (GET /v1/organizations/{org_id}/project-grants/{grant_id}/owners)
+	ListProjectGrantOwners(w http.ResponseWriter, r *http.Request, orgId OrganizationId, grantId ProjectGrantId)
+	// Make one of this organization's users an owner of a received grant
+	// (POST /v1/organizations/{org_id}/project-grants/{grant_id}/owners)
+	AssignProjectGrantOwner(w http.ResponseWriter, r *http.Request, orgId OrganizationId, grantId ProjectGrantId, params AssignProjectGrantOwnerParams)
+	// Remove an owner of a received grant
+	// (DELETE /v1/organizations/{org_id}/project-grants/{grant_id}/owners/{user_id})
+	RemoveProjectGrantOwner(w http.ResponseWriter, r *http.Request, orgId OrganizationId, grantId ProjectGrantId, userId UserId, params RemoveProjectGrantOwnerParams)
 	// List the roles assigned through a received grant
 	// (GET /v1/organizations/{org_id}/project-grants/{grant_id}/user-grants)
 	ListDelegatedUserGrants(w http.ResponseWriter, r *http.Request, orgId OrganizationId, grantId ProjectGrantId, params ListDelegatedUserGrantsParams)
@@ -3120,6 +3237,24 @@ func (_ Unimplemented) ListEvents(w http.ResponseWriter, r *http.Request, orgId 
 // How many members would be affected by requiring two-step verification
 // (GET /v1/organizations/{org_id}/mfa-impact)
 func (_ Unimplemented) GetMfaImpact(w http.ResponseWriter, r *http.Request, orgId OrganizationId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// List who may assign a received grant's roles
+// (GET /v1/organizations/{org_id}/project-grants/{grant_id}/owners)
+func (_ Unimplemented) ListProjectGrantOwners(w http.ResponseWriter, r *http.Request, orgId OrganizationId, grantId ProjectGrantId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Make one of this organization's users an owner of a received grant
+// (POST /v1/organizations/{org_id}/project-grants/{grant_id}/owners)
+func (_ Unimplemented) AssignProjectGrantOwner(w http.ResponseWriter, r *http.Request, orgId OrganizationId, grantId ProjectGrantId, params AssignProjectGrantOwnerParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Remove an owner of a received grant
+// (DELETE /v1/organizations/{org_id}/project-grants/{grant_id}/owners/{user_id})
+func (_ Unimplemented) RemoveProjectGrantOwner(w http.ResponseWriter, r *http.Request, orgId OrganizationId, grantId ProjectGrantId, userId UserId, params RemoveProjectGrantOwnerParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -4164,6 +4299,183 @@ func (siw *ServerInterfaceWrapper) GetMfaImpact(w http.ResponseWriter, r *http.R
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetMfaImpact(w, r, orgId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListProjectGrantOwners operation middleware
+func (siw *ServerInterfaceWrapper) ListProjectGrantOwners(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "org_id" -------------
+	var orgId OrganizationId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "org_id", chi.URLParam(r, "org_id"), &orgId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "org_id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "grant_id" -------------
+	var grantId ProjectGrantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "grant_id", chi.URLParam(r, "grant_id"), &grantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "grant_id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, Oauth2Scopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListProjectGrantOwners(w, r, orgId, grantId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// AssignProjectGrantOwner operation middleware
+func (siw *ServerInterfaceWrapper) AssignProjectGrantOwner(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "org_id" -------------
+	var orgId OrganizationId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "org_id", chi.URLParam(r, "org_id"), &orgId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "org_id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "grant_id" -------------
+	var grantId ProjectGrantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "grant_id", chi.URLParam(r, "grant_id"), &grantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "grant_id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, Oauth2Scopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params AssignProjectGrantOwnerParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AssignProjectGrantOwner(w, r, orgId, grantId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RemoveProjectGrantOwner operation middleware
+func (siw *ServerInterfaceWrapper) RemoveProjectGrantOwner(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "org_id" -------------
+	var orgId OrganizationId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "org_id", chi.URLParam(r, "org_id"), &orgId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "org_id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "grant_id" -------------
+	var grantId ProjectGrantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "grant_id", chi.URLParam(r, "grant_id"), &grantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "grant_id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "user_id" -------------
+	var userId UserId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "user_id", chi.URLParam(r, "user_id"), &userId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "user_id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, Oauth2Scopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params RemoveProjectGrantOwnerParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RemoveProjectGrantOwner(w, r, orgId, grantId, userId, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -6539,6 +6851,15 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Get(options.BaseURL+"/v1/organizations/{org_id}/mfa-impact", wrapper.GetMfaImpact)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/v1/organizations/{org_id}/project-grants/{grant_id}/owners", wrapper.ListProjectGrantOwners)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/organizations/{org_id}/project-grants/{grant_id}/owners", wrapper.AssignProjectGrantOwner)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/v1/organizations/{org_id}/project-grants/{grant_id}/owners/{user_id}", wrapper.RemoveProjectGrantOwner)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/v1/organizations/{org_id}/project-grants/{grant_id}/user-grants", wrapper.ListDelegatedUserGrants)
 	})
 	r.Group(func(r chi.Router) {
@@ -8021,6 +8342,228 @@ func (response GetMfaImpact429JSONResponse) VisitGetMfaImpactResponse(w http.Res
 type GetMfaImpact500JSONResponse struct{ InternalErrorJSONResponse }
 
 func (response GetMfaImpact500JSONResponse) VisitGetMfaImpactResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListProjectGrantOwnersRequestObject struct {
+	OrgId   OrganizationId `json:"org_id"`
+	GrantId ProjectGrantId `json:"grant_id"`
+}
+
+type ListProjectGrantOwnersResponseObject interface {
+	VisitListProjectGrantOwnersResponse(w http.ResponseWriter) error
+}
+
+type ListProjectGrantOwners200JSONResponse ProjectGrantOwnerList
+
+func (response ListProjectGrantOwners200JSONResponse) VisitListProjectGrantOwnersResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListProjectGrantOwners401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ListProjectGrantOwners401JSONResponse) VisitListProjectGrantOwnersResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListProjectGrantOwners403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response ListProjectGrantOwners403JSONResponse) VisitListProjectGrantOwnersResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListProjectGrantOwners404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response ListProjectGrantOwners404JSONResponse) VisitListProjectGrantOwnersResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListProjectGrantOwners429JSONResponse struct{ RateLimitedJSONResponse }
+
+func (response ListProjectGrantOwners429JSONResponse) VisitListProjectGrantOwnersResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Retry-After", fmt.Sprint(response.Headers.RetryAfter))
+	w.Header().Set("X-RateLimit-Limit", fmt.Sprint(response.Headers.XRateLimitLimit))
+	w.Header().Set("X-RateLimit-Remaining", fmt.Sprint(response.Headers.XRateLimitRemaining))
+	w.Header().Set("X-RateLimit-Reset", fmt.Sprint(response.Headers.XRateLimitReset))
+	w.WriteHeader(429)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type ListProjectGrantOwners500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response ListProjectGrantOwners500JSONResponse) VisitListProjectGrantOwnersResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type AssignProjectGrantOwnerRequestObject struct {
+	OrgId   OrganizationId `json:"org_id"`
+	GrantId ProjectGrantId `json:"grant_id"`
+	Params  AssignProjectGrantOwnerParams
+	Body    *AssignProjectGrantOwnerJSONRequestBody
+}
+
+type AssignProjectGrantOwnerResponseObject interface {
+	VisitAssignProjectGrantOwnerResponse(w http.ResponseWriter) error
+}
+
+type AssignProjectGrantOwner201JSONResponse ProjectGrantOwner
+
+func (response AssignProjectGrantOwner201JSONResponse) VisitAssignProjectGrantOwnerResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type AssignProjectGrantOwner400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response AssignProjectGrantOwner400JSONResponse) VisitAssignProjectGrantOwnerResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type AssignProjectGrantOwner401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response AssignProjectGrantOwner401JSONResponse) VisitAssignProjectGrantOwnerResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type AssignProjectGrantOwner403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response AssignProjectGrantOwner403JSONResponse) VisitAssignProjectGrantOwnerResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type AssignProjectGrantOwner404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response AssignProjectGrantOwner404JSONResponse) VisitAssignProjectGrantOwnerResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type AssignProjectGrantOwner409JSONResponse struct{ ConflictJSONResponse }
+
+func (response AssignProjectGrantOwner409JSONResponse) VisitAssignProjectGrantOwnerResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type AssignProjectGrantOwner429JSONResponse struct{ RateLimitedJSONResponse }
+
+func (response AssignProjectGrantOwner429JSONResponse) VisitAssignProjectGrantOwnerResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Retry-After", fmt.Sprint(response.Headers.RetryAfter))
+	w.Header().Set("X-RateLimit-Limit", fmt.Sprint(response.Headers.XRateLimitLimit))
+	w.Header().Set("X-RateLimit-Remaining", fmt.Sprint(response.Headers.XRateLimitRemaining))
+	w.Header().Set("X-RateLimit-Reset", fmt.Sprint(response.Headers.XRateLimitReset))
+	w.WriteHeader(429)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type AssignProjectGrantOwner500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response AssignProjectGrantOwner500JSONResponse) VisitAssignProjectGrantOwnerResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type RemoveProjectGrantOwnerRequestObject struct {
+	OrgId   OrganizationId `json:"org_id"`
+	GrantId ProjectGrantId `json:"grant_id"`
+	UserId  UserId         `json:"user_id"`
+	Params  RemoveProjectGrantOwnerParams
+}
+
+type RemoveProjectGrantOwnerResponseObject interface {
+	VisitRemoveProjectGrantOwnerResponse(w http.ResponseWriter) error
+}
+
+type RemoveProjectGrantOwner204Response struct {
+}
+
+func (response RemoveProjectGrantOwner204Response) VisitRemoveProjectGrantOwnerResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type RemoveProjectGrantOwner401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response RemoveProjectGrantOwner401JSONResponse) VisitRemoveProjectGrantOwnerResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type RemoveProjectGrantOwner403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response RemoveProjectGrantOwner403JSONResponse) VisitRemoveProjectGrantOwnerResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type RemoveProjectGrantOwner404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response RemoveProjectGrantOwner404JSONResponse) VisitRemoveProjectGrantOwnerResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type RemoveProjectGrantOwner429JSONResponse struct{ RateLimitedJSONResponse }
+
+func (response RemoveProjectGrantOwner429JSONResponse) VisitRemoveProjectGrantOwnerResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Retry-After", fmt.Sprint(response.Headers.RetryAfter))
+	w.Header().Set("X-RateLimit-Limit", fmt.Sprint(response.Headers.XRateLimitLimit))
+	w.Header().Set("X-RateLimit-Remaining", fmt.Sprint(response.Headers.XRateLimitRemaining))
+	w.Header().Set("X-RateLimit-Reset", fmt.Sprint(response.Headers.XRateLimitReset))
+	w.WriteHeader(429)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type RemoveProjectGrantOwner500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response RemoveProjectGrantOwner500JSONResponse) VisitRemoveProjectGrantOwnerResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(500)
 
@@ -11054,6 +11597,15 @@ type StrictServerInterface interface {
 	// How many members would be affected by requiring two-step verification
 	// (GET /v1/organizations/{org_id}/mfa-impact)
 	GetMfaImpact(ctx context.Context, request GetMfaImpactRequestObject) (GetMfaImpactResponseObject, error)
+	// List who may assign a received grant's roles
+	// (GET /v1/organizations/{org_id}/project-grants/{grant_id}/owners)
+	ListProjectGrantOwners(ctx context.Context, request ListProjectGrantOwnersRequestObject) (ListProjectGrantOwnersResponseObject, error)
+	// Make one of this organization's users an owner of a received grant
+	// (POST /v1/organizations/{org_id}/project-grants/{grant_id}/owners)
+	AssignProjectGrantOwner(ctx context.Context, request AssignProjectGrantOwnerRequestObject) (AssignProjectGrantOwnerResponseObject, error)
+	// Remove an owner of a received grant
+	// (DELETE /v1/organizations/{org_id}/project-grants/{grant_id}/owners/{user_id})
+	RemoveProjectGrantOwner(ctx context.Context, request RemoveProjectGrantOwnerRequestObject) (RemoveProjectGrantOwnerResponseObject, error)
 	// List the roles assigned through a received grant
 	// (GET /v1/organizations/{org_id}/project-grants/{grant_id}/user-grants)
 	ListDelegatedUserGrants(ctx context.Context, request ListDelegatedUserGrantsRequestObject) (ListDelegatedUserGrantsResponseObject, error)
@@ -11823,6 +12375,97 @@ func (sh *strictHandler) GetMfaImpact(w http.ResponseWriter, r *http.Request, or
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetMfaImpactResponseObject); ok {
 		if err := validResponse.VisitGetMfaImpactResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListProjectGrantOwners operation middleware
+func (sh *strictHandler) ListProjectGrantOwners(w http.ResponseWriter, r *http.Request, orgId OrganizationId, grantId ProjectGrantId) {
+	var request ListProjectGrantOwnersRequestObject
+
+	request.OrgId = orgId
+	request.GrantId = grantId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListProjectGrantOwners(ctx, request.(ListProjectGrantOwnersRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListProjectGrantOwners")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListProjectGrantOwnersResponseObject); ok {
+		if err := validResponse.VisitListProjectGrantOwnersResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// AssignProjectGrantOwner operation middleware
+func (sh *strictHandler) AssignProjectGrantOwner(w http.ResponseWriter, r *http.Request, orgId OrganizationId, grantId ProjectGrantId, params AssignProjectGrantOwnerParams) {
+	var request AssignProjectGrantOwnerRequestObject
+
+	request.OrgId = orgId
+	request.GrantId = grantId
+	request.Params = params
+
+	var body AssignProjectGrantOwnerJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.AssignProjectGrantOwner(ctx, request.(AssignProjectGrantOwnerRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "AssignProjectGrantOwner")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(AssignProjectGrantOwnerResponseObject); ok {
+		if err := validResponse.VisitAssignProjectGrantOwnerResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RemoveProjectGrantOwner operation middleware
+func (sh *strictHandler) RemoveProjectGrantOwner(w http.ResponseWriter, r *http.Request, orgId OrganizationId, grantId ProjectGrantId, userId UserId, params RemoveProjectGrantOwnerParams) {
+	var request RemoveProjectGrantOwnerRequestObject
+
+	request.OrgId = orgId
+	request.GrantId = grantId
+	request.UserId = userId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RemoveProjectGrantOwner(ctx, request.(RemoveProjectGrantOwnerRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RemoveProjectGrantOwner")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RemoveProjectGrantOwnerResponseObject); ok {
+		if err := validResponse.VisitRemoveProjectGrantOwnerResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
