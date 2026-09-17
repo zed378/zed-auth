@@ -8,7 +8,7 @@ import { ErrorState, Skeleton } from "../components/states";
 import { Table } from "../components/Table";
 import type { Column } from "../components/Table";
 import { api, queryKeys } from "../lib/api/client";
-import { ApiFailure, asFailure } from "../lib/api/queries";
+import { ApiFailure, PAGE_SIZE, asFailure, collectPages } from "../lib/api/queries";
 import type { components } from "../lib/api/schema.gen";
 import { useAuth } from "../lib/auth/AuthProvider";
 
@@ -53,13 +53,17 @@ export function SessionsTab({ orgId, userId }: { orgId: string | null; userId: s
     queryKey: key,
     enabled: orgId !== null,
     queryFn: async () => {
-      const { data, error } = self
-        ? await api.GET("/v1/me/sessions", { params: { query: { page_size: 100 } } })
-        : await api.GET("/v1/organizations/{org_id}/users/{user_id}/sessions", {
-            params: { path: { org_id: orgId as string, user_id: userId }, query: { page_size: 100 } },
-          });
-      if (error !== undefined) throw asFailure(error);
-      return data.sessions;
+      const all = await collectPages(async (token) => {
+        const query = { page_size: PAGE_SIZE, ...(token === undefined ? {} : { page_token: token }) };
+        const { data, error } = self
+          ? await api.GET("/v1/me/sessions", { params: { query } })
+          : await api.GET("/v1/organizations/{org_id}/users/{user_id}/sessions", {
+              params: { path: { org_id: orgId as string, user_id: userId }, query },
+            });
+        if (error !== undefined) throw asFailure(error);
+        return { items: data.sessions, next: data.page_info?.next_page_token };
+      });
+      return all.items;
     },
   });
 

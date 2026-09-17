@@ -35,7 +35,8 @@ export function UsersPage() {
   const [inviting, setInviting] = useState(false);
   const { hasRole } = useAuth();
 
-  const all = (users.data ?? []) as User[];
+  const all = (users.data?.items ?? []) as User[];
+  const complete = users.data?.complete ?? true;
   const rows = status === "" ? all : all.filter((user) => user.status === status);
 
   const columns: Column<User>[] = [
@@ -121,6 +122,16 @@ export function UsersPage() {
           </select>
         </div>
       </div>
+
+      {!complete ? (
+        // The list reached the bound on how many pages one read follows.
+        // Saying so is the whole point: a silently shortened list is how the
+        // newest users disappeared in the first place.
+        <p role="status" className="mt-4 rounded border border-warning bg-bg-surface p-3 text-small text-text-primary">
+          Showing the first {all.length.toLocaleString()} users, oldest first. Search by name or
+          email to find anyone else{status !== "" ? "; the status filter applies to these only" : ""}.
+        </p>
+      ) : null}
 
       <div className="mt-4">
         <Table<User>
