@@ -741,6 +741,12 @@ type ProjectGrants interface {
 	CreateProjectGrant(ctx context.Context, request api.CreateProjectGrantRequestObject) (api.CreateProjectGrantResponseObject, error)
 	GetProjectGrant(ctx context.Context, request api.GetProjectGrantRequestObject) (api.GetProjectGrantResponseObject, error)
 	RevokeProjectGrant(ctx context.Context, request api.RevokeProjectGrantRequestObject) (api.RevokeProjectGrantResponseObject, error)
+
+	// The receiving organization's side (P4-02).
+	ListDelegatedUserGrants(ctx context.Context, request api.ListDelegatedUserGrantsRequestObject) (api.ListDelegatedUserGrantsResponseObject, error)
+	AssignDelegatedRoles(ctx context.Context, request api.AssignDelegatedRolesRequestObject) (api.AssignDelegatedRolesResponseObject, error)
+	ReplaceDelegatedRoles(ctx context.Context, request api.ReplaceDelegatedRolesRequestObject) (api.ReplaceDelegatedRolesResponseObject, error)
+	RemoveDelegatedRoles(ctx context.Context, request api.RemoveDelegatedRolesRequestObject) (api.RemoveDelegatedRolesResponseObject, error)
 }
 
 var _ api.StrictServerInterface = apiRoutes{}

@@ -260,6 +260,7 @@ func refuseSelfService(ctx context.Context, subjectUserID string) error {
 	return nil
 }
 
+// render is the API shape of a grant, direct or delegated.
 func render(g Grant) (api.Grant, error) {
 	userID, err := uuid.Parse(g.UserID)
 	if err != nil {
@@ -274,6 +275,15 @@ func render(g Grant) (api.Grant, error) {
 	keys = append(keys, g.RoleKeys...)
 
 	out := api.Grant{UserId: userID, ProjectId: projectID, RoleKeys: keys}
+	if g.ProjectGrantID == "" {
+		out.ProjectGrantId.SetNull()
+	} else {
+		via, err := uuid.Parse(g.ProjectGrantID)
+		if err != nil {
+			return api.Grant{}, fmt.Errorf("grant: rendering project grant %q: %w", g.ProjectGrantID, err)
+		}
+		out.ProjectGrantId.Set(via)
+	}
 	if g.CreatedAt.Valid {
 		created := g.CreatedAt.Time
 		out.CreatedAt = &created
@@ -346,6 +356,16 @@ func faultFrom(err error) error {
 		return err
 	}
 
+	var notDelegated ErrNotDelegated
+	if errors.As(err, &notDelegated) {
+		return management.Fault{
+			Class:   management.Invalid,
+			Message: fmt.Sprintf("The role %q is not delegated by the Project Grant these roles came through.", notDelegated.Key),
+			Details: []api.ErrorDetail{{Field: "role_keys", Issue: "not delegated: " + notDelegated.Key}},
+			Reason:  "delegated grant widened beyond its project grant",
+		}
+	}
+
 	var unknown ErrUnknownRole
 	if errors.As(err, &unknown) {
 		return management.Fault{
@@ -362,11 +382,11 @@ func faultFrom(err error) error {
 			Class: management.NotFound, Message: "The requested resource was not found.",
 			Reason: "no such grant, user or project in this organization",
 		}
-	case errors.Is(err, ErrDelegationNotImplemented):
+	case errors.Is(err, ErrGrantRevoked):
 		return management.Fault{
-			Class:   management.Invalid,
-			Message: "Delegated grants are not available yet.",
-			Reason:  "project_grant_id is closed until P4-01",
+			Class:   management.Conflict,
+			Message: "The Project Grant these roles came through has been revoked. Its roles can be removed, not changed.",
+			Reason:  "write to a delegated grant under a revoked project grant",
 		}
 	}
 	return err

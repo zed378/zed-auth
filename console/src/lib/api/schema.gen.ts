@@ -1300,6 +1300,94 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/organizations/{org_id}/project-grants/{grant_id}/user-grants": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The organization that owns the resource. Every request is scoped to exactly one. */
+                org_id: components["parameters"]["OrganizationId"];
+                /** @description A project grant — the delegation of one project to one organization. */
+                grant_id: components["parameters"]["ProjectGrantId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * List the roles assigned through a received grant
+         * @description Requires `ORG_ADMIN` over this organization, which must be the
+         *     organization the grant was made **to**. The granting organization gets
+         *     a 404 here: it lends the project, and does not administer the
+         *     receiving organization's people.
+         *
+         *     Listed under a revoked grant too, as history. A delegated role confers
+         *     nothing once its grant is revoked.
+         *
+         *     Paginated, oldest first: one grant to a large partner can carry every
+         *     one of its users.
+         */
+        get: operations["listDelegatedUserGrants"];
+        put?: never;
+        /**
+         * Assign delegated roles to one of this organization's users
+         * @description Requires `ORG_ADMIN` over this organization, which must be the
+         *     organization the grant was made to. The user must be a member of it.
+         *
+         *     **Every role key must be one the grant delegates**, checked against the
+         *     grant as it stands at this moment, on every request (`docs/PLAN/08`
+         *     Part C). A key it does not delegate is refused by name, and the refusal
+         *     lists what it does delegate. A revoked grant refuses every assignment
+         *     with `409`.
+         *
+         *     A user whose earlier delegated roles for this project came through a
+         *     grant that has since been revoked is re-assigned through this one; the
+         *     stale assignment is replaced and the audit event says so. A caller
+         *     cannot assign roles to themselves.
+         */
+        post: operations["assignDelegatedRoles"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/organizations/{org_id}/project-grants/{grant_id}/user-grants/{user_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The organization that owns the resource. Every request is scoped to exactly one. */
+                org_id: components["parameters"]["OrganizationId"];
+                /** @description A project grant — the delegation of one project to one organization. */
+                grant_id: components["parameters"]["ProjectGrantId"];
+                /** @description The user this operation acts on. */
+                user_id: components["parameters"]["UserId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Remove a user's delegated roles
+         * @description Requires `ORG_ADMIN` over the organization the grant was made to.
+         *
+         *     Allowed under a revoked grant, so a partner can clear assignments a
+         *     vendor's revocation already made inert.
+         */
+        delete: operations["removeDelegatedRoles"];
+        options?: never;
+        head?: never;
+        /**
+         * Replace a user's delegated roles
+         * @description Requires `ORG_ADMIN` over the organization the grant was made to.
+         *
+         *     Replaces the set entirely, and every key is checked against the grant
+         *     as it stands now, like an assignment. A revoked grant refuses with
+         *     `409`. To remove the roles, delete them.
+         */
+        patch: operations["replaceDelegatedRoles"];
+        trace?: never;
+    };
     "/v1/organizations/{org_id}/projects/{project_id}/applications": {
         parameters: {
             query?: never;
@@ -1986,15 +2074,21 @@ export interface components {
         /**
          * @description One user's roles in one project — the row that actually grants access.
          *
-         *     `project_grant_id` is absent in this phase. It distinguishes a
-         *     delegated grant from a direct one, and delegation requires the role
-         *     keys to be a subset of what was delegated, revalidated on every
-         *     request (`docs/PLAN/08` Part C). That check arrives with Project
-         *     Grants; until then a non-null value is refused at the database.
+         *     `project_grant_id` distinguishes a delegated grant from a direct one.
+         *     It is null for a direct grant, made by the organization that owns the
+         *     project. When set, the grant was made by another organization's
+         *     administrators through that Project Grant, its role keys are a subset
+         *     of what the grant delegates, and it confers nothing once the grant is
+         *     revoked (`docs/PLAN/08` Part C).
          */
         Grant: {
             user_id: components["schemas"]["ResourceId"];
             project_id: components["schemas"]["ResourceId"];
+            /**
+             * Format: uuid
+             * @description The Project Grant this came through, or null for a direct grant.
+             */
+            project_grant_id?: string | null;
             /**
              * @description Every key names a role that exists in this project. Never empty: a
              *     grant with no roles grants nothing and is deleted instead.
@@ -2014,6 +2108,15 @@ export interface components {
         };
         GrantCreate: {
             project_id: components["schemas"]["ResourceId"];
+            role_keys: components["schemas"]["RoleKey"][];
+        };
+        DelegatedGrantList: {
+            grants: components["schemas"]["Grant"][];
+            page_info?: components["schemas"]["PageInfo"];
+        };
+        DelegatedGrantCreate: {
+            user_id: components["schemas"]["ResourceId"];
+            /** @description A subset of the Project Grant's `granted_role_keys`. */
             role_keys: components["schemas"]["RoleKey"][];
         };
         GrantUpdate: {
@@ -5061,6 +5164,171 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            429: components["responses"]["RateLimited"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    listDelegatedUserGrants: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Maximum items to return. The server may return fewer, and returning
+                 *     fewer never means the collection is exhausted — only an absent
+                 *     `next_page_token` means that.
+                 */
+                page_size?: components["parameters"]["PageSize"];
+                /**
+                 * @description The `next_page_token` from the previous response. Opaque: its contents
+                 *     are not part of the contract and must not be constructed, parsed, or
+                 *     persisted by a client.
+                 */
+                page_token?: components["parameters"]["PageToken"];
+            };
+            header?: never;
+            path: {
+                /** @description The organization that owns the resource. Every request is scoped to exactly one. */
+                org_id: components["parameters"]["OrganizationId"];
+                /** @description A project grant — the delegation of one project to one organization. */
+                grant_id: components["parameters"]["ProjectGrantId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The delegated grants made through this Project Grant. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DelegatedGrantList"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["RateLimited"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    assignDelegatedRoles: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description A client-generated key making a retried `POST` safe. Replaying a
+                 *     request with the same key returns the original result rather than
+                 *     creating a second resource — which matters most for automated
+                 *     provisioning, where a network timeout is indistinguishable from a
+                 *     failure (`docs/PLAN/05` Part B).
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                /** @description The organization that owns the resource. Every request is scoped to exactly one. */
+                org_id: components["parameters"]["OrganizationId"];
+                /** @description A project grant — the delegation of one project to one organization. */
+                grant_id: components["parameters"]["ProjectGrantId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DelegatedGrantCreate"];
+            };
+        };
+        responses: {
+            /** @description The delegated grant. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Grant"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["RateLimited"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    removeDelegatedRoles: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description A client-generated key making a retried `POST` safe. Replaying a
+                 *     request with the same key returns the original result rather than
+                 *     creating a second resource — which matters most for automated
+                 *     provisioning, where a network timeout is indistinguishable from a
+                 *     failure (`docs/PLAN/05` Part B).
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                /** @description The organization that owns the resource. Every request is scoped to exactly one. */
+                org_id: components["parameters"]["OrganizationId"];
+                /** @description A project grant — the delegation of one project to one organization. */
+                grant_id: components["parameters"]["ProjectGrantId"];
+                /** @description The user this operation acts on. */
+                user_id: components["parameters"]["UserId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The delegated roles are removed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["RateLimited"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    replaceDelegatedRoles: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The organization that owns the resource. Every request is scoped to exactly one. */
+                org_id: components["parameters"]["OrganizationId"];
+                /** @description A project grant — the delegation of one project to one organization. */
+                grant_id: components["parameters"]["ProjectGrantId"];
+                /** @description The user this operation acts on. */
+                user_id: components["parameters"]["UserId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GrantUpdate"];
+            };
+        };
+        responses: {
+            /** @description The updated delegated grant. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Grant"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
             429: components["responses"]["RateLimited"];
             500: components["responses"]["InternalError"];
         };
