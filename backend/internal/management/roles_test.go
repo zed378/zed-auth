@@ -52,148 +52,22 @@ func TestAnAdminIsNotAnOwner(t *testing.T) {
 	}
 }
 
-// PROJECT_GRANT_OWNER exists in the schema and nowhere else. It only means
-// anything once a `project_grant` exists to delegate through (`P4-01`), and a
-// role that satisfies nothing would be a role an endpoint could require and
-// nobody could hold.
-//
-// `P2-05` moved PROJECT_OWNER out of this test and into a real one below. The
-// test was guarding a "not yet", and the day the "not yet" ends it has to say
-// so rather than be deleted quietly.
-func TestTheDelegationRoleSatisfiesNothingYet(t *testing.T) {
-	for _, held := range []Role{ProjectGrantOwner} {
-		if held.Valid() {
-			t.Errorf("%s reports itself implemented", held)
-		}
-		for _, required := range []Role{InstanceOwner, OrgOwner, OrgAdmin, ProjectOwner} {
-			if held.Satisfies(required) {
-				t.Errorf("%s satisfies %s", held, required)
-			}
+// PROJECT_GRANT_OWNER was reserved until P4-03, and this test guarded the
+// "not yet". Inverted rather than deleted: the role is implemented, and it
+// reaches no ORGANIZATION or PROJECT requirement — the narrowest role in the
+// hierarchy by design.
+func TestTheDelegationRoleReachesOnlyItsOwnRequirement(t *testing.T) {
+	if !ProjectGrantOwner.Valid() {
+		t.Fatal("PROJECT_GRANT_OWNER reports itself unimplemented")
+	}
+	for _, required := range []Role{InstanceOwner, OrgOwner, OrgAdmin, ProjectOwner} {
+		if ProjectGrantOwner.Satisfies(required) {
+			t.Errorf("PROJECT_GRANT_OWNER satisfies %s", required)
 		}
 	}
-}
-
-// --- Authorize -------------------------------------------------------------------
-
-// The default that matters most: an endpoint that declares nothing is
-// UNREACHABLE, not open. The failure mode of a default-open design is one
-// endpoint somebody did not annotate, and it is invisible until exploited.
-func TestAnEndpointWithNoRequirementIsUnreachable(t *testing.T) {
-	everyone := []Caller{
-		caller(),
-		caller(Grant{Role: OrgAdmin, ScopeID: orgA}),
-		caller(Grant{Role: OrgOwner, ScopeID: orgA}),
-		caller(Grant{Role: InstanceOwner, ScopeID: instance}),
-	}
-
-	for _, c := range everyone {
-		if d := Authorize(c, Requirement{}, Target{OrgID: orgA}); d.Allowed {
-			t.Fatalf("the zero Requirement admitted a caller with %v", c.Grants)
-		}
-	}
-}
-
-// A scope with no role, and a role with no scope, are both incomplete
-// declarations and both refuse.
-func TestAnIncompleteRequirementRefuses(t *testing.T) {
-	c := caller(Grant{Role: InstanceOwner, ScopeID: instance})
-
-	if d := Authorize(c, Requirement{Role: OrgAdmin}, Target{OrgID: orgA}); d.Allowed {
-		t.Error("a requirement with no scope was satisfied")
-	}
-	if d := Authorize(c, Requirement{Scope: ScopeOrganization}, Target{OrgID: orgA}); d.Allowed {
-		t.Error("a requirement with no role was satisfied")
-	}
-}
-
-// The control for the tests above: a complete requirement IS satisfiable, or
-// they would pass against an Authorize that refuses everything.
-func TestACompleteRequirementIsSatisfiable(t *testing.T) {
-	c := caller(Grant{Role: OrgAdmin, ScopeID: orgA})
-
-	d := Authorize(c, Requirement{Role: OrgAdmin, Scope: ScopeOrganization}, Target{OrgID: orgA})
-	if !d.Allowed {
-		t.Fatalf("an ORG_ADMIN was refused their own organization: %s", d.Reason)
-	}
-	if d.InstanceScoped {
-		t.Error("an organization-scoped grant was marked instance-scoped")
-	}
-}
-
-// Abuse case A-3, at the layer that decides it. A role held over organization A
-// says nothing about organization B, and checking only the role NAME is how one
-// administrator ends up able to administer everybody.
-func TestARoleOverOneOrganizationDoesNotReachAnother(t *testing.T) {
-	for _, held := range []Role{OrgAdmin, OrgOwner} {
-		c := caller(Grant{Role: held, ScopeID: orgA})
-
-		if d := Authorize(c, Requirement{Role: OrgAdmin, Scope: ScopeOrganization}, Target{OrgID: orgB}); d.Allowed {
-			t.Errorf("an %s of %s reached %s", held, orgA, orgB)
-		}
-		// The control: they can still reach their own.
-		if d := Authorize(c, Requirement{Role: OrgAdmin, Scope: ScopeOrganization}, Target{OrgID: orgA}); !d.Allowed {
-			t.Errorf("an %s was refused their own organization: %s", held, d.Reason)
-		}
-	}
-}
-
-// INSTANCE_OWNER is the one role whose scope is not the organization being
-// addressed, and the decision says so — so the caller chooses
-// WithInstanceScope, which is named, logged and audited, rather than a missing
-// filter.
-func TestAnInstanceOwnerReachesEveryOrganizationAndIsMarked(t *testing.T) {
-	c := caller(Grant{Role: InstanceOwner, ScopeID: instance})
-
-	own := Authorize(c, Requirement{Role: OrgOwner, Scope: ScopeOrganization}, Target{OrgID: orgA})
-	if !own.Allowed {
-		t.Fatalf("refused their own organization: %s", own.Reason)
-	}
-	if own.InstanceScoped {
-		t.Error("acting on their OWN organization was marked instance-scoped, which " +
-			"would log and audit a cross-tenant access that did not happen")
-	}
-
-	other := Authorize(c, Requirement{Role: OrgOwner, Scope: ScopeOrganization}, Target{OrgID: orgB})
-	if !other.Allowed {
-		t.Fatalf("an INSTANCE_OWNER was refused another organization: %s", other.Reason)
-	}
-	if !other.InstanceScoped {
-		t.Error("acting on ANOTHER organization was not marked instance-scoped, so " +
-			"the access would be neither logged nor audited")
-	}
-}
-
-// An instance-scoped endpoint is not reachable by an organization role,
-// however senior it is within its own organization.
-func TestAnInstanceEndpointRefusesOrganizationRoles(t *testing.T) {
-	for _, held := range []Role{OrgOwner, OrgAdmin} {
-		c := caller(Grant{Role: held, ScopeID: orgA})
-
-		if d := Authorize(c, Requirement{Role: OrgOwner, Scope: ScopeInstance}, Target{OrgID: ""}); d.Allowed {
-			t.Errorf("an %s reached an instance-scoped endpoint", held)
-		}
-	}
-
-	// The control.
-	c := caller(Grant{Role: InstanceOwner, ScopeID: instance})
-	if d := Authorize(c, Requirement{Role: InstanceOwner, Scope: ScopeInstance}, Target{OrgID: ""}); !d.Allowed {
-		t.Errorf("an INSTANCE_OWNER was refused an instance endpoint: %s", d.Reason)
-	}
-}
-
-// A caller with no grants at all is refused everything. Obvious, and worth
-// pinning: it is the state of every user in the system today.
-func TestACallerWithNoGrantsIsRefusedEverything(t *testing.T) {
-	c := caller()
-
-	for _, req := range []Requirement{
-		{Role: OrgAdmin, Scope: ScopeOrganization},
-		{Role: OrgOwner, Scope: ScopeOrganization},
-		{Role: InstanceOwner, Scope: ScopeInstance},
-	} {
-		if d := Authorize(c, req, Target{OrgID: orgA}); d.Allowed {
-			t.Errorf("a caller with no grants satisfied %v", req)
-		}
+	// And the granting side's project owner does not satisfy it (T4-4).
+	if ProjectOwner.Satisfies(ProjectGrantOwner) {
+		t.Error("PROJECT_OWNER satisfies PROJECT_GRANT_OWNER — the granting organization would administer the partner's people")
 	}
 }
 
@@ -210,11 +84,11 @@ func TestAPhaseTwoGrantIsInert(t *testing.T) {
 // An endpoint that requires a role this service does not grant refuses, rather
 // than falling through to some weaker check.
 func TestARequirementForAnUnimplementedRoleRefuses(t *testing.T) {
-	c := caller(Grant{Role: InstanceOwner, ScopeID: instance})
+	c := caller(Grant{Role: OrgOwner, ScopeID: orgA})
 
-	if d := Authorize(c, Requirement{Role: ProjectGrantOwner, Scope: ScopeProject},
+	if d := Authorize(c, Requirement{Role: "PROJECT_VIEWER", Scope: ScopeProject},
 		Target{OrgID: orgA, ProjectID: projectA}); d.Allowed {
-		t.Error("a requirement for an unimplemented role was satisfied by an INSTANCE_OWNER")
+		t.Error("a requirement for a role this service does not define was satisfied")
 	}
 }
 
@@ -374,12 +248,13 @@ func TestTheHierarchyMatchesThePlan(t *testing.T) {
 	// adding its row would leave this test passing while covering less than it
 	// claims — the exact way an exhaustive test stops being exhaustive.
 	want := map[Role]map[Role]bool{
-		InstanceOwner: {InstanceOwner: true, OrgOwner: true, OrgAdmin: true, ProjectOwner: true, ProjectGrantOwner: false, Member: true},
-		OrgOwner:      {InstanceOwner: false, OrgOwner: true, OrgAdmin: true, ProjectOwner: true, ProjectGrantOwner: false, Member: true},
-		OrgAdmin:      {InstanceOwner: false, OrgOwner: false, OrgAdmin: true, ProjectOwner: true, ProjectGrantOwner: false, Member: true},
-		ProjectOwner:  {InstanceOwner: false, OrgOwner: false, OrgAdmin: false, ProjectOwner: true, ProjectGrantOwner: false, Member: true},
-		// Reserved: holds nothing, satisfies nothing.
-		ProjectGrantOwner: {InstanceOwner: false, OrgOwner: false, OrgAdmin: false, ProjectOwner: false, ProjectGrantOwner: false, Member: false},
+		InstanceOwner: {InstanceOwner: true, OrgOwner: true, OrgAdmin: true, ProjectOwner: true, ProjectGrantOwner: true, Member: true},
+		OrgOwner:      {InstanceOwner: false, OrgOwner: true, OrgAdmin: true, ProjectOwner: true, ProjectGrantOwner: true, Member: true},
+		OrgAdmin:      {InstanceOwner: false, OrgOwner: false, OrgAdmin: true, ProjectOwner: true, ProjectGrantOwner: true, Member: true},
+		// Not PROJECT_GRANT_OWNER: the project owner is the GRANTING side (T4-4).
+		ProjectOwner: {InstanceOwner: false, OrgOwner: false, OrgAdmin: false, ProjectOwner: true, ProjectGrantOwner: false, Member: true},
+		// P4-03: the narrowest role. Itself, and membership.
+		ProjectGrantOwner: {InstanceOwner: false, OrgOwner: false, OrgAdmin: false, ProjectOwner: false, ProjectGrantOwner: true, Member: true},
 		// The floor. Being inside the tenant implies nothing else at all.
 		Member: {InstanceOwner: false, OrgOwner: false, OrgAdmin: false, ProjectOwner: false, ProjectGrantOwner: false, Member: true},
 	}

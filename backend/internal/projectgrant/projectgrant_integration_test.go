@@ -63,6 +63,10 @@ type fixture struct {
 	projectB             string
 	adminA, ownerOfOther string
 	tokens               map[string]string
+
+	// mint signs an access token for an existing user and records it under a
+	// name, for callers whose roles are created mid-test (P4-03).
+	mint func(name, org, userID string)
 }
 
 func setup(t *testing.T) *fixture {
@@ -139,11 +143,7 @@ func setup(t *testing.T) *fixture {
 	f.handler = srv.Handler()
 
 	// Callers, each with exactly the grant their name says.
-	caller := func(name, org, role, scope string) string {
-		id := factory.User(org, name+"@example.test")
-		if role != "" {
-			factory.Exec(`INSERT INTO manager_roles (user_id, role, scope_id) VALUES ($1, $2, $3)`, id, role, scope)
-		}
+	f.mint = func(name, org, id string) {
 		var consoleProject, client string
 		factory.QueryRow(&consoleProject, `INSERT INTO projects (org_id, name) VALUES ($1, $2) RETURNING id`, org, "console-"+name)
 		factory.QueryRow(&client, `INSERT INTO applications (project_id, org_id, name, type) VALUES ($1, $2, 'console', 'web') RETURNING id`, consoleProject, org)
@@ -159,6 +159,13 @@ func setup(t *testing.T) *fixture {
 			t.Fatalf("signing: %v", err)
 		}
 		f.tokens[name] = signed
+	}
+	caller := func(name, org, role, scope string) string {
+		id := factory.User(org, name+"@example.test")
+		if role != "" {
+			factory.Exec(`INSERT INTO manager_roles (user_id, role, scope_id) VALUES ($1, $2, $3)`, id, role, scope)
+		}
+		f.mint(name, org, id)
 		return id
 	}
 	f.adminA = caller("admin-a", f.orgA, "ORG_ADMIN", f.orgA)

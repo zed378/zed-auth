@@ -747,6 +747,11 @@ type ProjectGrants interface {
 	AssignDelegatedRoles(ctx context.Context, request api.AssignDelegatedRolesRequestObject) (api.AssignDelegatedRolesResponseObject, error)
 	ReplaceDelegatedRoles(ctx context.Context, request api.ReplaceDelegatedRolesRequestObject) (api.ReplaceDelegatedRolesResponseObject, error)
 	RemoveDelegatedRoles(ctx context.Context, request api.RemoveDelegatedRolesRequestObject) (api.RemoveDelegatedRolesResponseObject, error)
+
+	// Who owns a received grant (P4-03).
+	ListProjectGrantOwners(ctx context.Context, request api.ListProjectGrantOwnersRequestObject) (api.ListProjectGrantOwnersResponseObject, error)
+	AssignProjectGrantOwner(ctx context.Context, request api.AssignProjectGrantOwnerRequestObject) (api.AssignProjectGrantOwnerResponseObject, error)
+	RemoveProjectGrantOwner(ctx context.Context, request api.RemoveProjectGrantOwnerRequestObject) (api.RemoveProjectGrantOwnerResponseObject, error)
 }
 
 var _ api.StrictServerInterface = apiRoutes{}

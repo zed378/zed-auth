@@ -408,6 +408,24 @@ const sidebar: SidebarsConfig = {
           label: "Remove a user's delegated roles",
           className: "api-method delete",
         },
+        {
+          type: "doc",
+          id: "api-reference/list-project-grant-owners",
+          label: "List who may assign a received grant's roles",
+          className: "api-method get",
+        },
+        {
+          type: "doc",
+          id: "api-reference/assign-project-grant-owner",
+          label: "Make one of this organization's users an owner of a received grant",
+          className: "api-method post",
+        },
+        {
+          type: "doc",
+          id: "api-reference/remove-project-grant-owner",
+          label: "Remove an owner of a received grant",
+          className: "api-method delete",
+        },
       ],
     },
     {

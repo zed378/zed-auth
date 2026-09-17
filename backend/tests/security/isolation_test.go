@@ -143,6 +143,14 @@
 //	                                                         TestTheDatabaseRefusesAnInvalidDelegatedRowFromAnyWriter
 //	                                                         TestAnAssignmentThatWaitsBehindARevocationSeesIt
 //
+//	A PROJECT_GRANT_OWNER reaches one grant's delegated
+//	  roles, in its own organization, while the grant is
+//	  active — and the granting org appoints nobody ....... internal/projectgrant:
+//	                                                         TestAGrantOwnerReachesNothingBeyondItsGrant
+//	                                                         TestAGrantOwnerStopsWhenTheGrantIsRevokedAndIsNotRevivedByARegrant
+//	                                                         TestOnlyTheReceivingOrganizationAppointsOwnersFromItsOwnMembers
+//	                                                         TestAGrantOwnerRowHeldOutsideTheReceivingOrganizationIsInert
+//
 //	Not yet testable — the feature does not exist:
 //	  Revoked Project Grant invalidates access immediately .. P4-04
 //
