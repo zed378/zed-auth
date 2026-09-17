@@ -57,10 +57,10 @@ const (
 
 // The project-scoped roles.
 //
-// `ProjectOwner` became real in `P2-05`. `ProjectGrantOwner` is still reserved:
-// it only means anything once a `project_grant` exists to delegate through
-// (`P4-01`), and a role that satisfies nothing until then would be a role an
-// endpoint could require and nobody could hold.
+// `ProjectOwner` became real in `P2-05`, `ProjectGrantOwner` in `P4-03`. A
+// PROJECT_GRANT_OWNER's scope_id is a Project Grant, and the role reaches the
+// delegated roles of that one grant in the organization it was granted to —
+// see ScopeProjectGrant.
 const (
 	ProjectOwner      Role = "PROJECT_OWNER"
 	ProjectGrantOwner Role = "PROJECT_GRANT_OWNER"
@@ -89,11 +89,22 @@ const (
 // gains nothing organization-wide, and `Authorize` never lets a project-scoped
 // grant reach past its own scope_id. Recorded as `PG-32`; the plan needs one
 // sentence, and picking it is a plan change rather than this task's to make.
+//
+// # Why PROJECT_OWNER does not satisfy PROJECT_GRANT_OWNER
+//
+// `docs/PLAN/08` draws PROJECT_GRANT_OWNER beneath PROJECT_OWNER. With
+// delegation, the project owner belongs to the GRANTING organization, and the
+// delegated roles are administered inside the RECEIVING one: reading the
+// diagram literally lets one organization act on another's people without its
+// consent (threat review T4-4). Across organizations, scope decides, and a
+// project owner holds nothing in the receiving organization. It is left out of
+// this table as well, so a future scope mistake cannot turn it on.
 var satisfies = map[Role][]Role{
-	InstanceOwner: {InstanceOwner, OrgOwner, OrgAdmin, ProjectOwner, Member},
-	OrgOwner:      {OrgOwner, OrgAdmin, ProjectOwner, Member},
-	OrgAdmin:      {OrgAdmin, ProjectOwner, Member},
-	ProjectOwner:  {ProjectOwner, Member},
+	InstanceOwner:     {InstanceOwner, OrgOwner, OrgAdmin, ProjectOwner, ProjectGrantOwner, Member},
+	OrgOwner:          {OrgOwner, OrgAdmin, ProjectOwner, ProjectGrantOwner, Member},
+	OrgAdmin:          {OrgAdmin, ProjectOwner, ProjectGrantOwner, Member},
+	ProjectOwner:      {ProjectOwner, Member},
+	ProjectGrantOwner: {ProjectGrantOwner, Member},
 
 	// Member sits under everything: holding any role implies being inside the
 	// tenant. It is satisfied by membership rather than by a grant, which is
@@ -213,6 +224,20 @@ const (
 	// somebody wrote down rather than an omission nobody noticed. The zero
 	// value remains unsatisfiable.
 	ScopeSelf
+
+	// ScopeProjectGrant requires the role over the Project Grant the request
+	// addresses, in the organization it was granted to (P4-03).
+	//
+	// Two ways through, each naming its role in the predicate:
+	//
+	//   - a PROJECT_GRANT_OWNER row whose scope_id IS the grant, held by a caller
+	//     whose token belongs to the path organization; or
+	//   - an organization role over the path organization.
+	//
+	// Whether the path organization is the one the grant was made TO is the
+	// handler's question — it finds the grant only by granted_org_id (P4-02) —
+	// and so is whether the grant is still active.
+	ScopeProjectGrant
 )
 
 // Decision is the outcome of an authorization check.
@@ -261,6 +286,10 @@ type Target struct {
 	// empty one on a ScopeProject route is refused rather than treated as a
 	// wildcard.
 	ProjectID string
+
+	// GrantID is set only for ScopeProjectGrant routes, from the route's
+	// grant_id.
+	GrantID string
 }
 
 // Authorize decides whether a caller may act on a target.
@@ -332,13 +361,40 @@ func Authorize(c Caller, req Requirement, target Target) Decision {
 			return Decision{Reason: "this endpoint is project-scoped and the request names no project"}
 		}
 		for _, g := range c.Grants {
+			// Not a PROJECT_GRANT_OWNER: its scope_id is a grant, and a uuid
+			// that happened to equal a project id must buy nothing. Found by the
+			// exhaustive table when the role went live — without this, such a row
+			// passed MEMBER over a project in ANOTHER organization.
+			if g.Role == ProjectGrantOwner {
+				continue
+			}
 			if g.ScopeID == target.ProjectID && g.Role.Satisfies(req.Role) {
 				return Decision{Allowed: true}
 			}
 		}
 	}
 
+	if req.Scope == ScopeProjectGrant {
+		if target.GrantID == "" {
+			return Decision{Reason: "this endpoint is grant-scoped and the request names no project grant"}
+		}
+		// The role is named in the same predicate as the scope: a scope_id is a
+		// uuid whatever it points at, and a project or organization id that
+		// happened to equal a grant id must buy nothing (T4-4).
+		for _, g := range c.Grants {
+			if g.Role == ProjectGrantOwner && g.ScopeID == target.GrantID &&
+				c.OrgID == target.OrgID && g.Role.Satisfies(req.Role) {
+				return Decision{Allowed: true}
+			}
+		}
+	}
+
 	for _, g := range c.Grants {
+		// A PROJECT_GRANT_OWNER's scope_id is a grant, never an organization;
+		// it reaches nothing through the organization path below.
+		if g.Role == ProjectGrantOwner {
+			continue
+		}
 		// The scope must MATCH the target. A role held over organization A
 		// says nothing about organization B, and checking only the role name
 		// is how one administrator ends up able to administer everybody.
@@ -381,6 +437,9 @@ func invisible(c Caller, req Requirement, target Target) bool {
 	if req.Scope == ScopeProject {
 		return !holdsGrantOver(c, target.ProjectID) && !holdsGrantOver(c, target.OrgID)
 	}
+	if req.Scope == ScopeProjectGrant {
+		return !holdsAnythingOver(c, target.OrgID)
+	}
 	return !holdsAnythingOver(c, target.OrgID)
 }
 
@@ -392,6 +451,24 @@ func holdsGrantOver(c Caller, id string) bool {
 	}
 	for _, g := range c.Grants {
 		if g.ScopeID == id {
+			return true
+		}
+	}
+	return false
+}
+
+// HoldsOrganizationRole reports whether a caller holds `role` (or stronger)
+// over an organization through an organization-scoped grant or INSTANCE_OWNER —
+// not through a PROJECT_GRANT_OWNER row. A handler uses it to tell a grant
+// owner from an administrator where the two may act differently (P4-03 F-3).
+func HoldsOrganizationRole(c Caller, role Role, orgID string) bool {
+	for _, g := range c.Grants {
+		switch {
+		case g.Role == InstanceOwner:
+			return true
+		case g.Role == ProjectGrantOwner || g.Role == ProjectOwner:
+			continue
+		case g.ScopeID == orgID && g.Role.Satisfies(role):
 			return true
 		}
 	}

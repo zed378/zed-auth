@@ -327,11 +327,14 @@ func (h *Handler) ListDelegatedUserGrants(
 
 	var rows []UserGrant
 	if err := h.inScope(ctx, func(tx *postgres.Tx, orgID string) error {
-		if _, err := h.Grants.Received(ctx, tx, orgID, request.GrantId.String()); err != nil {
+		g, err := h.Grants.Received(ctx, tx, orgID, request.GrantId.String())
+		if err != nil {
 			return err
 		}
-		var err error
-		rows, err = h.Grants.ListDelegated(ctx, tx, request.GrantId.String(), cursor, size)
+		if err := requireStanding(ctx, g); err != nil {
+			return err
+		}
+		rows, err = h.Grants.ListDelegated(ctx, tx, g.ID, cursor, size)
 		return err
 	}); err != nil {
 		return nil, delegatedFault(err)
@@ -376,6 +379,9 @@ func (h *Handler) AssignDelegatedRoles(
 	if err := h.inScope(ctx, func(tx *postgres.Tx, orgID string) error {
 		g, err := h.Grants.Received(ctx, tx, orgID, request.GrantId.String())
 		if err != nil {
+			return err
+		}
+		if err := requireStanding(ctx, g); err != nil {
 			return err
 		}
 		if err := requireAssignable(g, keys); err != nil {
@@ -427,6 +433,9 @@ func (h *Handler) ReplaceDelegatedRoles(
 		if err != nil {
 			return err
 		}
+		if err := requireStanding(ctx, g); err != nil {
+			return err
+		}
 		if err := requireAssignable(g, keys); err != nil {
 			return err
 		}
@@ -468,6 +477,9 @@ func (h *Handler) RemoveDelegatedRoles(
 	if err := h.inScope(ctx, func(tx *postgres.Tx, orgID string) error {
 		g, err := h.Grants.Received(ctx, tx, orgID, request.GrantId.String())
 		if err != nil {
+			return err
+		}
+		if err := requireStanding(ctx, g); err != nil {
 			return err
 		}
 		removed, err := h.Grants.RemoveDelegated(ctx, tx, g.ID, userID)

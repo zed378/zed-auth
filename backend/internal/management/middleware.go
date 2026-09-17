@@ -117,6 +117,7 @@ func (m *Middleware) Require(req Requirement, next http.Handler) http.Handler {
 		target := Target{
 			OrgID:     normalizeOrgID(chi.URLParam(r, "org_id")),
 			ProjectID: normalizeOrgID(chi.URLParam(r, "project_id")),
+			GrantID:   normalizeOrgID(chi.URLParam(r, "grant_id")),
 		}
 		if target.OrgID == "" && req.Scope == ScopeOrganization {
 			target.OrgID = caller.OrgID

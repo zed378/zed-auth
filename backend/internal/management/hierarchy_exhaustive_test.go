@@ -25,8 +25,8 @@ import (
 // function that misbehaves on a row the database should never hold is one bad
 // migration away from mattering.
 var (
-	allRoles  = []Role{InstanceOwner, OrgOwner, OrgAdmin, ProjectOwner, Member}
-	allScopes = []Scope{ScopeUnset, ScopeOrganization, ScopeInstance, ScopeProject, ScopeSelf}
+	allRoles  = []Role{InstanceOwner, OrgOwner, OrgAdmin, ProjectOwner, ProjectGrantOwner, Member}
+	allScopes = []Scope{ScopeUnset, ScopeOrganization, ScopeInstance, ScopeProject, ScopeSelf, ScopeProjectGrant}
 )
 
 const (
@@ -35,10 +35,12 @@ const (
 	homeProject = "prj-home"
 	otherProj   = "prj-other"
 	instanceID  = "instance-1"
+	homeGrant   = "grant-home"
+	otherGrant  = "grant-other"
 )
 
 // scopeTargets are the ids a grant's scope_id can point at.
-var scopeTargets = []string{homeOrg, otherOrg, homeProject, otherProj, instanceID}
+var scopeTargets = []string{homeOrg, otherOrg, homeProject, otherProj, instanceID, homeGrant, otherGrant}
 
 // targets are what a request can address.
 var targets = []Target{
@@ -47,7 +49,11 @@ var targets = []Target{
 	{OrgID: homeOrg, ProjectID: homeProject},
 	{OrgID: homeOrg, ProjectID: otherProj},
 	{OrgID: otherOrg, ProjectID: otherProj},
-	{}, // no organization addressed at all
+	{OrgID: homeOrg, GrantID: homeGrant},
+	{OrgID: homeOrg, GrantID: otherGrant},
+	{OrgID: otherOrg, GrantID: homeGrant},
+	{OrgID: homeOrg}, // a grant-scoped route with no grant in the path is the first row
+	{},               // no organization addressed at all
 }
 
 // expected is the documented rule, restated.
@@ -66,6 +72,10 @@ var targets = []Target{
 //  8. Otherwise a grant must name the target: the organization for an
 //     organization-scoped route, the project OR its organization for a
 //     project-scoped one.
+//  9. (P4-03) A grant-scoped route: a PROJECT_GRANT_OWNER whose scope_id is the
+//     grant, held by a member of the path organization; or an organization
+//     role over the path organization. A PROJECT_GRANT_OWNER reaches nothing
+//     through an organization or project scope_id — its scope is a grant.
 func expected(caller Caller, req Requirement, target Target) bool {
 	if req.Scope == ScopeUnset {
 		return false // (1)
@@ -93,12 +103,26 @@ func expected(caller Caller, req Requirement, target Target) bool {
 		return true // (7)
 	}
 
-	// (8)
+	// (8) and (9)
 	for _, grant := range caller.Grants {
 		if !grant.Role.Satisfies(req.Role) {
 			continue
 		}
+		if grant.Role == ProjectGrantOwner {
+			if req.Scope == ScopeProjectGrant && target.GrantID != "" &&
+				grant.ScopeID == target.GrantID && caller.OrgID == target.OrgID {
+				return true
+			}
+			continue
+		}
 		switch req.Scope {
+		case ScopeProjectGrant:
+			if target.GrantID == "" {
+				return false
+			}
+			if grant.ScopeID == target.OrgID {
+				return true
+			}
 		case ScopeOrganization:
 			if grant.ScopeID == target.OrgID {
 				return true
@@ -276,6 +300,7 @@ func TestInvisibilityDoesNotDependOnTheRequiredRole(t *testing.T) {
 	}{
 		{ScopeOrganization, Target{OrgID: otherOrg}},
 		{ScopeProject, Target{OrgID: otherOrg, ProjectID: otherProj}},
+		{ScopeProjectGrant, Target{OrgID: otherOrg, GrantID: otherGrant}},
 	}
 
 	// Only targets in an organization the caller does not belong to. Inside
