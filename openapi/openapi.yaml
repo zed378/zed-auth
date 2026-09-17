@@ -2001,6 +2001,140 @@ paths:
         "429": { $ref: "#/components/responses/RateLimited" }
         "500": { $ref: "#/components/responses/InternalError" }
 
+  /v1/organizations/{org_id}/project-grants/{grant_id}/user-grants:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationId"
+      - $ref: "#/components/parameters/ProjectGrantId"
+
+    get:
+      tags: [Project Grants]
+      operationId: listDelegatedUserGrants
+      summary: List the roles assigned through a received grant
+      description: |
+        Requires `ORG_ADMIN` over this organization, which must be the
+        organization the grant was made **to**. The granting organization gets
+        a 404 here: it lends the project, and does not administer the
+        receiving organization's people.
+
+        Listed under a revoked grant too, as history. A delegated role confers
+        nothing once its grant is revoked.
+
+        Paginated, oldest first: one grant to a large partner can carry every
+        one of its users.
+      parameters:
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+      responses:
+        "200":
+          description: The delegated grants made through this Project Grant.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DelegatedGrantList"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+    post:
+      tags: [Project Grants]
+      operationId: assignDelegatedRoles
+      summary: Assign delegated roles to one of this organization's users
+      description: |
+        Requires `ORG_ADMIN` over this organization, which must be the
+        organization the grant was made to. The user must be a member of it.
+
+        **Every role key must be one the grant delegates**, checked against the
+        grant as it stands at this moment, on every request (`docs/PLAN/08`
+        Part C). A key it does not delegate is refused by name, and the refusal
+        lists what it does delegate. A revoked grant refuses every assignment
+        with `409`.
+
+        A user whose earlier delegated roles for this project came through a
+        grant that has since been revoked is re-assigned through this one; the
+        stale assignment is replaced and the audit event says so. A caller
+        cannot assign roles to themselves.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DelegatedGrantCreate"
+      responses:
+        "201":
+          description: The delegated grant.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Grant"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+  /v1/organizations/{org_id}/project-grants/{grant_id}/user-grants/{user_id}:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationId"
+      - $ref: "#/components/parameters/ProjectGrantId"
+      - $ref: "#/components/parameters/UserId"
+
+    patch:
+      tags: [Project Grants]
+      operationId: replaceDelegatedRoles
+      summary: Replace a user's delegated roles
+      description: |
+        Requires `ORG_ADMIN` over the organization the grant was made to.
+
+        Replaces the set entirely, and every key is checked against the grant
+        as it stands now, like an assignment. A revoked grant refuses with
+        `409`. To remove the roles, delete them.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GrantUpdate"
+      responses:
+        "200":
+          description: The updated delegated grant.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Grant"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+    delete:
+      tags: [Project Grants]
+      operationId: removeDelegatedRoles
+      summary: Remove a user's delegated roles
+      description: |
+        Requires `ORG_ADMIN` over the organization the grant was made to.
+
+        Allowed under a revoked grant, so a partner can clear assignments a
+        vendor's revocation already made inert.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "204":
+          description: The delegated roles are removed.
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
   /v1/organizations/{org_id}/projects/{project_id}/applications:
     parameters:
       - $ref: "#/components/parameters/OrganizationId"
@@ -3075,11 +3209,12 @@ components:
       description: |
         One user's roles in one project — the row that actually grants access.
 
-        `project_grant_id` is absent in this phase. It distinguishes a
-        delegated grant from a direct one, and delegation requires the role
-        keys to be a subset of what was delegated, revalidated on every
-        request (`docs/PLAN/08` Part C). That check arrives with Project
-        Grants; until then a non-null value is refused at the database.
+        `project_grant_id` distinguishes a delegated grant from a direct one.
+        It is null for a direct grant, made by the organization that owns the
+        project. When set, the grant was made by another organization's
+        administrators through that Project Grant, its role keys are a subset
+        of what the grant delegates, and it confers nothing once the grant is
+        revoked (`docs/PLAN/08` Part C).
       required: [user_id, project_id, role_keys]
       additionalProperties: false
       properties:
@@ -3087,6 +3222,11 @@ components:
           $ref: "#/components/schemas/ResourceId"
         project_id:
           $ref: "#/components/schemas/ResourceId"
+        project_grant_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: The Project Grant this came through, or null for a direct grant.
         role_keys:
           type: array
           minItems: 1
@@ -3127,6 +3267,33 @@ components:
           maxItems: 64
           items:
             $ref: "#/components/schemas/RoleKey"
+
+    DelegatedGrantList:
+      type: object
+      required: [grants]
+      additionalProperties: false
+      properties:
+        grants:
+          type: array
+          items:
+            $ref: "#/components/schemas/Grant"
+        page_info:
+          $ref: "#/components/schemas/PageInfo"
+
+    DelegatedGrantCreate:
+      type: object
+      required: [user_id, role_keys]
+      additionalProperties: false
+      properties:
+        user_id:
+          $ref: "#/components/schemas/ResourceId"
+        role_keys:
+          type: array
+          minItems: 1
+          maxItems: 64
+          items:
+            $ref: "#/components/schemas/RoleKey"
+          description: A subset of the Project Grant's `granted_role_keys`.
 
     GrantUpdate:
       type: object

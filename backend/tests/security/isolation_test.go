@@ -131,8 +131,19 @@
 //	                                                         TestTheReceivingSideReadsAndABystanderSeesNothing
 //	                                                         TestADelegatedRoleCannotBeDeletedUntilTheGrantIsRevoked
 //
+//	Receiving org assigns only what its grant delegates,
+//	  only to its own users, never through a revoked
+//	  grant, and nobody else writes or sees the rows ....... internal/projectgrant:
+//	                                                         TestARoleTheGrantDoesNotDelegateIsRefusedByName
+//	                                                         TestARevokedGrantRefusesEveryAssignmentAndAllowsCleanup
+//	                                                         TestNarrowingByRegrantRefusesTheDroppedRoleThroughEitherGrant
+//	                                                         TestOnlyTheReceivingOrganizationsOwnUsersReceiveDelegatedRoles
+//	                                                         TestTheGrantingOrganizationCannotActOnThePartnersPeople
+//	                                                         TestADelegatedRowIsVisibleOnlyToTheReceivingOrganization
+//	                                                         TestTheDatabaseRefusesAnInvalidDelegatedRowFromAnyWriter
+//	                                                         TestAnAssignmentThatWaitsBehindARevocationSeesIt
+//
 //	Not yet testable — the feature does not exist:
-//	  Receiving org cannot assign a role outside its grant .. P4-02
 //	  Revoked Project Grant invalidates access immediately .. P4-04
 //
 // **What this map cannot do** is notice a Phase 1 abuse case nobody wrote
