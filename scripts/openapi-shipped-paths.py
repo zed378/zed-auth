@@ -92,6 +92,10 @@ SHIPPED = {
     # P4-02 and P4-04, and the operation descriptions say so.
     "/v1/organizations/{org_id}/projects/{project_id}/grants",
     "/v1/organizations/{org_id}/projects/{project_id}/grants/{grant_id}",
+    # P4-02. The receiving organization assigns the roles a grant delegates,
+    # a subset checked against the grant on every request.
+    "/v1/organizations/{org_id}/project-grants/{grant_id}/user-grants",
+    "/v1/organizations/{org_id}/project-grants/{grant_id}/user-grants/{user_id}",
     # P2-03. The row that actually grants access. ORG_ADMIN over the
     # organization, because the path is about a user.
     "/v1/organizations/{org_id}/users/{user_id}/grants",

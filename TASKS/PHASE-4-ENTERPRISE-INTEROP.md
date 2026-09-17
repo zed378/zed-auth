@@ -81,7 +81,7 @@
 
 | | |
 |---|---|
-| **Status** | TODO |
+| **Status** | DONE — 2026-09-17, [record](../MEMORY/records/2026-09-17-P4-02-delegated-user-grants.md), [spec](../MEMORY/specs/P4-02-delegated-user-grants.md). The write path; readers join the grant in `P4-04` |
 | **Depends on** | P4-01 |
 | **Plan refs** | `docs/PLAN/08-AUTHORIZATION.md` Part C, `CLAUDE.md` § Non-Negotiable Constraints, `AGENTS.md` hard rule 3, `docs/PLAN/09-SECURITY.md` § Delegation abuse |
 | **Spec required** | Yes — the single most security-critical check in the system |
@@ -102,12 +102,12 @@
 8. Audit every delegated assignment with both organizations, the grant, the user, and the exact roles.
 
 **Definition of Done**
-- [ ] Subset validation runs on every request, verified by a test that narrows `granted_role_keys` after a grant exists and confirms the previously-valid assignment is now rejected.
-- [ ] A revoked grant rejects immediately.
-- [ ] A user outside the receiving organization cannot receive a delegated role.
-- [ ] `project_grant_id` is populated and distinguishes delegated from direct grants.
-- [ ] The rejection error is clear and actionable.
-- [ ] Every delegated assignment is audited.
+- [x] Subset validation runs on every request, verified by a test that narrows `granted_role_keys` after a grant exists and confirms the previously-valid assignment is now rejected. Grants cannot change since `P4-01`, so narrowing is revoke and re-grant: `TestNarrowingByRegrantRefusesTheDroppedRoleThroughEitherGrant`.
+- [x] A revoked grant rejects immediately.
+- [x] A user outside the receiving organization cannot receive a delegated role.
+- [x] `project_grant_id` is populated and distinguishes delegated from direct grants.
+- [x] The rejection error is clear and actionable.
+- [x] Every delegated assignment is audited.
 
 **Abuse cases to test**
 - The receiving organization assigning a role outside `granted_role_keys` — `docs/PLAN/11` § Security Testing names this explicitly.

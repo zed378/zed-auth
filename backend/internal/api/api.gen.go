@@ -535,6 +535,49 @@ type AuthorizationDecision struct {
 	Reasons []string `json:"reasons"`
 }
 
+// DelegatedGrantCreate defines model for DelegatedGrantCreate.
+type DelegatedGrantCreate struct {
+	// RoleKeys A subset of the Project Grant's `granted_role_keys`.
+	RoleKeys []RoleKey `json:"role_keys"`
+
+	// UserId A resource's stable identifier. Not sequential and not guessable.
+	//
+	// **This was specified as a prefixed, sortable identifier** — `usr_`,
+	// `org_`, `prj_` — and is a UUID instead. The change is deliberate and is
+	// recorded as `PG-23`.
+	//
+	// The prefix has a real benefit: an id pasted into a support ticket is
+	// self-describing, and passing a project id where a user id belongs is
+	// visible on sight rather than at the database. What it cannot survive is
+	// being applied to only part of the surface. `docs/PLAN/04` makes every
+	// primary key a UUID, the access token's `org_id` claim is a UUID, and
+	// OpenID Connect's `sub` — already shipped by `P1-08` — is a UUID that
+	// callers store as a user's permanent key.
+	//
+	// Prefixing only the Management API would give the same user two
+	// identifiers and make every consumer convert between them, which is a
+	// larger and more permanent papercut than the one the prefix removes.
+	// Prefixing everything means changing `sub`, which is a protocol field
+	// with its own conventions and a value integrators have already stored.
+	//
+	// So: UUIDs everywhere, and if prefixed identifiers are wanted later they
+	// arrive everywhere at once or not at all.
+	UserId ResourceId `json:"user_id"`
+}
+
+// DelegatedGrantList defines model for DelegatedGrantList.
+type DelegatedGrantList struct {
+	Grants []Grant `json:"grants"`
+
+	// PageInfo The pagination envelope every collection response embeds.
+	//
+	// Token-based rather than offset-based: an offset re-reads rows that
+	// shifted under concurrent writes, silently skipping or duplicating
+	// entries. For an audit log or a user list that is a correctness bug that
+	// nobody notices.
+	PageInfo *PageInfo `json:"page_info,omitempty"`
+}
+
 // Error The error envelope for every non-2xx response, without exception
 // (`docs/PLAN/05` Part B § Standard Error Format). One shape means a client
 // writes one error path rather than one per endpoint.
@@ -631,13 +674,17 @@ type EventList struct {
 
 // Grant One user's roles in one project — the row that actually grants access.
 //
-// `project_grant_id` is absent in this phase. It distinguishes a
-// delegated grant from a direct one, and delegation requires the role
-// keys to be a subset of what was delegated, revalidated on every
-// request (`docs/PLAN/08` Part C). That check arrives with Project
-// Grants; until then a non-null value is refused at the database.
+// `project_grant_id` distinguishes a delegated grant from a direct one.
+// It is null for a direct grant, made by the organization that owns the
+// project. When set, the grant was made by another organization's
+// administrators through that Project Grant, its role keys are a subset
+// of what the grant delegates, and it confers nothing once the grant is
+// revoked (`docs/PLAN/08` Part C).
 type Grant struct {
 	CreatedAt *time.Time `json:"created_at,omitempty"`
+
+	// ProjectGrantId The Project Grant this came through, or null for a direct grant.
+	ProjectGrantId nullable.Nullable[openapi_types.UUID] `json:"project_grant_id,omitempty"`
 
 	// ProjectId A resource's stable identifier. Not sequential and not guessable.
 	//
@@ -2420,6 +2467,39 @@ type ListEventsParams struct {
 	To *time.Time `form:"to,omitempty" json:"to,omitempty"`
 }
 
+// ListDelegatedUserGrantsParams defines parameters for ListDelegatedUserGrants.
+type ListDelegatedUserGrantsParams struct {
+	// PageSize Maximum items to return. The server may return fewer, and returning
+	// fewer never means the collection is exhausted — only an absent
+	// `next_page_token` means that.
+	PageSize *PageSize `form:"page_size,omitempty" json:"page_size,omitempty"`
+
+	// PageToken The `next_page_token` from the previous response. Opaque: its contents
+	// are not part of the contract and must not be constructed, parsed, or
+	// persisted by a client.
+	PageToken *PageToken `form:"page_token,omitempty" json:"page_token,omitempty"`
+}
+
+// AssignDelegatedRolesParams defines parameters for AssignDelegatedRoles.
+type AssignDelegatedRolesParams struct {
+	// IdempotencyKey A client-generated key making a retried `POST` safe. Replaying a
+	// request with the same key returns the original result rather than
+	// creating a second resource — which matters most for automated
+	// provisioning, where a network timeout is indistinguishable from a
+	// failure (`docs/PLAN/05` Part B).
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+}
+
+// RemoveDelegatedRolesParams defines parameters for RemoveDelegatedRoles.
+type RemoveDelegatedRolesParams struct {
+	// IdempotencyKey A client-generated key making a retried `POST` safe. Replaying a
+	// request with the same key returns the original result rather than
+	// creating a second resource — which matters most for automated
+	// provisioning, where a network timeout is indistinguishable from a
+	// failure (`docs/PLAN/05` Part B).
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+}
+
 // ListProjectsParams defines parameters for ListProjects.
 type ListProjectsParams struct {
 	// PageSize Maximum items to return. The server may return fewer, and returning
@@ -2672,6 +2752,12 @@ type CreateOrganizationJSONRequestBody = OrganizationCreate
 // UpdateOrganizationJSONRequestBody defines body for UpdateOrganization for application/json ContentType.
 type UpdateOrganizationJSONRequestBody = OrganizationUpdate
 
+// AssignDelegatedRolesJSONRequestBody defines body for AssignDelegatedRoles for application/json ContentType.
+type AssignDelegatedRolesJSONRequestBody = DelegatedGrantCreate
+
+// ReplaceDelegatedRolesJSONRequestBody defines body for ReplaceDelegatedRoles for application/json ContentType.
+type ReplaceDelegatedRolesJSONRequestBody = GrantUpdate
+
 // CreateProjectJSONRequestBody defines body for CreateProject for application/json ContentType.
 type CreateProjectJSONRequestBody = ProjectCreate
 
@@ -2776,6 +2862,18 @@ type ServerInterface interface {
 	// How many members would be affected by requiring two-step verification
 	// (GET /v1/organizations/{org_id}/mfa-impact)
 	GetMfaImpact(w http.ResponseWriter, r *http.Request, orgId OrganizationId)
+	// List the roles assigned through a received grant
+	// (GET /v1/organizations/{org_id}/project-grants/{grant_id}/user-grants)
+	ListDelegatedUserGrants(w http.ResponseWriter, r *http.Request, orgId OrganizationId, grantId ProjectGrantId, params ListDelegatedUserGrantsParams)
+	// Assign delegated roles to one of this organization's users
+	// (POST /v1/organizations/{org_id}/project-grants/{grant_id}/user-grants)
+	AssignDelegatedRoles(w http.ResponseWriter, r *http.Request, orgId OrganizationId, grantId ProjectGrantId, params AssignDelegatedRolesParams)
+	// Remove a user's delegated roles
+	// (DELETE /v1/organizations/{org_id}/project-grants/{grant_id}/user-grants/{user_id})
+	RemoveDelegatedRoles(w http.ResponseWriter, r *http.Request, orgId OrganizationId, grantId ProjectGrantId, userId UserId, params RemoveDelegatedRolesParams)
+	// Replace a user's delegated roles
+	// (PATCH /v1/organizations/{org_id}/project-grants/{grant_id}/user-grants/{user_id})
+	ReplaceDelegatedRoles(w http.ResponseWriter, r *http.Request, orgId OrganizationId, grantId ProjectGrantId, userId UserId)
 	// List an organization's projects
 	// (GET /v1/organizations/{org_id}/projects)
 	ListProjects(w http.ResponseWriter, r *http.Request, orgId OrganizationId, params ListProjectsParams)
@@ -3022,6 +3120,30 @@ func (_ Unimplemented) ListEvents(w http.ResponseWriter, r *http.Request, orgId 
 // How many members would be affected by requiring two-step verification
 // (GET /v1/organizations/{org_id}/mfa-impact)
 func (_ Unimplemented) GetMfaImpact(w http.ResponseWriter, r *http.Request, orgId OrganizationId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// List the roles assigned through a received grant
+// (GET /v1/organizations/{org_id}/project-grants/{grant_id}/user-grants)
+func (_ Unimplemented) ListDelegatedUserGrants(w http.ResponseWriter, r *http.Request, orgId OrganizationId, grantId ProjectGrantId, params ListDelegatedUserGrantsParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Assign delegated roles to one of this organization's users
+// (POST /v1/organizations/{org_id}/project-grants/{grant_id}/user-grants)
+func (_ Unimplemented) AssignDelegatedRoles(w http.ResponseWriter, r *http.Request, orgId OrganizationId, grantId ProjectGrantId, params AssignDelegatedRolesParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Remove a user's delegated roles
+// (DELETE /v1/organizations/{org_id}/project-grants/{grant_id}/user-grants/{user_id})
+func (_ Unimplemented) RemoveDelegatedRoles(w http.ResponseWriter, r *http.Request, orgId OrganizationId, grantId ProjectGrantId, userId UserId, params RemoveDelegatedRolesParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Replace a user's delegated roles
+// (PATCH /v1/organizations/{org_id}/project-grants/{grant_id}/user-grants/{user_id})
+func (_ Unimplemented) ReplaceDelegatedRoles(w http.ResponseWriter, r *http.Request, orgId OrganizationId, grantId ProjectGrantId, userId UserId) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -4042,6 +4164,251 @@ func (siw *ServerInterfaceWrapper) GetMfaImpact(w http.ResponseWriter, r *http.R
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetMfaImpact(w, r, orgId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListDelegatedUserGrants operation middleware
+func (siw *ServerInterfaceWrapper) ListDelegatedUserGrants(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "org_id" -------------
+	var orgId OrganizationId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "org_id", chi.URLParam(r, "org_id"), &orgId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "org_id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "grant_id" -------------
+	var grantId ProjectGrantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "grant_id", chi.URLParam(r, "grant_id"), &grantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "grant_id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, Oauth2Scopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListDelegatedUserGrantsParams
+
+	// ------------- Optional query parameter "page_size" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "page_size", r.URL.Query(), &params.PageSize)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "page_size", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "page_token" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "page_token", r.URL.Query(), &params.PageToken)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "page_token", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListDelegatedUserGrants(w, r, orgId, grantId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// AssignDelegatedRoles operation middleware
+func (siw *ServerInterfaceWrapper) AssignDelegatedRoles(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "org_id" -------------
+	var orgId OrganizationId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "org_id", chi.URLParam(r, "org_id"), &orgId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "org_id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "grant_id" -------------
+	var grantId ProjectGrantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "grant_id", chi.URLParam(r, "grant_id"), &grantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "grant_id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, Oauth2Scopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params AssignDelegatedRolesParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AssignDelegatedRoles(w, r, orgId, grantId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RemoveDelegatedRoles operation middleware
+func (siw *ServerInterfaceWrapper) RemoveDelegatedRoles(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "org_id" -------------
+	var orgId OrganizationId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "org_id", chi.URLParam(r, "org_id"), &orgId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "org_id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "grant_id" -------------
+	var grantId ProjectGrantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "grant_id", chi.URLParam(r, "grant_id"), &grantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "grant_id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "user_id" -------------
+	var userId UserId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "user_id", chi.URLParam(r, "user_id"), &userId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "user_id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, Oauth2Scopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params RemoveDelegatedRolesParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RemoveDelegatedRoles(w, r, orgId, grantId, userId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ReplaceDelegatedRoles operation middleware
+func (siw *ServerInterfaceWrapper) ReplaceDelegatedRoles(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "org_id" -------------
+	var orgId OrganizationId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "org_id", chi.URLParam(r, "org_id"), &orgId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "org_id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "grant_id" -------------
+	var grantId ProjectGrantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "grant_id", chi.URLParam(r, "grant_id"), &grantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "grant_id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "user_id" -------------
+	var userId UserId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "user_id", chi.URLParam(r, "user_id"), &userId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "user_id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, Oauth2Scopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ReplaceDelegatedRoles(w, r, orgId, grantId, userId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -6172,6 +6539,18 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Get(options.BaseURL+"/v1/organizations/{org_id}/mfa-impact", wrapper.GetMfaImpact)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/v1/organizations/{org_id}/project-grants/{grant_id}/user-grants", wrapper.ListDelegatedUserGrants)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/organizations/{org_id}/project-grants/{grant_id}/user-grants", wrapper.AssignDelegatedRoles)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/v1/organizations/{org_id}/project-grants/{grant_id}/user-grants/{user_id}", wrapper.RemoveDelegatedRoles)
+	})
+	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/v1/organizations/{org_id}/project-grants/{grant_id}/user-grants/{user_id}", wrapper.ReplaceDelegatedRoles)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/v1/organizations/{org_id}/projects", wrapper.ListProjects)
 	})
 	r.Group(func(r chi.Router) {
@@ -7642,6 +8021,316 @@ func (response GetMfaImpact429JSONResponse) VisitGetMfaImpactResponse(w http.Res
 type GetMfaImpact500JSONResponse struct{ InternalErrorJSONResponse }
 
 func (response GetMfaImpact500JSONResponse) VisitGetMfaImpactResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListDelegatedUserGrantsRequestObject struct {
+	OrgId   OrganizationId `json:"org_id"`
+	GrantId ProjectGrantId `json:"grant_id"`
+	Params  ListDelegatedUserGrantsParams
+}
+
+type ListDelegatedUserGrantsResponseObject interface {
+	VisitListDelegatedUserGrantsResponse(w http.ResponseWriter) error
+}
+
+type ListDelegatedUserGrants200JSONResponse DelegatedGrantList
+
+func (response ListDelegatedUserGrants200JSONResponse) VisitListDelegatedUserGrantsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListDelegatedUserGrants401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ListDelegatedUserGrants401JSONResponse) VisitListDelegatedUserGrantsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListDelegatedUserGrants403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response ListDelegatedUserGrants403JSONResponse) VisitListDelegatedUserGrantsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListDelegatedUserGrants404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response ListDelegatedUserGrants404JSONResponse) VisitListDelegatedUserGrantsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListDelegatedUserGrants429JSONResponse struct{ RateLimitedJSONResponse }
+
+func (response ListDelegatedUserGrants429JSONResponse) VisitListDelegatedUserGrantsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Retry-After", fmt.Sprint(response.Headers.RetryAfter))
+	w.Header().Set("X-RateLimit-Limit", fmt.Sprint(response.Headers.XRateLimitLimit))
+	w.Header().Set("X-RateLimit-Remaining", fmt.Sprint(response.Headers.XRateLimitRemaining))
+	w.Header().Set("X-RateLimit-Reset", fmt.Sprint(response.Headers.XRateLimitReset))
+	w.WriteHeader(429)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type ListDelegatedUserGrants500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response ListDelegatedUserGrants500JSONResponse) VisitListDelegatedUserGrantsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type AssignDelegatedRolesRequestObject struct {
+	OrgId   OrganizationId `json:"org_id"`
+	GrantId ProjectGrantId `json:"grant_id"`
+	Params  AssignDelegatedRolesParams
+	Body    *AssignDelegatedRolesJSONRequestBody
+}
+
+type AssignDelegatedRolesResponseObject interface {
+	VisitAssignDelegatedRolesResponse(w http.ResponseWriter) error
+}
+
+type AssignDelegatedRoles201JSONResponse Grant
+
+func (response AssignDelegatedRoles201JSONResponse) VisitAssignDelegatedRolesResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type AssignDelegatedRoles400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response AssignDelegatedRoles400JSONResponse) VisitAssignDelegatedRolesResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type AssignDelegatedRoles401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response AssignDelegatedRoles401JSONResponse) VisitAssignDelegatedRolesResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type AssignDelegatedRoles403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response AssignDelegatedRoles403JSONResponse) VisitAssignDelegatedRolesResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type AssignDelegatedRoles404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response AssignDelegatedRoles404JSONResponse) VisitAssignDelegatedRolesResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type AssignDelegatedRoles409JSONResponse struct{ ConflictJSONResponse }
+
+func (response AssignDelegatedRoles409JSONResponse) VisitAssignDelegatedRolesResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type AssignDelegatedRoles429JSONResponse struct{ RateLimitedJSONResponse }
+
+func (response AssignDelegatedRoles429JSONResponse) VisitAssignDelegatedRolesResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Retry-After", fmt.Sprint(response.Headers.RetryAfter))
+	w.Header().Set("X-RateLimit-Limit", fmt.Sprint(response.Headers.XRateLimitLimit))
+	w.Header().Set("X-RateLimit-Remaining", fmt.Sprint(response.Headers.XRateLimitRemaining))
+	w.Header().Set("X-RateLimit-Reset", fmt.Sprint(response.Headers.XRateLimitReset))
+	w.WriteHeader(429)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type AssignDelegatedRoles500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response AssignDelegatedRoles500JSONResponse) VisitAssignDelegatedRolesResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type RemoveDelegatedRolesRequestObject struct {
+	OrgId   OrganizationId `json:"org_id"`
+	GrantId ProjectGrantId `json:"grant_id"`
+	UserId  UserId         `json:"user_id"`
+	Params  RemoveDelegatedRolesParams
+}
+
+type RemoveDelegatedRolesResponseObject interface {
+	VisitRemoveDelegatedRolesResponse(w http.ResponseWriter) error
+}
+
+type RemoveDelegatedRoles204Response struct {
+}
+
+func (response RemoveDelegatedRoles204Response) VisitRemoveDelegatedRolesResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type RemoveDelegatedRoles401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response RemoveDelegatedRoles401JSONResponse) VisitRemoveDelegatedRolesResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type RemoveDelegatedRoles403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response RemoveDelegatedRoles403JSONResponse) VisitRemoveDelegatedRolesResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type RemoveDelegatedRoles404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response RemoveDelegatedRoles404JSONResponse) VisitRemoveDelegatedRolesResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type RemoveDelegatedRoles429JSONResponse struct{ RateLimitedJSONResponse }
+
+func (response RemoveDelegatedRoles429JSONResponse) VisitRemoveDelegatedRolesResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Retry-After", fmt.Sprint(response.Headers.RetryAfter))
+	w.Header().Set("X-RateLimit-Limit", fmt.Sprint(response.Headers.XRateLimitLimit))
+	w.Header().Set("X-RateLimit-Remaining", fmt.Sprint(response.Headers.XRateLimitRemaining))
+	w.Header().Set("X-RateLimit-Reset", fmt.Sprint(response.Headers.XRateLimitReset))
+	w.WriteHeader(429)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type RemoveDelegatedRoles500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response RemoveDelegatedRoles500JSONResponse) VisitRemoveDelegatedRolesResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ReplaceDelegatedRolesRequestObject struct {
+	OrgId   OrganizationId `json:"org_id"`
+	GrantId ProjectGrantId `json:"grant_id"`
+	UserId  UserId         `json:"user_id"`
+	Body    *ReplaceDelegatedRolesJSONRequestBody
+}
+
+type ReplaceDelegatedRolesResponseObject interface {
+	VisitReplaceDelegatedRolesResponse(w http.ResponseWriter) error
+}
+
+type ReplaceDelegatedRoles200JSONResponse Grant
+
+func (response ReplaceDelegatedRoles200JSONResponse) VisitReplaceDelegatedRolesResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ReplaceDelegatedRoles400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response ReplaceDelegatedRoles400JSONResponse) VisitReplaceDelegatedRolesResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ReplaceDelegatedRoles401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ReplaceDelegatedRoles401JSONResponse) VisitReplaceDelegatedRolesResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ReplaceDelegatedRoles403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response ReplaceDelegatedRoles403JSONResponse) VisitReplaceDelegatedRolesResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ReplaceDelegatedRoles404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response ReplaceDelegatedRoles404JSONResponse) VisitReplaceDelegatedRolesResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ReplaceDelegatedRoles409JSONResponse struct{ ConflictJSONResponse }
+
+func (response ReplaceDelegatedRoles409JSONResponse) VisitReplaceDelegatedRolesResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ReplaceDelegatedRoles429JSONResponse struct{ RateLimitedJSONResponse }
+
+func (response ReplaceDelegatedRoles429JSONResponse) VisitReplaceDelegatedRolesResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Retry-After", fmt.Sprint(response.Headers.RetryAfter))
+	w.Header().Set("X-RateLimit-Limit", fmt.Sprint(response.Headers.XRateLimitLimit))
+	w.Header().Set("X-RateLimit-Remaining", fmt.Sprint(response.Headers.XRateLimitRemaining))
+	w.Header().Set("X-RateLimit-Reset", fmt.Sprint(response.Headers.XRateLimitReset))
+	w.WriteHeader(429)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type ReplaceDelegatedRoles500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response ReplaceDelegatedRoles500JSONResponse) VisitReplaceDelegatedRolesResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(500)
 
@@ -10365,6 +11054,18 @@ type StrictServerInterface interface {
 	// How many members would be affected by requiring two-step verification
 	// (GET /v1/organizations/{org_id}/mfa-impact)
 	GetMfaImpact(ctx context.Context, request GetMfaImpactRequestObject) (GetMfaImpactResponseObject, error)
+	// List the roles assigned through a received grant
+	// (GET /v1/organizations/{org_id}/project-grants/{grant_id}/user-grants)
+	ListDelegatedUserGrants(ctx context.Context, request ListDelegatedUserGrantsRequestObject) (ListDelegatedUserGrantsResponseObject, error)
+	// Assign delegated roles to one of this organization's users
+	// (POST /v1/organizations/{org_id}/project-grants/{grant_id}/user-grants)
+	AssignDelegatedRoles(ctx context.Context, request AssignDelegatedRolesRequestObject) (AssignDelegatedRolesResponseObject, error)
+	// Remove a user's delegated roles
+	// (DELETE /v1/organizations/{org_id}/project-grants/{grant_id}/user-grants/{user_id})
+	RemoveDelegatedRoles(ctx context.Context, request RemoveDelegatedRolesRequestObject) (RemoveDelegatedRolesResponseObject, error)
+	// Replace a user's delegated roles
+	// (PATCH /v1/organizations/{org_id}/project-grants/{grant_id}/user-grants/{user_id})
+	ReplaceDelegatedRoles(ctx context.Context, request ReplaceDelegatedRolesRequestObject) (ReplaceDelegatedRolesResponseObject, error)
 	// List an organization's projects
 	// (GET /v1/organizations/{org_id}/projects)
 	ListProjects(ctx context.Context, request ListProjectsRequestObject) (ListProjectsResponseObject, error)
@@ -11122,6 +11823,133 @@ func (sh *strictHandler) GetMfaImpact(w http.ResponseWriter, r *http.Request, or
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetMfaImpactResponseObject); ok {
 		if err := validResponse.VisitGetMfaImpactResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListDelegatedUserGrants operation middleware
+func (sh *strictHandler) ListDelegatedUserGrants(w http.ResponseWriter, r *http.Request, orgId OrganizationId, grantId ProjectGrantId, params ListDelegatedUserGrantsParams) {
+	var request ListDelegatedUserGrantsRequestObject
+
+	request.OrgId = orgId
+	request.GrantId = grantId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListDelegatedUserGrants(ctx, request.(ListDelegatedUserGrantsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListDelegatedUserGrants")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListDelegatedUserGrantsResponseObject); ok {
+		if err := validResponse.VisitListDelegatedUserGrantsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// AssignDelegatedRoles operation middleware
+func (sh *strictHandler) AssignDelegatedRoles(w http.ResponseWriter, r *http.Request, orgId OrganizationId, grantId ProjectGrantId, params AssignDelegatedRolesParams) {
+	var request AssignDelegatedRolesRequestObject
+
+	request.OrgId = orgId
+	request.GrantId = grantId
+	request.Params = params
+
+	var body AssignDelegatedRolesJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.AssignDelegatedRoles(ctx, request.(AssignDelegatedRolesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "AssignDelegatedRoles")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(AssignDelegatedRolesResponseObject); ok {
+		if err := validResponse.VisitAssignDelegatedRolesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RemoveDelegatedRoles operation middleware
+func (sh *strictHandler) RemoveDelegatedRoles(w http.ResponseWriter, r *http.Request, orgId OrganizationId, grantId ProjectGrantId, userId UserId, params RemoveDelegatedRolesParams) {
+	var request RemoveDelegatedRolesRequestObject
+
+	request.OrgId = orgId
+	request.GrantId = grantId
+	request.UserId = userId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RemoveDelegatedRoles(ctx, request.(RemoveDelegatedRolesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RemoveDelegatedRoles")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RemoveDelegatedRolesResponseObject); ok {
+		if err := validResponse.VisitRemoveDelegatedRolesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ReplaceDelegatedRoles operation middleware
+func (sh *strictHandler) ReplaceDelegatedRoles(w http.ResponseWriter, r *http.Request, orgId OrganizationId, grantId ProjectGrantId, userId UserId) {
+	var request ReplaceDelegatedRolesRequestObject
+
+	request.OrgId = orgId
+	request.GrantId = grantId
+	request.UserId = userId
+
+	var body ReplaceDelegatedRolesJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ReplaceDelegatedRoles(ctx, request.(ReplaceDelegatedRolesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ReplaceDelegatedRoles")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ReplaceDelegatedRolesResponseObject); ok {
+		if err := validResponse.VisitReplaceDelegatedRolesResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
