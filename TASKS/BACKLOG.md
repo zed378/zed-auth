@@ -377,6 +377,25 @@ The cost of the omission is smaller than it looks today, because both claims are
 
 ---
 
+### PG-44 — The manager-role diagram does not say who administers a delegation across organizations
+
+**Affects**: `docs/PLAN/08` Part C § Manager Role Hierarchy, `P4-03`, threat review T4-4.
+
+The diagram draws `PROJECT_GRANT_OWNER` beneath `PROJECT_OWNER`, and "permissions flow downward". Within one organization that is unambiguous. A Project Grant is not within one organization: the project owner belongs to the **granting** organization, and delegated roles are assigned to the **receiving** organization's people. Read literally, the vendor's owners would administer the partner's staff without the partner's consent (a confused deputy), and the partner's own owners would hold nothing over a grant they received.
+
+**How `P4-03` resolved it**: scope decides across organizations.
+
+- A `PROJECT_GRANT_OWNER` requirement is satisfied by a `PROJECT_GRANT_OWNER` row whose `scope_id` is the grant, held by a member of the receiving organization.
+- It is also satisfied by the receiving organization's `ORG_ADMIN`, `ORG_OWNER` or `INSTANCE_OWNER`.
+- `PROJECT_OWNER` does not satisfy it.
+- Only the receiving organization's administrators appoint grant owners.
+
+The whole table is in `MEMORY/specs/P4-03-project-grant-owner.md` §7 and `internal/management/hierarchy_exhaustive_test.go`.
+
+**Recommendation**: one sentence under the diagram in `docs/PLAN/08` Part C, saying that the arrow from `PROJECT_OWNER` to `PROJECT_GRANT_OWNER` describes the role's narrowness, not inheritance across organizations; a Project Grant is administered by the organization it was granted to. Through the deliberate plan-change process.
+
+---
+
 ### PG-43 — A passkey cannot be registered from the console's page
 
 **Affects**: `TASKS/PHASE-3-ADVANCED-SECURITY.md` § P3-05, P3-10, P3-12, `docs/PLAN/06-FRONTEND-ARCHITECTURE.md` (the console's deployment), `docs/UI-UX/08` (MFA tab, personal settings).

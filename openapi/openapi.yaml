@@ -2012,8 +2012,9 @@ paths:
       summary: List the roles assigned through a received grant
       description: |
         Requires `ORG_ADMIN` over this organization, which must be the
-        organization the grant was made **to**. The granting organization gets
-        a 404 here: it lends the project, and does not administer the
+        organization the grant was made **to**, or `PROJECT_GRANT_OWNER` of
+        this grant while it is active. The granting organization gets a 404
+        here: it lends the project, and does not administer the
         receiving organization's people.
 
         Listed under a revoked grant too, as history. A delegated role confers
@@ -2043,7 +2044,8 @@ paths:
       summary: Assign delegated roles to one of this organization's users
       description: |
         Requires `ORG_ADMIN` over this organization, which must be the
-        organization the grant was made to. The user must be a member of it.
+        organization the grant was made to, or `PROJECT_GRANT_OWNER` of this
+        grant. The user must be a member of it.
 
         **Every role key must be one the grant delegates**, checked against the
         grant as it stands at this moment, on every request (`docs/PLAN/08`
@@ -2089,7 +2091,8 @@ paths:
       operationId: replaceDelegatedRoles
       summary: Replace a user's delegated roles
       description: |
-        Requires `ORG_ADMIN` over the organization the grant was made to.
+        Requires `ORG_ADMIN` over the organization the grant was made to, or
+        `PROJECT_GRANT_OWNER` of this grant.
 
         Replaces the set entirely, and every key is checked against the grant
         as it stands now, like an assignment. A revoked grant refuses with
@@ -2120,15 +2123,105 @@ paths:
       operationId: removeDelegatedRoles
       summary: Remove a user's delegated roles
       description: |
-        Requires `ORG_ADMIN` over the organization the grant was made to.
+        Requires `ORG_ADMIN` over the organization the grant was made to, or
+        `PROJECT_GRANT_OWNER` of this grant while it is active.
 
-        Allowed under a revoked grant, so a partner can clear assignments a
-        vendor's revocation already made inert.
+        Allowed under a revoked grant for an administrator, so a partner can
+        clear assignments a vendor's revocation already made inert.
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       responses:
         "204":
           description: The delegated roles are removed.
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+  /v1/organizations/{org_id}/project-grants/{grant_id}/owners:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationId"
+      - $ref: "#/components/parameters/ProjectGrantId"
+
+    get:
+      tags: [Project Grants]
+      operationId: listProjectGrantOwners
+      summary: List who may assign a received grant's roles
+      description: |
+        Requires `ORG_ADMIN` over this organization, which must be the
+        organization the grant was made to.
+
+        A `PROJECT_GRANT_OWNER` administers the delegated roles of exactly one
+        grant, for this organization's users, and nothing else: not the
+        project, its roles or applications, not the grant, and not other
+        grants. The granting organization's administrators hold nothing here.
+      responses:
+        "200":
+          description: The grant's owners.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectGrantOwnerList"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+    post:
+      tags: [Project Grants]
+      operationId: assignProjectGrantOwner
+      summary: Make one of this organization's users an owner of a received grant
+      description: |
+        Requires `ORG_ADMIN` over the organization the grant was made to. The
+        grant must be active and the user a member of this organization. A
+        caller cannot make themselves an owner.
+
+        The role works only while the grant is active. A grant revoked and
+        granted again has a new id, and owners of the old one are not owners
+        of the new one.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProjectGrantOwnerCreate"
+      responses:
+        "201":
+          description: The owner.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectGrantOwner"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+  /v1/organizations/{org_id}/project-grants/{grant_id}/owners/{user_id}:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationId"
+      - $ref: "#/components/parameters/ProjectGrantId"
+      - $ref: "#/components/parameters/UserId"
+
+    delete:
+      tags: [Project Grants]
+      operationId: removeProjectGrantOwner
+      summary: Remove an owner of a received grant
+      description: |
+        Requires `ORG_ADMIN` over the organization the grant was made to.
+        Allowed under a revoked grant, as cleanup.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "204":
+          description: The user is no longer an owner of this grant.
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
@@ -3267,6 +3360,37 @@ components:
           maxItems: 64
           items:
             $ref: "#/components/schemas/RoleKey"
+
+    ProjectGrantOwner:
+      type: object
+      required: [user_id, grant_id, created_at]
+      additionalProperties: false
+      properties:
+        user_id:
+          $ref: "#/components/schemas/ResourceId"
+        grant_id:
+          $ref: "#/components/schemas/ResourceId"
+        created_at:
+          type: string
+          format: date-time
+
+    ProjectGrantOwnerList:
+      type: object
+      required: [owners]
+      additionalProperties: false
+      properties:
+        owners:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProjectGrantOwner"
+
+    ProjectGrantOwnerCreate:
+      type: object
+      required: [user_id]
+      additionalProperties: false
+      properties:
+        user_id:
+          $ref: "#/components/schemas/ResourceId"
 
     DelegatedGrantList:
       type: object

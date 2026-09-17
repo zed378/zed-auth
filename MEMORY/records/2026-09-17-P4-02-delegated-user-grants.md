@@ -87,6 +87,30 @@ The handler's own active check has no mutation of its own: with it removed, the 
 still refuses and the API still answers 409. That is the defence in depth working. The
 trigger's active check is mutated and caught.
 
+## On staging
+
+Deployed 2026-09-17. Backup `staging-20260917T081635Z.dump` was taken first, migration 037
+was applied as the owner role, and image `zed-auth:p4-02` came up healthy.
+
+A smoke run against the live service created a throwaway vendor administrator and a
+throwaway partner organization, with its own administrator, application and staff user.
+Both administrators signed in through the hosted page. 8 of 8 checks passed:
+
+- the vendor delegated one role;
+- the partner assigned it to its own user;
+- widening to an undelegated role was refused, naming the role and what is delegated;
+- the vendor was refused on its own path;
+- `holder_count` read 1;
+- after revocation, the partner's change was refused with 409;
+- cleanup under the revoked grant succeeded.
+
+Everything was removed afterwards: 0 partner organizations and 0 smoke roles left.
+
+The first rollout attempt stopped silently after the migration. `docker compose run` read
+the rest of the deploy script from stdin, so the old image kept serving the new schema
+until the rollout was re-run. That is harmless for an additive migration, and it is
+recorded in the deploy notes.
+
 ## Not done here
 
 - Delegated roles in tokens and `/v1/authz/check`, the reader-side join, the granting-side

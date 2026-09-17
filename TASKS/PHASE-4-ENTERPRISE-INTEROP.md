@@ -122,7 +122,7 @@
 
 | | |
 |---|---|
-| **Status** | TODO |
+| **Status** | DONE — 2026-09-17, [record](../MEMORY/records/2026-09-17-P4-03-project-grant-owner.md), [spec](../MEMORY/specs/P4-03-project-grant-owner.md). Owner notification recorded as a Phase 5 gap |
 | **Depends on** | P4-01, P2-05 |
 | **Plan refs** | `docs/PLAN/08-AUTHORIZATION.md` Part C § Manager Role Hierarchy, `docs/PLAN/04-DATA-MODEL.md` § `manager_roles` |
 | **Spec required** | Yes — administrative authorization |
@@ -138,10 +138,10 @@
 5. Decide who assigns it in the receiving organization — normally `ORG_OWNER` or `ORG_ADMIN` there — and audit the assignment.
 
 **Definition of Done**
-- [ ] The role is scoped to a specific grant, not a project.
-- [ ] It cannot reach any capability beyond assigning delegated roles.
-- [ ] The hierarchy test covers it exhaustively.
-- [ ] Assignment is audited.
+- [x] The role is scoped to a specific grant, not a project.
+- [x] It cannot reach any capability beyond assigning delegated roles.
+- [x] The hierarchy test covers it exhaustively.
+- [x] Assignment is audited.
 
 **Abuse cases to test**
 - A `PROJECT_GRANT_OWNER` acting on the granting organization's project (`docs/SECURITY/02` §3).
