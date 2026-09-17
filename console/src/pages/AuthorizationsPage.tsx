@@ -48,7 +48,7 @@ export function AuthorizationsPage() {
   const users = useUsers(orgId, search);
 
   const project = (projects.data ?? []).find((candidate) => candidate.id === projectId);
-  const results = (users.data ?? []) as User[];
+  const results = (users.data?.items ?? []) as User[];
 
   const mayManage = hasRole("ORG_ADMIN", "ORG_OWNER", "INSTANCE_OWNER");
 

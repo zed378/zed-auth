@@ -24,8 +24,11 @@ export function OverviewPage() {
   const users = useUsers(orgId, "");
   const events = useEvents(orgId, []);
 
-  const invited = users.data?.filter((user) => user.status === "invited").length ?? 0;
-  const active = users.data?.filter((user) => user.status === "active").length ?? 0;
+  const invited = users.data?.items.filter((user) => user.status === "invited").length ?? 0;
+  const active = users.data?.items.filter((user) => user.status === "active").length ?? 0;
+  // Counted from the rows read. When the read stopped at its bound the true
+  // number is higher, and the card says "at least" rather than a wrong total.
+  const usersComplete = users.data?.complete ?? true;
 
   return (
     <>
@@ -56,6 +59,7 @@ export function OverviewPage() {
           <Kpi
             label="Active users"
             value={active}
+            atLeast={!usersComplete}
             query={users}
             to="/users"
             description="Users who can sign in right now."
@@ -70,6 +74,7 @@ export function OverviewPage() {
           <Kpi
             label="Pending invites"
             value={invited}
+            atLeast={!usersComplete}
             query={users}
             to="/users?status=invited"
             description="Invitations sent and not yet accepted."
@@ -99,12 +104,15 @@ export function OverviewPage() {
 function Kpi({
   label,
   value,
+  atLeast = false,
   query,
   to,
   description,
 }: {
   label: string;
   value: number;
+  /** The number is a lower bound: the read stopped before the end. */
+  atLeast?: boolean;
   query: { isPending: boolean; isError: boolean; error: unknown; refetch: () => unknown };
   to?: string;
   description: string;
@@ -135,7 +143,15 @@ function Kpi({
           </button>
         </span>
       ) : (
-        <span className="mt-1 block text-heading-1 font-medium text-text-primary">{value}</span>
+        <span className="mt-1 block text-heading-1 font-medium text-text-primary">
+          {atLeast ? (
+            <>
+              {value}+<span className="sr-only"> (at least)</span>
+            </>
+          ) : (
+            value
+          )}
+        </span>
       )}
       <span className="mt-1 block text-small text-text-secondary">{description}</span>
     </>
