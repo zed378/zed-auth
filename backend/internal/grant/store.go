@@ -12,14 +12,15 @@
 // and a user with no row has no roles. The test that pins it asserts the
 // absence rather than any code path, because the absence is the control.
 //
-// # The Phase 4 slot
+// # Delegated grants
 //
-// `user_grants.project_grant_id` exists and is refused. `docs/PLAN/08` Part C
-// requires a delegated grant's role keys to be a subset of the delegation's
-// `granted_role_keys`, revalidated on every request, and that check belongs to
-// `P4-01`. The refusal lives in a trigger whose body Phase 4 replaces, so the
-// call site and the tests are already in place rather than retrofitted around
-// live data.
+// A row with `user_grants.project_grant_id` set was made by another
+// organization's administrators through a Project Grant (`P4-02`). They are
+// written by `internal/projectgrant`, not here. This package still reads them —
+// a receiving organization's user grants include them — and a direct `PATCH`
+// of one is validated by the same database trigger that validates the
+// delegated write path: the keys must be a subset of what the grant delegates,
+// and the grant must be active.
 package grant
 
 import (
@@ -43,8 +44,8 @@ type Grant struct {
 	ProjectID string
 	RoleKeys  []string
 
-	// ProjectGrantID is always empty in this phase. Kept on the type rather
-	// than omitted so Phase 4 adds behaviour, not a field.
+	// ProjectGrantID is the Project Grant a delegated grant came through, or
+	// empty for a direct grant (P4-02).
 	ProjectGrantID string
 
 	CreatedAt, UpdatedAt sql.NullTime
@@ -74,8 +75,16 @@ func (e ErrUnknownRole) Error() string {
 	return fmt.Sprintf("grant: no role %q in this project", e.Key)
 }
 
-// ErrDelegationNotImplemented is the closed Phase 4 slot.
-var ErrDelegationNotImplemented = errors.New("grant: delegated grants arrive in P4-01")
+// ErrNotDelegated names a role key a delegated grant's Project Grant does not
+// delegate — reached through the direct PATCH on a delegated row.
+type ErrNotDelegated struct{ Key string }
+
+func (e ErrNotDelegated) Error() string {
+	return fmt.Sprintf("grant: role %q is not delegated by this grant's Project Grant", e.Key)
+}
+
+// ErrGrantRevoked is a write to a delegated grant whose Project Grant is revoked.
+var ErrGrantRevoked = errors.New("grant: the Project Grant this came through is revoked")
 
 const columns = `id, user_id, project_id, coalesce(project_grant_id::text, ''), role_keys, created_at, updated_at`
 
@@ -269,8 +278,16 @@ func wrapConstraint(err error, doing string) error {
 	case strings.Contains(text, "does not exist in project"):
 		// The trigger names the key; pull it back out so the API can too.
 		return ErrUnknownRole{Key: keyFrom(text)}
-	case strings.Contains(text, "delegated grants are not implemented"):
-		return ErrDelegationNotImplemented
+	case strings.Contains(text, "is not delegated by project grant"):
+		return ErrNotDelegated{Key: delegatedKeyFrom(text)}
+	case strings.Contains(text, "delegated grant: project grant") && strings.Contains(text, "is revoked"):
+		return ErrGrantRevoked
+	case strings.Contains(text, "project_grant_id cannot change"):
+		return management.Fault{
+			Class:   management.Conflict,
+			Message: "A grant cannot move between direct and delegated. Delete it and create another.",
+			Reason:  "project_grant_id is immutable",
+		}
 	case strings.Contains(text, "user_grants_user_project_key"):
 		return management.Fault{
 			Class:   management.Conflict,
@@ -292,6 +309,20 @@ func wrapConstraint(err error, doing string) error {
 		return ErrNotFound
 	}
 	return fmt.Errorf("grant: %s: %w", doing, err)
+}
+
+// delegatedKeyFrom pulls the role key out of the delegation trigger's message.
+func delegatedKeyFrom(text string) string {
+	const marker = "role key "
+	i := strings.Index(text, marker)
+	if i < 0 {
+		return ""
+	}
+	rest := text[i+len(marker):]
+	if j := strings.Index(rest, " is not delegated"); j >= 0 {
+		return rest[:j]
+	}
+	return ""
 }
 
 // keyFrom pulls the role key out of the trigger's message.

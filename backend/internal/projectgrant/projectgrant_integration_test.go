@@ -480,17 +480,12 @@ func TestTheHolderCountIsTheGrantersAndOnlyTheirs(t *testing.T) {
 		t.Fatalf("a new grant reports %d holders", g.HolderCount)
 	}
 
-	// No delegated user grant can be written yet: P2-03's trigger refuses
-	// project_grant_id until P4-02 replaces its body with the subset check. The
-	// count is this card's, so the refusal is lifted for this one owner-side row
-	// and restored before anything else runs. When P4-02 lands, this becomes a
-	// delegated assignment through the API.
-	holder := f.factory.User(f.orgA, "holder@example.test")
-	f.factory.Exec(`ALTER TABLE user_grants DISABLE TRIGGER user_grants_delegation_closed`)
-	t.Cleanup(func() { f.factory.Exec(`ALTER TABLE user_grants ENABLE TRIGGER user_grants_delegation_closed`) })
-	f.factory.Exec(`INSERT INTO user_grants (user_id, project_id, org_id, role_keys, project_grant_id)
-	                VALUES ($1, $2, $3, '{cashier}', $4)`, holder, f.projectA, f.orgA, g.Id.String())
-	f.factory.Exec(`ALTER TABLE user_grants ENABLE TRIGGER user_grants_delegation_closed`)
+	// A real delegated assignment, by the receiving organization (P4-02).
+	holder := f.factory.User(f.orgB, "holder@bravo.test")
+	body := `{"user_id":"` + holder + `","role_keys":["cashier"]}`
+	if w := f.call(t, "admin-b", http.MethodPost, "/v1/organizations/"+f.orgB+"/project-grants/"+g.Id.String()+"/user-grants", body); w.Code != http.StatusCreated {
+		t.Fatalf("assigning through the grant = %d: %s", w.Code, w.Body.String())
+	}
 
 	got := decode(t, f.call(t, "owner-pos", http.MethodGet, f.grantsPath(f.orgA, f.projectA)+"/"+g.Id.String(), ""))
 	if got.HolderCount != 1 {

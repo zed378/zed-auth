@@ -4,8 +4,8 @@
 //
 // This is the row that actually gives somebody access, so the tests that matter
 // most are the ones asserting an ABSENCE: a user with no grant has nothing, a
-// caller cannot grant to themselves, and a delegated grant is refused until
-// Phase 4 implements the subset check it needs.
+// caller cannot grant to themselves, and a delegated grant must name a real
+// Project Grant (P4-02).
 package grant
 
 import (
@@ -96,30 +96,29 @@ func TestAUserWithNoGrantHasNoRoles(t *testing.T) {
 	}
 }
 
-// --- the closed Phase 4 slot ------------------------------------------------
+// --- the Phase 4 slot, filled ---------------------------------------------
 
-// `docs/PLAN/08` Part C requires a delegated grant's role keys to be a SUBSET of
-// what was delegated, revalidated on every request. That is the most
-// security-critical check in the system and it belongs to `P4-01`.
+// P2-03 wrote this test to be INVERTED in Phase 4, not deleted: the trigger
+// that refused every non-null project_grant_id now accepts one only when it
+// names an active Project Grant to the row's organization, for the row's
+// project, with a subset of its keys (P4-02). A made-up grant id is still
+// refused — by the rule, not by a blanket "not implemented".
 //
-// **This test is written to be INVERTED in Phase 4, not deleted.** The refusal
-// is a trigger whose body Phase 4 replaces with the subset validation, so the
-// diff shows a rule changing rather than a guard disappearing.
-func TestADelegatedGrantIsRefusedUntilPhaseFour(t *testing.T) {
+// The accepting side of the rule is tested in internal/projectgrant, where the
+// grants exist.
+func TestADelegatedGrantMustNameARealProjectGrant(t *testing.T) {
 	f := setup(t)
 	subject := f.factory.User(f.orgA)
 
-	// Written directly, because no API accepts the column at all — which is
-	// the first line of defence and the reason this has to reach past it.
 	err := f.factory.TryExec(`
 		INSERT INTO user_grants (user_id, project_id, org_id, role_keys, project_grant_id)
 		VALUES ($1, $2, $3, $4, gen_random_uuid())`,
 		subject, f.projectA, f.orgA, pq.Array([]string{"admin"}))
 	if err == nil {
-		t.Fatal("a delegated grant was written with no subset validation anywhere")
+		t.Fatal("a delegated grant was written naming a Project Grant that does not exist")
 	}
-	if !strings.Contains(err.Error(), "not implemented") {
-		t.Errorf("refused, but not by the slot: %v", err)
+	if !strings.Contains(err.Error(), "delegated grant: project grant") {
+		t.Errorf("refused, but not by the delegation rule: %v", err)
 	}
 }
 

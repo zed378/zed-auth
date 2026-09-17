@@ -384,6 +384,30 @@ const sidebar: SidebarsConfig = {
           label: "Revoke a grant",
           className: "api-method delete",
         },
+        {
+          type: "doc",
+          id: "api-reference/list-delegated-user-grants",
+          label: "List the roles assigned through a received grant",
+          className: "api-method get",
+        },
+        {
+          type: "doc",
+          id: "api-reference/assign-delegated-roles",
+          label: "Assign delegated roles to one of this organization's users",
+          className: "api-method post",
+        },
+        {
+          type: "doc",
+          id: "api-reference/replace-delegated-roles",
+          label: "Replace a user's delegated roles",
+          className: "api-method patch",
+        },
+        {
+          type: "doc",
+          id: "api-reference/remove-delegated-roles",
+          label: "Remove a user's delegated roles",
+          className: "api-method delete",
+        },
       ],
     },
     {

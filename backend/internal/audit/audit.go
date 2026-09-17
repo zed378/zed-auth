@@ -186,6 +186,14 @@ const (
 	EventProjectGrantCreated EventType = "project_grant.created"
 	EventProjectGrantRevoked EventType = "project_grant.revoked"
 
+	// Delegated roles (P4-02), written in the RECEIVING organization's log. Each
+	// payload names both organizations, the Project Grant and the exact roles,
+	// because "who could give that partner user manager, and through what" is
+	// the question an investigation of delegated access starts with.
+	EventDelegatedRoleAssigned EventType = "delegated_role.assigned"
+	EventDelegatedRoleReplaced EventType = "delegated_role.replaced"
+	EventDelegatedRoleRemoved  EventType = "delegated_role.removed"
+
 	EventManagerRoleAssigned EventType = "manager_role.assigned"
 	EventManagerRoleRevoked  EventType = "manager_role.revoked"
 )
