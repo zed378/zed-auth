@@ -408,7 +408,7 @@ function AssignRolesModal({
   }
 
   const changed = useMemo(
-    () => chosen.slice().sort().join(" ") !== existing.slice().sort().join(" "),
+    () => chosen.slice().sort().join("\u0000") !== existing.slice().sort().join("\u0000"),
     [chosen, existing],
   );
 
