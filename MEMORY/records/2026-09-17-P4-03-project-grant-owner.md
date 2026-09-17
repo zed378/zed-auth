@@ -70,6 +70,25 @@ combinations.
 | Mutations (6) | all red: grant `scope_id` equality, token organization check, revoked grant refuses a grant owner, `PROJECT_OWNER` satisfying the role, the project-loop skip, owners routes requiring `ORG_ADMIN` |
 | `tests/security` coverage map | four named tests added under Phase 4 |
 
+## On staging
+
+Deployed 2026-09-17. Backup `staging-20260917T085248Z.dump` was taken first. There were
+no pending migrations, and image `zed-auth:p4-03` came up healthy.
+
+A smoke run used a throwaway vendor administrator and a throwaway partner organization with
+an administrator, a future grant owner and a staff user. All of them signed in through the
+hosted page. 9 of 9 checks passed:
+
+- the vendor cannot appoint a grant owner in the partner (404);
+- the partner's administrator can;
+- the grant owner assigned the delegated role;
+- the grant owner is refused the owners list (403), the partner's users (403), the vendor's
+  grants (404) and the partner's audit log (403);
+- after revocation the grant owner reaches nothing (404), while the administrator still
+  reads the history.
+
+Everything was removed afterwards: 0 partner organizations and 0 grant-owner rows left.
+
 ## Gaps recorded, not built
 
 - **Owner notification.** `docs/SECURITY/02` §3 expects manager-role writes to be rare
