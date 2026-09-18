@@ -1,19 +1,15 @@
-# Category: IDENTITY-PROTOCOL
+# Identity Protocol
 
-OpenID Connect (OIDC), OAuth 2.1 Authorization Server, SAML 2.0 Federation, WebAuthn/Passkeys, and MFA specifications.
+This category covers the standards-facing surface of the Auth Service: OpenID Connect discovery and JWKS, the OAuth 2.1 authorization server, the UserInfo endpoint, multi-factor authentication (TOTP, WebAuthn, recovery codes, the organization mandate), and — as a draft specification only, since it is not built — SAML 2.0 federation. It relates to `docs/PLAN/03-ARCHITECTURE.md` and `docs/PLAN/07-BACKEND-ARCHITECTURE.md` (design intent), `docs/PLAN/08-AUTHORIZATION.md` (the claims these protocols carry), and `docs/SECURITY/02-ATTACK-SURFACE-AND-SCENARIOS.md` (the abuse cases each control closes). `docs/SESSION-MANAGEMENT/` covers the session and token machinery these protocols sit on top of.
 
-## Category Mandate
+## Documents
 
-The `IDENTITY-PROTOCOL/` directory defines the platform's **federated identity contracts**. It specifies strict compliance with OIDC Core 1.0, OAuth 2.1 draft, SAML 2.0 Web Browser SSO profile, FIDO2/WebAuthn, and Multi-Factor Authentication.
-
-## Documents in Category
-
-| Document | Title | Description |
+| File | Topic | Status |
 |---|---|---|
-| `00-IDENTITY-PROTOCOL-OVERVIEW.md` | Protocol Overview | Standards compliance & protocol suite layout. |
-| `01-OIDC-DISCOVERY-AND-JWKS.md` | OIDC Discovery & JWKS | `/.well-known/openid-configuration` & `/.well-known/jwks.json`. |
-| `02-OAUTH21-AUTHORIZATION-SERVER.md` | OAuth 2.1 Server | Authorization Code Flow with PKCE, Client Credentials. |
-| `03-USERINFO-ENDPOINT.md` | UserInfo Endpoint | `/userinfo` response claims & scope mapping. |
-| `04-SAML-20-FEDERATION.md` | SAML 2.0 Federation | IdP & SP metadata, assertion signing, assertion consumer. |
-| `05-WEBAUTHN-AND-PASSKEYS.md` | WebAuthn & Passkeys | FIDO2 registration, assertion verification, passkeys. |
-| `06-MULTI-FACTOR-AUTHENTICATION.md` | MFA & TOTP | TOTP enrollment, verification, recovery code strategy. |
+| [`00-IDENTITY-PROTOCOL-OVERVIEW.md`](./00-IDENTITY-PROTOCOL-OVERVIEW.md) | Map of what is built vs. planned across this category | Partially implemented |
+| [`01-OIDC-DISCOVERY-AND-JWKS.md`](./01-OIDC-DISCOVERY-AND-JWKS.md) | The discovery document (derived from running capability) and JWKS | Implemented |
+| [`02-OAUTH21-AUTHORIZATION-SERVER.md`](./02-OAUTH21-AUTHORIZATION-SERVER.md) | Authorization code + PKCE, refresh, client credentials; refused grants | Implemented |
+| [`03-USERINFO-ENDPOINT.md`](./03-USERINFO-ENDPOINT.md) | `/oauth/userinfo` claim mapping and scope gating | Implemented |
+| [`04-SAML-20-FEDERATION.md`](./04-SAML-20-FEDERATION.md) | SAML 2.0 as an Identity Provider | Draft specification |
+| [`05-WEBAUTHN-AND-PASSKEYS.md`](./05-WEBAUTHN-AND-PASSKEYS.md) | WebAuthn as a second factor and hosted registration; not passwordless sign-in | Partially implemented |
+| [`06-MULTI-FACTOR-AUTHENTICATION.md`](./06-MULTI-FACTOR-AUTHENTICATION.md) | TOTP, recovery codes, the 14-day mandate grace, and every enforcement point | Implemented |
