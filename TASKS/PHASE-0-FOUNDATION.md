@@ -35,6 +35,7 @@
 | P0-19 | Landing page, About page, docs skeleton content | public-site, docs | M | P0-18 |
 | P0-20 | Staging environment provisioning | infra | L | P0-13 |
 | P0-21 | Adopt the TASKS/MEMORY working discipline | docs | S | — |
+| P0-22 | Reference documentation: domain categories written from the code | docs | L | P0-21 |
 
 ---
 
@@ -677,6 +678,32 @@ The verification itself was strengthened. It reported "all 14 tables restored" a
 - [x] `MEMORY/` exists with a README, index, changelog, decision log, and record template.
 - [x] The first change record documents the creation of these two folders.
 - [ ] `CLAUDE.md` and `AGENTS.md` reference `TASKS/` and `MEMORY/` in their documentation maps — pending user approval, since both files govern agent behavior and editing them is a deliberate act (`BACKLOG.md` OQ-01).
+
+---
+## P0-22 — Reference Documentation: Domain Categories Written From The Code
+
+| | |
+|---|---|
+| **Status** | DONE — 2026-09-18, [record](../MEMORY/records/2026-09-18-P0-22-docs-domain-categories.md) |
+| **Depends on** | P0-21 |
+| **Plan refs** | `docs/README.md`, `AGENTS.md` rule 9, `.github/CODEOWNERS` |
+| **Spec required** | No |
+| **Surface** | docs |
+
+**Goal** — A reader (or an agent) can answer "how does this actually work?" from `docs/` without reading the code first, and can tell at a glance which parts are built. The plan folders keep saying what *should* be true; the new categories say what *is* true, and cite it.
+
+**Steps**
+1. Keep `docs/PLAN/`, `docs/UI-UX/` and `docs/SECURITY/00`–`05` exactly as they are: they are design intent, amended only through the deliberate plan-change process.
+2. Organise the rest by domain — one folder per topic, numbered documents, a `README.md` index per folder — following the structure of the reference repository this layout was modelled on.
+3. Write each document from the code: cite the migration, handler, contract entry or test behind every claim.
+4. Carry a status on every document: `Implemented`, `Partially implemented` or `Draft specification`, with the owning task named for anything unbuilt.
+5. Enforce mechanically what a reader cannot check by eye (`scripts/check-docs.py`).
+
+**Definition of Done**
+- [x] `docs/PLAN`, `docs/UI-UX` and `docs/SECURITY/00`–`05` are byte-identical to their pre-restructure content, with only new `README.md` indexes added.
+- [x] Every domain document carries a status and cites its evidence.
+- [x] Nothing unbuilt is described as if it works; each such document names its owning task.
+- [x] `scripts/check-docs.py` reports zero problems, and fails on a scaffold marker, an unknown status, an endpoint outside the contract, a prefixed-id example, or a citation of a path that does not exist.
 
 ---
 

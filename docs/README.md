@@ -1,67 +1,81 @@
-# Product Documentation — Centralized Auth Service
+# Documentation — Centralized Auth Service
 
-Welcome to the technical specification and reference documentation for the **Centralized Auth Service**: an enterprise-grade identity, SSO, access control, and organization management platform.
+An identity and access platform: centralized authentication (OIDC / OAuth 2.1), a complete REST Management API, multi-tenant RBAC with cross-organization delegation, a management console, and a public site.
 
 ```
-Consumer Application / SDK / SPA
-             |
-             v (HTTP / OIDC / OAuth 2.1)
-  +------------------------------------+
-  |     Centralized Auth Service       |
-  |  +------------------------------+  |
-  |  | OIDC / SAML / OAuth 2.1 Engine |  |
-  |  +------------------------------+  |
-  |  | Multi-Tenant RBAC & Grants   |  |
-  |  +------------------------------+  |
-  |  | REST Management API          |  |
-  |  +------------------------------+  |
-  +-----------------+------------------+
-                    |
-          +---------+---------+
-          v                   v
-     PostgreSQL             Redis
-  (RLS / Audit / DB)    (Sessions / Cache)
+Consumer application / SPA / service
+            |  OIDC, OAuth 2.1, REST
+            v
+   +-------------------------------+
+   |      Auth Service (Go)        |
+   |  hosted login · OIDC provider |
+   |  Management API · authz check |
+   +---------------+---------------+
+                   |
+        +----------+----------+
+        v                     v
+   PostgreSQL              Redis
+  (RLS, audit)      (cache, rate limits)
 ```
 
-## Documentation Architecture
+## Two kinds of document, deliberately separated
 
-This repository uses a **domain-category modular specification structure** inspired by high-reliability infrastructure specs (such as `zed378/image-management`). Every category contains a `README.md` index and numbered specification documents following strict quality & testability mandates.
+| | |
+|---|---|
+| **`PLAN/`, `UI-UX/`, `SECURITY/`** | **Design intent.** Written before the code, amended only through the deliberate plan-change process (`AGENTS.md` rule 9; `.github/CODEOWNERS` requires a review that a code change does not). They say what should be true. |
+| **Every other category** | **The system as built.** Each document states a status — `Implemented`, `Partially implemented` or `Draft specification` — and cites the code, migration, contract or test that backs each claim. |
 
-## Categories Overview
+Where the implementation deliberately differs from the plan, the difference is recorded as an ADR in [`../MEMORY/DECISIONS.md`](../MEMORY/DECISIONS.md) or as a plan gap (`PG-xx`) in [`../TASKS/BACKLOG.md`](../TASKS/BACKLOG.md) — never resolved silently, and never by quietly editing the plan.
 
-| Folder | Category | Scope & Mandate |
-|---|---|---|
-| [`PLAN/`](file:///c:/Users/Zed/Documents/Project/auth/docs/PLAN/README.md) | Product Intent & Scope | Core product requirements, scope boundaries, roadmap, risk register, acceptance criteria. |
-| [`ARCHITECTURE/`](file:///c:/Users/Zed/Documents/Project/auth/docs/ARCHITECTURE/README.md) | System Architecture | System topology, service boundaries, Go/Chi backend design, React frontend design, public site design. |
-| [`API/`](file:///c:/Users/Zed/Documents/Project/auth/docs/API/README.md) | REST Management API | Public & internal HTTP endpoints, standards, error codes, rate limiting, pagination, idempotency. |
-| [`IDENTITY-PROTOCOL/`](file:///c:/Users/Zed/Documents/Project/auth/docs/IDENTITY-PROTOCOL/README.md) | OIDC & OAuth 2.1 Protocol | OpenID Connect, OAuth 2.1 Server, SAML 2.0 Federation, WebAuthn/Passkeys, MFA. |
-| [`AUTHORIZATION/`](file:///c:/Users/Zed/Documents/Project/auth/docs/AUTHORIZATION/README.md) | RBAC & Delegation Engine | Multi-tenant RBAC, Project Grants (cross-org delegation), ABAC evaluation, permission engine. |
-| [`SESSION-MANAGEMENT/`](file:///c:/Users/Zed/Documents/Project/auth/docs/SESSION-MANAGEMENT/README.md) | Token & Session Lifecycle | JWT issuance, JWKS key rotation, refresh token families, token revocation & blacklisting. |
-| [`MULTI-TENANCY/`](file:///c:/Users/Zed/Documents/Project/auth/docs/MULTI-TENANCY/README.md) | Tenant & Org Isolation | Organization & Project scoping, row-level security isolation, custom domain mapping. |
-| [`DATABASE/`](file:///c:/Users/Zed/Documents/Project/auth/docs/DATABASE/README.md) | Relational Storage | PostgreSQL schema definitions, RLS policies, indexing, migrations, append-only audit trail storage. |
-| [`SECURITY/`](file:///c:/Users/Zed/Documents/Project/auth/docs/SECURITY/README.md) | Threat Model & Controls | Asset & trust boundaries, threat actors, attack surface & scenarios, security baselines, incident playbooks. |
-| [`OBSERVABILITY/`](file:///c:/Users/Zed/Documents/Project/auth/docs/OBSERVABILITY/README.md) | Audit & Monitoring | Structured logging, RFC 5424 audit trail, privacy sanitization, Prometheus metrics, tracing. |
-| [`PERFORMANCE/`](file:///c:/Users/Zed/Documents/Project/auth/docs/PERFORMANCE/README.md) | SLA & Benchmarking | Latency budgets (<5ms token verification), DB query budgets, load testing strategy with k6. |
-| [`DEVOPS/`](file:///c:/Users/Zed/Documents/Project/auth/docs/DEVOPS/README.md) | Infrastructure & CI/CD | Docker/K8s, GitHub Actions CI/CD pipelines, secret management (Vault), backup & disaster recovery. |
-| [`TESTING/`](file:///c:/Users/Zed/Documents/Project/auth/docs/TESTING/README.md) | Quality Assurance | Test pyramid, Go unit/integration tests, React component tests, E2E Playwright, security abuse tests. |
-| [`SDK/`](file:///c:/Users/Zed/Documents/Project/auth/docs/SDK/README.md) | Client Integration SDKs | Go SDK, TypeScript SDK, React Auth Provider & Hooks, HTTP gateway middleware. |
-| [`WEBHOOK/`](file:///c:/Users/Zed/Documents/Project/auth/docs/WEBHOOK/README.md) | Event Delivery System | Outbound webhook events (User registered, Role assigned), HMAC-SHA256 signatures, retry queues. |
-| [`UI-UX/`](file:///c:/Users/Zed/Documents/Project/auth/docs/UI-UX/README.md) | Console & Public Site UI | Design system, visual language, component specs, management console pages, public docs site. |
-| [`DEVELOPER/`](file:///c:/Users/Zed/Documents/Project/auth/docs/DEVELOPER/README.md) | Developer Experience | Getting started, local development setup, task conventions, API integration guide. |
+## Categories
 
-## Core Architectural Principles
+| Folder | Covers |
+|---|---|
+| [`PLAN/`](./PLAN/) | Product scope, requirements, architecture, data model, API contract, authorization, security baseline, testing, performance, deployment, roadmap, acceptance criteria |
+| [`UI-UX/`](./UI-UX/) | Design direction and system, page and component specifications, accessibility, the public site |
+| [`SECURITY/`](./SECURITY/) | Assets and trust boundaries, threat actors, attack scenarios, detection, incident response, red-team verification |
+| [`ARCHITECTURE/`](./ARCHITECTURE/) | The deployable units, their boundaries, and the backend's internal structure |
+| [`API/`](./API/) | The `/v1` REST contract: conventions, errors, pagination, idempotency, and every resource family |
+| [`IDENTITY-PROTOCOL/`](./IDENTITY-PROTOCOL/) | OIDC discovery, the OAuth 2.1 authorization server, MFA, passkeys, and (unbuilt) SAML |
+| [`SESSION-MANAGEMENT/`](./SESSION-MANAGEMENT/) | Sessions, token issuance and structure, refresh rotation, key rotation, revocation |
+| [`AUTHORIZATION/`](./AUTHORIZATION/) | RBAC, the manager-role hierarchy, Project Grants, the permission table, the live check |
+| [`MULTI-TENANCY/`](./MULTI-TENANCY/) | Tenant model, row-level security, isolation testing |
+| [`DATABASE/`](./DATABASE/) | Schema, policies, triggers, indexes, migrations, audit storage |
+| [`OBSERVABILITY/`](./OBSERVABILITY/) | Logging, the audit log, metrics, tracing, SLOs |
+| [`PERFORMANCE/`](./PERFORMANCE/) | Targets, measured results, load-test method |
+| [`TESTING/`](./TESTING/) | The test layers, abuse-case testing, and the CI gates |
+| [`DEVOPS/`](./DEVOPS/) | Environments, containers, CI/CD, secrets, backup and recovery |
+| [`DEVELOPER/`](./DEVELOPER/) | Getting started, local development, integrating an application |
+| [`SDK/`](./SDK/) | Client libraries — what exists today and what is only specified |
+| [`WEBHOOK/`](./WEBHOOK/) | Outbound event delivery (not built; specified for `P4-12`) |
 
-1. **API Parity**: Every capability exposed in the Management Console is backed by a public, versioned REST API endpoint.
-2. **Server-Side Enforcement**: Authorization, tenant boundaries, and project grant limits are enforced on every request on the server side — UI component hiding is pure UX.
-3. **Cross-Organization Project Grants**: Roles delegated to another organization are strictly validated server-side as a subset of `granted_role_keys`.
-4. **Tenant Isolation by Default**: PostgreSQL Row-Level Security (RLS) is enforced at the DB session level.
-5. **Zero Token Leaks**: Passwords, tokens, credentials, and raw attribute evaluations are never logged to stdout or tracing systems.
+Each folder has a `README.md` listing its documents with their status.
 
-## Recommended Reading Path
+## Reading order
 
-1. [`PLAN/00-PROJECT-CONTEXT.md`](file:///c:/Users/Zed/Documents/Project/auth/docs/PLAN/00-PROJECT-CONTEXT.md) — Big picture vision & product scope.
-2. [`ARCHITECTURE/00-SYSTEM-ARCHITECTURE.md`](file:///c:/Users/Zed/Documents/Project/auth/docs/ARCHITECTURE/00-SYSTEM-ARCHITECTURE.md) — Core services and system boundaries.
-3. [`DATABASE/01-SCHEMA-DEFINITIONS.md`](file:///c:/Users/Zed/Documents/Project/auth/docs/DATABASE/01-SCHEMA-DEFINITIONS.md) — Relational domain data model.
-4. [`AUTHORIZATION/00-AUTHORIZATION-ARCHITECTURE.md`](file:///c:/Users/Zed/Documents/Project/auth/docs/AUTHORIZATION/00-AUTHORIZATION-ARCHITECTURE.md) — RBAC, Project Grants, and ABAC engine.
-5. [`API/00-API-OVERVIEW.md`](file:///c:/Users/Zed/Documents/Project/auth/docs/API/00-API-OVERVIEW.md) — REST Management API contract.
-6. [`SECURITY/02-ATTACK-SURFACE-AND-SCENARIOS.md`](file:///c:/Users/Zed/Documents/Project/auth/docs/SECURITY/02-ATTACK-SURFACE-AND-SCENARIOS.md) — Mandatory threat & abuse model.
+```
+1.  PLAN/00-PROJECT-CONTEXT.md        → the problem and the product
+2.  PLAN/01-PRODUCT-SCOPE.md          → and what is deliberately out of scope
+3.  ARCHITECTURE/00-SYSTEM-ARCHITECTURE.md
+4.  DATABASE/00-DATABASE-ARCHITECTURE.md and 01-SCHEMA-DEFINITIONS.md
+5.  AUTHORIZATION/00-AUTHORIZATION-ARCHITECTURE.md   → RBAC, delegation and the live check
+6.  API/00-API-OVERVIEW.md
+7.  SECURITY/02-ATTACK-SURFACE-AND-SCENARIOS.md      → mandatory before touching auth
+8.  UI-UX/00-DESIGN-DIRECTION.md                     → before any console work
+9.  TASKS/PROGRESS.md                                → what is in scope right now
+```
+
+## Principles that bind every document
+
+1. **Every console capability is also in the REST API** (`PLAN/02` FR-14). A console-only shortcut is never acceptable.
+2. **Authorization is enforced server-side on every request.** A hidden button is not a security control.
+3. **Delegated role assignment is validated as a subset of `granted_role_keys` on every request**, not only at grant creation (`PLAN/08` Part C).
+4. **Tenant isolation is the first security property.** Row-level security is the mechanism, not a predicate somebody remembers to write.
+5. **Nothing published describes a capability that has not shipped.** The public site's capability audit enforces it in CI; these documents carry a status line for the same reason.
+6. **A document cites its evidence.** A claim about behaviour names the code, migration, contract or test that makes it true.
+
+## Working with this repository
+
+`../CLAUDE.md` carries the documentation map for AI agents: which document to open for a given task. Execution lives in [`../TASKS/`](../TASKS/) — one branch per task card, a feature specification in `../MEMORY/specs/` for anything touching authentication, authorization or the data model, and a record in `../MEMORY/records/` before a card is marked done.
+
+**If a question is not answered here, that is a real gap.** Raise it in `../TASKS/BACKLOG.md` rather than deciding it silently.
