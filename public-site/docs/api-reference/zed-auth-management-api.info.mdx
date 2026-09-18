@@ -38,9 +38,17 @@ a defect.
 
 ## Current status
 
-Phase 0. The service runs, and the endpoints below are the ones that exist:
-operational probes only. The identity and authorization endpoints arrive in
-Phase 1 and are deliberately absent from this document until they are real.
+Phases 1 to 3 are complete, and Phase 4 is in progress. This document
+describes the endpoints that exist: authentication and the OIDC provider,
+organizations, projects, applications, roles, users, user grants, sessions,
+multi-factor authentication, account self-service, the audit log, the
+authorization check, and cross-organization delegation through Project
+Grants.
+
+Endpoints that do not exist yet are deliberately absent until they are
+real — currently SAML, social sign-in, webhooks and SCIM. Delegated roles
+granted through a Project Grant do not yet appear in tokens or in
+`/v1/authz/check`; that arrives with `P4-04`.
 
 ## Versioning
 

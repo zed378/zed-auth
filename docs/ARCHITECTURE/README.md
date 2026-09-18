@@ -1,17 +1,21 @@
-# Category: ARCHITECTURE
+# Architecture
 
-System architecture, service boundaries, Go/Chi backend architecture, React frontend architecture, and public site architecture.
+The system as it is deployed and as the code is organised: the units that run, the boundaries between them, and the internal structure of the Go service, the console and the public site. `docs/PLAN/03-ARCHITECTURE.md`, `06-FRONTEND-ARCHITECTURE.md`, `07-BACKEND-ARCHITECTURE.md` and `20-PUBLIC-SITE-ARCHITECTURE.md` hold the design intent; these documents describe what exists and cite it.
 
-## Category Mandate
+Operational concerns — environments, images, CI, deployment and recovery — are in [`../DEVOPS/`](../DEVOPS/).
 
-The `ARCHITECTURE/` directory defines the **how** of the system design. It details component topologies, service boundaries, communication protocols, framework selections, and structural patterns across backend services, management console UI, and public sites.
+## Documents
 
-## Documents in Category
-
-| Document | Title | Description |
+| File | Topic | Status |
 |---|---|---|
-| `00-SYSTEM-ARCHITECTURE.md` | System Architecture | Top-level system architecture, service components, data flows. |
-| `01-SERVICE-BOUNDARIES.md` | Service Boundaries & Interfaces | Boundaries between Auth Service, PostgreSQL, Redis, external IdPs. |
-| `02-BACKEND-ARCHITECTURE.md` | Backend Architecture | Go backend layer layout (`net/http`, `chi`, `pgx`, repository pattern). |
-| `03-FRONTEND-ARCHITECTURE.md` | Frontend Architecture | Console SPA architecture (React, TypeScript, TanStack Query, Tailwind). |
-| `04-PUBLIC-SITE-ARCHITECTURE.md` | Public Site Architecture | Marketing landing & public API documentation site architecture. |
+| [`00-SYSTEM-ARCHITECTURE.md`](./00-SYSTEM-ARCHITECTURE.md) | Deployable units, request path, storage | Implemented |
+| [`01-SERVICE-BOUNDARIES.md`](./01-SERVICE-BOUNDARIES.md) | What each unit owns, and the gates that enforce it | Implemented |
+| [`02-BACKEND-ARCHITECTURE.md`](./02-BACKEND-ARCHITECTURE.md) | Binaries, packages, layering rules | Implemented |
+| [`03-FRONTEND-ARCHITECTURE.md`](./03-FRONTEND-ARCHITECTURE.md) | The management console as a client of the contract | Implemented |
+| [`04-PUBLIC-SITE-ARCHITECTURE.md`](./04-PUBLIC-SITE-ARCHITECTURE.md) | The public site and its generated API reference | Implemented |
+
+## Related
+
+- [`../API/`](../API/) — the contract the generated router serves.
+- [`../DATABASE/`](../DATABASE/) — the schema behind the storage layer.
+- [`../MULTI-TENANCY/`](../MULTI-TENANCY/) — how one database serves many tenants safely.
