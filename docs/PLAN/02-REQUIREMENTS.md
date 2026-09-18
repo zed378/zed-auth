@@ -1,40 +1,52 @@
-# 02 - Functional & Non-Functional Requirements
+# 02 — Requirements
 
-> Category: **PLAN** (`docs/PLAN/`) &nbsp;|&nbsp; Status: Final specification &nbsp;|&nbsp; Owner: Platform Security & Engineering
+## Functional Requirements
 
-## Purpose
+### Authentication
+- FR-1: Users can log in with email/username + password.
+- FR-2: Users can enable MFA via TOTP; WebAuthn/passkey support added in a later phase.
+- FR-3: Users can log in via federated social providers (Google, Microsoft, GitHub) as an alternative to a local password.
+- FR-4: A logged-in user accessing a second registered application does not need to authenticate again while their session is valid (SSO).
+- FR-5: Users can view and revoke their own active sessions.
+- FR-6: Administrators can require MFA for all users in their organization via policy.
 
-Enumerate all explicit functional requirements (FR-01 to FR-14) and non-functional requirements (NFR-01 to NFR-10).
+### Authorization
+- FR-7: Roles are defined per project and assigned to users via grants (RBAC) — see `08-AUTHORIZATION.md`.
+- FR-8: A project can be delegated to another organization with a restricted subset of roles (Project Grant) — see `08-AUTHORIZATION.md`.
+- FR-9: Fine-grained, attribute-conditional authorization decisions are supported via an optional policy engine (ABAC) — see `08-AUTHORIZATION.md`.
+- FR-10: Any service can query a real-time authorization decision via `/v1/authz/check`.
 
-## Category Mandate
+### Multi-Tenancy
+- FR-11: A single deployment (instance) can host multiple organizations, each with isolated users, projects, and settings.
+- FR-12: Each organization can configure its own password policy, MFA requirement, and session lifetime.
 
-Acts as the definitive contract that every API, backend component, and database schema must satisfy.
+### Management
+- FR-13: All entities (organizations, projects, applications, users, roles, grants) support full CRUD via REST API.
+- FR-14: All CRUD operations available via the API are also available through the management console.
+- FR-15: Administrative actions are recorded in an audit log with actor, timestamp, and details.
 
-## Key Topics To Specify
+## Non-Functional Requirements
 
-- FR-01: Single Sign-On (OIDC/OAuth 2.1).
-- FR-02: Organization & Project Scoping.
-- FR-03: Multi-Tenant RBAC & Project Grants.
-- FR-14: Management Console API Parity.
-- NFR-01: Token verification latency < 5ms.
-- NFR-02: Server-side authorization enforcement on 100% of routes.
+| Category | Requirement |
+|---|---|
+| **Availability** | Auth Service is on the critical path of every consumer application; target availability should match or exceed the strictest consumer app's SLA. |
+| **Latency** | `/oauth/token` and `/oauth/authorize` p95 latency target: see `12-PERFORMANCE.md` for specific numbers and load-testing plan. |
+| **Scalability** | The service must scale horizontally with no shared in-memory state (see `03-ARCHITECTURE.md`, `07-BACKEND-ARCHITECTURE.md`). |
+| **Security** | Full detail in `09-SECURITY.md` and `10-THREAT-MODEL.md`; summarized: short-lived tokens, asymmetric signing, Argon2id hashing, mandatory PKCE, TLS everywhere. |
+| **Auditability** | Every identity/permission-changing event must be captured in an append-only log (`04-DATA-MODEL.md`). |
+| **Portability** | No hard vendor lock-in — standard OIDC/OAuth/SAML rather than proprietary protocols, so consumer apps aren't tied to this specific implementation. |
+| **Maintainability** | API-first design so the UI never contains business logic the API doesn't also expose (`06-FRONTEND-ARCHITECTURE.md`). |
+| **Accessibility** | Management console meets WCAG 2.1 AA at minimum — see `UI-UX/13-ACCESSIBILITY.md`. |
 
-## Reference Architecture & Specification
+## Constraints
 
-FR-14: Every action performable in the Console UI must be accessible via the REST Management API.
-NFR-02: Server-side authorization check (`/v1/authz/check`) must be invoked before executing business logic.
+- Migration from existing auth systems must be gradual (app by app), not a single cutover — see `01-PRODUCT-SCOPE.md`.
+- No third-party dependency may hold the private signing key outside of Auth Service's own infrastructure/secret manager.
+- The console must authenticate through the same OIDC flow as every other consumer application ("dogfooding") — see `06-FRONTEND-ARCHITECTURE.md`.
 
-## Acceptance Criteria
+## Assumptions
 
-- [x] FR-01 through FR-14 fully enumerated.
-- [x] NFR-01 through NFR-10 fully enumerated.
+- Initial deployment is single-tenant (one default organization) for internal use; the schema remains multi-tenant-ready from day one so a second organization can be activated without a migration (`04-DATA-MODEL.md`, `08-AUTHORIZATION.md`).
+- Teams integrating with this service are comfortable working with OIDC/OAuth 2.1 concepts (Authorization Code + PKCE).
 
-## Open Questions
-
-Review NFR-01 latency under high concurrency load.
-
-## Related Documents
-
-- `docs/PLAN/01-PRODUCT-SCOPE.md`
-- `docs/API/00-API-OVERVIEW.md`
-- `docs/AUTHORIZATION/00-AUTHORIZATION-ARCHITECTURE.md`
+Continue to [03 — Architecture](./03-ARCHITECTURE.md).

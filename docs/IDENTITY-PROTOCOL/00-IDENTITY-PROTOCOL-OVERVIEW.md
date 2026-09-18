@@ -1,39 +1,37 @@
 # 00 - Identity Protocol Overview
 
-> Category: **IDENTITY-PROTOCOL** (`docs/IDENTITY-PROTOCOL/`) &nbsp;|&nbsp; Status: Final specification &nbsp;|&nbsp; Owner: Platform Security & Engineering
+> Category: **Identity Protocol** (`docs/IDENTITY-PROTOCOL/`) &nbsp;|&nbsp; Status: Partially implemented &nbsp;|&nbsp; Tasks: P1-04, P1-06, P1-07, P1-08, P3-01…P3-14 &nbsp;|&nbsp; Verified against: `84eb9a2`
 
 ## Purpose
 
-Specify identity standards compliance for OIDC, OAuth 2.1, SAML 2.0, and WebAuthn.
+Orients a reader across the protocol surfaces this service implements or plans to implement: OpenID Connect discovery, the OAuth 2.1 authorization server, UserInfo, SAML 2.0 federation, WebAuthn/passkeys, and multi-factor authentication. States which of these are running code today and which are design intent only.
 
-## Category Mandate
+## Scope
 
-Ensures interoperability with standard OIDC clients, enterprise IdPs, and modern web browsers.
+This document is a map, not a specification of any one surface — each linked document is authoritative for its own area. `docs/PLAN/03-ARCHITECTURE.md` and `docs/PLAN/07-BACKEND-ARCHITECTURE.md` are the design intent this category implements against.
 
-## Key Topics To Specify
+## As Built
 
-- OIDC Core 1.0 specification adherence.
-- OAuth 2.1 draft specifications (PKCE mandatory for all interactive flows).
-- SAML 2.0 Enterprise IdP/SP integration.
-- FIDO2 / WebAuthn W3C standard compliance.
+| Surface | Status | Document |
+|---|---|---|
+| OIDC discovery + JWKS | Implemented | `01-OIDC-DISCOVERY-AND-JWKS.md` |
+| OAuth 2.1 authorization server (authorization code + PKCE, refresh, client credentials) | Implemented | `02-OAUTH21-AUTHORIZATION-SERVER.md` |
+| UserInfo endpoint | Implemented | `03-USERINFO-ENDPOINT.md` |
+| SAML 2.0 federation | Not built | `04-SAML-20-FEDERATION.md` (Draft specification) |
+| WebAuthn / passkeys | Implemented, but only as a second factor and for hosted registration — not as a passwordless primary sign-in method | `05-WEBAUTHN-AND-PASSKEYS.md` |
+| Multi-factor authentication (TOTP, WebAuthn, recovery codes, org mandate) | Implemented | `06-MULTI-FACTOR-AUTHENTICATION.md` |
 
-## Reference Architecture & Specification
+All hosted, human-facing authentication (the login form, the MFA challenge, forced enrolment, passkey registration) is served by this service itself — never by the console — so signing in never depends on the console being deployed or reachable (`docs/PLAN/02-REQUIREMENTS.md` FR-1). Every capability described here is also reachable through the REST Management API where one applies (`docs/PLAN/02-REQUIREMENTS.md` FR-14) — see each document's Interfaces section.
 
-Supported Flow Matrix:
-- Web SPAs & Mobile: OAuth 2.1 Authorization Code + PKCE
-- Machine-to-Machine: OAuth 2.1 Client Credentials
-- Enterprise SSO: SAML 2.0 / OIDC Federation
+The one identity decision made but not yet built anywhere in this category is **cross-organization sign-in**: `MEMORY/DECISIONS.md` ADR-025 specifies that when a Project Grant lets a user from one organization reach another organization's application, both organizations' sign-in policies apply and the stricter wins (MFA required if either requires it; sign-in methods are the intersection; session lifetime is the shorter). Today the authorization endpoint refuses any session whose organization does not match the client's outright — see `02-OAUTH21-AUTHORIZATION-SERVER.md` and `docs/SESSION-MANAGEMENT/00-SESSION-ARCHITECTURE.md`.
 
-## Acceptance Criteria
+## Not Yet Built / Open Questions
 
-- [x] Identity protocols enumerated.
-- [x] Standards compliance matrices documented.
-
-## Open Questions
-
-None.
+- SAML 2.0 (`P4-07`–`P4-09`), social login and account linking (`P4-10`, `P4-11`), and SCIM (`P4-13`, gated) are all Phase 4 and unbuilt — see `TASKS/BACKLOG.md` and `MEMORY/records/2026-09-15-P3-15-phase-4-threat-review.md` for the constraints already decided against each.
+- Cross-organization sign-in (ADR-025) is decided, unbuilt.
 
 ## Related Documents
 
-- `docs/IDENTITY-PROTOCOL/01-OIDC-DISCOVERY-AND-JWKS.md`
-- `docs/IDENTITY-PROTOCOL/02-OAUTH21-AUTHORIZATION-SERVER.md`
+- `docs/PLAN/16-IMPLEMENTATION-ROADMAP.md`
+- `docs/SECURITY/00-ASSET-AND-TRUST-BOUNDARY-INVENTORY.md`
+- `docs/SESSION-MANAGEMENT/README.md`

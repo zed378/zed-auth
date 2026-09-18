@@ -2,9 +2,9 @@
 
 Single source of truth for where the project stands. Updated in the same commit as the work it describes (`00-TASK-CONVENTIONS.md` global DoD item 8).
 
-**Last updated**: 2026-09-17
-**Current phase**: Phase 4 — Enterprise Interop (4 / 16). The [Phase 4 threat review](../MEMORY/records/2026-09-15-P3-15-phase-4-threat-review.md)'s T4-1 is decided (ADR-025: the stricter of both organizations' policies applies); T4-2, subset validation at the readers, is `P4-02`/`P4-04`'s to build. Phase 3 complete (15 / 15), tagged `v0.3.0-phase3`, **accepted on staging** — [summary](../MEMORY/records/2026-09-15-P3-phase-3-summary.md). Phase 2 complete (17 / 17), tagged `v0.2.0-phase2`. Phase 0 is 20 / 21; `P0-20` stays WIP pending the pull-based deployment re-read
-**Overall**: 85 / 178 tasks done
+**Last updated**: 2026-09-18
+**Current phase**: Phase 4 — Enterprise Interop (4 / 16). The [Phase 4 threat review](../MEMORY/records/2026-09-15-P3-15-phase-4-threat-review.md)'s T4-1 is decided (ADR-025: the stricter of both organizations' policies applies); T4-2, subset validation at the readers, is `P4-02`/`P4-04`'s to build. Phase 3 complete (15 / 15), tagged `v0.3.0-phase3`, **accepted on staging** — [summary](../MEMORY/records/2026-09-15-P3-phase-3-summary.md). Phase 2 complete (17 / 17), tagged `v0.2.0-phase2`. Phase 0 is 21 / 22; `P0-20` stays WIP pending the pull-based deployment re-read
+**Overall**: 86 / 179 tasks done
 
 > **Staging runs Phases 1–3** (2026-09-15, `P3-15`). Phase 2 was verified on a local
 > Docker stack while the VM was unreachable; access was restored and Phases 2 and 3 were
@@ -20,7 +20,7 @@ Sizes: `S` under half a day · `M` one to two days · `L` several days · `XL` m
 
 | Phase | Tasks | Done | Status | Gate to enter |
 |---|---|---|---|---|
-| [Phase 0 — Foundation](./PHASE-0-FOUNDATION.md) | 21 | 20 | **ACTIVE** — `P0-20` only | — |
+| [Phase 0 — Foundation](./PHASE-0-FOUNDATION.md) | 22 | 21 | **ACTIVE** — `P0-20` only | — |
 | [Phase 1 — MVP: Core Auth + SSO](./PHASE-1-MVP-CORE-AUTH-SSO.md) | 29 | 29 | **COMPLETE** — [summary](../MEMORY/records/2026-09-12-P1-phase-1-summary.md), tagged `v0.1.0-phase1` | Phase 0 exit checklist |
 | [Phase 2 — RBAC & Multi-Tenancy](./PHASE-2-RBAC-MULTITENANCY.md) | 17 | 17 | **COMPLETE** — [summary](../MEMORY/records/2026-09-12-P2-phase-2-summary.md), tagged `v0.2.0-phase2`. Not yet on staging | Phase 1 exit + `P1-28` — **met** 2026-09-12 |
 | [Phase 3 — Advanced Security](./PHASE-3-ADVANCED-SECURITY.md) | 15 | 15 | **Complete** — accepted on staging 2026-09-15, tagged `v0.3.0-phase3` | Phase 2 exit + threat model review |
@@ -60,6 +60,7 @@ Sizes: `S` under half a day · `M` one to two days · `L` several days · `XL` m
 | P0-19 | Landing, About, docs skeleton content | M | **DONE** | P0-18 |
 | P0-20 | Staging environment provisioning | L | **WIP** — TLS-only staging live, restore verified and automated. `OQ-11` answered: no GitHub Actions (no public IP), so deployment is pull-based and the "merge deploys automatically" DoD item needs re-reading rather than satisfying. `OQ-12` answered: local backups accepted, S3/NFS later | P0-13 |
 | P0-21 | Adopt the TASKS/MEMORY working discipline | S | **DONE** | — |
+| P0-22 | Reference documentation: domain categories written from the code | L | **DONE** — 14 domain categories written from the code, each document carrying a status and citing the migration, handler, contract entry or test behind its claims. Restored `PLAN/00`–`02` and `SECURITY/00`–`02`, which an earlier restructure had overwritten (`SECURITY/02` had lost 281 lines of attack scenarios), and removed the duplicate-numbered scaffolds shadowing them. `scripts/check-docs.py` enforces it | P0-21 |
 
 **Suggested parallel tracks** once `P0-02` lands: backend (`P0-04` → `P0-05` → `P0-06` → `P0-07` → `P0-08`), platform (`P0-13` → `P0-14` → `P0-20`), frontend (`P0-17`), and public site (`P0-18` → `P0-19`). `P0-16` gates both `P0-15` and `P0-17`, so it should not wait.
 
