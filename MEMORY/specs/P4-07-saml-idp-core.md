@@ -95,13 +95,18 @@ Both under RLS, tenant-scoped by `org_id`.
 
 ## 5. API
 
-Metadata and the flows are `P4-08`'s. This card exposes:
+**None.** `GET /saml/metadata` was in this card and has moved to `P4-08`.
 
-```
-GET /saml/metadata            the IdP's own metadata
-```
+The reason is the document's content. IdP metadata advertises a
+`SingleSignOnService` location, and that endpoint is `P4-08`'s — so publishing
+metadata now means publishing a URL that answers 404, to a service provider
+whose only way to discover the problem is to try a login. This repository
+already refuses to let the public site describe a capability that is not
+shipped (`docs/UI-UX/21`, `AGENTS.md` rule 8); a protocol surface deserves the
+same reading.
 
-Everything else is internal until `P4-08`.
+So the package is complete and unreachable until `P4-08` wires it, which is the
+honest state for a security layer whose consumer does not exist yet.
 
 ## 6. Abuse cases
 
