@@ -448,13 +448,17 @@ func main() {
 		"RelayState":  {relay},
 	}.Encode())
 
-	// The session is live now, so this takes the fast path and is answered
-	// straight away — with a NEW pending row, because the id is the service
-	// provider's and this service does not deduplicate on it. What must not
-	// happen is the consumed row being answered twice; that is covered by the
-	// integration suite, which can reach the resume seam directly. Here the
-	// property worth asserting is narrower and still real: a second request
-	// never produces an assertion addressed anywhere but the registration.
+	// The session is live now, so this takes the fast path — which records no
+	// pending row and answers immediately. Single-use is a property of the
+	// login path, not of this one, and the record says why: replaying against
+	// a live session needs the cookie that would have let you start a fresh
+	// sign-on anyway, and an unsigned AuthnRequest can be forged outright, so
+	// bounding replays of one id bounds nothing. The correlation defence is
+	// the service provider checking InResponseTo, where it belongs.
+	//
+	// So the property worth asserting here is narrower and still real: a
+	// second request never produces an assertion addressed anywhere but the
+	// registration, and the user is the same subject both times.
 	if replayed.status == http.StatusOK {
 		again, err := readForm(replayed.body)
 		check(err == nil && again.action == acsURL,

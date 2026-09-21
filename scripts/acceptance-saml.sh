@@ -59,7 +59,7 @@ INSTANCE=$(q "SELECT id FROM instances ORDER BY created_at LIMIT 1")
 # here rather than left to the first check to discover, because "SAML is not
 # configured on this instance" from every endpoint at once is a deployment
 # step that was missed, not a test failure.
-SAMLKEY=$(q "SELECT count(*) FROM signing_keys WHERE purpose = 'saml' AND state = 'current'")
+SAMLKEY=$(q "SELECT count(*) FROM signing_keys WHERE purpose = 'saml' AND status = 'current'")
 [ "$SAMLKEY" = "1" ] || {
   echo "no current SAML signing key on this instance." >&2
   echo "  AUTH_ISSUER=... keyctl -purpose saml generate && keyctl -purpose saml rotate" >&2
