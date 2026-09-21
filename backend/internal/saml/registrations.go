@@ -260,20 +260,27 @@ func invalidRegistration(field, issue string) error {
 // The unique index on a live entity ID is the one a caller hits by accident,
 // and "duplicate key value violates unique constraint
 // saml_service_providers_entity_id_live" is not an answer anybody can use.
+//
+// # By constraint name, in the error text
+//
+// The same way internal/organization, internal/project and internal/grant do
+// it, and deliberately so. The first version asserted a `*pq.Error` — and the
+// service's driver is pgx, which never produces one. The branch compiled,
+// looked correct, and could not execute: a duplicate entity ID came back as a
+// 500. A constraint name is a stable identifier this repository chose, which
+// makes it a better thing to match on than a driver's error type, and the
+// integration test that found this asserts the 409.
 func translateWriteError(err error) error {
-	var pqErr *pq.Error
-	if errors.As(err, &pqErr) {
-		switch pqErr.Constraint {
-		case "saml_service_providers_entity_id_live":
-			return ErrEntityIDTaken
-		case "saml_sp_acs_url_https":
-			return invalidRegistration("acs_url", "must be an https URL")
-		case "saml_sp_entity_id_present":
-			return invalidRegistration("entity_id", "is required")
-		case "saml_sp_signed_needs_cert":
-			return invalidRegistration("certificate",
-				"is required when want_signed_requests is set")
-		}
+	text := err.Error()
+	switch {
+	case strings.Contains(text, "saml_service_providers_entity_id_live"):
+		return ErrEntityIDTaken
+	case strings.Contains(text, "saml_sp_acs_url_https"):
+		return invalidRegistration("acs_url", "must be an https URL")
+	case strings.Contains(text, "saml_sp_entity_id_present"):
+		return invalidRegistration("entity_id", "is required")
+	case strings.Contains(text, "saml_sp_signed_needs_cert"):
+		return invalidRegistration("certificate", "is required when want_signed_requests is set")
 	}
 	return fmt.Errorf("saml: writing the registration: %w", err)
 }

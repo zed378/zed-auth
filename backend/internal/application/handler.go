@@ -182,7 +182,7 @@ func (h *Handler) CreateApplication(
 		// cross-origin by nobody, which is the safe state and the one every
 		// non-browser client wants (P1-29).
 		AllowedOrigins: values(request.Body.AllowedOrigins),
-		GrantTypes:     defaultGrants(values(request.Body.GrantTypes)),
+		GrantTypes:     defaultGrants(kind, values(request.Body.GrantTypes)),
 	}
 
 	var (
@@ -662,11 +662,28 @@ func validName(name string) (string, error) {
 }
 
 // defaultGrants supplies the contract's default when the caller sends none.
-func defaultGrants(grants []string) []string {
-	if len(grants) == 0 {
-		return []string{client.GrantAuthorizationCode, client.GrantRefreshToken}
+//
+// Type-aware, because the default is not universal. A `saml` client
+// participates in no OAuth flow at all — `client.allowedGrants` gives it an
+// empty list on purpose — so handing it the OIDC default produces an
+// application the validator immediately refuses, for a grant the caller never
+// asked for.
+//
+// It is a default rather than a filter. A caller who explicitly asks for a
+// grant a SAML client cannot have is still told so, because quietly dropping
+// it would leave them believing something about their own architecture that
+// is not true (P1-18's rule for every type).
+func defaultGrants(kind client.Type, grants []string) []string {
+	if len(grants) > 0 {
+		return grants
 	}
-	return grants
+	if kind == client.TypeSAML {
+		// Empty, not nil. `applications.grant_types` is NOT NULL, so a nil
+		// slice is a constraint violation reported as a 500 rather than the
+		// "this client participates in no OAuth flow" it means.
+		return []string{}
+	}
+	return []string{client.GrantAuthorizationCode, client.GrantRefreshToken}
 }
 
 // render turns a stored record into the API resource.
