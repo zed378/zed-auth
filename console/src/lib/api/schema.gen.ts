@@ -2812,6 +2812,16 @@ export interface components {
             page_info?: components["schemas"]["PageInfo"];
         };
         /**
+         * @description An attribute a SAML assertion can carry.
+         *
+         *     A closed set, and a name outside it is refused rather than stored: an
+         *     attribute nobody produces is a setting that saves cleanly and releases
+         *     nothing, and the administrator who chose it would believe the service
+         *     provider receives something it does not.
+         * @enum {string}
+         */
+        SamlAttribute: "display_name" | "email" | "role_keys" | "username";
+        /**
          * @description The SAML service provider an application of type `saml` represents.
          *
          *     Present on an application of that type and absent on every other. A
@@ -2855,7 +2865,7 @@ export interface components {
              *       "name"
              *     ]
              */
-            attribute_release: string[];
+            attribute_release: components["schemas"]["SamlAttribute"][];
             /**
              * @description Whether this service provider's own `AuthnRequest`s must carry a
              *     valid signature.
@@ -2939,7 +2949,7 @@ export interface components {
             entity_id?: string;
             /** Format: uri */
             acs_url?: string;
-            attribute_release?: string[];
+            attribute_release?: components["schemas"]["SamlAttribute"][];
             want_signed_requests?: boolean;
             certificate?: string;
             allow_idp_initiated?: boolean;
