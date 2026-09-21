@@ -175,14 +175,25 @@ func (r *Requests) Peek(ctx context.Context, tx *postgres.Tx, requestID string) 
 
 	var (
 		p        Pending
+		context  sql.NullString
 		consumed sql.NullTime
 	)
+	// Through a bounded SECURITY DEFINER function, not a direct read.
+	//
+	// The caller is the login page, which has no tenant: the browser arrives
+	// with a request id and no session. Under instance scope `current_org_id()`
+	// is NULL, `saml_authn_requests_tenant_isolation` then matches no row, and
+	// a direct SELECT returns nothing while reporting no error — the page says
+	// "Nothing to sign in to" and nothing anywhere says why.
+	//
+	// Migration 045, and an integration test asserts the direct read genuinely
+	// sees nothing, so the function is demonstrably necessary rather than
+	// decorative.
 	err := tx.QueryRow(ctx, `
 		SELECT id, sp_id::text, requested_authn_context, idp_initiated,
 		       created_at, expires_at, consumed_at
-		  FROM saml_authn_requests
-		 WHERE id = $1`, requestID).
-		Scan(&p.ID, &p.SPID, &p.RequestedAuthnContext, &p.IdPInitiated,
+		  FROM saml_authn_request_for_login($1)`, requestID).
+		Scan(&p.ID, &p.SPID, &context, &p.IdPInitiated,
 			&p.CreatedAt, &p.ExpiresAt, &consumed)
 
 	if errors.Is(err, sql.ErrNoRows) {
@@ -194,6 +205,13 @@ func (r *Requests) Peek(ctx context.Context, tx *postgres.Tx, requestID string) 
 	if consumed.Valid {
 		return Pending{}, ErrAlreadyAnswered
 	}
+
+	// NULL, like Consume reads it. Most service providers ask for no authn
+	// context at all, so the column is null on the common path — scanning it
+	// straight into a string failed for every one of them, which is the second
+	// defect this function carried and the second that only the login PAGE
+	// could reach.
+	p.RequestedAuthnContext = context.String
 	return p, nil
 }
 
