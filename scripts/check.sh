@@ -126,6 +126,51 @@ else
   fail "demo/go.sum exists — the demo module gained a dependency"
 fi
 
+# --- Acceptance harnesses ----------------------------------------------------
+#
+# Each is its own module, so neither the backend section nor the demo section
+# reaches it — `go build ./...` does not cross a module boundary.
+#
+# They are checked because of what they are for. These are the only things that
+# drive a real deployment through the paths a browser takes, and P4-08 found
+# three defects with one of them that a full integration suite and 46 mutations
+# did not: the seam was tested, the page was tested, and the line between them
+# was not. A harness that does not compile is found during a rollout, by
+# whoever is holding the release.
+#
+# Not run here — they need a deployment. Only that they build.
+
+section "Acceptance harnesses"
+
+acceptance_modules=$(find scripts -name go.mod -not -path "*/node_modules/*" 2>/dev/null | sort)
+
+if [ -z "$acceptance_modules" ]; then
+  fail "no acceptance modules found — the search or the layout changed, and this section is checking nothing"
+else
+  acceptance_ok=1
+  acceptance_count=0
+  for gomod in $acceptance_modules; do
+    module_dir=$(dirname "$gomod")
+    acceptance_count=$((acceptance_count + 1))
+    if [ -n "$(gofmt -l "$module_dir" 2>/dev/null)" ]; then
+      acceptance_ok=0
+      fail "gofmt — $module_dir"
+      gofmt -l "$module_dir" | sed 's/^/      /'
+    fi
+    if ! (cd "$module_dir" && go build ./... 2>&1); then
+      acceptance_ok=0
+      fail "go build — $module_dir"
+    fi
+    if ! (cd "$module_dir" && go vet ./... 2>&1); then
+      acceptance_ok=0
+      fail "go vet — $module_dir"
+    fi
+  done
+  if [ "$acceptance_ok" -eq 1 ]; then
+    pass "$acceptance_count acceptance module(s) build, vet and are formatted"
+  fi
+fi
+
 # --- Integration ------------------------------------------------------------
 
 section "Integration"
