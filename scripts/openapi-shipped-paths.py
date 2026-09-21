@@ -46,6 +46,7 @@ SHIPPED = {
     # OIDC endpoints that arrive in P1-06 and P1-07.
     # P4-08. The SAML identity provider: metadata, both SSO bindings, and the
     # logout endpoint that exists to refuse in the protocol's own vocabulary.
+    "/saml/init",
     "/saml/metadata",
     "/saml/sso",
     "/saml/slo",

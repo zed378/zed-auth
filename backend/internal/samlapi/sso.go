@@ -1,7 +1,9 @@
 package samlapi
 
 import (
+	"crypto/x509"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
 
@@ -34,7 +36,7 @@ func (h *Handler) SSORedirect(w http.ResponseWriter, r *http.Request) {
 		h.refuseDecode(w, err)
 		return
 	}
-	h.sso(w, r, raw, r.URL.Query().Get("RelayState"))
+	h.sso(w, r, raw, r.URL.Query().Get("RelayState"), bindingRedirect)
 }
 
 // SSOPost serves the HTTP-POST binding.
@@ -57,11 +59,20 @@ func (h *Handler) SSOPost(w http.ResponseWriter, r *http.Request) {
 		h.refuseDecode(w, err)
 		return
 	}
-	h.sso(w, r, raw, r.PostForm.Get("RelayState"))
+	h.sso(w, r, raw, r.PostForm.Get("RelayState"), bindingPost)
 }
 
 // sso is the flow both bindings share once the document is in hand.
-func (h *Handler) sso(w http.ResponseWriter, r *http.Request, raw []byte, relayState string) {
+// binding says how a request arrived, which decides how a signature on it can
+// be checked.
+type binding int
+
+const (
+	bindingRedirect binding = iota
+	bindingPost
+)
+
+func (h *Handler) sso(w http.ResponseWriter, r *http.Request, raw []byte, relayState string, via binding) {
 	if len(relayState) > saml.MaxRelayStateBytes {
 		// Refused rather than truncated, for the reason PostForm gives: a
 		// truncated RelayState is one the service provider cannot match
@@ -97,6 +108,24 @@ func (h *Handler) sso(w http.ResponseWriter, r *http.Request, raw []byte, relayS
 		// redirect this whole lookup exists to prevent.
 		h.badRequest(w, "That service provider is not registered with this identity provider.")
 		return
+	}
+
+	// A service provider that asked for its requests to be verified is
+	// verified — or refused (C-1's neighbour, and the reason `want_signed_requests`
+	// is stored rather than decorative).
+	//
+	// Storing the flag and not enforcing it would be worse than not offering
+	// it: an administrator who ticked the box believes requests are checked,
+	// and nothing tells them otherwise.
+	if reg.WantSignedRequests {
+		if err := h.verifyRequest(raw, reg, via); err != nil {
+			if h.Log != nil {
+				h.Log.Warn("a SAML request failed signature verification",
+					"entity_id", reg.EntityID, "reason", err.Error())
+			}
+			h.deliverFailure(w, reg, request.ID, saml.StatusRequester, relayState)
+			return
+		}
 	}
 
 	// A live session, or the hosted login.
@@ -296,4 +325,44 @@ func (h *Handler) refuseDecode(w http.ResponseWriter, err error) {
 		h.Log.Warn("a SAML request was refused", "reason", err.Error())
 	}
 	h.badRequest(w, "The SAMLRequest could not be read.")
+}
+
+// verifyRequest checks a service provider's signature on its own AuthnRequest.
+//
+// # What is implemented, and what is refused
+//
+// The HTTP-POST binding signs the XML, which is the signature this service
+// already knows how to check: the same `saml.Verify` every assertion goes
+// through, so the signed element must be the element consumed.
+//
+// The HTTP-Redirect binding does NOT sign the XML. It signs a query string —
+// `SAMLRequest=…&RelayState=…&SigAlg=…` as an octet sequence, with the
+// signature in a separate parameter — which is a different construction with
+// its own canonicalisation rules and its own history of implementations that
+// verify the wrong bytes.
+//
+// That is not implemented, and a request arriving on Redirect from a service
+// provider that requires signing is REFUSED rather than accepted unverified.
+// Refusing is a visible failure an administrator can act on; accepting would
+// mean a registration that says "verify my requests" silently verifying
+// nothing, which is the failure the flag exists to prevent.
+func (h *Handler) verifyRequest(raw []byte, reg saml.Registration, via binding) error {
+	if via != bindingPost {
+		return fmt.Errorf("saml: this service verifies signed AuthnRequests on the HTTP-POST binding only")
+	}
+	if reg.Certificate == "" {
+		// Migration 040's CHECK makes this unreachable — a registration that
+		// wants signed requests must carry a certificate — so reaching it
+		// means the row was written around the constraint.
+		return fmt.Errorf("saml: the registration requires signed requests and carries no certificate")
+	}
+
+	cert, err := saml.ParseCertificate(reg.Certificate)
+	if err != nil {
+		return err
+	}
+	if _, err := saml.Verify(raw, "AuthnRequest", []*x509.Certificate{cert}); err != nil {
+		return err
+	}
+	return nil
 }

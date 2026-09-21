@@ -124,9 +124,21 @@ func (h *Handler) Resume(w http.ResponseWriter, r *http.Request, id string, curr
 	// session.
 	class, err := saml.CheckAuthnContext(pending.RequestedAuthnContext, current.AuthMethods)
 	if err != nil {
-		h.deliverFailure(w, reg, pending.ID, saml.StatusNoAuthnContext, pending.RelayState)
+		failureID := pending.ID
+		if pending.IdPInitiated {
+			failureID = ""
+		}
+		h.deliverFailure(w, reg, failureID, saml.StatusNoAuthnContext, pending.RelayState)
 		return
 	}
 
-	h.issue(w, r, key, reg, pending.ID, class, current, pending.RelayState)
+	// An IdP-initiated sign-on answers no request, so nothing is echoed. The
+	// stored id was this service's own bookkeeping; returning it would tell
+	// the service provider the assertion answers a request it never made.
+	inResponseTo := pending.ID
+	if pending.IdPInitiated {
+		inResponseTo = ""
+	}
+
+	h.issue(w, r, key, reg, inResponseTo, class, current, pending.RelayState)
 }

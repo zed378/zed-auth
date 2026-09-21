@@ -55,6 +55,7 @@ type Deps struct {
 	// configured.
 	SAMLMetadata http.Handler
 	SAMLSSO      http.Handler
+	SAMLInitiate http.Handler
 	SAMLSLO      http.Handler
 
 	// Authorize serves GET /oauth/authorize.
@@ -393,6 +394,9 @@ func New(cfg config.HTTPConfig, deps Deps) *Server {
 		// HTTP-Redirect carries the request in the query, HTTP-POST in a form.
 		mux.Method(http.MethodGet, "/saml/sso", deps.SAMLSSO)
 		mux.Method(http.MethodPost, "/saml/sso", deps.SAMLSSO)
+	}
+	if deps.SAMLInitiate != nil {
+		mux.Method(http.MethodGet, "/saml/init", deps.SAMLInitiate)
 	}
 	if deps.SAMLSLO != nil {
 		// Single Logout exists to refuse in the protocol's own vocabulary. The

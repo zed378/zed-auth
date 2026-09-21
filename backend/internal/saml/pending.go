@@ -53,6 +53,11 @@ type Pending struct {
 	// attacker with no session takes.
 	RequestedAuthnContext string
 
+	// IdPInitiated marks a row that remembers a sign-on this service started,
+	// not a request a service provider made. Its ID is bookkeeping and must
+	// never be echoed as InResponseTo.
+	IdPInitiated bool
+
 	CreatedAt time.Time
 	ExpiresAt time.Time
 }
@@ -88,10 +93,11 @@ func (r *Requests) Record(
 
 	result, err := tx.Exec(ctx, `
 		INSERT INTO saml_authn_requests
-		       (id, org_id, sp_id, relay_state, requested_authn_context, created_at, expires_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		       (id, org_id, sp_id, relay_state, requested_authn_context,
+		        idp_initiated, created_at, expires_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		ON CONFLICT (id) DO NOTHING`,
-		p.ID, orgID, p.SPID, relay, context, p.CreatedAt, p.ExpiresAt)
+		p.ID, orgID, p.SPID, relay, context, p.IdPInitiated, p.CreatedAt, p.ExpiresAt)
 	if err != nil {
 		return fmt.Errorf("saml: recording the AuthnRequest: %w", err)
 	}
@@ -135,8 +141,9 @@ func (r *Requests) Consume(
 		 WHERE id = $1
 		   AND consumed_at IS NULL
 		   AND expires_at > $2
-		RETURNING id, sp_id::text, relay_state, requested_authn_context, created_at, expires_at`,
-		requestID, now).Scan(&p.ID, &p.SPID, &relay, &context, &p.CreatedAt, &p.ExpiresAt)
+		RETURNING id, sp_id::text, relay_state, requested_authn_context,
+		          idp_initiated, created_at, expires_at`,
+		requestID, now).Scan(&p.ID, &p.SPID, &relay, &context, &p.IdPInitiated, &p.CreatedAt, &p.ExpiresAt)
 
 	if errors.Is(err, sql.ErrNoRows) {
 		// Nothing matched. Which of the three reasons is worth telling apart,
@@ -171,10 +178,12 @@ func (r *Requests) Peek(ctx context.Context, tx *postgres.Tx, requestID string) 
 		consumed sql.NullTime
 	)
 	err := tx.QueryRow(ctx, `
-		SELECT id, sp_id::text, requested_authn_context, created_at, expires_at, consumed_at
+		SELECT id, sp_id::text, requested_authn_context, idp_initiated,
+		       created_at, expires_at, consumed_at
 		  FROM saml_authn_requests
 		 WHERE id = $1`, requestID).
-		Scan(&p.ID, &p.SPID, &p.RequestedAuthnContext, &p.CreatedAt, &p.ExpiresAt, &consumed)
+		Scan(&p.ID, &p.SPID, &p.RequestedAuthnContext, &p.IdPInitiated,
+			&p.CreatedAt, &p.ExpiresAt, &consumed)
 
 	if errors.Is(err, sql.ErrNoRows) {
 		return Pending{}, ErrNoSuchRequest
@@ -229,3 +238,10 @@ func (r *Requests) Prune(ctx context.Context, tx *postgres.Tx, now time.Time) (i
 	}
 	return affected, nil
 }
+
+// NewRequestID returns an identifier for a sign-on this service started.
+//
+// Used only for IdP-initiated flows, where there is no AuthnRequest and so no
+// id to borrow. It is bookkeeping — something to put in the login URL so the
+// browser can be found again — and never reaches a service provider.
+func NewRequestID() (string, error) { return assertionID() }

@@ -311,6 +311,49 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/saml/init": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Identity-provider-initiated sign-on
+         * @description Starts a sign-on from this side: the user arrives from a portal or a
+         *     bookmark and an assertion is delivered to the named service provider,
+         *     which never asked for one.
+         *
+         *     **This is opt-in per service provider and off by default**, and the
+         *     reason is worth reading before turning it on.
+         *
+         *     An SP-initiated login is *correlated*: the service provider generated an
+         *     `AuthnRequest`, remembers its id, and checks `InResponseTo` on the way
+         *     back. That is what tells it the assertion answers a login it started.
+         *     An identity-provider-initiated assertion answers nothing, so there is
+         *     nothing to correlate against — anyone who can cause a browser to visit
+         *     this URL can have an assertion delivered. That is the same shape as a
+         *     CSRF, and some service providers handle it while many simply log the
+         *     user in.
+         *
+         *     A registration that has not enabled it is refused here, and nothing is
+         *     delivered anywhere.
+         *
+         *     A live session is required. With none, the browser goes to the hosted
+         *     login and returns. This endpoint never drives an authentication of its
+         *     own for a service provider chosen by whoever sent the link.
+         *
+         *     The assertion carries no `InResponseTo`, because it answers no request.
+         */
+        get: operations["samlInitiate"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/saml/metadata": {
         parameters: {
             query?: never;
@@ -4069,6 +4112,56 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["OAuthError"];
                 };
+            };
+        };
+    };
+    samlInitiate: {
+        parameters: {
+            query: {
+                /** @description The registered service provider to sign in to. */
+                entity_id: string;
+                /** @description Echoed back unchanged and never interpreted. */
+                RelayState?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A self-submitting form delivering the assertion. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": string;
+                };
+            };
+            /** @description No usable session; the browser is sent to the hosted login. */
+            303: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /**
+             * @description The service provider is not registered, or does not accept
+             *     identity-provider-initiated sign-on.
+             */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            429: components["responses"]["RateLimited"];
+            /** @description SAML is not configured on this instance. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

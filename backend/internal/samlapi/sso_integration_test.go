@@ -16,11 +16,16 @@ import (
 	"bytes"
 	"compress/flate"
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
 	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/base64"
+	"encoding/pem"
 	"html"
 	"io"
 	"log/slog"
+	"math/big"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -28,6 +33,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/beevik/etree"
+	dsig "github.com/russellhaering/goxmldsig"
 
 	"github.com/zed378/zed-auth/backend/internal/audit"
 	"github.com/zed378/zed-auth/backend/internal/saml"
@@ -515,5 +523,299 @@ func TestAnIssuedAssertionIsAuditedAsAnIssuedToken(t *testing.T) {
 		   AND payload->>'entity_id' = 'https://sp.example.test'`)
 	if count != 1 {
 		t.Errorf("%d SAML issuance events, want 1 — a SAML login must be as visible as an OIDC one", count)
+	}
+}
+
+// A registration that asks for signed requests gets them verified — or refused
+// (P4-08, closing the gap where the flag was stored and not enforced).
+
+// signedRequest builds an AuthnRequest signed by the service provider.
+func signedRequest(t *testing.T, id, issuer string, ks dsig.X509KeyStore) string {
+	t.Helper()
+	el := etree.NewElement("AuthnRequest")
+	el.CreateAttr("xmlns", "urn:oasis:names:tc:SAML:2.0:protocol")
+	el.CreateAttr("ID", id)
+	el.CreateAttr("Version", "2.0")
+	el.CreateAttr("IssueInstant", time.Now().UTC().Format(time.RFC3339))
+	el.CreateAttr("AssertionConsumerServiceURL", "https://attacker.example.test/acs")
+	el.CreateElement("Issuer").SetText(issuer)
+
+	signed, err := dsig.NewDefaultSigningContext(ks).SignEnveloped(el)
+	if err != nil {
+		t.Fatalf("signing the request: %v", err)
+	}
+	doc := etree.NewDocument()
+	doc.SetRoot(signed)
+	raw, err := doc.WriteToBytes()
+	if err != nil {
+		t.Fatalf("serialising: %v", err)
+	}
+	return base64.StdEncoding.EncodeToString(raw)
+}
+
+// spKeyStore is a service provider's own signing key.
+type spKeyStore struct {
+	key *rsa.PrivateKey
+	der []byte
+}
+
+func (k spKeyStore) GetKeyPair() (*rsa.PrivateKey, []byte, error) { return k.key, k.der, nil }
+
+func serviceProviderKey(t *testing.T) (dsig.X509KeyStore, string) {
+	t.Helper()
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("generating: %v", err)
+	}
+	template := x509.Certificate{
+		SerialNumber: big.NewInt(7),
+		Subject:      pkix.Name{CommonName: "sp"},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(time.Hour),
+	}
+	der, err := x509.CreateCertificate(rand.Reader, &template, &template, &key.PublicKey, key)
+	if err != nil {
+		t.Fatalf("certifying: %v", err)
+	}
+	pemBytes := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+	return spKeyStore{key: key, der: der}, string(pemBytes)
+}
+
+func (f *ssoFixture) requireSignedRequests(t *testing.T, certPEM string) {
+	t.Helper()
+	f.factory.Exec(
+		`UPDATE saml_service_providers SET want_signed_requests = true, certificate = $2 WHERE id = $1`,
+		f.reg.ID, certPEM)
+}
+
+func TestASignedRequestIsVerifiedOnThePostBinding(t *testing.T) {
+	f := setupSSO(t, []string{"email"}, []string{"pwd"}, true)
+	ks, certPEM := serviceProviderKey(t)
+	f.requireSignedRequests(t, certPEM)
+
+	w := f.post(t, signedRequest(t, "_signed1", "https://sp.example.test", ks), "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("a correctly signed request was refused: %d %s", w.Code, truncate(w.Body.String()))
+	}
+	f.assertionFrom(t, w.Body.String())
+}
+
+// The flag doing its job: an unsigned request to a registration that requires
+// signing is refused, in the protocol's vocabulary, at the registered address.
+func TestAnUnsignedRequestIsRefusedWhenTheRegistrationRequiresSigning(t *testing.T) {
+	f := setupSSO(t, []string{"email"}, []string{"pwd"}, true)
+	_, certPEM := serviceProviderKey(t)
+	f.requireSignedRequests(t, certPEM)
+
+	unsigned := base64.StdEncoding.EncodeToString(
+		[]byte(authnRequestFor("_unsigned", "https://sp.example.test", "")))
+	w := f.post(t, unsigned, "")
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status %d", w.Code)
+	}
+	body := w.Body.String()
+	if strings.Contains(body, "<Assertion") {
+		t.Error("an unsigned request was answered with an assertion")
+	}
+	field := reSAMLResponse.FindStringSubmatch(body)
+	if field == nil {
+		t.Fatal("no SAMLResponse in the refusal")
+	}
+	raw, _ := base64.StdEncoding.DecodeString(html.UnescapeString(field[1]))
+	if !strings.Contains(string(raw), saml.StatusRequester) {
+		t.Errorf("the refusal does not carry a Requester status: %s", truncate(string(raw)))
+	}
+}
+
+// Signed by somebody else's key.
+func TestARequestSignedByAnotherKeyIsRefused(t *testing.T) {
+	f := setupSSO(t, []string{"email"}, []string{"pwd"}, true)
+	ks, _ := serviceProviderKey(t)
+	_, otherPEM := serviceProviderKey(t) // the registration trusts a different key
+	f.requireSignedRequests(t, otherPEM)
+
+	w := f.post(t, signedRequest(t, "_wrongkey", "https://sp.example.test", ks), "")
+	if strings.Contains(w.Body.String(), "<Assertion") {
+		t.Error("a request signed by an unknown key was answered with an assertion")
+	}
+}
+
+// The Redirect binding signs a query string rather than the XML, and that
+// construction is not implemented. A registration that requires signing is
+// REFUSED there rather than accepted unverified — the visible failure an
+// administrator can act on, instead of a flag that silently verifies nothing.
+func TestTheRedirectBindingRefusesWhenSigningIsRequired(t *testing.T) {
+	f := setupSSO(t, []string{"email"}, []string{"pwd"}, true)
+	_, certPEM := serviceProviderKey(t)
+	f.requireSignedRequests(t, certPEM)
+
+	w := f.redirect(t, deflateEncode(t, authnRequestFor("_redir", "https://sp.example.test", "")), "")
+	if strings.Contains(w.Body.String(), "<Assertion") {
+		t.Error("the Redirect binding issued an assertion for a registration that requires signed requests")
+	}
+}
+
+// And a registration that does NOT require signing is unaffected, so the check
+// is the flag's rather than a refusal of everything.
+func TestAnUnsignedRequestIsFineWhenSigningIsNotRequired(t *testing.T) {
+	f := setupSSO(t, []string{"email"}, []string{"pwd"}, true)
+
+	w := f.post(t, base64.StdEncoding.EncodeToString(
+		[]byte(authnRequestFor("_plain", "https://sp.example.test", ""))), "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("status %d", w.Code)
+	}
+	f.assertionFrom(t, w.Body.String())
+}
+
+// IdP-initiated sign-on, and the opt-in that guards it (P4-08 F-6).
+
+func (f *ssoFixture) allowIdPInitiated(t *testing.T) {
+	t.Helper()
+	f.factory.Exec(`UPDATE saml_service_providers SET allow_idp_initiated = true WHERE id = $1`, f.reg.ID)
+}
+
+func (f *ssoFixture) initiate(t *testing.T, entityID, relayState string, signedIn bool) *httptest.ResponseRecorder {
+	t.Helper()
+	q := url.Values{"entity_id": {entityID}}
+	if relayState != "" {
+		q.Set("RelayState", relayState)
+	}
+	r := httptest.NewRequest(http.MethodGet, "/saml/init?"+q.Encode(), nil)
+	if signedIn {
+		r = withSession(r)
+	}
+	w := httptest.NewRecorder()
+	f.handler.Initiate(w, r)
+	return w
+}
+
+// The opt-in doing its job. A registration that has not enabled unsolicited
+// sign-on receives nothing at all — not even a SAML failure, which would still
+// be delivering something it never asked for.
+func TestIdPInitiatedIsRefusedUnlessTheRegistrationOptsIn(t *testing.T) {
+	f := setupSSO(t, []string{"email"}, []string{"pwd"}, true)
+
+	w := f.initiate(t, "https://sp.example.test", "", true)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status %d, want 400 for a service provider that has not opted in", w.Code)
+	}
+	if strings.Contains(w.Body.String(), "SAMLResponse") {
+		t.Error("an unsolicited assertion was delivered to a service provider that did not ask for the capability")
+	}
+}
+
+func TestIdPInitiatedDeliversAnAssertionWithNoInResponseTo(t *testing.T) {
+	f := setupSSO(t, []string{"email"}, []string{"pwd"}, true)
+	f.allowIdPInitiated(t)
+
+	w := f.initiate(t, "https://sp.example.test", "/portal", true)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", w.Code, truncate(w.Body.String()))
+	}
+
+	body := w.Body.String()
+	if !strings.Contains(body, "https://sp.example.test/acs") {
+		t.Error("the form does not post to the registered ACS URL")
+	}
+	if !strings.Contains(body, `name="RelayState" value="/portal"`) {
+		t.Error("RelayState was not carried")
+	}
+
+	f.assertionFrom(t, body)
+
+	// The response must not claim to answer a request.
+	field := reSAMLResponse.FindStringSubmatch(body)
+	raw, _ := base64.StdEncoding.DecodeString(html.UnescapeString(field[1]))
+	if strings.Contains(string(raw), "InResponseTo") {
+		t.Error("an IdP-initiated response carries InResponseTo — it answers no request, " +
+			"and saying otherwise invents a correlation the service provider would rely on")
+	}
+}
+
+// With no session the browser signs in and comes back — and the assertion it
+// eventually receives still answers no request, even though this service had
+// to invent an id to find the browser again.
+func TestIdPInitiatedSignsInAndStillAnswersNoRequest(t *testing.T) {
+	f := setupSSO(t, []string{"email"}, nil, false)
+	f.allowIdPInitiated(t)
+
+	w := f.initiate(t, "https://sp.example.test", "/portal", false)
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("status %d, want a redirect to the login: %s", w.Code, truncate(w.Body.String()))
+	}
+	location := w.Header().Get("Location")
+	u, _ := url.Parse(location)
+	id := u.Query().Get("request")
+	if !IsSAMLRequest(id) {
+		t.Fatalf("the login URL carries %q, which is not a SAML request id", id)
+	}
+
+	resumed := httptest.NewRecorder()
+	f.handler.Resume(resumed, httptest.NewRequest(http.MethodGet, "/login", nil), id,
+		session.Session{
+			ID: "sess-idp", UserID: f.userID, OrgID: f.orgID,
+			AuthMethods: []string{"pwd"}, CreatedAt: time.Now(),
+		})
+
+	if resumed.Code != http.StatusOK {
+		t.Fatalf("the resume failed: %d %s", resumed.Code, truncate(resumed.Body.String()))
+	}
+	f.assertionFrom(t, resumed.Body.String())
+
+	field := reSAMLResponse.FindStringSubmatch(resumed.Body.String())
+	raw, _ := base64.StdEncoding.DecodeString(html.UnescapeString(field[1]))
+	if strings.Contains(string(raw), "InResponseTo") {
+		t.Error("the bookkeeping id was echoed as InResponseTo")
+	}
+	if !strings.Contains(resumed.Body.String(), `name="RelayState" value="/portal"`) {
+		t.Error("RelayState did not survive the login")
+	}
+}
+
+func TestIdPInitiatedRefusesAnUnregisteredServiceProvider(t *testing.T) {
+	f := setupSSO(t, []string{"email"}, []string{"pwd"}, true)
+
+	w := f.initiate(t, "https://stranger.example.test", "", true)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status %d, want 400", w.Code)
+	}
+	if strings.Contains(w.Body.String(), "SAMLResponse") {
+		t.Error("something was delivered for an unregistered service provider")
+	}
+}
+
+// Asserting on the status alone would prove nothing here: with the guard
+// removed, the lookup of the empty string fails and answers 400 anyway. The
+// reason is the only thing that separates "you named nobody" from "you named
+// somebody unknown", so the reason is what this checks.
+func TestIdPInitiatedNeedsAServiceProvider(t *testing.T) {
+	f := setupSSO(t, []string{"email"}, []string{"pwd"}, true)
+
+	w := f.initiate(t, "", "", true)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status %d with no entity_id, want 400", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "No service provider was named") {
+		t.Errorf("the refusal reads %q — an empty entity_id must be refused as a missing "+
+			"parameter, not as an unregistered service provider", truncate(w.Body.String()))
+	}
+}
+
+// The bound is refused, never truncated — a RelayState the service provider
+// cannot match against what it stored is worse than no sign-on at all, and the
+// registration never sees a value this service quietly shortened.
+func TestIdPInitiatedRefusesAnOversizedRelayState(t *testing.T) {
+	f := setupSSO(t, []string{"email"}, []string{"pwd"}, true)
+	f.allowIdPInitiated(t)
+
+	w := f.initiate(t, "https://sp.example.test", strings.Repeat("a", saml.MaxRelayStateBytes+1), true)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status %d for an oversized RelayState, want 400", w.Code)
+	}
+	if strings.Contains(w.Body.String(), "SAMLResponse") {
+		t.Error("an assertion was delivered despite a RelayState over the bound")
 	}
 }
