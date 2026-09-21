@@ -11,7 +11,9 @@ Single source of truth for where the project stands. Updated in the same commit 
 > deployed together, with Phase 3's acceptance executed there. Staging's nightly backup
 > had silently stopped again in the meantime and is fixed in the unit (`P3-14`).
 >
-> **Staging runs Phase 4 through `P4-08`** (2026-09-21). Migrations 040–045 applied, the SAML key set created and promoted, and `scripts/acceptance-saml.sh` reports 39 passed, 0 failed — `docs/PLAN/17`'s SAML criterion met on a real deployment. Three deployments were needed: the feature passed its own gate, merged, and deployed having never once completed a login, and each round trip was a defect only the acceptance suite could see.
+> **Staging runs Phase 4 through `P4-09`** (2026-09-21), on `zed-auth:p4-09` with the console rebuilt in place; `scripts/acceptance-saml.sh` still reports 39 passed, 0 failed.
+>
+> Previously: **Phase 4 through `P4-08`** (2026-09-21). Migrations 040–045 applied, the SAML key set created and promoted, and `scripts/acceptance-saml.sh` reports 39 passed, 0 failed — `docs/PLAN/17`'s SAML criterion met on a real deployment. Three deployments were needed: the feature passed its own gate, merged, and deployed having never once completed a login, and each round trip was a defect only the acceptance suite could see.
 >
 > Previously: **Phase 4 through `P4-06`** (2026-09-21). Migrations 038 and 039 applied,
 > service on `zed-auth:p4-06`, console and public site rebuilt and extracted in place.
