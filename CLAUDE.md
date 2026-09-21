@@ -21,6 +21,9 @@ Every technical decision in this project has already been made and written down.
 | The management console (frontend) | `docs/PLAN/06-FRONTEND-ARCHITECTURE.md` + the entire `docs/UI-UX/` folder, starting at `docs/UI-UX/00-DESIGN-DIRECTION.md` |
 | The public site (landing/docs/about) | `docs/PLAN/20-PUBLIC-SITE-ARCHITECTURE.md` + `docs/UI-UX/20-PUBLIC-SITE-SPECIFICATIONS.md` + `docs/UI-UX/21-CONTENT-AND-COPY-STRATEGY.md` |
 | Backend service internals | `docs/PLAN/07-BACKEND-ARCHITECTURE.md` |
+| **How** to write the code — conventions, layer templates, error/logging rules, the gate, the review checklist | `docs/ENGINEERING/`, starting at `docs/ENGINEERING/00-ENGINEERING-CONTEXT.md` |
+| **How** the console is actually engineered — structure, tokens, components, data layer, routing, forms, testing | `docs/FRONTEND/`, starting at `docs/FRONTEND/00-FRONTEND-CONTEXT.md` |
+| The public site as built — content governance, the generated API reference, launch | `docs/WEBSITE/` |
 | Roles, permissions, RBAC, Project Grants, ABAC | `docs/PLAN/08-AUTHORIZATION.md` (this is the single source of truth for all authorization logic — RBAC, delegation, and ABAC are documented together because they're layered, not separate systems) |
 | Anything security-related | `docs/PLAN/09-SECURITY.md` for baseline controls, then the full `docs/SECURITY/` folder starting at `docs/SECURITY/00-ASSET-AND-TRUST-BOUNDARY-INVENTORY.md` for the detailed threat model |
 | Writing or reviewing tests | `docs/PLAN/11-TESTING.md` |
