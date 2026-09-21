@@ -73,6 +73,10 @@ type Key struct {
 	Status    Status
 	Public    crypto.PublicKey
 
+	// CertificatePEM is the X.509 certificate published for this key, and is
+	// set only for `saml` keys (P4-07). Empty for OIDC, which publishes JWKS.
+	CertificatePEM string
+
 	// private is unexported and never included in any string, JSON, or log
 	// representation of this struct.
 	private crypto.Signer

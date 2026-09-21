@@ -943,6 +943,81 @@ from the caller's organization.
 **Plan impact** — `docs/UI-UX/04` Flow 2's "search/select" should read "enter the
 partner's organization ID". Not amended here; `docs/` changes go through CODEOWNERS.
 
+### ADR-027 — SAML uses goxmldsig and etree directly, and this service checks every property itself
+
+| | |
+|---|---|
+| **Date** | 2026-09-21 |
+| **Status** | Accepted |
+| **Task** | `P4-07` (threat review T4-6) |
+| **Deciders** | Zed |
+
+**Context**
+
+`TASKS/PHASE-4-ENTERPRISE-INTEROP.md` § P4-07 step 1 says to use a well-maintained SAML
+library rather than hand-rolling, because SAML's security history is dominated by XML
+parsing and signature-wrapping bugs. The threat review (T4-6) adds a requirement: the
+library choice must be recorded as an ADR naming its advisory history at the pinned
+version.
+
+The Go options are `crewjam/saml`, which covers the whole protocol, and the layer it is
+built on — `russellhaering/goxmldsig` for XML signatures and `beevik/etree` for the DOM.
+
+**Decision**
+
+For `P4-07`'s assertion machinery: **`goxmldsig` v1.6.0 and `etree` v1.6.0 directly**,
+plus `mattermost/xml-roundtrip-validator` v0.1.0, with every security property checked in
+`internal/saml` and a test that fails when the check is removed.
+
+`crewjam/saml` remains the candidate for `P4-08`'s bindings, metadata and flows.
+
+**Why not `crewjam/saml` for this card**
+
+This card *is* the security layer. Taking a library here means its behaviour becomes the
+guarantee, and the whole package is written on the premise that it must not be — a library
+that stops signature wrapping today is a library that might stop it tomorrow, whereas a
+test that fails when our own check is deleted is a statement about this repository.
+
+`P4-08` is different in kind: bindings and metadata are protocol plumbing, where a
+library's breadth is worth more than our own parser.
+
+**Advisory history at the pinned versions**
+
+- `crewjam/saml` has a CVE history concentrated in signature validation, which is evidence
+  of scrutiny as much as of weakness — and is precisely the area this card does not
+  delegate.
+- **`goxmldsig` was first pinned at v1.4.0, and that was wrong.** `govulncheck` reported
+  nothing at the time — because nothing imported it yet, so no path was reachable. The
+  moment `internal/saml` called it, the gate failed with **GO-2026-4753, "Loop Variable
+  Capture Signature Bypass"**: a signature bypass, in the library chosen to validate
+  signatures, reachable from both `Issue` and `Verify`. Fixed in v1.6.0, which is what is
+  pinned.
+
+  This is the requirement working exactly as the threat review intended. An advisory
+  history checked once, against a dependency nothing calls, is not a check — and the first
+  draft of this ADR asserted the pinned version was clean on precisely that evidence.
+- `etree` v1.6.0 and `xml-roundtrip-validator` v0.1.0: nothing reported.
+- `govulncheck` over the whole tree reports two findings, both pre-existing and unreachable:
+  `grpc` (via testcontainers) and `x/crypto/openpgp`, neither called by this code.
+
+**Consequences**
+
+- Three direct dependencies instead of one, and the SAML protocol layer still to come.
+- Every property is ours to get right: document bounds, DTD and entity refusal, round-trip
+  stability, the identity of the signed element, audience, window, replay. Each has a
+  mutation recorded against it.
+- Two checks cannot be made to fail because a dependency refuses first — the empty trust
+  store and the round-trip validator. Both stay, and are labelled as unverifiable rather
+  than counted as caught.
+
+**What the threat review predicted, and was right about**
+
+T4-6 warned that in Go, "a test that feeds it an XXE or billion-laughs document will pass
+regardless of configuration, which is vacuous verification". That is exactly what a
+mutation found: deleting the DTD refusal broke no test, because those documents were being
+refused for their undefined entities instead. The fix is a document carrying a DOCTYPE and
+no entity reference at all.
+
 ### ADR-025 — Delegated access applies the stricter of both organizations' sign-in policies
 
 | | |
