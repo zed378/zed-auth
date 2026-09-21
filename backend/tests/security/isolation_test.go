@@ -139,7 +139,7 @@
 //	                                                         TestNarrowingByRegrantRefusesTheDroppedRoleThroughEitherGrant
 //	                                                         TestOnlyTheReceivingOrganizationsOwnUsersReceiveDelegatedRoles
 //	                                                         TestTheGrantingOrganizationCannotActOnThePartnersPeople
-//	                                                         TestADelegatedRowIsVisibleOnlyToTheReceivingOrganization
+//	                                                         TestADelegatedRowIsVisibleToBothSidesOfItsOwnGrantAndNobodyElse
 //	                                                         TestTheDatabaseRefusesAnInvalidDelegatedRowFromAnyWriter
 //	                                                         TestAnAssignmentThatWaitsBehindARevocationSeesIt
 //
@@ -151,8 +151,20 @@
 //	                                                         TestOnlyTheReceivingOrganizationAppointsOwnersFromItsOwnMembers
 //	                                                         TestAGrantOwnerRowHeldOutsideTheReceivingOrganizationIsInert
 //
+//	A delegated role grants access only while its grant
+//	  does, and revocation lands on the next check ......... internal/authz:
+//	                                                         TestADelegatedRoleIsHonouredInTheGrantingOrganizationsProject
+//	                                                         TestRevokingTheGrantEndsDelegatedAccessImmediately
+//	                                                         TestADelegatedRoleOutsideTheGrantIsNotHonoured
+//	                                                         TestOneInvalidationRetiresEveryDecisionThatCameThroughAGrant
+//	                                                         TestTheGrantingSideReadIsBoundedToItsOwnGrants
+//	                                                        internal/grant:
+//	                                                         TestARevokedDelegationClaimsNothing
+//	                                                         TestOnlyTheIntersectionWithTheGrantIsClaimed
+//	                                                         TestADelegatedRoleIsClaimedWithTheDelegatingOrganization
+//
 //	Not yet testable — the feature does not exist:
-//	  Revoked Project Grant invalidates access immediately .. P4-04
+//	  A partner's user signing in to the granting org's app . ADR-025, no card yet
 //
 // **What this map cannot do** is notice a Phase 1 abuse case nobody wrote
 // down. It was stale for three tasks before `P1-27` re-read it: three rows

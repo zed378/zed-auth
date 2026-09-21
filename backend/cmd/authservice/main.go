@@ -793,6 +793,13 @@ func run() error {
 		mfaAPI.PasskeysAvailable = factorFramework.WebAuthn != nil
 	}
 
+	// Delegation. The cache invalidation is what makes a revocation take
+	// effect before the entries it made stale expire (P4-04); the observer is
+	// what makes an unusual rate of grants visible (docs/PLAN/13).
+	projectGrants := projectgrant.New(db, auditor, log)
+	projectGrants.Cache = authzCache
+	projectGrants.Observer = projectGrantObserver{metrics}
+
 	srv := httpserver.New(cfg.HTTP, httpserver.Deps{
 		Logger:          log,
 		Health:          health,
@@ -824,7 +831,7 @@ func run() error {
 		AuditAPI:        &auditlog.Handler{DB: db, Log: log},
 		SessionAPI:      sessionAPI,
 		MfaAPI:          mfaAPI,
-		ProjectGrantAPI: projectgrant.New(db, auditor, log),
+		ProjectGrantAPI: projectGrants,
 		AccountAPI:      accountAPI,
 		// Explicit configuration, not inferred from the environment: see the
 		// comment on config.HTTPConfig.TrustProxyHeaders. Defaults to false,
@@ -1543,6 +1550,15 @@ func (o authzObserver) AuthorizationFailed(took time.Duration) {
 //
 // The entry AGE is the one worth having: a TTL is an upper bound anybody can
 // read off a constant, while this says what the fleet actually served.
+// projectGrantObserver counts delegation changes (P4-04, docs/PLAN/13).
+type projectGrantObserver struct{ m *observability.Metrics }
+
+func (o projectGrantObserver) ProjectGrantChanged(action string) {
+	if o.m != nil {
+		o.m.ProjectGrantChanges.WithLabelValues(action).Inc()
+	}
+}
+
 type authzCacheObserver struct{ m *observability.Metrics }
 
 func (o authzCacheObserver) CacheLookup(kind string, hit bool) {

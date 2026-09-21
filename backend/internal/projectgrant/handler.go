@@ -29,10 +29,39 @@ type Handler struct {
 	Audit  management.Recorder
 	Log    *slog.Logger
 	Now    func() time.Time
+
+	// Cache retires the authorization decisions a revoked grant made stale
+	// (P4-04). Optional: nil means the cache TTL is the only mechanism, which
+	// is slower to take effect and never wrong.
+	Cache Invalidator
+
+	// Observer counts grant creations and revocations. docs/PLAN/13 names an
+	// unusual spike in either as a possible misuse indicator.
+	Observer Observer
+}
+
+// Invalidator drops what a grant change made stale. An interface rather than
+// the cache type, so this package does not depend on `internal/authz` — which
+// depends on `internal/role` and `internal/grant`, and would make the
+// dependency graph a ring.
+type Invalidator interface {
+	InvalidateGrant(ctx context.Context, grantID string)
+}
+
+// Observer counts delegation changes for monitoring.
+type Observer interface {
+	ProjectGrantChanged(action string)
 }
 
 func New(db *postgres.DB, recorder management.Recorder, log *slog.Logger) *Handler {
 	return &Handler{Grants: NewStore(), DB: db, Audit: recorder, Log: log}
+}
+
+// observe counts a delegation change, if anything is watching.
+func (h *Handler) observe(action string) {
+	if h.Observer != nil {
+		h.Observer.ProjectGrantChanged(action)
+	}
 }
 
 func (h *Handler) now() time.Time {
@@ -124,6 +153,8 @@ func (h *Handler) CreateProjectGrant(
 		return nil, faultFrom(err)
 	}
 
+	h.observe("created")
+
 	rendered, err := render(created)
 	if err != nil {
 		return nil, err
@@ -164,11 +195,13 @@ func (h *Handler) RevokeProjectGrant(
 ) (api.RevokeProjectGrantResponseObject, error) {
 	projectID := request.ProjectId.String()
 
+	changedGrant := false
 	if err := h.inScope(ctx, func(tx *postgres.Tx, orgID string) error {
 		if err := requireProject(ctx, tx, projectID); err != nil {
 			return err
 		}
 		revoked, changed, err := h.Grants.Revoke(ctx, tx, orgID, projectID, request.GrantId.String(), h.now())
+		changedGrant = changed
 		if err != nil {
 			return err
 		}
@@ -189,6 +222,21 @@ func (h *Handler) RevokeProjectGrant(
 		})
 	}); err != nil {
 		return nil, faultFrom(err)
+	}
+
+	// After the transaction commits, never inside it: a revocation that rolled
+	// back would have retired decisions that were still correct, and — worse —
+	// a concurrent read could re-cache the pre-revocation answer against the
+	// new generation (the ordering `P2-03` established for user grants).
+	//
+	// Unconditional, including the already-revoked case: a repeated revocation
+	// costs one INCR and removes any doubt about a cache entry written between
+	// the two calls.
+	if h.Cache != nil {
+		h.Cache.InvalidateGrant(ctx, request.GrantId.String())
+	}
+	if changedGrant {
+		h.observe("revoked")
 	}
 	return api.RevokeProjectGrant204Response{}, nil
 }

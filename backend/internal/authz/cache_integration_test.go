@@ -30,7 +30,7 @@ func TestARevocationIsInvalidatedRatherThanWaitedOut(t *testing.T) {
 		t.Fatalf("the granted permission was denied: %+v", got)
 	}
 	// Now cached. Confirmed, so the revocation below has something to invalidate.
-	if _, hit := f.cache.RoleKeys(context.Background(), f.orgA, f.subject, f.projectA); !hit {
+	if _, _, hit := f.cache.RoleKeys(context.Background(), f.orgA, f.subject, f.projectA); !hit {
 		t.Fatal("the grant was not cached, so this test proves nothing about invalidation")
 	}
 
@@ -41,7 +41,7 @@ func TestARevocationIsInvalidatedRatherThanWaitedOut(t *testing.T) {
 	}
 	f.revokeThroughAPI(t, f.subject, f.projectA)
 
-	if _, hit := f.cache.RoleKeys(context.Background(), f.orgA, f.subject, f.projectA); hit {
+	if _, _, hit := f.cache.RoleKeys(context.Background(), f.orgA, f.subject, f.projectA); hit {
 		t.Error("the cache entry survived a revocation; the TTL is now the revocation window")
 	}
 

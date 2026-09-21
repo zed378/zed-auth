@@ -40,6 +40,8 @@ The response carries `allowed`, `matched_policy` (the role key that decided, und
 | Rule / setting | Value | Enforced in |
 |---|---|---|
 | Cache TTL | 30 seconds | `backend/internal/authz/cache.go` (`DefaultTTL`) |
+| Delegated entry | Records the grant it came through and that grant's generation | `backend/internal/authz/cache.go` |
+| Revoking a grant | One `INCR` of the grant's generation retires every entry that depended on it | `Cache.InvalidateGrant`, called after the revocation commits |
 | Invalidation | Proactive, per user+project and per project | `grant.Handler.invalidate`, `role` handlers |
 | Endpoint requirement | `MEMBER` at organization scope | `backend/internal/management/policy.go` |
 | Unknown subject | Same answer as "no matching role" | `backend/internal/authz/decide.go` |
@@ -54,7 +56,7 @@ The response carries `allowed`, `matched_policy` (the role key that decided, und
 
 - **Why the endpoint exists**: a revoked role stays in an unexpired token. The live check plus proactive invalidation closes that gap to the cache TTL.
 - **Never a general-purpose oracle**: the caller may only ask about their own organization's project, and a refusal never distinguishes a missing user.
-- **Delegated roles are absent.** Until `P4-04`, a delegated `user_grants` row is invisible to both readers; treating the current behaviour as "delegation works" would be wrong (threat review T4-2).
+- **Delegated roles are resolved, never assumed.** A delegated row is answered as `role_keys ∩ granted_role_keys`, and as nothing at all once the grant is revoked — computed against the grant in the same statement, so no cached or in-process copy sits between the grant and the answer (`P4-04`, threat review T4-2).
 
 ## Verification
 
@@ -64,8 +66,8 @@ The response carries `allowed`, `matched_policy` (the role key that decided, und
 
 ## Not Yet Built / Open Questions
 
-- Delegated grants in the decision path, and invalidation keyed by grant rather than by user (`P4-04`; threat review T4-3 notes that revoking a grant held by 400 users would otherwise mean 400 invalidations).
 - Attribute evaluation (Phase 4b).
+- Delegated roles in tokens, which needs cross-organization sign-in (ADR-025); the claim code exists and is tested, but no live path issues such a token.
 
 ## Related Documents
 
