@@ -94,6 +94,8 @@ SHIPPED = {
     "/v1/organizations/{org_id}/projects/{project_id}/grants/{grant_id}",
     # P4-02. The receiving organization assigns the roles a grant delegates,
     # a subset checked against the grant on every request.
+    # P4-06. The receiving side's own list of what it was given.
+    "/v1/organizations/{org_id}/project-grants",
     "/v1/organizations/{org_id}/project-grants/{grant_id}/user-grants",
     "/v1/organizations/{org_id}/project-grants/{grant_id}/user-grants/{user_id}",
     # P4-03. PROJECT_GRANT_OWNER: the one role scoped to a single grant.

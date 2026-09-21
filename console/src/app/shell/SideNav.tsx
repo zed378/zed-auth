@@ -53,7 +53,7 @@ const SECTIONS: NavSection[] = [
     items: [
       { label: "Projects", to: "/projects" },
       { label: "Users", to: "/users" },
-      { label: "Granted Projects", to: "/granted-projects", phase: "P4" },
+      { label: "Granted Projects", to: "/granted-projects" },
       { label: "Policies", to: "/policies" },
       { label: "Audit Log", to: "/audit-log" },
       // Organization settings (branding, domain verification) has a

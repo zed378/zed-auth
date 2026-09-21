@@ -147,6 +147,11 @@ export const queryKeys = {
   applications: ["applications"] as const,
   roles: ["roles"] as const,
   projectGrants: ["project-grants"] as const,
+
+  // The other side of the same delegation (P4-06): what this organization
+  // was GIVEN, and who here holds a role through each of those grants.
+  receivedGrants: ["received-grants"] as const,
+  delegatedGrants: ["delegated-user-grants"] as const,
   grants: ["grants"] as const,
   users: ["users"] as const,
   mfa: ["mfa"] as const,

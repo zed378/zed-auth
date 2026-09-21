@@ -154,7 +154,7 @@
 
 | | |
 |---|---|
-| **Status** | DONE — 2026-09-18, [record](../MEMORY/records/2026-09-18-P4-04-delegated-claims-and-revocation.md), [spec](../MEMORY/specs/P4-04-delegated-claims-and-revocation.md). Tokens await cross-organization sign-in (ADR-025) |
+| **Status** | DONE — 2026-09-18, [record](../MEMORY/records/2026-09-18-P4-04-delegated-claims-and-revocation.md), [spec](../MEMORY/specs/P4-04-delegated-claims-and-revocation.md). Tokens await cross-organization sign-in (ADR-025). Staging deployment pending |
 | **Depends on** | P4-02, P2-04 |
 | **Plan refs** | `docs/PLAN/08-AUTHORIZATION.md` Part C § Token Claim Format, § Full Permission Check Flow, `docs/PLAN/12-PERFORMANCE.md` |
 | **Spec required** | Yes — token and decision path |
@@ -219,7 +219,7 @@
 
 | | |
 |---|---|
-| **Status** | TODO |
+| **Status** | DONE — 2026-09-21, [record](../MEMORY/records/2026-09-21-P4-06-granted-projects.md), [spec](../MEMORY/specs/P4-06-granted-projects.md), [chain](../console/docs/implementation-chain-P4-06.md). The route the receiving side had no way to discover its own grants through came with it |
 | **Depends on** | P4-02 |
 | **Plan refs** | `docs/UI-UX/08-PAGE-SPECIFICATIONS.md` (Granted Projects list), `docs/UI-UX/04-USER-FLOWS.md` Flow 3, `docs/UI-UX/01-USER-PERSONAS.md` (Vendor Admin) |
 | **Spec required** | No — implementation chain mandatory |
@@ -236,11 +236,17 @@
 6. Empty state explains what a granted project is, since a vendor admin may encounter the concept here for the first time.
 
 **Definition of Done**
-- [ ] A non-granted role is never rendered, verified by test.
-- [ ] The role-source badge shows "delegated" correctly.
-- [ ] Flow 3 is covered by an E2E test.
-- [ ] A revoked grant is reflected clearly rather than as an opaque error.
-- [ ] The empty state is explanatory rather than blank.
+- [x] A non-granted role is never rendered, verified by test — and by the stronger property that the screen never requests the granting project's roles at all.
+- [x] The role-source badge shows "delegated" correctly, naming the granting organization in the accessibility tree and not only in a `title`.
+- [x] Flow 3 is covered by an E2E test (`console/e2e/grantedprojects.spec.ts`), which checks the Management API after the assignment and after the removal.
+- [x] A revoked grant is reflected clearly rather than as an opaque error: listed, marked "Ended", named as the partner's act, with no assignment control and a way to clear what is left.
+- [x] The empty state is explanatory rather than blank, and offers no action, because this organization cannot create one.
+
+**Beyond the card** — `GET /v1/organizations/{org_id}/project-grants` did not exist. Without
+it the receiving organization could assign delegated roles only if it already knew a grant
+id, which no screen or API would have told it. Migration 039 adds the bounded name lookup
+the list needs, because the project and the organization behind a grant are the granting
+side's rows and this tenant's RLS hides them.
 
 ---
 
