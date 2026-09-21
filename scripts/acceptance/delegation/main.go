@@ -332,10 +332,20 @@ func main() {
 	// --- 4. nobody else ------------------------------------------------------
 	section("4. A third organization is not a party to either side")
 
-	if outside := received(c, bystanderToken, bystanderOrg); len(outside.Grants) == 0 {
-		pass("the bystander's own received list is empty")
+	// NOT "the bystander's list is empty". The seed makes it the RECEIVING side
+	// of the partner's own grant, which it is entitled to see — check 2 needs
+	// that grant to exist. The property here is narrower and is the real one:
+	// the delegation between the other two is invisible to it.
+	outside := received(c, bystanderToken, bystanderOrg)
+	if find(outside, grantID) == nil {
+		pass("the delegation between the other two is absent from the bystander's list")
 	} else {
-		fail("the bystander sees %d grants of a delegation it is not part of", len(outside.Grants))
+		fail("the bystander can see a delegation it is not a party to")
+	}
+	if find(outside, ownGrantID) != nil {
+		pass("it does see the grant it was itself given — so the list is working, not merely empty")
+	} else {
+		fail("the bystander cannot see the grant made TO it — the previous check proved nothing")
 	}
 
 	probe := c.get("/v1/organizations/"+partnerOrg+"/project-grants", bystanderToken)
