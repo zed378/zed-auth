@@ -44,6 +44,11 @@ SHIPPED = {
     # P1-04. Both are served and both are real; the discovery document itself
     # lists only the endpoints that exist, so publishing it does not claim the
     # OIDC endpoints that arrive in P1-06 and P1-07.
+    # P4-08. The SAML identity provider: metadata, both SSO bindings, and the
+    # logout endpoint that exists to refuse in the protocol's own vocabulary.
+    "/saml/metadata",
+    "/saml/sso",
+    "/saml/slo",
     "/.well-known/openid-configuration",
     "/.well-known/jwks.json",
     # P1-16. The first Management API endpoints. Served by the generated

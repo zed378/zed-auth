@@ -100,3 +100,21 @@ func Metadata(entityID string, key *SigningKey, endpoints Endpoints) (*etree.Ele
 
 	return entity, nil
 }
+
+// Serialise writes an element as a standalone XML document.
+//
+// Here rather than in each caller, so the declaration and the encoding are the
+// same everywhere a SAML document leaves this service.
+func Serialise(el *etree.Element) ([]byte, error) {
+	if el == nil {
+		return nil, fmt.Errorf("saml: nothing to serialise")
+	}
+	doc := etree.NewDocument()
+	doc.CreateProcInst("xml", `version="1.0" encoding="UTF-8"`)
+	doc.SetRoot(el.Copy())
+	raw, err := doc.WriteToBytes()
+	if err != nil {
+		return nil, fmt.Errorf("saml: serialising: %w", err)
+	}
+	return raw, nil
+}
