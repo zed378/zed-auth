@@ -11,13 +11,12 @@ Single source of truth for where the project stands. Updated in the same commit 
 > deployed together, with Phase 3's acceptance executed there. Staging's nightly backup
 > had silently stopped again in the meantime and is fixed in the unit (`P3-14`).
 >
-> **Staging is behind `main` by two migrations.** It last rolled out at `P4-03`
-> (`0856969`). `P4-04` (migration 038, delegated reads) and `P4-06` (migration 039,
-> `received_grant_context`) are merged and not deployed: the owner was off the private
-> network on 2026-09-21, and the rollout did not run after access was restored. A
-> deployment must apply both migrations before recreating the service, and must also carry
-> the console bundle — `P4-06` adds the `/granted-projects` screen, which 404s against a
-> service without migration 039.
+> **Staging runs Phase 4 through `P4-06`** (2026-09-21). Migrations 038 and 039 applied,
+> service on `zed-auth:p4-06`, console and public site rebuilt and extracted in place.
+> Verified by `scripts/acceptance-delegation.sh` against the deployment: **14 passed, 0
+> failed**, fixture removed. The first run was 13 of 14 and the failure was the check's
+> own — it asserted a bystander's received list is empty, which is wrong because the
+> fixture makes that organization the receiving side of another grant.
 
 Status values: `TODO` · `BLOCKED` · `SPEC` · `WIP` · `REVIEW` · `DONE` · `DROPPED`
 Sizes: `S` under half a day · `M` one to two days · `L` several days · `XL` must be split
@@ -167,7 +166,7 @@ Sizes: `S` under half a day · `M` one to two days · `L` several days · `XL` m
 | P4-01 | Project Grants — data and lifecycle | L | **DONE** — the delegation contract: create, list, read, revoke, and only ever narrow (a trigger refuses widening or reactivation for every writer). A mutation showed the granting-side filter was the only thing stopping the receiving organization revoking a grant it can see through a project of its own. Confers no access until P4-02/P4-04; T4-1 open | P2-03, P2-05 |
 | P4-02 | Delegated user grants with subset validation | L | **DONE** — the receiving organization assigns, replaces, lists and removes delegated roles; every write reads the grant `FOR SHARE` and checks grantee, active, subset and membership, and a trigger repeats every rule for any writer. The old trigger fired on `project_grant_id` only, so a delegated row could have been widened by the direct `PATCH`; it now fires on every column the rule reads. 8 mutations, all red. No reader sees delegated rows until `P4-04` adds the join (T4-2) | P4-01 |
 | P4-03 | `PROJECT_GRANT_OWNER` enforcement | M | **DONE** — scoped to one grant, in the organization it was granted to, while active; appointed only by that organization's administrators (first manager-role write API). `PROJECT_OWNER` does not satisfy it, which answers T4-4 by scope (`PG-44`). The exhaustive table found a project-scope loop that honoured a grant-owner row by `scope_id` alone. 6 mutations, all red | P4-01, P2-05 |
-| P4-04 | Delegated claims and revocation propagation | L | **DONE** — both readers resolve a delegated row against its grant on every read (`grantsql.EffectiveRoleKeys`), so `/v1/authz/check` honours a delegated role and stops the moment the grant is revoked; the granting side gained a read-only view of its own grants' rows in the same change (T4-2's ordering). Revocation is one `INCR` of a per-grant generation, whatever the number of holders (T4-3). The window is published and pinned by a drift test. 6 mutations, all red. Tokens cannot carry delegated roles until cross-organization sign-in exists (ADR-025). **Merged; not yet on staging** — the owner was off the private network on 2026-09-21 | P4-02, P2-04 |
+| P4-04 | Delegated claims and revocation propagation | L | **DONE** — both readers resolve a delegated row against its grant on every read (`grantsql.EffectiveRoleKeys`), so `/v1/authz/check` honours a delegated role and stops the moment the grant is revoked; the granting side gained a read-only view of its own grants' rows in the same change (T4-2's ordering). Revocation is one `INCR` of a per-grant generation, whatever the number of holders (T4-3). The window is published and pinned by a drift test. 6 mutations, all red. Tokens cannot carry delegated roles until cross-organization sign-in exists (ADR-025). Deployed on staging 2026-09-21 with `P4-06` | P4-02, P2-04 |
 | P4-05 | Console — Project Grants tab | L | **DONE** — Flow 2 with the partner named by ID (ADR-026: a search would enumerate every organization). Every project role listed, the unshared ones in words; the summary builds live; a second step confirms. Revocation states `holder_count`, added to the API for it, and asks for the partner's name when it is above zero. Fixed `ConfirmDialog`: typed text survived a cancel, and the typed input never took focus | P4-01 |
 | P4-06 | Console — Granted Projects list | L | **DONE** — Flow 3 from the receiving side, and the route it needed: nothing listed the grants made TO an organization, so a partner could assign delegated roles only if it already knew a grant id. `GET /v1/organizations/{org_id}/project-grants` filters on `granted_org_id` — RLS shows this tenant both sides of its own delegations, and a mutation that widened the filter to either side turned the test red. Migration 039 resolves the project and partner names, which the granting side owns and this tenant's RLS hides; the `SECURITY DEFINER` lookup is bounded to grants this organization holds, proven by asking it for somebody else's. The screen renders roles from `granted_role_keys` alone and never requests the granting project's roles. 5 mutations, all red | P4-02 |
 | P4-07 | SAML 2.0 IdP — core | L | TODO | P1-11 |

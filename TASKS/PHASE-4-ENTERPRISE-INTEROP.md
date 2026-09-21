@@ -219,7 +219,7 @@
 
 | | |
 |---|---|
-| **Status** | DONE — 2026-09-21, [record](../MEMORY/records/2026-09-21-P4-06-granted-projects.md), [spec](../MEMORY/specs/P4-06-granted-projects.md), [chain](../console/docs/implementation-chain-P4-06.md). The route the receiving side had no way to discover its own grants through came with it. **Merged; not yet on staging** — deploys with `P4-04` |
+| **Status** | DONE — 2026-09-21, [record](../MEMORY/records/2026-09-21-P4-06-granted-projects.md), [spec](../MEMORY/specs/P4-06-granted-projects.md), [chain](../console/docs/implementation-chain-P4-06.md). The route the receiving side had no way to discover its own grants through came with it. Deployed and accepted on staging 2026-09-21 (14/14) |
 | **Depends on** | P4-02 |
 | **Plan refs** | `docs/UI-UX/08-PAGE-SPECIFICATIONS.md` (Granted Projects list), `docs/UI-UX/04-USER-FLOWS.md` Flow 3, `docs/UI-UX/01-USER-PERSONAS.md` (Vendor Admin) |
 | **Spec required** | No — implementation chain mandatory |

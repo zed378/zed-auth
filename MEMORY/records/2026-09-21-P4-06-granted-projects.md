@@ -104,3 +104,30 @@ The people assigned here cannot sign in to the granting organization's applicati
 cross-organization sign-in is ADR-025 and has no task card yet. The roles are real — they
 are what the granting organization's `/v1/authz/check` returns for those users (`P4-04`) —
 and nothing else consumes them. The screen says as much rather than implying more.
+
+---
+
+## Staging (2026-09-21)
+
+Migrations 038 (`P4-04`) and 039 (`P4-06`) applied together — staging had been at 037
+since `P4-03`. Service on `zed-auth:p4-06`; console and public site rebuilt and extracted
+**in place** over the bind mounts, inode unchanged before and after.
+
+`scripts/acceptance-delegation.sh`, written for this rollout, reports **14 passed, 0
+failed** against the deployment, and its three throwaway organizations remove themselves.
+
+The first run was 13 of 14, and the failure was the check's own: it asserted the
+bystander's received list is *empty*, which is wrong — the fixture makes that organization
+the receiving side of the partner's own grant, and check 2 needs that grant to exist.
+An empty list would also be produced by a route that returns nothing at all, so the
+assertion was weak as well as incorrect. It now asserts both directions: the delegation
+between the other two is absent, and the grant made *to* the bystander is present.
+
+### Two operational findings
+
+**The image built on the VM disappeared between two SSH sessions**, along with `p4-01`,
+`p4-02` and `p4-05`. Disk was at 18% and no prune timer exists. Rebuilding and migrating
+in one session worked; the cause is unexplained and worth watching on the next rollout.
+
+**`vmput.py` fails on an absolute remote path** and succeeds on a relative one — the
+absolute form answers `ENOENT` from the server while `sftp.stat('/home/infra')` succeeds.
