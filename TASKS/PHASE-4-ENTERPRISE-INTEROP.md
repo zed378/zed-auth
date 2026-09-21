@@ -254,7 +254,7 @@ side's rows and this tenant's RLS hides them.
 
 | | |
 |---|---|
-| **Status** | TODO |
+| **Status** | WIP — 2026-09-21, [spec](../MEMORY/specs/P4-07-saml-idp-core.md), [record, part 1](../MEMORY/records/2026-09-21-P4-07-saml-assertion-machinery.md). The security layer and issuance are built and mutation-verified (XML hardening, signature wrapping, audience and window, replay, key separation with a certificate, attribute release, migrations 040 and 041, two fuzz targets — 19 mutations). `/saml/metadata` and the OIDC-session bridge are not built |
 | **Depends on** | P1-11 |
 | **Plan refs** | `docs/PLAN/03-ARCHITECTURE.md` § SAML Identity Provider, `docs/PLAN/05-API-CONTRACT.md` § Standards Used, `docs/PLAN/11-TESTING.md` § Security Testing (fuzzing SAML assertions) |
 | **Spec required** | Yes — new protocol surface |
@@ -273,12 +273,12 @@ side's rows and this tenant's RLS hides them.
 8. Implement replay protection with assertion ID tracking.
 
 **Definition of Done**
-- [ ] XXE and DTD processing are disabled, verified by a test feeding a malicious document.
-- [ ] Signature wrapping is defeated, verified by a test with a wrapped assertion.
-- [ ] SAML signing keys are distinct from OIDC keys.
-- [ ] A session established via OIDC satisfies a SAML request without re-authentication.
-- [ ] Assertion replay is rejected.
-- [ ] Fuzz tests run against the assertion parser (`docs/PLAN/11`).
+- [x] XXE and DTD processing are disabled, verified by a test feeding a malicious document — and by a second test that isolates the DTD refusal, after a mutation showed the first one was passing for the wrong reason.
+- [x] Signature wrapping is defeated, verified by a test with a wrapped assertion **that carries a valid signature**. The defence is to validate the element about to be consumed rather than the document.
+- [x] SAML signing keys are distinct from OIDC keys, proven by an integration test in which neither key set can resolve the other's key. Migration 041 adds the certificate a SAML key needs and `signing.Store` now carries it — without that the first SAML key would have been refused by its own CHECK.
+- [ ] A session established via OIDC satisfies a SAML request without re-authentication — needs `P4-08`'s flow.
+- [x] Assertion replay is rejected, and the primary key that does the rejecting is tested directly.
+- [x] Fuzz tests run against the parser (`FuzzReadDocument`, `FuzzVerify`).
 
 **Abuse cases to test**
 - XXE via a crafted assertion.
