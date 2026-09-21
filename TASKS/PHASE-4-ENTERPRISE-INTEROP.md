@@ -332,7 +332,7 @@ nothing.
 
 | | |
 |---|---|
-| **Status** | TODO |
+| **Status** | DONE — 2026-09-21, [record](../MEMORY/records/2026-09-21-P4-09-saml-application-type.md). A `saml` application and its registration are one body and one transaction; metadata is parsed on the server through P4-07's XML gate; `/saml/metadata` publishes the key that will sign as well as the one that does. No migration. 38 mutations |
 | **Depends on** | P4-07, P1-18 |
 | **Plan refs** | `docs/PLAN/04-DATA-MODEL.md` § `applications` (`type: saml`), `docs/UI-UX/08-PAGE-SPECIFICATIONS.md` (Applications tab) |
 | **Spec required** | No |
@@ -348,12 +348,12 @@ nothing.
 7. Expose the two switches `P4-08` shipped and left settable only by raw SQL: `want_signed_requests` and `allow_idp_initiated`. Both are enforced today and neither has an administrator in front of it, which is the same "stored and unreachable" shape as the gaps that task closed — one step further along.
 
 **Definition of Done**
-- [ ] SAML applications are creatable via both API and console (FR-14).
-- [ ] Uploaded metadata is parsed with the same hardened parser configuration as assertions.
-- [ ] IdP metadata is published and consumable by a standard SP.
-- [ ] Certificate expiry produces a warning before it produces an outage.
-- [ ] `/saml/metadata` advertises every signing key that is `next` or `current`, not only `current`. Today it publishes one, which means rotating a SAML key breaks every service provider still pinning the old certificate at the instant `keyctl rotate` runs — the overlap that makes an OIDC rotation safe has no counterpart, and `deploy/vm/RUNBOOK-key-rotation.md` currently substitutes a round of emails for it.
-- [ ] `want_signed_requests` and `allow_idp_initiated` are settable through the API and the console, and the console says what each one costs — signing is refused on the HTTP-Redirect binding, and IdP-initiated sign-on is uncorrelated by construction. A toggle whose consequence is invisible is a toggle an administrator flips for the wrong reason.
+- [x] SAML applications are creatable via both API and console (FR-14) — from a metadata document or by hand, in one call and one transaction.
+- [x] Uploaded metadata is parsed with the same hardened parser configuration as assertions — `ReadDocument` first, asserted at the API as well as at the parser, and a gate refusal is reported generically because a detailed one is a probe result.
+- [x] IdP metadata is published and consumable by a standard SP — shipped in P4-08, verified on staging by `scripts/acceptance-saml.sh`.
+- [x] Certificate expiry produces a warning before it produces an outage — 30 days, derived at read time by the server, shown in words in the console.
+- [x] `/saml/metadata` advertises every signing key that is `next` or `current`, not only `current`. Today it publishes one, which means rotating a SAML key breaks every service provider still pinning the old certificate at the instant `keyctl rotate` runs — the overlap that makes an OIDC rotation safe has no counterpart, and `deploy/vm/RUNBOOK-key-rotation.md` currently substitutes a round of emails for it.
+- [x] `want_signed_requests` and `allow_idp_initiated` are settable through the API and the console, and the console says what each one costs — signing is refused on the HTTP-Redirect binding, and IdP-initiated sign-on is uncorrelated by construction. A toggle whose consequence is invisible is a toggle an administrator flips for the wrong reason.
 
 ---
 

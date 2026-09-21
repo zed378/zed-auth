@@ -101,12 +101,7 @@ func (s *SubjectStore) For(
 	// Everything this service knows that a service provider could be
 	// registered for. `saml.Release` intersects it with the registration; what
 	// is not in `reg.Release` does not leave this function.
-	available := map[string][]string{
-		"email":        {email},
-		"role_keys":    roleKeys,
-		"display_name": nullable(displayName),
-		"username":     nullable(username),
-	}
+	available := availableAttributes(email, roleKeys, displayName, username)
 
 	return saml.Subject{
 		NameID: nameID,
@@ -123,4 +118,21 @@ func nullable(v sql.NullString) []string {
 		return nil
 	}
 	return []string{v.String}
+}
+
+// availableAttributes is every attribute a subject can carry.
+//
+// Its keys must be exactly saml.ReleasableAttributes, and a test asserts it.
+// A key here that the list lacks could never be requested; a name in the list
+// that is missing here would be accepted by the API and release nothing, which
+// is the failure the list exists to prevent.
+func availableAttributes(
+	email string, roleKeys []string, displayName, username sql.NullString,
+) map[string][]string {
+	return map[string][]string{
+		"email":        {email},
+		"role_keys":    roleKeys,
+		"display_name": nullable(displayName),
+		"username":     nullable(username),
+	}
 }

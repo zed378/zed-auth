@@ -1,6 +1,7 @@
 package saml
 
 import (
+	"crypto/x509"
 	"encoding/base64"
 	"fmt"
 
@@ -46,20 +47,47 @@ type Endpoints struct {
 
 // Metadata builds the IdP's `EntityDescriptor`.
 //
-// The certificate is the one the assertions are actually signed with, taken
-// from the signing key rather than passed in separately — a metadata document
+// The certificates are the ones assertions are actually signed with, taken
+// from the signing keys rather than passed in separately — a metadata document
 // advertising a certificate the service does not sign with is a failure only
 // the service provider can see.
-func Metadata(entityID string, key *SigningKey, endpoints Endpoints) (*etree.Element, error) {
+//
+// # Why more than one (P4-09)
+//
+// It used to publish exactly the key that signs now, and that made a SAML key
+// rotation an outage waiting on other people. A service provider pins the
+// certificate it read here; the moment `keyctl -purpose saml rotate` promoted
+// a new key, every service provider still pinning the old one rejected every
+// assertion. The overlap that makes an OIDC rotation safe — publish the key,
+// let consumers fetch it, then sign with it — had no counterpart, because
+// there was nowhere to publish a key that was not yet signing.
+//
+// There is now. `current` first, then `next`, so a service provider that
+// refreshes its metadata on any schedule at all has already trusted the new
+// certificate before it is used — which is what the SAML specification
+// expects a multi-KeyDescriptor descriptor to be for.
+//
+// `previous` is deliberately NOT published. This service is the issuer: it
+// signs with exactly one key, and a demoted key verifies nothing anyone is
+// asking about. Publishing it would keep a key trusted after it stopped being
+// used, which is the opposite of what retiring one is for.
+// Certificates rather than keys, because publication needs no private half —
+// and asking for one would make a key that is published-but-not-yet-signing
+// impossible to publish, which is the whole point of the overlap. The caller
+// is responsible for the first entry being the certificate of the key that
+// signs now; samlapi.CachedKeys.Published takes it from the same accessor the
+// issuing path uses, so the two cannot disagree.
+func Metadata(entityID string, certs []*x509.Certificate, endpoints Endpoints) (*etree.Element, error) {
 	if entityID == "" {
 		return nil, fmt.Errorf("saml: metadata needs an entity id")
 	}
 	if endpoints.SSORedirect == "" || endpoints.SSOPost == "" {
 		return nil, fmt.Errorf("saml: metadata needs both SSO endpoints")
 	}
-	cert, err := key.Certificate()
-	if err != nil {
-		return nil, err
+	if len(certs) == 0 {
+		// Metadata with no certificate is a document a service provider cannot
+		// configure itself from. Refused rather than published empty.
+		return nil, fmt.Errorf("saml: metadata needs at least one certificate")
 	}
 
 	entity := etree.NewElement("EntityDescriptor")
@@ -76,13 +104,18 @@ func Metadata(entityID string, key *SigningKey, endpoints Endpoints) (*etree.Ele
 	// document.
 	idp.CreateAttr("WantAuthnRequestsSigned", "false")
 
-	// --- the signing certificate -------------------------------------------
-	descriptor := idp.CreateElement("KeyDescriptor")
-	descriptor.CreateAttr("use", "signing")
-	keyInfo := descriptor.CreateElement("ds:KeyInfo")
-	x509Data := keyInfo.CreateElement("ds:X509Data")
-	x509Data.CreateElement("ds:X509Certificate").
-		SetText(base64.StdEncoding.EncodeToString(cert.Raw))
+	// --- the signing certificates ------------------------------------------
+	//
+	// One KeyDescriptor each, in the order given: the key that signs now, then
+	// the one that will. A service provider is expected to trust all of them.
+	for _, cert := range certs {
+		descriptor := idp.CreateElement("KeyDescriptor")
+		descriptor.CreateAttr("use", "signing")
+		keyInfo := descriptor.CreateElement("ds:KeyInfo")
+		x509Data := keyInfo.CreateElement("ds:X509Data")
+		x509Data.CreateElement("ds:X509Certificate").
+			SetText(base64.StdEncoding.EncodeToString(cert.Raw))
+	}
 
 	// --- what this service will assert about a subject ----------------------
 	idp.CreateElement("NameIDFormat").SetText(NameIDFormatPersistent)
