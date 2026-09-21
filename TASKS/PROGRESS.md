@@ -10,6 +10,14 @@ Single source of truth for where the project stands. Updated in the same commit 
 > Docker stack while the VM was unreachable; access was restored and Phases 2 and 3 were
 > deployed together, with Phase 3's acceptance executed there. Staging's nightly backup
 > had silently stopped again in the meantime and is fixed in the unit (`P3-14`).
+>
+> **Staging is behind `main` by two migrations.** It last rolled out at `P4-03`
+> (`0856969`). `P4-04` (migration 038, delegated reads) and `P4-06` (migration 039,
+> `received_grant_context`) are merged and not deployed: the owner was off the private
+> network on 2026-09-21, and the rollout did not run after access was restored. A
+> deployment must apply both migrations before recreating the service, and must also carry
+> the console bundle — `P4-06` adds the `/granted-projects` screen, which 404s against a
+> service without migration 039.
 
 Status values: `TODO` · `BLOCKED` · `SPEC` · `WIP` · `REVIEW` · `DONE` · `DROPPED`
 Sizes: `S` under half a day · `M` one to two days · `L` several days · `XL` must be split
