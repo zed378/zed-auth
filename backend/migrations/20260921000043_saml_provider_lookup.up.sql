@@ -42,7 +42,8 @@ RETURNS TABLE (
     acs_url           text,
     attribute_release text[],
     want_signed_requests boolean,
-    certificate       text
+    certificate       text,
+    allow_idp_initiated boolean
 )
 LANGUAGE sql
 STABLE
@@ -50,7 +51,8 @@ SECURITY DEFINER
 SET search_path = public, pg_temp
 AS $$
     SELECT sp.id, sp.org_id, sp.application_id, sp.entity_id, sp.acs_url,
-           sp.attribute_release, sp.want_signed_requests, sp.certificate
+           sp.attribute_release, sp.want_signed_requests, sp.certificate,
+           sp.allow_idp_initiated
       FROM saml_service_providers sp
      WHERE sp.entity_id = lookup_entity_id
        AND sp.revoked_at IS NULL;
@@ -80,7 +82,8 @@ RETURNS TABLE (
     acs_url           text,
     attribute_release text[],
     want_signed_requests boolean,
-    certificate       text
+    certificate       text,
+    allow_idp_initiated boolean
 )
 LANGUAGE sql
 STABLE
@@ -88,7 +91,8 @@ SECURITY DEFINER
 SET search_path = public, pg_temp
 AS $$
     SELECT sp.id, sp.org_id, sp.application_id, sp.entity_id, sp.acs_url,
-           sp.attribute_release, sp.want_signed_requests, sp.certificate
+           sp.attribute_release, sp.want_signed_requests, sp.certificate,
+           sp.allow_idp_initiated
       FROM saml_service_providers sp
      WHERE sp.id = lookup_id
        AND sp.revoked_at IS NULL;

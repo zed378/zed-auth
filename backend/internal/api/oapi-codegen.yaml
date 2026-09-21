@@ -75,6 +75,7 @@ output-options:
     # that, not a JSON `Error`. /saml/sso also answers on two bindings with the
     # same operation, and reads a form body the strict wrapper would not hand
     # over.
+    - samlInitiate
     - samlMetadata
     - samlSSORedirect
     - samlSSOPost

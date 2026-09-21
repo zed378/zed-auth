@@ -847,6 +847,7 @@ func run() error {
 		Authorize:       authorizeHandler,
 		SAMLMetadata:    http.HandlerFunc(samlHandler.Metadata),
 		SAMLSSO:         samlSSORoute(samlHandler),
+		SAMLInitiate:    http.HandlerFunc(samlHandler.Initiate),
 		SAMLSLO:         http.HandlerFunc(samlHandler.SingleLogout),
 		Token:           tokenHandler,
 		Introspect:      http.HandlerFunc(lifecycleHandler.Introspect),

@@ -104,6 +104,12 @@ const sidebar: SidebarsConfig = {
       items: [
         {
           type: "doc",
+          id: "api-reference/saml-initiate",
+          label: "Identity-provider-initiated sign-on",
+          className: "api-method get",
+        },
+        {
+          type: "doc",
           id: "api-reference/saml-metadata",
           label: "SAML 2.0 Identity Provider metadata",
           className: "api-method get",

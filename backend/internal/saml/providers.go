@@ -43,6 +43,12 @@ type Registration struct {
 	// own AuthnRequests must be verified.
 	WantSignedRequests bool
 	Certificate        string
+
+	// AllowIdPInitiated says whether this service provider accepts a login it
+	// did not ask for. Off unless somebody turned it on, because an
+	// IdP-initiated assertion answers no request and so cannot be correlated
+	// against one — see migration 040.
+	AllowIdPInitiated bool
 }
 
 // Querier is the minimal database handle this lookup needs.
@@ -72,10 +78,10 @@ func (s *ProviderStore) ByEntityID(ctx context.Context, db Querier, entityID str
 	)
 	err := db.QueryRowContext(ctx, `
 		SELECT sp_id, org_id, application_id, entity_id, acs_url,
-		       attribute_release, want_signed_requests, certificate
+		       attribute_release, want_signed_requests, certificate, allow_idp_initiated
 		  FROM service_provider_by_entity_id($1)`, entityID,
 	).Scan(&reg.ID, &reg.OrgID, &reg.ApplicationID, &reg.EntityID, &reg.ACSURL,
-		pq.Array(&reg.Release), &reg.WantSignedRequests, &cert)
+		pq.Array(&reg.Release), &reg.WantSignedRequests, &cert, &reg.AllowIdPInitiated)
 
 	if errors.Is(err, sql.ErrNoRows) {
 		return Registration{}, ErrNoSuchProvider
@@ -105,10 +111,10 @@ func (s *ProviderStore) ByID(ctx context.Context, db Querier, id string) (Regist
 	)
 	err := db.QueryRowContext(ctx, `
 		SELECT sp_id, org_id, application_id, entity_id, acs_url,
-		       attribute_release, want_signed_requests, certificate
+		       attribute_release, want_signed_requests, certificate, allow_idp_initiated
 		  FROM service_provider_by_id($1::uuid)`, id,
 	).Scan(&reg.ID, &reg.OrgID, &reg.ApplicationID, &reg.EntityID, &reg.ACSURL,
-		pq.Array(&reg.Release), &reg.WantSignedRequests, &cert)
+		pq.Array(&reg.Release), &reg.WantSignedRequests, &cert, &reg.AllowIdPInitiated)
 
 	if errors.Is(err, sql.ErrNoRows) {
 		return Registration{}, ErrNoSuchProvider

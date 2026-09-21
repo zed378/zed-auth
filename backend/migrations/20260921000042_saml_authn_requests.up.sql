@@ -48,6 +48,17 @@ CREATE TABLE saml_authn_requests (
     -- "never ignored" half of the threat review's C-6.
     requested_authn_context text,
 
+    -- Whether this row remembers an IdP-INITIATED sign-on rather than a real
+    -- AuthnRequest (P4-08 F-6).
+    --
+    -- An IdP-initiated sign-on has no request, and its id is this service's
+    -- own bookkeeping: something to put in the login URL so the browser can be
+    -- resumed afterwards. The flag is what stops that id being echoed back as
+    -- `InResponseTo`, which would tell the service provider the assertion
+    -- answers a request it never made — inventing exactly the correlation this
+    -- flow does not have.
+    idp_initiated boolean NOT NULL DEFAULT false,
+
     -- Written by the application from one clock, like every other expiring row
     -- here (scripts/check.sh enforces it).
     created_at  timestamptz NOT NULL,

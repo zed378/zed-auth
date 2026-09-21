@@ -48,6 +48,19 @@ CREATE TABLE saml_service_providers (
     -- The service provider's certificate, for verifying those requests. PEM.
     certificate    text,
 
+    -- Whether this service provider accepts an IdP-initiated login (P4-08).
+    --
+    -- Off by default, and that default is the point. An IdP-initiated
+    -- assertion answers no request, so there is nothing for the service
+    -- provider to correlate it against — which is the same shape as a CSRF:
+    -- an attacker who can make a browser visit this service's initiation URL
+    -- can have an assertion delivered to a service provider that never asked
+    -- for one. Some service providers handle that; many log the user in.
+    --
+    -- So it is a decision somebody makes per integration, in the open, rather
+    -- than a capability every registration quietly has.
+    allow_idp_initiated boolean NOT NULL DEFAULT false,
+
     created_at     timestamptz NOT NULL DEFAULT now(),
     revoked_at     timestamptz,
 
