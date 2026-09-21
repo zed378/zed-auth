@@ -95,6 +95,17 @@ An `http` ACS URL and a signed-without-certificate registration are refused twic
 application check, which names the field, and by migration 040's CHECK. A mutation removing
 one layer survives by design; removing both is caught.
 
+## Staging (2026-09-21)
+
+`zed-auth:p4-09` rolled out with no migration — the schema was already at 045. The console
+was rebuilt with the build-time values read back out of the bundle it replaced, and
+extracted **in place** over the bind mount, inode 524626 before and after.
+
+`scripts/acceptance-saml.sh` reports **39 passed, 0 failed** against the new build.
+`/saml/metadata` publishes one `KeyDescriptor`, which is correct today: staging has a
+`current` SAML key and no `next`. The second descriptor appears the moment
+`keyctl -purpose saml generate` runs, before anything signs with it — which is the point.
+
 ## Still owed
 
 - **BL-08** and **BL-10**, carried from `P4-08`: the sweepers nothing calls, and the guard
