@@ -254,7 +254,7 @@ side's rows and this tenant's RLS hides them.
 
 | | |
 |---|---|
-| **Status** | WIP — 2026-09-21, [spec](../MEMORY/specs/P4-07-saml-idp-core.md), [record, part 1](../MEMORY/records/2026-09-21-P4-07-saml-assertion-machinery.md). The security layer and issuance are built and mutation-verified (XML hardening, signature wrapping, audience and window, replay, key separation with a certificate, attribute release, migrations 040 and 041, two fuzz targets — 19 mutations). `/saml/metadata` moved to `P4-08`, which also carries the OIDC-session bridge — both shipped there |
+| **Status** | DONE — 2026-09-21, [spec](../MEMORY/specs/P4-07-saml-idp-core.md), [record, part 1](../MEMORY/records/2026-09-21-P4-07-saml-assertion-machinery.md). The security layer and issuance are built and mutation-verified (XML hardening, signature wrapping, audience and window, replay, key separation with a certificate, attribute release, migrations 040 and 041, two fuzz targets — 19 mutations). `/saml/metadata` moved to `P4-08`, which also carries the OIDC-session bridge — both shipped there |
 | **Depends on** | P1-11 |
 | **Plan refs** | `docs/PLAN/03-ARCHITECTURE.md` § SAML Identity Provider, `docs/PLAN/05-API-CONTRACT.md` § Standards Used, `docs/PLAN/11-TESTING.md` § Security Testing (fuzzing SAML assertions) |
 | **Spec required** | Yes — new protocol surface |
@@ -293,7 +293,7 @@ side's rows and this tenant's RLS hides them.
 
 | | |
 |---|---|
-| **Status** | WIP — 2026-09-21, [spec](../MEMORY/specs/P4-08-saml-flows.md), [record](../MEMORY/records/2026-09-21-P4-08-saml-flows.md). Both flows ship. SP-initiated completes end to end on both bindings — `docs/PLAN/17`'s Phase 4 criterion — and IdP-initiated is opt-in per registration. Migrations 042–044, 31 mutations. Two gaps found while writing the record and closed: signed `AuthnRequest`s were stored and unenforced, and IdP-initiated had no opt-in |
+| **Status** | DONE — 2026-09-21, [spec](../MEMORY/specs/P4-08-saml-flows.md), [record](../MEMORY/records/2026-09-21-P4-08-saml-flows.md). Both flows ship. SP-initiated completes end to end on both bindings — `docs/PLAN/17`'s Phase 4 criterion — and IdP-initiated is opt-in per registration, off by default. Migrations 042–044, 38 mutations. **Three switches were stored and enforced by nothing**, which is worse than not offering them: signed `AuthnRequest`s, the IdP-initiated opt-in, and Single Logout's refusal, which was routed on one of its two bindings so the other met a 405 — the same dead end as the 404 it was written to avoid. `keyctl` gained the `-purpose saml` key set it had no way to create, and the rotation runbook gained the SAML procedure, which inverts the OIDC one |
 | **Depends on** | P4-07 |
 | **Plan refs** | `docs/PLAN/03-ARCHITECTURE.md` § SAML Identity Provider, `docs/PLAN/17-ACCEPTANCE-CRITERIA.md` § Phase 4 |
 | **Spec required** | Yes |
