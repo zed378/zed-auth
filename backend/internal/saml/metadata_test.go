@@ -19,7 +19,7 @@ func testEndpoints() Endpoints {
 func TestMetadataAdvertisesTheCertificateAssertionsAreSignedWith(t *testing.T) {
 	key := samlKey(t)
 
-	entity, err := Metadata(testIssuer, key, testEndpoints())
+	entity, err := Metadata(testIssuer, certificatesOf(t, key), testEndpoints())
 	if err != nil {
 		t.Fatalf("building metadata: %v", err)
 	}
@@ -56,7 +56,7 @@ func TestMetadataAdvertisesTheCertificateAssertionsAreSignedWith(t *testing.T) {
 // C-5: never email.
 func TestMetadataAdvertisesAPersistentNameIDAndNeverEmail(t *testing.T) {
 	key := samlKey(t)
-	entity, err := Metadata(testIssuer, key, testEndpoints())
+	entity, err := Metadata(testIssuer, certificatesOf(t, key), testEndpoints())
 	if err != nil {
 		t.Fatalf("building metadata: %v", err)
 	}
@@ -77,7 +77,7 @@ func TestMetadataAdvertisesAPersistentNameIDAndNeverEmail(t *testing.T) {
 
 func TestMetadataAdvertisesBothSSOBindings(t *testing.T) {
 	key := samlKey(t)
-	entity, err := Metadata(testIssuer, key, testEndpoints())
+	entity, err := Metadata(testIssuer, certificatesOf(t, key), testEndpoints())
 	if err != nil {
 		t.Fatalf("building metadata: %v", err)
 	}
@@ -104,7 +104,7 @@ func TestMetadataAdvertisesBothSSOBindings(t *testing.T) {
 // a service provider would build a logout button on it.
 func TestMetadataAdvertisesNoSingleLogoutService(t *testing.T) {
 	key := samlKey(t)
-	entity, err := Metadata(testIssuer, key, testEndpoints())
+	entity, err := Metadata(testIssuer, certificatesOf(t, key), testEndpoints())
 	if err != nil {
 		t.Fatalf("building metadata: %v", err)
 	}
@@ -118,13 +118,13 @@ func TestMetadataAdvertisesNoSingleLogoutService(t *testing.T) {
 func TestMetadataRefusesToDescribeEndpointsThatDoNotExist(t *testing.T) {
 	key := samlKey(t)
 
-	if _, err := Metadata("", key, testEndpoints()); err == nil {
+	if _, err := Metadata("", certificatesOf(t, key), testEndpoints()); err == nil {
 		t.Error("metadata was built with no entity id")
 	}
-	if _, err := Metadata(testIssuer, key, Endpoints{}); err == nil {
+	if _, err := Metadata(testIssuer, certificatesOf(t, key), Endpoints{}); err == nil {
 		t.Error("metadata was built with no SSO endpoints — it would advertise a 404")
 	}
-	if _, err := Metadata(testIssuer, key, Endpoints{SSORedirect: "https://x.test/sso"}); err == nil {
+	if _, err := Metadata(testIssuer, certificatesOf(t, key), Endpoints{SSORedirect: "https://x.test/sso"}); err == nil {
 		t.Error("metadata was built advertising only one binding of two")
 	}
 }
