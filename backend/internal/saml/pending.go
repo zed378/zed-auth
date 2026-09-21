@@ -46,8 +46,15 @@ type Pending struct {
 	ID         string
 	SPID       string
 	RelayState string
-	CreatedAt  time.Time
-	ExpiresAt  time.Time
+
+	// RequestedAuthnContext is what the service provider asked for, if it
+	// asked. Carried across the login page so the check that runs for a live
+	// session also runs for a user who had to authenticate — the path an
+	// attacker with no session takes.
+	RequestedAuthnContext string
+
+	CreatedAt time.Time
+	ExpiresAt time.Time
 }
 
 // Requests records and consumes AuthnRequests.
@@ -71,16 +78,20 @@ func (r *Requests) Record(
 		return fmt.Errorf("saml: the AuthnRequest expires before it was made")
 	}
 
-	var relay any
+	var relay, context any
 	if p.RelayState != "" {
 		relay = p.RelayState
 	}
+	if p.RequestedAuthnContext != "" {
+		context = p.RequestedAuthnContext
+	}
 
 	result, err := tx.Exec(ctx, `
-		INSERT INTO saml_authn_requests (id, org_id, sp_id, relay_state, created_at, expires_at)
-		VALUES ($1, $2, $3, $4, $5, $6)
+		INSERT INTO saml_authn_requests
+		       (id, org_id, sp_id, relay_state, requested_authn_context, created_at, expires_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		ON CONFLICT (id) DO NOTHING`,
-		p.ID, orgID, p.SPID, relay, p.CreatedAt, p.ExpiresAt)
+		p.ID, orgID, p.SPID, relay, context, p.CreatedAt, p.ExpiresAt)
 	if err != nil {
 		return fmt.Errorf("saml: recording the AuthnRequest: %w", err)
 	}
@@ -114,8 +125,9 @@ func (r *Requests) Consume(
 	}
 
 	var (
-		p     Pending
-		relay sql.NullString
+		p       Pending
+		relay   sql.NullString
+		context sql.NullString
 	)
 	err := tx.QueryRow(ctx, `
 		UPDATE saml_authn_requests
@@ -123,8 +135,8 @@ func (r *Requests) Consume(
 		 WHERE id = $1
 		   AND consumed_at IS NULL
 		   AND expires_at > $2
-		RETURNING id, sp_id::text, relay_state, created_at, expires_at`,
-		requestID, now).Scan(&p.ID, &p.SPID, &relay, &p.CreatedAt, &p.ExpiresAt)
+		RETURNING id, sp_id::text, relay_state, requested_authn_context, created_at, expires_at`,
+		requestID, now).Scan(&p.ID, &p.SPID, &relay, &context, &p.CreatedAt, &p.ExpiresAt)
 
 	if errors.Is(err, sql.ErrNoRows) {
 		// Nothing matched. Which of the three reasons is worth telling apart,
@@ -136,6 +148,43 @@ func (r *Requests) Consume(
 		return Pending{}, fmt.Errorf("saml: consuming the AuthnRequest: %w", err)
 	}
 	p.RelayState = relay.String
+	p.RequestedAuthnContext = context.String
+	return p, nil
+}
+
+// Peek reads a pending request WITHOUT consuming it.
+//
+// For rendering. The login page must be able to draw itself more than once — a
+// refresh, a back button, a mistyped password — and consuming the request to
+// show a page would burn it on an attempt that has not finished.
+//
+// It deliberately returns nothing a page should not show: the id, the service
+// provider, and the window. The RelayState is the service provider's own
+// opaque state and has no business in a rendered page.
+func (r *Requests) Peek(ctx context.Context, tx *postgres.Tx, requestID string) (Pending, error) {
+	if strings.TrimSpace(requestID) == "" {
+		return Pending{}, ErrNoSuchRequest
+	}
+
+	var (
+		p        Pending
+		consumed sql.NullTime
+	)
+	err := tx.QueryRow(ctx, `
+		SELECT id, sp_id::text, requested_authn_context, created_at, expires_at, consumed_at
+		  FROM saml_authn_requests
+		 WHERE id = $1`, requestID).
+		Scan(&p.ID, &p.SPID, &p.RequestedAuthnContext, &p.CreatedAt, &p.ExpiresAt, &consumed)
+
+	if errors.Is(err, sql.ErrNoRows) {
+		return Pending{}, ErrNoSuchRequest
+	}
+	if err != nil {
+		return Pending{}, fmt.Errorf("saml: reading the AuthnRequest: %w", err)
+	}
+	if consumed.Valid {
+		return Pending{}, ErrAlreadyAnswered
+	}
 	return p, nil
 }
 

@@ -38,6 +38,16 @@ CREATE TABLE saml_authn_requests (
     -- it would be parsing something an attacker chose.
     relay_state text,
 
+    -- What the service provider asked for, if it asked.
+    --
+    -- Stored because it has to SURVIVE the login page. The context check runs
+    -- on the way in for a live session, and again on the way back for a user
+    -- who had to authenticate — and the second is the one that matters, since
+    -- an attacker with no session takes exactly that path. A requirement held
+    -- only in memory between the two would be silently dropped, which is the
+    -- "never ignored" half of the threat review's C-6.
+    requested_authn_context text,
+
     -- Written by the application from one clock, like every other expiring row
     -- here (scripts/check.sh enforces it).
     created_at  timestamptz NOT NULL,
@@ -56,7 +66,12 @@ CREATE TABLE saml_authn_requests (
     -- because refusing a legitimate login over a specification nobody follows
     -- is a worse failure than storing a few kilobytes. It is still a bound.
     CONSTRAINT saml_authn_requests_relay_state_bounded
-        CHECK (relay_state IS NULL OR length(relay_state) <= 8192)
+        CHECK (relay_state IS NULL OR length(relay_state) <= 8192),
+
+    -- A class reference is a URI. Bounded for the same reason everything else
+    -- arriving from a service provider is.
+    CONSTRAINT saml_authn_requests_context_bounded
+        CHECK (requested_authn_context IS NULL OR length(requested_authn_context) <= 1024)
 );
 
 -- Pruning reads this.
