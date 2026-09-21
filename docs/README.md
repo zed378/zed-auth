@@ -35,6 +35,7 @@ Where the implementation deliberately differs from the plan, the difference is r
 | [`UI-UX/`](./UI-UX/) | Design direction and system, page and component specifications, accessibility, the public site |
 | [`SECURITY/`](./SECURITY/) | Assets and trust boundaries, threat actors, attack scenarios, detection, incident response, red-team verification |
 | [`ARCHITECTURE/`](./ARCHITECTURE/) | The deployable units, their boundaries, and the backend's internal structure |
+| [`ENGINEERING/`](./ENGINEERING/) | How code is written, reviewed and landed: coding standards, layer templates, error and logging conventions, the gate, the review checklist |
 | [`API/`](./API/) | The `/v1` REST contract: conventions, errors, pagination, idempotency, and every resource family |
 | [`IDENTITY-PROTOCOL/`](./IDENTITY-PROTOCOL/) | OIDC discovery, the OAuth 2.1 authorization server, MFA, passkeys, and (unbuilt) SAML |
 | [`SESSION-MANAGEMENT/`](./SESSION-MANAGEMENT/) | Sessions, token issuance and structure, refresh rotation, key rotation, revocation |
@@ -46,6 +47,8 @@ Where the implementation deliberately differs from the plan, the difference is r
 | [`TESTING/`](./TESTING/) | The test layers, abuse-case testing, and the CI gates |
 | [`DEVOPS/`](./DEVOPS/) | Environments, containers, CI/CD, secrets, backup and recovery |
 | [`DEVELOPER/`](./DEVELOPER/) | Getting started, local development, integrating an application |
+| [`FRONTEND/`](./FRONTEND/) | The management console as engineering: structure, tokens, components, data layer, routing, forms, testing, build |
+| [`WEBSITE/`](./WEBSITE/) | The public site: purpose, information architecture, content governance, the generated API reference, launch |
 | [`SDK/`](./SDK/) | Client libraries — what exists today and what is only specified |
 | [`WEBHOOK/`](./WEBHOOK/) | Outbound event delivery (not built; specified for `P4-12`) |
 
@@ -62,7 +65,9 @@ Each folder has a `README.md` listing its documents with their status.
 6.  API/00-API-OVERVIEW.md
 7.  SECURITY/02-ATTACK-SURFACE-AND-SCENARIOS.md      → mandatory before touching auth
 8.  UI-UX/00-DESIGN-DIRECTION.md                     → before any console work
-9.  TASKS/PROGRESS.md                                → what is in scope right now
+9.  FRONTEND/00-FRONTEND-CONTEXT.md                  → and before writing any of it
+10. ENGINEERING/00-ENGINEERING-CONTEXT.md            → before writing any code at all
+11. TASKS/PROGRESS.md                                → what is in scope right now
 ```
 
 ## Principles that bind every document
