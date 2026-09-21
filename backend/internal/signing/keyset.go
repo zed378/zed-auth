@@ -85,6 +85,27 @@ type Key struct {
 // CanSign reports whether this key is the one tokens are signed with.
 func (k *Key) CanSign() bool { return k.Status == StatusCurrent && k.private != nil }
 
+// Signer returns the private half, for a caller that signs something other
+// than a JWS.
+//
+// Exported narrowly and reluctantly. This package signs JWTs itself, so the
+// private half never needed to leave it — until SAML (P4-07), which signs XML
+// through goxmldsig and must be handed the key.
+//
+// Only a key that CanSign returns one. A `next` key exists so consumers can
+// fetch it before it is used and a `previous` key exists so old signatures
+// still verify; neither may produce a new one, and handing either out here
+// would be the one place that rule is not enforced.
+func (k *Key) Signer() (crypto.Signer, error) {
+	if k == nil || !k.CanSign() {
+		return nil, fmt.Errorf("%w: key %q is %s", ErrNotSigning, k.KID, k.Status)
+	}
+	return k.private, nil
+}
+
+// ErrNotSigning is a request for the private half of a key that may not sign.
+var ErrNotSigning = errors.New("signing: this key does not sign")
+
 // KeySet is an immutable snapshot of every key the service knows about.
 //
 // Immutable on purpose: a set that could be mutated in place would need a lock

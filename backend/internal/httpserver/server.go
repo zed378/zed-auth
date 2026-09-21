@@ -47,6 +47,17 @@ type Deps struct {
 	// deployment that does not serve them.
 	Discovery *oidc.Handler
 
+	// SAMLMetadata serves GET /saml/metadata, SAMLSSO serves GET and POST
+	// /saml/sso, and SAMLSLO serves GET and POST /saml/slo (P4-08).
+	//
+	// Hand-registered rather than generated, for the reason the OAuth
+	// endpoints are. All three are nil unless a SAML signing key is
+	// configured.
+	SAMLMetadata http.Handler
+	SAMLSSO      http.Handler
+	SAMLInitiate http.Handler
+	SAMLSLO      http.Handler
+
 	// Authorize serves GET /oauth/authorize.
 	//
 	// Registered by hand rather than through the generated router, and that is
@@ -365,6 +376,40 @@ func New(cfg config.HTTPConfig, deps Deps) *Server {
 	if deps.Logout != nil {
 		mux.Method(http.MethodGet, "/oidc/logout", deps.Logout)
 		mux.Method(http.MethodPost, "/oidc/logout", deps.Logout)
+	}
+
+	// The SAML identity provider (P4-08), hand-registered for the same reason
+	// the OAuth endpoints are: a SAML failure is a Response carrying a
+	// StatusCode delivered through the browser, not this service's JSON error
+	// envelope, and the generated strict wrapper has no way to express that.
+	//
+	// Every one of these is nil on an instance with no SAML signing key, so a
+	// deployment that does not use SAML serves no SAML surface at all rather
+	// than serving endpoints that answer 503.
+	if deps.SAMLMetadata != nil {
+		mux.Method(http.MethodGet, "/saml/metadata", deps.SAMLMetadata)
+	}
+	if deps.SAMLSSO != nil {
+		// Both bindings on one path, which is what the metadata advertises:
+		// HTTP-Redirect carries the request in the query, HTTP-POST in a form.
+		mux.Method(http.MethodGet, "/saml/sso", deps.SAMLSSO)
+		mux.Method(http.MethodPost, "/saml/sso", deps.SAMLSSO)
+	}
+	if deps.SAMLInitiate != nil {
+		mux.Method(http.MethodGet, "/saml/init", deps.SAMLInitiate)
+	}
+	if deps.SAMLSLO != nil {
+		// Single Logout exists to refuse in the protocol's own vocabulary. The
+		// metadata advertises no SLO endpoint, so a well-behaved service
+		// provider never arrives here — this is for the ones that try anyway,
+		// and a 404 would read as a misconfiguration to retry rather than a
+		// decision to respect.
+		// Both bindings. The refusal is only useful if it reaches the
+		// integrator, and a LogoutRequest arriving on HTTP-Redirect would
+		// otherwise get a 405 — which reads as "wrong method, try again",
+		// the same dead end as the 404 this endpoint exists to avoid.
+		mux.Method(http.MethodGet, "/saml/slo", deps.SAMLSLO)
+		mux.Method(http.MethodPost, "/saml/slo", deps.SAMLSLO)
 	}
 	if deps.Login != nil {
 		// One handler for both methods: the page and its submission share the

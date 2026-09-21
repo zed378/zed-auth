@@ -39,9 +39,32 @@ func TestOnlyNamedPlacesBypassTheTenantScope(t *testing.T) {
 		// tenant and nothing else: no user, no client, no scope, because a
 		// caller asking this question may be holding a stolen token.
 		"internal/oauth/token/rotation.go": "reading a refresh token's lineage for reuse detection, before a tenant is known",
-		"internal/session/manager.go":     "resolving a session cookie, likewise",
-		"internal/session/store.go":       "resolving a session cookie, likewise",
-		"cmd/authservice/main.go":         "infrastructure: connection-pool metrics and the signing key store, neither of which is tenant data",
+		"internal/session/manager.go":      "resolving a session cookie, likewise",
+		"internal/session/store.go":        "resolving a session cookie, likewise",
+
+		// P4-08. A SAML AuthnRequest names its service provider by entity ID
+		// and nothing else — no client id, no organization, no session. The
+		// entity ID is therefore what DECIDES the tenant, exactly as a client
+		// id does for OIDC, so requiring a tenant before the lookup is the
+		// circularity this list exists for.
+		//
+		// Both go through `service_provider_by_entity_id`, a SECURITY DEFINER
+		// function bounded to one exact entity ID and to live registrations —
+		// ADR-023's shape, reused rather than reinvented.
+		"internal/samlapi/sso.go":      "resolving a service provider by entity ID, which is what tells us the organization",
+		"internal/samlapi/initiate.go": "resolving a service provider by entity ID for an IdP-initiated sign-on, likewise",
+
+		// Coming back from the login page. The registration is read by its own
+		// id through `service_provider_by_id`, and the organization it returns
+		// is then compared against the session's — which is the check that
+		// refuses a cross-organization assertion.
+		//
+		// Reading it under the session's tenant instead would make that check
+		// unreachable: RLS would hide the row, and a deliberate cross-tenant
+		// refusal would arrive as "no longer registered" with nothing in the
+		// logs to say what really happened.
+		"internal/samlapi/resume.go": "reading a pending request's service provider before its organization is confirmed",
+		"cmd/authservice/main.go":    "infrastructure: connection-pool metrics and the signing key store, neither of which is tenant data",
 	}
 
 	root, err := filepath.Abs("../..")

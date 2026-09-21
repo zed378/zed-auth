@@ -1,0 +1,1 @@
+{"parameters":[{"name":"entity_id","in":"query","required":true,"schema":{"type":"string"},"description":"The registered service provider to sign in to."},{"name":"RelayState","in":"query","required":false,"schema":{"type":"string","maxLength":8192},"description":"Echoed back unchanged and never interpreted."}]}

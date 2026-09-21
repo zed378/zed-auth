@@ -905,6 +905,51 @@ Read literally the sentence defers the endpoint **the same document lists in its
 
 Found by running the system rather than by reading the plan.
 
+### BL-09 — The shipped-endpoint guard checks paths, not methods, and `POST /oauth/userinfo` slipped through it
+
+**Found**: 2026-09-21, adding `GET /saml/slo`. **Affects**: `openapi/openapi.yaml`, `scripts/openapi-shipped-paths.py`.
+
+`openapi-shipped-paths.py` compares documented **paths** against a shipped list, which is the right granularity for every generated endpoint: ADR-013 makes the generated router the documented surface, so adding an operation to the spec produces an interface method and the build fails until something implements it. The compiler is the check there, and it cannot be fooled.
+
+The exceptions are the eighteen hand-registered paths — excluded from generation in `oapi-codegen.yaml`, wired by hand in `server.go`. For those, **nothing connects the spec to the router**, in either direction. `/saml/slo` is what exposed it: POST was documented and served, GET was neither, and adding GET to the contract published a claim that nothing but a reviewer's attention verified.
+
+A method-level check over just those eighteen, reading the routes out of `server.go` rather than keeping a second hand-maintained list, immediately found a second instance:
+
+**`POST /oauth/userinfo` is served and undocumented.** `server.go:374` registers it; the contract describes only GET, so a consumer reading the public reference builds a GET-only client and never learns the other half exists.
+
+Note which direction this one runs. The governance rule everything else here guards — never document a capability that has not shipped — has a quieter twin: a shipped capability nobody documented is one nobody can use, and no existing check looks for it.
+
+**And looking at it raised a second question worth answering deliberately.** POST accepts the credential in the `Authorization` header and nowhere else, so today it offers nothing GET does not — which makes "POST is supported" a thinner claim than it reads as. RFC 6750 defines three ways to present a bearer token, and `userinfo/token.go` refuses two of them with one reason:
+
+- **§ 2.3, the URI query parameter.** Refused, correctly, and the comment says why: a query parameter reaches the access log of every proxy in the path, the browser history, and the `Referer` of whatever loads next. The specification itself calls it NOT RECOMMENDED.
+- **§ 2.2, the form-encoded body.** Refused by the same code, and none of that reasoning applies to it — a request body is not logged by proxies, not in history, and not in a `Referer`. It is the standard method, and sending the token in the body is the entire reason OIDC Core § 5.3.1 offers POST at all.
+
+So the header-only rule was written against § 2.3 and silently caught § 2.2 as well. That is a decision to make rather than a bug to patch: either accept the form body on POST — same Content-Type discipline, same refusal of a token presented twice — or keep header-only and say so in the contract, so a client using the standard method learns it from the documentation rather than from a 401 that reads as a bad token.
+
+**Fix**: document `POST /oauth/userinfo` (excluding its operation id from generation, like its sibling), settle the § 2.2 question and write the answer into the description, and extend the guard to compare methods for hand-registered paths only, with a floor on the parsed route count so a pattern that stops matching fails loudly instead of passing by reading nothing.
+
+---
+
+### BL-08 — Three tables have a sweeper that nothing calls, and calling it naively would delete nothing
+
+**Found**: 2026-09-21, wiring `P4-08`. **Affects**: `idempotency_records`, `saml_authn_requests`, `saml_assertion_ids`.
+
+Each of the three has a written, tested, documented cleanup function. None of them is reachable from `cmd/authservice`. `saml.Replay.Prune`'s own comment states the property it does not deliver — *"the table would otherwise grow without bound … an unbounded table on the login path is a slow outage scheduled for whenever it stops fitting in memory."*
+
+`saml_authn_requests` takes a row per SAML login and `Consume` only sets `consumed_at`, so nothing is ever removed. `sessions` is the one table of this shape with a real sweeper (`runSessionSweep`), which is why the pattern to copy already exists.
+
+**The part that makes this more than wiring.** All three tables are under row-level security. A sweeper runs outside any tenant — it has no organization to be — and under instance scope `current_org_id()` is NULL, so every policy evaluates false and a plain `DELETE` **succeeds having removed nothing**. `management.IdempotencyStore.Sweep` already solved this with a `SECURITY DEFINER` function and says so; the two `saml` Prunes are plain `DELETE`s and would silently no-op. A test asserting "no error" would pass.
+
+So the fix is three parts, and skipping the third re-creates the bug:
+
+1. A migration giving each SAML table a bounded `SECURITY DEFINER` sweep function, as `sweep_idempotency_records` already is — expired rows only, a row limit, returning a count.
+2. One janitor goroutine beside `runSessionSweep` running all three on a ticker.
+3. Tests that assert the **count** and that prove the function is necessary: the direct `DELETE` under instance scope must be shown to remove nothing. Asserting the absence of an error is exactly the vacuous check that hid this.
+
+Per `BL-01`'s lesson, the janitor should log a success with its counts rather than only log failures — absence of success is the signal, and a sweeper that stops running produces no errors at all.
+
+---
+
 ### BL-06 — The OAuth endpoints are not behind the per-client rate limiter
 
 **Affects**: `/oauth/token`, `/oauth/introspect`, `/oauth/revoke`.
