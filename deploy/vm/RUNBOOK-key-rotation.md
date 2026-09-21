@@ -207,11 +207,90 @@ docker logs zedauth-authservice-1 2>&1 | tail -20
 
 ---
 
+## The SAML key set rotates differently — read this before you rotate one
+
+`keyctl -purpose saml` acts on a second key set (`P4-08`). The commands are the
+same four. The safety property that makes the OIDC procedure above safe **is
+not present**, and the difference is not cosmetic.
+
+**There is no JWKS, so publishing first removes no race.** An OIDC consumer
+fetches keys by `kid` from a published set, which is why a `next` key is
+already downloadable before it signs anything. A SAML service provider does no
+such lookup: it pins the certificate it was given out of band, and
+`/saml/metadata` advertises the **current** key's certificate and only that
+one. The moment `keyctl -purpose saml rotate` runs, every service provider
+still pinning the old certificate rejects every assertion — immediately, and
+for every user of that integration.
+
+**`previous` buys nothing here.** This service is the issuer, not the consumer.
+A demoted SAML key still verifies assertions nobody is asking it to verify. The
+overlap that protects an OIDC rotation has no counterpart.
+
+So the sequence is inverted: the wait happens **before** the rotation, not
+after it, and it is a wait on other people rather than on a cache.
+
+```
+generate ──▶ next ──▶ send the new certificate to every service provider
+                      │
+                      ├─ each one installs it alongside the old one
+                      │  (most SAML products accept two signing certificates)
+                      │
+                      └─ only when all of them confirm ──▶ rotate
+```
+
+**The wrapper needs one more variable.** `kc` as defined above does not pass
+`AUTH_ISSUER`, and a SAML `generate` refuses without it rather than guessing —
+the CommonName in the certificate is the entity ID every service provider will
+pin, and a wrong one produces a certificate nobody can match. Use this variant
+for the SAML key set:
+
+```bash
+kcsaml() {
+  docker run --rm --network zedauth_default     -v /home/infra/auth-state/bin:/bin/kc     -v /home/infra/auth-state/secrets:/etc/zed-auth/secrets     -e AUTH_MIGRATE_DSN="postgres://auth_owner:${AUTH_POSTGRES_OWNER_PASSWORD}@postgres:5432/auth?sslmode=disable"     -e AUTH_SECRETS_DIR=/etc/zed-auth/secrets     -e AUTH_ISSUER="${AUTH_ISSUER}"     debian:12-slim /bin/kc/keyctl -purpose saml "$@"
+}
+```
+
+1. `kcsaml generate`. It writes `saml-signing-<kid>.pem` — the prefix differs
+   from the OIDC `jwt-signing-` one so a listing of the secrets directory says
+   which key signs what without opening anything.
+2. `sudo deploy/vm/secrets.sh fix` — same as for an OIDC key, and for the same
+   reason: the file must be owned by the service uid before the service can
+   read it.
+3. Extract the new certificate and send it to each service provider's
+   administrator. `kcsaml list` shows the key; the certificate is the
+   `certificate` column of its `signing_keys` row, and after step 5 it is also
+   what `/saml/metadata` publishes.
+4. **Wait for confirmation from every one of them.** Not a duration — an
+   acknowledgement. There is no cache expiry to wait out.
+5. `kcsaml rotate`.
+6. Verify `/saml/metadata` now advertises the new certificate, then confirm a
+   real login against at least one service provider before you walk away.
+   `scripts/acceptance-saml.sh` does the second part against a throwaway
+   registration of its own.
+
+`kcsaml jwks` refuses, and that is the correct answer rather than a missing
+feature: SAML has no JWKS, which is precisely why a SAML key carries a
+certificate and an OIDC key does not.
+
+**If a service provider cannot hold two certificates at once**, the rotation is
+a coordinated outage for that integration and must be scheduled as one. Say so
+out loud beforehand; discovering it during the rotation is how a 10-minute job
+becomes an incident.
+
+**Known gap.** SAML metadata can advertise more than one signing
+`KeyDescriptor`, which is how the overlap above is supposed to be automatic
+rather than a set of emails. This service publishes one. `P4-09` owns closing
+that; until it does, the coordination is manual and this runbook is the
+procedure.
+
+---
+
 ## What must never happen
 
 - **The private key must never leave the VM.** `docs/PLAN/02` § Constraints is absolute. Do not copy it to a laptop to "look at it"; a key that has been on a laptop has been on a laptop.
 - **Never store key material in `signing_keys.private_key_ref`.** The column holds a reference. A `CHECK` constraint refuses PEM headers, which is the one thing stopping this "simplification".
 - **Never rotate and retire in the same maintenance window.** The gap between them is the feature.
+- **Never rotate a SAML key on the OIDC schedule.** The 90-day cadence assumes consumers that refresh themselves. Service providers do not.
 
 ---
 

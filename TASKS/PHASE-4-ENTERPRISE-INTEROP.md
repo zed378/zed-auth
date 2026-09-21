@@ -254,7 +254,7 @@ side's rows and this tenant's RLS hides them.
 
 | | |
 |---|---|
-| **Status** | WIP — 2026-09-21, [spec](../MEMORY/specs/P4-07-saml-idp-core.md), [record, part 1](../MEMORY/records/2026-09-21-P4-07-saml-assertion-machinery.md). The security layer and issuance are built and mutation-verified (XML hardening, signature wrapping, audience and window, replay, key separation with a certificate, attribute release, migrations 040 and 041, two fuzz targets — 19 mutations). `/saml/metadata` and the OIDC-session bridge are not built |
+| **Status** | DONE — 2026-09-21, [spec](../MEMORY/specs/P4-07-saml-idp-core.md), [record, part 1](../MEMORY/records/2026-09-21-P4-07-saml-assertion-machinery.md). The security layer and issuance are built and mutation-verified (XML hardening, signature wrapping, audience and window, replay, key separation with a certificate, attribute release, migrations 040 and 041, two fuzz targets — 19 mutations). `/saml/metadata` moved to `P4-08`, which also carries the OIDC-session bridge — both shipped there |
 | **Depends on** | P1-11 |
 | **Plan refs** | `docs/PLAN/03-ARCHITECTURE.md` § SAML Identity Provider, `docs/PLAN/05-API-CONTRACT.md` § Standards Used, `docs/PLAN/11-TESTING.md` § Security Testing (fuzzing SAML assertions) |
 | **Spec required** | Yes — new protocol surface |
@@ -276,7 +276,7 @@ side's rows and this tenant's RLS hides them.
 - [x] XXE and DTD processing are disabled, verified by a test feeding a malicious document — and by a second test that isolates the DTD refusal, after a mutation showed the first one was passing for the wrong reason.
 - [x] Signature wrapping is defeated, verified by a test with a wrapped assertion **that carries a valid signature**. The defence is to validate the element about to be consumed rather than the document.
 - [x] SAML signing keys are distinct from OIDC keys, proven by an integration test in which neither key set can resolve the other's key. Migration 041 adds the certificate a SAML key needs and `signing.Store` now carries it — without that the first SAML key would have been refused by its own CHECK.
-- [ ] A session established via OIDC satisfies a SAML request without re-authentication — needs `P4-08`'s flow.
+- [x] A session established via OIDC satisfies a SAML request without re-authentication. `P4-08`'s SSO endpoint resolves the session through the same `Lookup` the authorization endpoint uses, with the same policy, so the two protocols share one notion of a live session rather than each having their own.
 - [x] Assertion replay is rejected, and the primary key that does the rejecting is tested directly.
 - [x] Fuzz tests run against the parser (`FuzzReadDocument`, `FuzzVerify`).
 
@@ -293,7 +293,7 @@ side's rows and this tenant's RLS hides them.
 
 | | |
 |---|---|
-| **Status** | TODO |
+| **Status** | DONE — 2026-09-21, [spec](../MEMORY/specs/P4-08-saml-flows.md), [record](../MEMORY/records/2026-09-21-P4-08-saml-flows.md). Both flows ship. SP-initiated completes end to end on both bindings — `docs/PLAN/17`'s Phase 4 criterion — and IdP-initiated is opt-in per registration, off by default. Migrations 042–044, 38 mutations. **Three switches were stored and enforced by nothing**, which is worse than not offering them: signed `AuthnRequest`s, the IdP-initiated opt-in, and Single Logout's refusal, which was routed on one of its two bindings so the other met a 405 — the same dead end as the 404 it was written to avoid. `keyctl` gained the `-purpose saml` key set it had no way to create, and the rotation runbook gained the SAML procedure, which inverts the OIDC one |
 | **Depends on** | P4-07 |
 | **Plan refs** | `docs/PLAN/03-ARCHITECTURE.md` § SAML Identity Provider, `docs/PLAN/17-ACCEPTANCE-CRITERIA.md` § Phase 4 |
 | **Spec required** | Yes |
@@ -311,12 +311,20 @@ side's rows and this tenant's RLS hides them.
 7. Audit SAML authentications alongside OIDC ones, in the same `events` taxonomy.
 
 **Definition of Done**
-- [ ] A SAML-only application completes a full SP-initiated login — `docs/PLAN/17` Phase 4 criterion.
-- [ ] IdP-initiated flow works with its risk documented and opt-in per application.
-- [ ] ACS URL matching is exact.
-- [ ] `RelayState` is validated and size-bounded.
-- [ ] Single Logout is implemented or its absence is documented.
-- [ ] SAML logins appear in the audit log identically to OIDC logins.
+- [x] A SAML-only application completes a full SP-initiated login on **both bindings**, verified by verifying the assertion against the certificate the metadata advertises (`internal/samlapi/sso_integration_test.go`).
+- [x] IdP-initiated flow works, opt-in per registration and off by default, with the risk documented on the endpoint itself rather than implied. A registration that has not opted in receives nothing at all — not even a SAML failure, which would still be delivering something it never asked for. The assertion carries no `InResponseTo`, because it answers no request.
+- [x] ACS URL matching is exact, and the destination comes from the registration rather than the request. Every test request in the suite names an attacker's ACS URL, and every test also asserts it was ignored.
+- [x] `RelayState` is bounded by a CHECK and by the renderer, echoed unchanged, never interpreted, and **refused rather than truncated** — a truncated value is one the service provider cannot match against anything it stored.
+- [x] Single Logout's absence is documented and *acted on*: no `SingleLogoutService` in the metadata, and `/saml/slo` answers `RequestDenied` with a reason rather than 404.
+- [x] SAML logins appear in the audit log identically to OIDC logins — as `token.issued` with `protocol: saml`, so a query that does not know SAML exists still finds them.
+
+**Beyond the card** — `want_signed_requests` was stored by `P4-07`'s migration and enforced
+by nothing, which is worse than not offering the option: an administrator who ticked the
+box would believe requests were verified. Signed `AuthnRequest`s are now verified on the
+HTTP-POST binding, and **refused** on HTTP-Redirect, whose detached query-string signature
+is a different construction this service does not implement. Refusing is a visible failure
+an administrator can act on; accepting unverified would be the flag silently verifying
+nothing.
 
 ---
 
@@ -337,12 +345,15 @@ side's rows and this tenant's RLS hides them.
 4. Publish the IdP metadata endpoint so service providers can configure themselves.
 5. Add the SAML application type to the console's Applications tab (`docs/UI-UX/08` § Phase 4 note), with SAML-specific fields replacing the OIDC ones.
 6. Handle certificate expiry: warn before an SP certificate expires rather than failing silently at authentication time.
+7. Expose the two switches `P4-08` shipped and left settable only by raw SQL: `want_signed_requests` and `allow_idp_initiated`. Both are enforced today and neither has an administrator in front of it, which is the same "stored and unreachable" shape as the gaps that task closed — one step further along.
 
 **Definition of Done**
 - [ ] SAML applications are creatable via both API and console (FR-14).
 - [ ] Uploaded metadata is parsed with the same hardened parser configuration as assertions.
 - [ ] IdP metadata is published and consumable by a standard SP.
 - [ ] Certificate expiry produces a warning before it produces an outage.
+- [ ] `/saml/metadata` advertises every signing key that is `next` or `current`, not only `current`. Today it publishes one, which means rotating a SAML key breaks every service provider still pinning the old certificate at the instant `keyctl rotate` runs — the overlap that makes an OIDC rotation safe has no counterpart, and `deploy/vm/RUNBOOK-key-rotation.md` currently substitutes a round of emails for it.
+- [ ] `want_signed_requests` and `allow_idp_initiated` are settable through the API and the console, and the console says what each one costs — signing is refused on the HTTP-Redirect binding, and IdP-initiated sign-on is uncorrelated by construction. A toggle whose consequence is invisible is a toggle an administrator flips for the wrong reason.
 
 ---
 

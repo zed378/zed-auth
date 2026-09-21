@@ -526,6 +526,39 @@ func TestHeadIsRoutedToGet(t *testing.T) {
 	}
 }
 
+// Single Logout refuses on both bindings, because a refusal nobody receives is
+// not a refusal.
+//
+// SLO is deliberately unsupported (P4-08), and the endpoint exists so an
+// integrator sees a decision instead of guessing at a missing route. Routing
+// only POST undoes that for the HTTP-Redirect binding — which is the one most
+// SAML products reach for first when an SLO URL is configured by hand: the
+// LogoutRequest meets a 405, which reads as "wrong method, try again", the
+// same dead end as the 404 this endpoint was written to avoid.
+func TestSingleLogoutRefusesOnBothBindings(t *testing.T) {
+	reached := map[string]bool{}
+	srv := New(testHTTPConfig("127.0.0.1:0"), Deps{
+		Logger: discardLogger(),
+		Health: &Health{},
+		SAMLSLO: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			reached[r.Method] = true
+			w.WriteHeader(http.StatusOK)
+		}),
+	})
+
+	for _, method := range []string{http.MethodGet, http.MethodPost} {
+		w := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(w, httptest.NewRequest(method, "/saml/slo", nil))
+
+		if w.Code == http.StatusMethodNotAllowed {
+			t.Errorf("%s /saml/slo = 405; the refusal never reaches the sender", method)
+		}
+		if !reached[method] {
+			t.Errorf("%s /saml/slo did not reach the handler (status %d)", method, w.Code)
+		}
+	}
+}
+
 // A method that genuinely has no handler still fails.
 //
 // Without this, HeadAsGet could have been implemented by answering every

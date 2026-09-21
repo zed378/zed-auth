@@ -1,0 +1,1 @@
+{"title":"Body","body":{"required":true,"content":{"application/x-www-form-urlencoded":{"schema":{"type":"object","required":["SAMLRequest"],"additionalProperties":false,"properties":{"SAMLRequest":{"type":"string","description":"The AuthnRequest, base64-encoded."},"RelayState":{"type":"string","maxLength":8192}}}}}}}

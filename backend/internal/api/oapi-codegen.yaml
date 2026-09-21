@@ -68,6 +68,20 @@ output-options:
     - logout
     - logoutConfirm
 
+    # The SAML endpoints (P4-08), excluded for the same reason as the OAuth
+    # ones: they do not use the standard error envelope. SAML has its own
+    # failure vocabulary — a `Response` carrying a `StatusCode`, delivered as a
+    # self-submitting form through the browser — and a service provider parses
+    # that, not a JSON `Error`. /saml/sso also answers on two bindings with the
+    # same operation, and reads a form body the strict wrapper would not hand
+    # over.
+    - samlInitiate
+    - samlMetadata
+    - samlSSORedirect
+    - samlSSOPost
+    - samlSingleLogout
+    - samlSingleLogoutRedirect
+
 generate:
   # Request and response types. The whole point: a field renamed in the spec
   # becomes a compile error at every use site.

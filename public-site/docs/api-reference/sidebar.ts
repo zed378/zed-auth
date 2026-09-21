@@ -100,6 +100,48 @@ const sidebar: SidebarsConfig = {
     },
     {
       type: "category",
+      label: "SAML",
+      items: [
+        {
+          type: "doc",
+          id: "api-reference/saml-initiate",
+          label: "Identity-provider-initiated sign-on",
+          className: "api-method get",
+        },
+        {
+          type: "doc",
+          id: "api-reference/saml-metadata",
+          label: "SAML 2.0 Identity Provider metadata",
+          className: "api-method get",
+        },
+        {
+          type: "doc",
+          id: "api-reference/saml-sso-redirect",
+          label: "SAML single sign-on (HTTP-Redirect binding)",
+          className: "api-method get",
+        },
+        {
+          type: "doc",
+          id: "api-reference/saml-sso-post",
+          label: "SAML single sign-on (HTTP-POST binding)",
+          className: "api-method post",
+        },
+        {
+          type: "doc",
+          id: "api-reference/saml-single-logout-redirect",
+          label: "SAML Single Logout on HTTP-Redirect — deliberately unsupported",
+          className: "api-method get",
+        },
+        {
+          type: "doc",
+          id: "api-reference/saml-single-logout",
+          label: "SAML Single Logout — deliberately unsupported",
+          className: "api-method post",
+        },
+      ],
+    },
+    {
+      type: "category",
       label: "Organizations",
       items: [
         {

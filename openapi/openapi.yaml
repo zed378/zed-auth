@@ -676,6 +676,262 @@ paths:
               schema:
                 $ref: "#/components/schemas/OAuthError"
 
+  /saml/init:
+    get:
+      tags: [SAML]
+      operationId: samlInitiate
+      summary: Identity-provider-initiated sign-on
+      description: |
+        Starts a sign-on from this side: the user arrives from a portal or a
+        bookmark and an assertion is delivered to the named service provider,
+        which never asked for one.
+
+        **This is opt-in per service provider and off by default**, and the
+        reason is worth reading before turning it on.
+
+        An SP-initiated login is *correlated*: the service provider generated an
+        `AuthnRequest`, remembers its id, and checks `InResponseTo` on the way
+        back. That is what tells it the assertion answers a login it started.
+        An identity-provider-initiated assertion answers nothing, so there is
+        nothing to correlate against — anyone who can cause a browser to visit
+        this URL can have an assertion delivered. That is the same shape as a
+        CSRF, and some service providers handle it while many simply log the
+        user in.
+
+        A registration that has not enabled it is refused here, and nothing is
+        delivered anywhere.
+
+        A live session is required. With none, the browser goes to the hosted
+        login and returns. This endpoint never drives an authentication of its
+        own for a service provider chosen by whoever sent the link.
+
+        The assertion carries no `InResponseTo`, because it answers no request.
+      parameters:
+        - name: entity_id
+          in: query
+          required: true
+          schema: { type: string }
+          description: The registered service provider to sign in to.
+        - name: RelayState
+          in: query
+          required: false
+          schema: { type: string, maxLength: 8192 }
+          description: Echoed back unchanged and never interpreted.
+      responses:
+        "200":
+          description: A self-submitting form delivering the assertion.
+          content:
+            text/html:
+              schema:
+                type: string
+        "303":
+          description: No usable session; the browser is sent to the hosted login.
+        "400":
+          description: |
+            The service provider is not registered, or does not accept
+            identity-provider-initiated sign-on.
+        "503":
+          description: SAML is not configured on this instance.
+        "429": { $ref: "#/components/responses/RateLimited" }
+
+  /saml/metadata:
+    get:
+      tags: [SAML]
+      operationId: samlMetadata
+      summary: SAML 2.0 Identity Provider metadata
+      description: |
+        The document a SAML service provider configures itself from: the entity
+        ID to expect as an assertion's `Issuer`, the URL to send an
+        `AuthnRequest` to, and the certificate to verify assertions against.
+
+        **The certificate is the one assertions are actually signed with**, read
+        from the SAML signing key rather than configured separately. A metadata
+        document advertising a certificate the service does not sign with is a
+        failure only the service provider can see.
+
+        **The `NameIDFormat` is `persistent`, never email.** A service provider
+        keyed on an email address hands a deactivated user's account to whoever
+        is issued that address next, and the same address across two service
+        providers lets them correlate a user who never agreed to be correlated.
+
+        **No `SingleLogoutService` is advertised, because there is none.** SAML
+        Single Logout is deliberately unsupported — see
+        `/saml/slo` — and advertising an endpoint that refuses would be worse
+        than advertising nothing, because a service provider would build a
+        logout button on it.
+
+        Answers `503` when no SAML signing key is configured: SAML is available
+        on an instance that has one, and saying so plainly beats serving
+        metadata nothing can verify.
+      responses:
+        "200":
+          description: The identity provider's metadata.
+          content:
+            application/samlmetadata+xml:
+              schema:
+                type: string
+        "503":
+          description: SAML is not configured on this instance.
+        "429": { $ref: "#/components/responses/RateLimited" }
+
+  /saml/sso:
+    get:
+      tags: [SAML]
+      operationId: samlSSORedirect
+      summary: SAML single sign-on (HTTP-Redirect binding)
+      description: |
+        Accepts an `AuthnRequest` DEFLATE-compressed and base64-encoded in the
+        `SAMLRequest` parameter, per the HTTP-Redirect binding.
+
+        **The inflated document is bounded, not just the query string.** DEFLATE
+        compresses a megabyte of repetition into a few kilobytes, so a request
+        small enough to accept can expand into one that is not — the
+        decompression-bomb shape this binding invites.
+
+        With a live session that satisfies any `RequestedAuthnContext`, the
+        assertion is issued immediately; otherwise the browser is sent to the
+        hosted login and returns here. The answer is delivered as a
+        self-submitting form POSTing to the service provider's **registered**
+        Assertion Consumer Service URL — never one the request named.
+      parameters:
+        - name: SAMLRequest
+          in: query
+          required: true
+          schema: { type: string }
+          description: The AuthnRequest, DEFLATE-compressed then base64-encoded.
+        - name: RelayState
+          in: query
+          required: false
+          schema: { type: string, maxLength: 8192 }
+          description: |
+            The service provider's own opaque state. Echoed back unchanged and
+            never interpreted. Bounded; an oversized value is refused rather
+            than truncated, because a truncated value is one the service
+            provider cannot match against anything it stored.
+      responses:
+        "200":
+          description: A self-submitting form delivering the response.
+          content:
+            text/html:
+              schema:
+                type: string
+        "303":
+          description: No usable session; the browser is sent to the hosted login.
+        "400":
+          description: The request is malformed, oversized, or names an unregistered service provider.
+        "503":
+          description: SAML is not configured on this instance.
+        "429": { $ref: "#/components/responses/RateLimited" }
+
+    post:
+      tags: [SAML]
+      operationId: samlSSOPost
+      summary: SAML single sign-on (HTTP-POST binding)
+      description: |
+        The same endpoint on the HTTP-POST binding: the `AuthnRequest` arrives
+        base64-encoded in a form field rather than compressed in the query.
+
+        Everything else is identical, including that the assertion is delivered
+        to the **registered** Assertion Consumer Service URL.
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [SAMLRequest]
+              additionalProperties: false
+              properties:
+                SAMLRequest:
+                  type: string
+                  description: The AuthnRequest, base64-encoded.
+                RelayState:
+                  type: string
+                  maxLength: 8192
+      responses:
+        "200":
+          description: A self-submitting form delivering the response.
+          content:
+            text/html:
+              schema:
+                type: string
+        "303":
+          description: No usable session; the browser is sent to the hosted login.
+        "400":
+          description: The request is malformed, oversized, or names an unregistered service provider.
+        "503":
+          description: SAML is not configured on this instance.
+        "429": { $ref: "#/components/responses/RateLimited" }
+
+  /saml/slo:
+    get:
+      tags: [SAML]
+      operationId: samlSingleLogoutRedirect
+      summary: SAML Single Logout on HTTP-Redirect — deliberately unsupported
+      description: |
+        The same refusal as `POST`, on the other binding.
+
+        Both are answered because the refusal is only worth having if it
+        reaches the integrator. A `LogoutRequest` arriving on HTTP-Redirect and
+        meeting a 405 reads as "wrong method, try again" — the same dead end as
+        the 404 this endpoint exists to avoid — and HTTP-Redirect is what most
+        SAML products try first when an SLO URL is configured by hand.
+      parameters:
+        - name: SAMLRequest
+          in: query
+          required: false
+          schema: { type: string }
+          description: Ignored. Accepted so the refusal is what the sender sees.
+        - name: RelayState
+          in: query
+          required: false
+          schema: { type: string }
+          description: Ignored.
+      responses:
+        "200":
+          description: A readable refusal naming the SAML RequestDenied status.
+          content:
+            text/plain:
+              schema:
+                type: string
+        "429": { $ref: "#/components/responses/RateLimited" }
+    post:
+      tags: [SAML]
+      operationId: samlSingleLogout
+      summary: SAML Single Logout — deliberately unsupported
+      description: |
+        **This endpoint exists to refuse, in the protocol's own vocabulary.**
+
+        SAML Single Logout is not implemented, and that is a decision rather
+        than a gap. Front-channel SLO iterates every service provider in a
+        session through the user's browser, and any one of them being slow,
+        unreachable or simply wrong leaves a partial logout — a user told they
+        are signed out of applications they are not. That failure is worse than
+        not offering the feature, because it is silent and the user acts on it.
+
+        So: `/saml/metadata` advertises no `SingleLogoutService`, and a request
+        sent here anyway answers a SAML `RequestDenied` status with a readable
+        reason instead of a 404, so an integrator sees the decision rather than
+        guessing at a missing route.
+
+        Ending the session at this service still ends it. A service provider's
+        own session is its own to end.
+      requestBody:
+        required: false
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "200":
+          description: A readable refusal naming the SAML RequestDenied status.
+          content:
+            text/plain:
+              schema:
+                type: string
+        "429": { $ref: "#/components/responses/RateLimited" }
+
   /oauth/userinfo:
     get:
       tags: [OAuth]
