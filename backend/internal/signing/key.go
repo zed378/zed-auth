@@ -89,6 +89,15 @@ type KeyPair struct {
 	Private    crypto.Signer
 	PublicPEM  string
 	PrivatePEM string
+
+	// CertificatePEM is the X.509 certificate published for this key, and is
+	// set only for `saml` keys (P4-07).
+	//
+	// OIDC needs none: a consumer fetches the public key from JWKS by `kid`.
+	// SAML has no such lookup — a service provider pins a certificate out of
+	// metadata — so a SAML key without one is a key nothing can verify, and
+	// migration 041 makes the database say so.
+	CertificatePEM string
 }
 
 // Generate creates a key pair and derives its kid.

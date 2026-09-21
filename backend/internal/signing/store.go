@@ -53,7 +53,7 @@ func NewStore(db *sql.DB, resolver SecretResolver, purpose Purpose) *Store {
 // allowed to use — and not holding it removes a way to use it by mistake.
 func (s *Store) Load(ctx context.Context) (*KeySet, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT kid, algorithm, status, public_key, private_key_ref
+		SELECT kid, algorithm, status, public_key, private_key_ref, certificate
 		FROM signing_keys
 		WHERE purpose = $1 AND status <> 'retired'
 		ORDER BY kid`, string(s.purpose))
@@ -66,7 +66,8 @@ func (s *Store) Load(ctx context.Context) (*KeySet, error) {
 
 	for rows.Next() {
 		var kid, algorithm, status, publicPEM, privateRef string
-		if err := rows.Scan(&kid, &algorithm, &status, &publicPEM, &privateRef); err != nil {
+		var certificate sql.NullString
+		if err := rows.Scan(&kid, &algorithm, &status, &publicPEM, &privateRef, &certificate); err != nil {
 			return nil, fmt.Errorf("scanning signing key: %w", err)
 		}
 
@@ -95,10 +96,11 @@ func (s *Store) Load(ctx context.Context) (*KeySet, error) {
 		}
 
 		key := &Key{
-			KID:       kid,
-			Algorithm: alg,
-			Status:    Status(status),
-			Public:    public,
+			KID:            kid,
+			Algorithm:      alg,
+			Status:         Status(status),
+			Public:         public,
+			CertificatePEM: certificate.String,
 		}
 
 		if key.Status == StatusCurrent {
@@ -132,10 +134,19 @@ func (s *Store) Load(ctx context.Context) (*KeySet, error) {
 // which is the "simplification" that would otherwise silently violate
 // docs/PLAN/02's constraint while every test still passed (P0-07).
 func (s *Store) Insert(ctx context.Context, pair *KeyPair, privateRef string) error {
+	// The certificate is NULL for an OIDC key and required for a SAML one,
+	// which migration 041's CHECK enforces rather than this function. An empty
+	// string would satisfy `IS NOT NULL` while being useless, so it is written
+	// as NULL explicitly.
+	var certificate any
+	if pair.CertificatePEM != "" {
+		certificate = pair.CertificatePEM
+	}
+
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO signing_keys (kid, purpose, algorithm, public_key, private_key_ref, status)
-		VALUES ($1, $2, $3, $4, $5, 'next')`,
-		pair.KID, string(s.purpose), string(pair.Algorithm), pair.PublicPEM, privateRef)
+		INSERT INTO signing_keys (kid, purpose, algorithm, public_key, private_key_ref, status, certificate)
+		VALUES ($1, $2, $3, $4, $5, 'next', $6)`,
+		pair.KID, string(s.purpose), string(pair.Algorithm), pair.PublicPEM, privateRef, certificate)
 	if err != nil {
 		return fmt.Errorf("inserting signing key: %w", err)
 	}
