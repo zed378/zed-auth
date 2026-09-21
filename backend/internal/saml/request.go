@@ -128,6 +128,49 @@ type AuthnRequest struct {
 // request might suggest about where its answer should go. Those come from the
 // registration; a struct that carried them would eventually have one of them
 // used.
+// ErrMalformedID is an AuthnRequest ID that is not a usable identifier.
+var ErrMalformedID = errors.New("saml: malformed AuthnRequest ID")
+
+// MaxRequestIDBytes bounds an AuthnRequest ID.
+//
+// 128, which is far above what any real service provider uses — a hex digest
+// with a prefix is about 45 — and far below a length that would make the login
+// URL or a stored key awkward.
+const MaxRequestIDBytes = 128
+
+// ValidRequestID reports whether an AuthnRequest ID is a usable identifier.
+//
+// The SAML schema types it as xsd:ID, which is an XML NCName: a letter or
+// underscore, then letters, digits, dots, hyphens and underscores. This
+// enforces the ASCII form of that, plus a length bound.
+//
+// It is enforced rather than assumed because the value travels: it becomes the
+// primary key of the pending row, a query parameter on the hosted login URL,
+// and an `InResponseTo` the service provider reads back. An unsigned
+// AuthnRequest can be sent by anyone, so every one of those is a place an
+// attacker-chosen string would otherwise arrive unbounded.
+//
+// A service provider whose ids do not conform is refused with a readable
+// reason, which is a better failure than a login that works until somebody
+// sends an id with a slash in it.
+func ValidRequestID(id string) bool {
+	if len(id) == 0 || len(id) > MaxRequestIDBytes {
+		return false
+	}
+	for i, c := range id {
+		switch {
+		case c >= 'A' && c <= 'Z':
+		case c >= 'a' && c <= 'z':
+		case c == '_':
+		case i > 0 && (c >= '0' && c <= '9'):
+		case i > 0 && (c == '-' || c == '.'):
+		default:
+			return false
+		}
+	}
+	return true
+}
+
 func ParseAuthnRequest(raw []byte) (AuthnRequest, error) {
 	doc := etree.NewDocument()
 	doc.ReadSettings = etree.ReadSettings{Permissive: false, Entity: map[string]string{}}
@@ -147,6 +190,17 @@ func ParseAuthnRequest(raw []byte) (AuthnRequest, error) {
 		// Without an ID there is nothing to record single-use and nothing to
 		// echo, so a replayed request could not be told from a new one.
 		return AuthnRequest{}, fmt.Errorf("saml: the AuthnRequest has no ID")
+	}
+	if !ValidRequestID(out.ID) {
+		// Refused at the door rather than carried. This id becomes a primary
+		// key, a query parameter on the hosted login URL, and a value in the
+		// response the service provider parses — and it is chosen by whoever
+		// sent the request, which for an unsigned AuthnRequest is anybody.
+		//
+		// A refusal is also more useful to the sender than a later failure
+		// somewhere downstream that names none of this.
+		return AuthnRequest{}, fmt.Errorf(
+			"saml: the AuthnRequest ID is not an xsd:ID: %w", ErrMalformedID)
 	}
 
 	if issuer := root.FindElement("./Issuer"); issuer != nil {
