@@ -118,6 +118,14 @@ const (
 	ReceivedGrantStatusRevoked ReceivedGrantStatus = "revoked"
 )
 
+// Defines values for SamlAttribute.
+const (
+	DisplayName SamlAttribute = "display_name"
+	Email       SamlAttribute = "email"
+	RoleKeys    SamlAttribute = "role_keys"
+	Username    SamlAttribute = "username"
+)
+
 // Defines values for TokenResponseTokenType.
 const (
 	TokenResponseTokenTypeBearer TokenResponseTokenType = "Bearer"
@@ -1972,6 +1980,14 @@ type RotatedSecret struct {
 	PreviousSecretExpiresAt nullable.Nullable[time.Time] `json:"previous_secret_expires_at,omitempty"`
 }
 
+// SamlAttribute An attribute a SAML assertion can carry.
+//
+// A closed set, and a name outside it is refused rather than stored: an
+// attribute nobody produces is a setting that saves cleanly and releases
+// nothing, and the administrator who chose it would believe the service
+// provider receives something it does not.
+type SamlAttribute string
+
 // SamlRegistration The SAML service provider an application of type `saml` represents.
 //
 // Present on an application of that type and absent on every other. A
@@ -2007,7 +2023,7 @@ type SamlRegistration struct {
 	// Empty means the `NameID` and nothing else, which is the correct
 	// default for a party that has not asked for anything — the same
 	// discipline `/oauth/userinfo` applies to scopes.
-	AttributeRelease []string `json:"attribute_release"`
+	AttributeRelease []SamlAttribute `json:"attribute_release"`
 
 	// Certificate The service provider's signing certificate, PEM-encoded. Required
 	// when `want_signed_requests` is set.
@@ -2062,11 +2078,11 @@ type SamlRegistration struct {
 // and the manual fields are there for a service provider that publishes
 // none.
 type SamlRegistrationInput struct {
-	AcsUrl            *string   `json:"acs_url,omitempty"`
-	AllowIdpInitiated *bool     `json:"allow_idp_initiated,omitempty"`
-	AttributeRelease  *[]string `json:"attribute_release,omitempty"`
-	Certificate       *string   `json:"certificate,omitempty"`
-	EntityId          *string   `json:"entity_id,omitempty"`
+	AcsUrl            *string          `json:"acs_url,omitempty"`
+	AllowIdpInitiated *bool            `json:"allow_idp_initiated,omitempty"`
+	AttributeRelease  *[]SamlAttribute `json:"attribute_release,omitempty"`
+	Certificate       *string          `json:"certificate,omitempty"`
+	EntityId          *string          `json:"entity_id,omitempty"`
 
 	// MetadataXml The service provider's SAML metadata document.
 	//

@@ -79,7 +79,12 @@ func samlInputFrom(in *api.SamlRegistrationInput) (saml.Managed, error) {
 	// to release to it, and it cannot say whether somebody here decided to
 	// accept unsolicited logins.
 	if in.AttributeRelease != nil {
-		out.AttributeRelease = *in.AttributeRelease
+		// Converted, not trusted. The generated type is an enum in name only:
+		// the decoder accepts any string, so `Email` arrives here as a
+		// SamlAttribute and it is validateManaged that refuses it.
+		for _, name := range *in.AttributeRelease {
+			out.AttributeRelease = append(out.AttributeRelease, string(name))
+		}
 	}
 	if out.AttributeRelease == nil {
 		out.AttributeRelease = []string{}
@@ -133,12 +138,9 @@ func renderSaml(m saml.Managed, now time.Time) (*api.SamlRegistration, error) {
 	out := &api.SamlRegistration{
 		EntityId:           m.EntityID,
 		AcsUrl:             m.ACSURL,
-		AttributeRelease:   m.AttributeRelease,
+		AttributeRelease:   attributesOf(m.AttributeRelease),
 		WantSignedRequests: m.WantSignedRequests,
 		AllowIdpInitiated:  m.AllowIdPInitiated,
-	}
-	if out.AttributeRelease == nil {
-		out.AttributeRelease = []string{}
 	}
 	if m.CertificatePEM != "" {
 		certificate := m.CertificatePEM
@@ -262,4 +264,13 @@ func requireSamlUpdate(isSAML bool, in *api.SamlRegistrationInput) error {
 		}
 	}
 	return nil
+}
+
+// attributesOf renders stored names as the contract's type, never nil.
+func attributesOf(names []string) []api.SamlAttribute {
+	out := make([]api.SamlAttribute, 0, len(names))
+	for _, name := range names {
+		out = append(out, api.SamlAttribute(name))
+	}
+	return out
 }
