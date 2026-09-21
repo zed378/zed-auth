@@ -92,6 +92,13 @@ type Roles interface {
 type RoleClaims struct {
 	Keys    []string
 	Manager []string
+
+	// RoleOrgID is the organization that owns the project these role keys
+	// belong to. It differs from the token's own organization only for a
+	// DELEGATED grant, where the roles come from another organization's
+	// project through a Project Grant (P4-04). Empty means "the token's own
+	// organization", which is every direct grant.
+	RoleOrgID string
 }
 
 func (h *Handler) now() time.Time {
@@ -561,9 +568,14 @@ func (h *Handler) clientCredentials(
 //
 // It is logged at ERROR, because a service quietly issuing role-less tokens is
 // an outage that looks like a permissions bug to everybody downstream.
-func (h *Handler) rolesFor(ctx context.Context, subject Subject, app client.Application) ([]string, []string) {
+// It fills the subject rather than returning the pieces, because a delegated
+// grant also decides WHICH organization the role claim names (P4-04), and a
+// caller that had to remember to copy that third value across would eventually
+// forget — leaving a partner's role claimed as if it were the caller's own
+// organization's.
+func (h *Handler) rolesFor(ctx context.Context, subject *Subject, app client.Application) {
 	if h.Roles == nil || subject.UserID == "" {
-		return nil, nil
+		return
 	}
 
 	claims, err := h.Roles.ForToken(ctx, subject.OrgID, subject.UserID, app.ProjectID)
@@ -572,9 +584,10 @@ func (h *Handler) rolesFor(ctx context.Context, subject Subject, app client.Appl
 			h.Log.Error("a token was issued without role claims",
 				"error", err.Error(), "client_id", app.ID, "project_id", app.ProjectID)
 		}
-		return nil, nil
+		return
 	}
-	return claims.Keys, claims.Manager
+	subject.RoleKeys, subject.ManagerRoles = claims.Keys, claims.Manager
+	subject.RoleOrgID = claims.RoleOrgID
 }
 
 // --- issuance -------------------------------------------------------------------------
@@ -588,7 +601,7 @@ func (h *Handler) issue(
 	// claims by construction. A refresh token minted before a role was granted
 	// therefore produces a token that HAS it: the claims are a snapshot of
 	// now, not of when the session began.
-	subject.RoleKeys, subject.ManagerRoles = h.rolesFor(ctx, subject, app)
+	h.rolesFor(ctx, &subject, app)
 
 	accessClaims, err := AccessTokenClaims(subject, now)
 	if err != nil {

@@ -8,6 +8,7 @@ import (
 	"github.com/lib/pq"
 
 	"github.com/zed378/zed-auth/backend/internal/api"
+	"github.com/zed378/zed-auth/backend/internal/grantsql"
 	"github.com/zed378/zed-auth/backend/internal/management"
 	"github.com/zed378/zed-auth/backend/internal/storage/postgres"
 )
@@ -152,7 +153,7 @@ func (h *Handler) grantsFor(
 		return nil, false, err
 	}
 
-	roleKeys, cachedKeys := h.Cache.RoleKeys(ctx, orgID, subjectUserID, projectID)
+	roleKeys, via, cachedKeys := h.Cache.RoleKeys(ctx, orgID, subjectUserID, projectID)
 	definitions, cachedRoles := h.Cache.Roles(ctx, orgID, projectID)
 
 	// `exists` is only ever used for a log line, so it is not worth a query of
@@ -165,11 +166,11 @@ func (h *Handler) grantsFor(
 		err := h.DB.WithTenant(ctx, orgID, func(tx *postgres.Tx) error {
 			if !cachedKeys {
 				var err error
-				roleKeys, exists, err = readRoleKeys(ctx, tx, subjectUserID, projectID)
+				roleKeys, via, exists, err = readRoleKeys(ctx, tx, subjectUserID, projectID)
 				if err != nil {
 					return err
 				}
-				h.Cache.PutRoleKeys(ctx, orgID, subjectUserID, projectID, roleKeys)
+				h.Cache.PutRoleKeys(ctx, orgID, subjectUserID, projectID, roleKeys, via)
 			}
 			if !cachedRoles {
 				var err error
@@ -218,27 +219,32 @@ func (h *Handler) projectOf(ctx context.Context, orgID, clientID string) (string
 	return projectID, nil
 }
 
+// readRoleKeys returns the roles a user effectively holds in a project, the
+// Project Grant they came through (empty for a direct grant), and whether the
+// user exists.
+//
+// The effective set resolves a delegated row against its grant — see
+// `grantsql.EffectiveRoleKeys`, which both readers share so they cannot drift.
+// The grant id comes back because a cached answer that depended on a grant must
+// be discarded when that grant is revoked (see cache.go's generation check).
 func readRoleKeys(
 	ctx context.Context, tx *postgres.Tx, userID, projectID string,
-) ([]string, bool, error) {
-	var (
-		keys   []string
-		exists bool
-	)
-	err := tx.QueryRow(ctx, `
+) (keys []string, via string, exists bool, err error) {
+	err = tx.QueryRow(ctx, `
 		SELECT
 		  EXISTS (SELECT 1 FROM users WHERE id = $1),
-		  coalesce((SELECT role_keys FROM user_grants
-		             WHERE user_id = $1 AND project_id = $2), '{}')`,
+		  coalesce((`+grantsql.EffectiveRoleKeys+`), '{}'),
+		  coalesce((SELECT ug.project_grant_id::text FROM user_grants ug
+		             WHERE ug.user_id = $1 AND ug.project_id = $2), '')`,
 		userID, projectID,
-	).Scan(&exists, pq.Array(&keys))
+	).Scan(&exists, pq.Array(&keys), &via)
 	if err != nil {
-		return nil, false, err
+		return nil, "", false, err
 	}
 	if keys == nil {
 		keys = []string{}
 	}
-	return keys, exists, nil
+	return keys, via, exists, nil
 }
 
 func readRoleDefinitions(

@@ -77,6 +77,38 @@ during an incident.
 Compare it with the alternative: trusting the token's claims instead gives you a window
 of up to the full access-token lifetime, which is ten minutes.
 
+## Roles delegated by another organization — Phase 4
+
+A **Project Grant** lets one organization lend a project's roles to another, which then
+assigns them to its own people. That is Phase 4 work: the grant, the partner's
+assignments, and the grant-owner role are built; the partner-facing console screen and
+sign-in for a partner's users into your applications are not.
+
+What this means for this endpoint: **ask about the partner's user exactly as you would
+about your own.** The check runs in your organization, about your project, and answers
+with the roles that user effectively holds — which, for a delegated role, is the
+intersection of what you delegated and what the partner assigned.
+
+```json
+{ "subject": { "user_id": "<the partner's user>" },
+  "action": "approve",
+  "resource": { "type": "purchase_request" } }
+```
+
+Two things are worth stating plainly, because they are easy to assume wrongly:
+
+- **The roles are re-derived from the grant on every check.** Nothing trusts the
+  assignment row on its own. If you revoke the grant, or re-grant it with fewer roles,
+  the next check reflects that.
+- **A revocation lands as fast as it does for your own grants.** Revoking through the API
+  clears the affected decisions immediately, whoever holds them and however many there
+  are. The same **30 seconds** backstop applies in the two cases clearing cannot cover: an
+  unreachable cache, or a grant changed directly in the database.
+
+Delegated roles do **not** appear in access tokens yet, because a partner's users cannot
+sign in to your applications yet. Until they can, the check endpoint is the only place a
+delegated role is visible — which is also the place it is freshest.
+
 ## Treat anything that is not a 200 as denied
 
 If the decision cannot be reached — a dependency is unavailable — the response is
