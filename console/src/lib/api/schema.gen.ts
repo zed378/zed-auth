@@ -443,7 +443,17 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /**
+         * SAML Single Logout on HTTP-Redirect — deliberately unsupported
+         * @description The same refusal as `POST`, on the other binding.
+         *
+         *     Both are answered because the refusal is only worth having if it
+         *     reaches the integrator. A `LogoutRequest` arriving on HTTP-Redirect and
+         *     meeting a 405 reads as "wrong method, try again" — the same dead end as
+         *     the 404 this endpoint exists to avoid — and HTTP-Redirect is what most
+         *     SAML products try first when an SLO URL is configured by hand.
+         */
+        get: operations["samlSingleLogoutRedirect"];
         put?: never;
         /**
          * SAML Single Logout — deliberately unsupported
@@ -4295,6 +4305,32 @@ export interface operations {
             };
         };
     };
+    samlSingleLogoutRedirect: {
+        parameters: {
+            query?: {
+                /** @description Ignored. Accepted so the refusal is what the sender sees. */
+                SAMLRequest?: string;
+                /** @description Ignored. */
+                RelayState?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A readable refusal naming the SAML RequestDenied status. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/plain": string;
+                };
+            };
+            429: components["responses"]["RateLimited"];
+        };
+    };
     samlSingleLogout: {
         parameters: {
             query?: never;
@@ -4310,13 +4346,13 @@ export interface operations {
             };
         };
         responses: {
-            /** @description A SAML Response carrying a RequestDenied status. */
+            /** @description A readable refusal naming the SAML RequestDenied status. */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "text/html": string;
+                    "text/plain": string;
                 };
             };
             429: components["responses"]["RateLimited"];

@@ -905,6 +905,26 @@ Read literally the sentence defers the endpoint **the same document lists in its
 
 Found by running the system rather than by reading the plan.
 
+### BL-08 — Three tables have a sweeper that nothing calls, and calling it naively would delete nothing
+
+**Found**: 2026-09-21, wiring `P4-08`. **Affects**: `idempotency_records`, `saml_authn_requests`, `saml_assertion_ids`.
+
+Each of the three has a written, tested, documented cleanup function. None of them is reachable from `cmd/authservice`. `saml.Replay.Prune`'s own comment states the property it does not deliver — *"the table would otherwise grow without bound … an unbounded table on the login path is a slow outage scheduled for whenever it stops fitting in memory."*
+
+`saml_authn_requests` takes a row per SAML login and `Consume` only sets `consumed_at`, so nothing is ever removed. `sessions` is the one table of this shape with a real sweeper (`runSessionSweep`), which is why the pattern to copy already exists.
+
+**The part that makes this more than wiring.** All three tables are under row-level security. A sweeper runs outside any tenant — it has no organization to be — and under instance scope `current_org_id()` is NULL, so every policy evaluates false and a plain `DELETE` **succeeds having removed nothing**. `management.IdempotencyStore.Sweep` already solved this with a `SECURITY DEFINER` function and says so; the two `saml` Prunes are plain `DELETE`s and would silently no-op. A test asserting "no error" would pass.
+
+So the fix is three parts, and skipping the third re-creates the bug:
+
+1. A migration giving each SAML table a bounded `SECURITY DEFINER` sweep function, as `sweep_idempotency_records` already is — expired rows only, a row limit, returning a count.
+2. One janitor goroutine beside `runSessionSweep` running all three on a ticker.
+3. Tests that assert the **count** and that prove the function is necessary: the direct `DELETE` under instance scope must be shown to remove nothing. Asserting the absence of an error is exactly the vacuous check that hid this.
+
+Per `BL-01`'s lesson, the janitor should log a success with its counts rather than only log failures — absence of success is the signal, and a sweeper that stops running produces no errors at all.
+
+---
+
 ### BL-06 — The OAuth endpoints are not behind the per-client rate limiter
 
 **Affects**: `/oauth/token`, `/oauth/introspect`, `/oauth/revoke`.

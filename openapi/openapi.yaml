@@ -864,6 +864,37 @@ paths:
         "429": { $ref: "#/components/responses/RateLimited" }
 
   /saml/slo:
+    get:
+      tags: [SAML]
+      operationId: samlSingleLogoutRedirect
+      summary: SAML Single Logout on HTTP-Redirect — deliberately unsupported
+      description: |
+        The same refusal as `POST`, on the other binding.
+
+        Both are answered because the refusal is only worth having if it
+        reaches the integrator. A `LogoutRequest` arriving on HTTP-Redirect and
+        meeting a 405 reads as "wrong method, try again" — the same dead end as
+        the 404 this endpoint exists to avoid — and HTTP-Redirect is what most
+        SAML products try first when an SLO URL is configured by hand.
+      parameters:
+        - name: SAMLRequest
+          in: query
+          required: false
+          schema: { type: string }
+          description: Ignored. Accepted so the refusal is what the sender sees.
+        - name: RelayState
+          in: query
+          required: false
+          schema: { type: string }
+          description: Ignored.
+      responses:
+        "200":
+          description: A readable refusal naming the SAML RequestDenied status.
+          content:
+            text/plain:
+              schema:
+                type: string
+        "429": { $ref: "#/components/responses/RateLimited" }
     post:
       tags: [SAML]
       operationId: samlSingleLogout
@@ -894,9 +925,9 @@ paths:
               additionalProperties: true
       responses:
         "200":
-          description: A SAML Response carrying a RequestDenied status.
+          description: A readable refusal naming the SAML RequestDenied status.
           content:
-            text/html:
+            text/plain:
               schema:
                 type: string
         "429": { $ref: "#/components/responses/RateLimited" }

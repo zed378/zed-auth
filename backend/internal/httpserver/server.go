@@ -48,7 +48,7 @@ type Deps struct {
 	Discovery *oidc.Handler
 
 	// SAMLMetadata serves GET /saml/metadata, SAMLSSO serves GET and POST
-	// /saml/sso, and SAMLSLO serves POST /saml/slo (P4-08).
+	// /saml/sso, and SAMLSLO serves GET and POST /saml/slo (P4-08).
 	//
 	// Hand-registered rather than generated, for the reason the OAuth
 	// endpoints are. All three are nil unless a SAML signing key is
@@ -404,6 +404,11 @@ func New(cfg config.HTTPConfig, deps Deps) *Server {
 		// provider never arrives here — this is for the ones that try anyway,
 		// and a 404 would read as a misconfiguration to retry rather than a
 		// decision to respect.
+		// Both bindings. The refusal is only useful if it reaches the
+		// integrator, and a LogoutRequest arriving on HTTP-Redirect would
+		// otherwise get a 405 — which reads as "wrong method, try again",
+		// the same dead end as the 404 this endpoint exists to avoid.
+		mux.Method(http.MethodGet, "/saml/slo", deps.SAMLSLO)
 		mux.Method(http.MethodPost, "/saml/slo", deps.SAMLSLO)
 	}
 	if deps.Login != nil {
