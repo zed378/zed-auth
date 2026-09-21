@@ -143,7 +143,7 @@ func AccessTokenClaims(in Subject, now time.Time) (Claims, error) {
 	// token's shape does not change when a user is granted their first role,
 	// and a consumer reading `claims[ns] ?? {}` keeps working either way.
 	if in.ProjectID != "" {
-		claims[RoleClaimNamespace(in.ProjectID)] = roleClaim(in.RoleKeys, in.OrgID)
+		claims[RoleClaimNamespace(in.ProjectID)] = roleClaim(in.RoleKeys, in.roleOrg())
 	}
 
 	// Administrative roles, flat, because they are not project-scoped:
@@ -183,6 +183,15 @@ func roleClaim(keys []string, orgID string) map[string]any {
 		out[key] = map[string]any{"org_id": orgID}
 	}
 	return out
+}
+
+// roleOrg is the organization the role claim names: the delegating
+// organization for a delegated grant, and the token's own otherwise.
+func (s Subject) roleOrg() string {
+	if s.RoleOrgID != "" {
+		return s.RoleOrgID
+	}
+	return s.OrgID
 }
 
 // bounded truncates a role list to MaxRoleClaims. See the constant.
@@ -243,6 +252,16 @@ type Subject struct {
 	// it only ever cares about its own. `docs/PLAN/08` Part A's claim key is
 	// per-project for the same reason.
 	RoleKeys []string
+
+	// RoleOrgID is the organization whose project defines RoleKeys, when that
+	// is not the token's own organization — a delegated grant (P4-04). Empty
+	// means OrgID, which is every direct grant.
+	//
+	// This is what the nested `org_id` inside each role claim carries, and the
+	// reason `docs/PLAN/08` Part A put it there: the same role name is
+	// reachable from two organizational contexts once delegation exists, and a
+	// consumer must be able to tell them apart.
+	RoleOrgID string
 
 	// ManagerRoles are the administrative roles the user holds
 	// (`docs/PLAN/08` Part C). Present in the token so a consumer can tell an

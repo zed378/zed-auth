@@ -6,6 +6,7 @@ import (
 
 	"github.com/lib/pq"
 
+	"github.com/zed378/zed-auth/backend/internal/grantsql"
 	"github.com/zed378/zed-auth/backend/internal/oauth/token"
 	"github.com/zed378/zed-auth/backend/internal/storage/postgres"
 )
@@ -58,12 +59,15 @@ func (t *TokenClaims) ForToken(ctx context.Context, orgID, userID, projectID str
 	err := t.DB.WithTenant(ctx, orgID, func(tx *postgres.Tx) error {
 		return tx.QueryRow(ctx, `
 			SELECT
-			  coalesce((SELECT role_keys FROM user_grants
-			             WHERE user_id = $1 AND project_id = $2), '{}'),
+			  coalesce((`+grantsql.EffectiveRoleKeys+`), '{}'),
 			  coalesce((SELECT array_agg(role ORDER BY role) FROM manager_roles
-			             WHERE user_id = $1), '{}')`,
+			             WHERE user_id = $1), '{}'),
+			  coalesce((SELECT pg.granting_org_id::text
+			              FROM user_grants ug
+			              JOIN project_grants pg ON pg.id = ug.project_grant_id
+			             WHERE ug.user_id = $1 AND ug.project_id = $2), '')`,
 			userID, projectID,
-		).Scan(pq.Array(&out.Keys), pq.Array(&out.Manager))
+		).Scan(pq.Array(&out.Keys), pq.Array(&out.Manager), &out.RoleOrgID)
 	})
 	if err != nil {
 		return token.RoleClaims{}, fmt.Errorf("grant: reading token roles: %w", err)

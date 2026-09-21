@@ -37,19 +37,26 @@ func seedTenants(t *testing.T, factory *testsupport.Factory, instance string, co
 	t.Helper()
 
 	var subject string
+	orgs := make([]string, count)
+	projects := make([]string, count)
+	users := make([]string, count)
+
 	for i := 0; i < count; i++ {
 		org := factory.Organization(instance)
+		orgs[i] = org
 
 		var project string
 		factory.QueryRow(&project,
 			`INSERT INTO projects (org_id, name) VALUES ($1, $2) RETURNING id`,
 			org, fmt.Sprintf("project-%d", i))
+		projects[i] = project
 
 		factory.Exec(`INSERT INTO roles (org_id, project_id, key, display_name, permission_keys)
 			VALUES ($1, $2, 'cashier', 'Cashier', $3)`,
 			org, project, pq.Array([]string{"sale:create"}))
 
 		user := factory.User(org)
+		users[i] = user
 		factory.Exec(`INSERT INTO user_grants (user_id, project_id, org_id, role_keys)
 			VALUES ($1, $2, $3, $4)`,
 			user, project, org, pq.Array([]string{"cashier"}))
@@ -61,6 +68,28 @@ func seedTenants(t *testing.T, factory *testsupport.Factory, instance string, co
 			subject = org
 		}
 	}
+
+	// Delegation at the same scale (P4-04). `user_grants` is read under TWO
+	// policies now — the tenant's own rows, and the delegated rows of grants
+	// this tenant made — and the second one joins `project_grants`. With that
+	// table empty, every plan for it is trivially a sequential scan and this
+	// test could not see the difference between a policy that indexes and one
+	// that does not.
+	for i := 0; i < count; i++ {
+		receiver := (i + 1) % count
+
+		var grantID string
+		factory.QueryRow(&grantID, `
+			INSERT INTO project_grants (project_id, granting_org_id, granted_org_id, granted_role_keys)
+			VALUES ($1, $2, $3, $4) RETURNING id`,
+			projects[i], orgs[i], orgs[receiver], pq.Array([]string{"cashier"}))
+
+		factory.Exec(`
+			INSERT INTO user_grants (user_id, project_id, org_id, role_keys, project_grant_id)
+			VALUES ($1, $2, $3, $4, $5)`,
+			users[receiver], projects[i], orgs[receiver], pq.Array([]string{"cashier"}), grantID)
+	}
+
 	return subject
 }
 

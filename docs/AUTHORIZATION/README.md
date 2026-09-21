@@ -10,7 +10,7 @@ Tenant isolation is a separate mechanism that runs underneath all of this: see [
 |---|---|---|
 | [`00-AUTHORIZATION-ARCHITECTURE.md`](./00-AUTHORIZATION-ARCHITECTURE.md) | The two systems, where each decision is made, and why they stay separate | Implemented |
 | [`01-MULTI-TENANT-RBAC.md`](./01-MULTI-TENANT-RBAC.md) | Roles, permission keys, user grants, the manager-role hierarchy | Implemented |
-| [`02-PROJECT-GRANTS-DELEGATION.md`](./02-PROJECT-GRANTS-DELEGATION.md) | Cross-organization delegation: the contract, delegated assignments, grant owners | Partially implemented |
+| [`02-PROJECT-GRANTS-DELEGATION.md`](./02-PROJECT-GRANTS-DELEGATION.md) | Cross-organization delegation: the contract, delegated assignments, grant owners, and how delegated access is decided | Partially implemented |
 | [`03-ATTRIBUTE-BASED-ACCESS-CONTROL.md`](./03-ATTRIBUTE-BASED-ACCESS-CONTROL.md) | ABAC, and what has already been decided about it | Draft specification |
 | [`04-PERMISSION-EVALUATION-ENGINE.md`](./04-PERMISSION-EVALUATION-ENGINE.md) | Token claims versus `/v1/authz/check`, and the cache | Implemented |
 | [`05-ROUTE-PERMISSION-TABLE.md`](./05-ROUTE-PERMISSION-TABLE.md) | Every `/v1` route with its minimum role and scope | Implemented |

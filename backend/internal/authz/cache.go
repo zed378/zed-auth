@@ -90,6 +90,11 @@ type CacheObserver interface {
 // opens is ten times larger.
 const DefaultTTL = 30 * time.Second
 
+// generationTTL keeps a grant's revocation counter well beyond the lifetime of
+// any entry that could reference it. A counter that expired first would reset
+// to zero and make entries written before the revocation match again.
+const generationTTL = 24 * time.Hour
+
 // OperationTimeout bounds one cache operation.
 //
 // **The fall-through has to be fast, or it is not a fall-through.** Without
@@ -143,6 +148,34 @@ func rolesKey(orgID, projectID string) string {
 	return fmt.Sprintf("authz:roles:%s:%s", orgID, projectID)
 }
 
+// generationKey counts a Project Grant's revocations (P4-04).
+//
+// A cached decision that came through a delegation records the grant and the
+// generation it was written at; a revocation increments the generation, and
+// every entry that depended on that grant stops matching at once.
+//
+// Why a generation rather than deleting the entries: a grant can be held by
+// thousands of the partner's users, and this cache is keyed per user. Deleting
+// them would mean either scanning the keyspace or keeping a second index of
+// holders — the "scan or a guess" this file's own comments rule out of a
+// request path (threat review T4-3). Revocation stays one INCR.
+func generationKey(grantID string) string {
+	return fmt.Sprintf("authz:grantgen:%s", grantID)
+}
+
+// grants is what a cached grant entry holds: the effective role keys, and the
+// delegation they depended on, if any.
+type grants struct {
+	Keys []string `json:"k"`
+
+	// Via is the Project Grant the keys came through, or empty for a direct
+	// grant. A direct entry needs no generation check and pays no extra read.
+	Via string `json:"v,omitempty"`
+
+	// Gen is the generation Via was at when this entry was written.
+	Gen int64 `json:"g,omitempty"`
+}
+
 // --- reads ------------------------------------------------------------------
 
 // RoleKeys returns the role keys a user holds in a project, and whether the
@@ -151,12 +184,42 @@ func rolesKey(orgID, projectID string) string {
 // A cache failure is a MISS, never an error. `P2-07` step 6: a cache backend
 // failure falls through to the database rather than failing the check — and
 // certainly never to an allow.
-func (c *Cache) RoleKeys(ctx context.Context, orgID, userID, projectID string) ([]string, bool) {
-	var keys []string
-	if ok := c.get(ctx, kindGrants, grantsKey(orgID, userID, projectID), &keys); !ok {
-		return nil, false
+func (c *Cache) RoleKeys(ctx context.Context, orgID, userID, projectID string) ([]string, string, bool) {
+	var value grants
+	if ok := c.get(ctx, kindGrants, grantsKey(orgID, userID, projectID), &value); !ok {
+		return nil, "", false
 	}
-	return keys, true
+	if value.Via != "" && c.generation(ctx, value.Via) != value.Gen {
+		// The delegation was revoked (or re-granted) since this was written.
+		// A miss, not an error: the caller reads the database, which resolves
+		// the row against the grant and returns nothing for a revoked one.
+		c.observeLookup(kindGrants, false)
+		return nil, "", false
+	}
+	return value.Keys, value.Via, true
+}
+
+// generation reads a grant's revocation counter. A missing key is generation 0,
+// so a cold or emptied Redis does not invalidate every delegated entry — the
+// TTL remains the backstop, exactly as it is for a direct entry.
+func (c *Cache) generation(ctx context.Context, grantID string) int64 {
+	if c == nil || c.client == nil {
+		return 0
+	}
+	opCtx, cancel := bounded(ctx)
+	defer cancel()
+
+	n, err := c.client.Get(opCtx, generationKey(grantID)).Int64()
+	switch {
+	case err == redis.Nil:
+		return 0
+	case err != nil:
+		c.observeUnavailable()
+		// Unreadable: treat the entry as stale rather than trusting it. The
+		// database answer is correct; a served stale one might not be.
+		return -1
+	}
+	return n
 }
 
 // Roles returns the project's role definitions, and whether it was a hit.
@@ -211,8 +274,18 @@ func (c *Cache) get(ctx context.Context, kind, key string, into any) bool {
 
 // --- writes -----------------------------------------------------------------
 
-func (c *Cache) PutRoleKeys(ctx context.Context, orgID, userID, projectID string, keys []string) {
-	c.put(ctx, grantsKey(orgID, userID, projectID), keys)
+func (c *Cache) PutRoleKeys(ctx context.Context, orgID, userID, projectID string, keys []string, via string) {
+	value := grants{Keys: keys, Via: via}
+	if via != "" {
+		value.Gen = c.generation(ctx, via)
+		if value.Gen < 0 {
+			// The generation could not be read, so an entry written now could
+			// not be checked later. Not cached at all rather than cached
+			// unverifiably.
+			return
+		}
+	}
+	c.put(ctx, grantsKey(orgID, userID, projectID), value)
 }
 
 func (c *Cache) PutRoles(ctx context.Context, orgID, projectID string, roles map[string][]string) {
@@ -246,6 +319,33 @@ func (c *Cache) put(ctx context.Context, key string, value any) {
 // grant change costs one delete rather than a scan.
 func (c *Cache) InvalidateUser(ctx context.Context, orgID, userID, projectID string) {
 	c.del(ctx, kindGrants, grantsKey(orgID, userID, projectID))
+}
+
+// InvalidateGrant retires every cached decision that came through one Project
+// Grant, whoever holds it and however many of them there are (P4-04).
+//
+// One INCR. Called after a revocation commits — before it, a concurrent read
+// could re-cache the pre-revocation answer against the new generation.
+func (c *Cache) InvalidateGrant(ctx context.Context, grantID string) {
+	if c == nil || c.client == nil || grantID == "" {
+		return
+	}
+	opCtx, cancel := bounded(ctx)
+	defer cancel()
+
+	if err := c.client.Incr(opCtx, generationKey(grantID)).Err(); err != nil {
+		c.observeUnavailable()
+		if c.Log != nil {
+			// Worth a line: until the TTL expires, a revoked delegation may
+			// still be served from cache.
+			c.Log.Warn("a project grant revocation could not be pushed to the authorization cache",
+				"error", err.Error(), "grant_id", grantID, "ttl", c.TTL.String())
+		}
+		return
+	}
+	// The generation key must outlive every entry that references it, or a
+	// restarted counter would make stale entries look current again.
+	_ = c.client.Expire(opCtx, generationKey(grantID), generationTTL).Err()
 }
 
 // InvalidateProjectRoles drops a project's role definitions.

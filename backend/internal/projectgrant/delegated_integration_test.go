@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -22,6 +23,7 @@ import (
 	"github.com/lib/pq"
 
 	"github.com/zed378/zed-auth/backend/internal/api"
+	"github.com/zed378/zed-auth/backend/internal/grantsql"
 	"github.com/zed378/zed-auth/backend/internal/storage/postgres"
 )
 
@@ -263,9 +265,10 @@ func TestTheGrantingOrganizationCannotActOnThePartnersPeople(t *testing.T) {
 	}
 }
 
-// T4-3. The row is the receiving organization's. Until P4-04 adds the reader
-// join, the granting organization must not see it either — see the spec §6.
-func TestADelegatedRowIsVisibleOnlyToTheReceivingOrganization(t *testing.T) {
+// T4-3. The row is the receiving organization's. Since `P4-04` the GRANTING
+// organization reads it too — but only through a grant it made itself, and only
+// because its readers now resolve the row against that grant.
+func TestADelegatedRowIsVisibleToBothSidesOfItsOwnGrantAndNobodyElse(t *testing.T) {
 	f := setup(t)
 	g := f.activeGrant(t, "cashier")
 	staff := f.factory.User(f.orgB, "staff@bravo.test")
@@ -274,16 +277,85 @@ func TestADelegatedRowIsVisibleOnlyToTheReceivingOrganization(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	for org, want := range map[string]int{f.orgB: 1, f.orgA: 0, f.orgC: 0} {
+	count := func(org string) int {
 		var n int
 		if err := f.db.WithTenant(ctx, org, func(tx *postgres.Tx) error {
 			return tx.QueryRow(ctx, `SELECT count(*) FROM user_grants WHERE project_grant_id = $1`, g).Scan(&n)
 		}); err != nil {
 			t.Fatalf("reading as %s: %v", org, err)
 		}
-		if n != want {
-			t.Errorf("organization %s sees %d delegated rows, want %d", org, n, want)
+		return n
+	}
+	// The receiving organization owns the row; the granting one may read it to
+	// decide access in its own project; a bystander sees nothing.
+	for org, want := range map[string]int{f.orgB: 1, f.orgA: 1, f.orgC: 0} {
+		if got := count(org); got != want {
+			t.Errorf("organization %s sees %d delegated rows, want %d", org, got, want)
 		}
+	}
+
+	// And the granting side's read is bounded to ITS OWN grants: organization C
+	// granting its own project to B does not let C read B's rows under A's grant.
+	var cProject, cGrant string
+	f.factory.QueryRow(&cProject, `INSERT INTO projects (org_id, name) VALUES ($1, 'c-pos') RETURNING id`, f.orgC)
+	f.factory.Exec(`INSERT INTO roles (org_id, project_id, key, display_name) VALUES ($1, $2, 'cashier', 'cashier')`, f.orgC, cProject)
+	f.factory.QueryRow(&cGrant, `INSERT INTO project_grants (project_id, granting_org_id, granted_org_id, granted_role_keys)
+	                             VALUES ($1, $2, $3, '{cashier}') RETURNING id`, cProject, f.orgC, f.orgB)
+	if got := count(f.orgC); got != 0 {
+		t.Errorf("a granting organization read %d delegated rows of somebody else's grant", got)
+	}
+	_ = cGrant
+}
+
+// A-1 and A-2: what the readers return is resolved against the grant on every
+// read, so revocation and narrowing take effect immediately and everywhere.
+func TestTheReadersResolveADelegatedRowAgainstItsGrant(t *testing.T) {
+	f := setup(t)
+	g := f.activeGrant(t, "cashier", "manager")
+	staff := f.factory.User(f.orgB, "staff@bravo.test")
+	if w := f.assign(t, "admin-b", f.orgB, g, staff, "cashier", "manager"); w.Code != http.StatusCreated {
+		t.Fatalf("assign = %d: %s", w.Code, w.Body.String())
+	}
+
+	ctx := context.Background()
+	// Read exactly as both readers do, in the GRANTING organization's tenant —
+	// which is where /v1/authz/check answers for the granting project.
+	effective := func() []string {
+		var keys []string
+		if err := f.db.WithTenant(ctx, f.orgA, func(tx *postgres.Tx) error {
+			return tx.QueryRow(ctx, `SELECT coalesce((`+grantsql.EffectiveRoleKeys+`), '{}')`, staff, f.projectA).
+				Scan(pq.Array(&keys))
+		}); err != nil {
+			t.Fatalf("reading effective roles: %v", err)
+		}
+		sort.Strings(keys)
+		return keys
+	}
+
+	if got := effective(); strings.Join(got, ",") != "cashier,manager" {
+		t.Fatalf("effective roles = %v, want both delegated roles", got)
+	}
+
+	// Narrowing, which since P4-01 means revoke and re-grant.
+	f.revoke(t, g)
+	if got := effective(); len(got) != 0 {
+		t.Errorf("a revoked grant still confers %v", got)
+	}
+
+	narrow := f.activeGrant(t, "cashier")
+	if w := f.assign(t, "admin-b", f.orgB, narrow, staff, "cashier"); w.Code != http.StatusCreated {
+		t.Fatalf("re-assign = %d: %s", w.Code, w.Body.String())
+	}
+	if got := effective(); strings.Join(got, ",") != "cashier" {
+		t.Errorf("after narrowing, effective roles = %v, want only cashier", got)
+	}
+
+	// The intersection is computed against the grant itself, so a grant edited
+	// outside the API — the owner connection, an incident fix — is still
+	// answered correctly rather than from what the row says.
+	f.factory.Exec(`UPDATE project_grants SET status = 'revoked', revoked_at = now() WHERE id = $1`, narrow)
+	if got := effective(); len(got) != 0 {
+		t.Errorf("a grant revoked by direct SQL still confers %v", got)
 	}
 }
 
