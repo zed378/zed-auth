@@ -22,6 +22,7 @@ import (
 	"crypto/x509/pkix"
 	"encoding/base64"
 	"encoding/pem"
+	"errors"
 	"html"
 	"io"
 	"log/slog"
@@ -41,6 +42,7 @@ import (
 	"github.com/zed378/zed-auth/backend/internal/saml"
 	"github.com/zed378/zed-auth/backend/internal/session"
 	"github.com/zed378/zed-auth/backend/internal/signing"
+	"github.com/zed378/zed-auth/backend/internal/storage/postgres"
 	"github.com/zed378/zed-auth/backend/internal/testsupport"
 )
 
@@ -312,6 +314,128 @@ func TestWithoutASessionTheBrowserGoesToTheLogin(t *testing.T) {
 		`SELECT count(*) FROM saml_authn_requests WHERE id = '_req2' AND consumed_at IS NULL`)
 	if pending != 1 {
 		t.Errorf("%d pending requests recorded, want 1", pending)
+	}
+}
+
+// The login page can read the request it is rendering for.
+//
+// This is the test that was missing, and the gap it left reached staging. The
+// suite drove `Resume` directly with a session and never exercised `Peek` —
+// the call the hosted login page makes, with no tenant, before anybody has
+// signed in. `Peek` read the RLS-protected table directly, `current_org_id()`
+// is NULL under instance scope, every policy evaluated false, and the page
+// answered "Nothing to sign in to" for every SAML login on the deployment.
+//
+// Nothing errored. That is the whole difficulty: a row invisible to RLS is
+// indistinguishable from a row that was never written.
+func TestTheLoginPageCanReadTheRequestItIsRenderingFor(t *testing.T) {
+	f := setupSSO(t, []string{"email"}, nil, false)
+
+	w := f.redirect(t, deflateEncode(t, authnRequestFor("_peek1", "https://sp.example.test", "")), "/dash")
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("status %d, want the redirect to the login", w.Code)
+	}
+	u, _ := url.Parse(w.Header().Get("Location"))
+	id := u.Query().Get("request")
+
+	pending, err := f.handler.Peek(context.Background(), id)
+	if err != nil {
+		t.Fatalf("the login page cannot read the request it was sent: %v", err)
+	}
+
+	// What the page draws itself from.
+	if pending.ID != id {
+		t.Errorf("Peek returned id %q, want %q", pending.ID, id)
+	}
+	if pending.App.OrgID != f.orgID {
+		t.Errorf("Peek returned org %q, want %q", pending.App.OrgID, f.orgID)
+	}
+	// Where the sign-in ends: the REGISTERED address, which is what the page's
+	// form-action is built from. The request named an attacker's.
+	if pending.Request.RedirectURI != "https://sp.example.test/acs" {
+		t.Errorf("Peek returned %q as the destination, want the registered ACS URL",
+			pending.Request.RedirectURI)
+	}
+}
+
+// And the function Peek goes through is necessary, not decorative.
+//
+// Without this, the fix above is a change nobody can tell from the bug: both
+// versions pass every other test in this file, because every other test has a
+// tenant. This asserts the direct read — the one Peek used to do — genuinely
+// returns nothing under the scope Peek actually runs in.
+func TestReadingAPendingRequestWithoutATenantSeesNothing(t *testing.T) {
+	f := setupSSO(t, []string{"email"}, nil, false)
+
+	w := f.redirect(t, deflateEncode(t, authnRequestFor("_peek2", "https://sp.example.test", "")), "")
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("status %d, want the redirect to the login", w.Code)
+	}
+
+	err := f.db.WithInstanceScope(context.Background(),
+		"saml: proving the direct read is blind without a tenant",
+		func(tx *postgres.Tx) error {
+			var count int
+			if err := tx.QueryRow(context.Background(),
+				`SELECT count(*) FROM saml_authn_requests WHERE id = $1`, "_peek2").
+				Scan(&count); err != nil {
+				return err
+			}
+			if count != 0 {
+				t.Errorf("a direct read with no tenant found %d rows — "+
+					"row-level security is not doing what the fix assumes, and "+
+					"saml_authn_request_for_login is not needed for the reason claimed", count)
+			}
+			return nil
+		})
+	if err != nil {
+		t.Fatalf("instance-scoped read: %v", err)
+	}
+
+	// The row is genuinely there. Otherwise the assertion above would pass for
+	// the wrong reason — nothing to find rather than nothing visible.
+	var stored int
+	f.factory.QueryRow(&stored, `SELECT count(*) FROM saml_authn_requests WHERE id = '_peek2'`)
+	if stored != 1 {
+		t.Fatalf("%d rows stored for _peek2, want 1 — the test above proved nothing", stored)
+	}
+}
+
+// The lookup is bounded to the id it was given.
+//
+// Added because a mutation proved the two tests above could not tell a bounded
+// function from an unbounded one: widening it to `WHERE lookup_id IS NOT NULL`
+// left them green. That is not a small gap. The function is SECURITY DEFINER —
+// it exists precisely to see rows row-level security hides — and the ONLY thing
+// making that safe is that it answers one exact id. A version that ignored its
+// argument would hand the login page somebody else's pending request, across
+// every tenant on the instance.
+//
+// Asking for an id that was never recorded is the sharp way to test it: bounded,
+// it finds nothing; unbounded, it returns whatever row happens to be first.
+func TestTheLoginPageLookupAnswersOnlyTheIdItWasGiven(t *testing.T) {
+	f := setupSSO(t, []string{"email"}, nil, false)
+
+	// A real pending request has to exist, or an unbounded function would also
+	// find nothing and the assertion below would pass for the wrong reason.
+	w := f.redirect(t, deflateEncode(t, authnRequestFor("_peek3", "https://sp.example.test", "")), "")
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("status %d, want the redirect to the login", w.Code)
+	}
+	var stored int
+	f.factory.QueryRow(&stored, `SELECT count(*) FROM saml_authn_requests`)
+	if stored < 1 {
+		t.Fatalf("no pending requests exist, so this test proves nothing")
+	}
+
+	_, err := f.handler.Peek(context.Background(), RequestPrefix+"_never-recorded")
+	if err == nil {
+		t.Fatalf("an unrecorded id resolved to a request — the lookup is not bounded to "+
+			"the id it was given, and a SECURITY DEFINER function that ignores its "+
+			"argument reads every tenant's rows (%d row(s) in the table)", stored)
+	}
+	if !errors.Is(err, saml.ErrNoSuchRequest) {
+		t.Errorf("unrecorded id gave %v, want ErrNoSuchRequest", err)
 	}
 }
 

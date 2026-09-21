@@ -905,6 +905,27 @@ Read literally the sentence defers the endpoint **the same document lists in its
 
 Found by running the system rather than by reading the plan.
 
+### BL-10 — Nothing catches a query that reads an RLS-protected table under instance scope
+
+**Found**: 2026-09-21, after the second occurrence. **Affects**: every `WithInstanceScope` call site, and `BL-08`'s janitor before it is written.
+
+`postgres.withScope` sets `app.current_org_id` to the empty string for instance scope, so `current_org_id()` is NULL and every tenant policy evaluates false. Its own comment states the intent: *"Instance-scoped work therefore still cannot read a policy-protected table by accident — it has to query something not under RLS, or the caller has to be the owner."*
+
+The failure mode when code does it anyway is the worst available. A `SELECT` returns zero rows, an `UPDATE` or `DELETE` reports success having changed nothing, and **no error is raised anywhere**. A row hidden by RLS is indistinguishable from a row that was never written.
+
+It has now happened twice in one task:
+
+- `saml.Providers.ByID` — caught during `P4-08` before merge, fixed by migration 043.
+- `saml.Requests.Peek` — **not** caught, merged, deployed, and broke every SAML login through the hosted login page on staging. Migration 045. It was invisible to 38 mutations and a full integration suite because the only caller is the login page and nothing drove it.
+
+An audit of the remaining call sites found no third instance today: `user.LookupToken`, `organization.*`, `audit`'s partition maintenance and `management.IdempotencyStore.Sweep` all go through `SECURITY DEFINER` functions, and `management.Store`'s direct read of `manager_roles` is safe only because that table has no RLS — which is `DV-02`, itself an open deviation.
+
+**Fix**: a check of the same family as `tests/security/tenancy_test.go`'s allow-list, which already works for this codebase. Collect the tenant-scoped table names from the migrations, scan Go source for `WithInstanceScope` blocks, and fail when one names such a table in a query unless it is allow-listed with a reason. The point is not the static analysis — it is that the exceptions become a list somebody has to add to deliberately.
+
+Worth doing alongside `BL-08`, whose sweeper has exactly this trap waiting: a plain `DELETE` from the janitor would report success and remove nothing.
+
+---
+
 ### BL-09 — The shipped-endpoint guard checks paths, not methods, and `POST /oauth/userinfo` slipped through it
 
 **Found**: 2026-09-21, adding `GET /saml/slo`. **Affects**: `openapi/openapi.yaml`, `scripts/openapi-shipped-paths.py`.
