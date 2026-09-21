@@ -118,8 +118,6 @@ func (c *client) form(path string, v url.Values) result {
 
 var passed, failed int
 
-func section(s string) { fmt.Printf("\n\033[1;36m%s\033[0m\n", s) }
-
 func pass(format string, a ...any) {
 	passed++
 	fmt.Printf("  \033[32mPASS\033[0m %s\n", fmt.Sprintf(format, a...))
@@ -134,9 +132,44 @@ func note(format string, a ...any) {
 	fmt.Printf("       \033[2m%s\033[0m\n", fmt.Sprintf(format, a...))
 }
 
+// abandoned is what die raises: this section cannot continue.
+type abandoned struct{ reason string }
+
+// die abandons the CURRENT section, not the run.
+//
+// It used to call os.Exit, and that cost three deployments to learn from. The
+// first SP-initiated failure aborted every section after it, so each run
+// surfaced exactly one defect and the next was only visible once the first was
+// fixed and redeployed. Three bugs, three round trips.
+//
+// The sections are independent — the POST binding does not depend on the
+// Redirect binding having worked, and IdP-initiated depends on neither — so a
+// section that cannot continue should say so and let the others run. The exit
+// code still reflects any failure; only the reach of one changes.
 func die(format string, a ...any) {
-	fmt.Printf("\n\033[31mgave up: %s\033[0m\n", fmt.Sprintf(format, a...))
-	os.Exit(2)
+	panic(abandoned{reason: fmt.Sprintf(format, a...)})
+}
+
+// section runs one group of checks, surviving a die inside it.
+//
+// A panic that is not an `abandoned` is a bug in this program rather than a
+// finding about the service, so it is re-raised rather than reported as one.
+func section(title string, checks func()) {
+	fmt.Printf("\n\033[1;36m%s\033[0m\n", title)
+	defer func() {
+		switch p := recover().(type) {
+		case nil:
+		case abandoned:
+			failed++
+			fmt.Printf("  \033[31mFAIL\033[0m this section could not continue\n")
+			for _, line := range strings.Split(p.reason, "\n") {
+				note("%s", line)
+			}
+		default:
+			panic(p)
+		}
+	}()
+	checks()
 }
 
 func check(ok bool, subject string, detail ...any) {
@@ -305,6 +338,25 @@ func truncate(s string) string {
 // --- the checks ---------------------------------------------------------------
 
 func main() {
+	// Shared across sections, because the sections are independent of each
+	// other's SUCCESS but not of each other's discoveries: every assertion is
+	// verified against the certificate the metadata publishes, and the
+	// IdP-initiated section compares its NameID against the SP-initiated one.
+	//
+	// A section that could not run leaves these at their zero values, and the
+	// sections that need them say so rather than reporting a confusing failure.
+	var (
+		cert       *x509.Certificate
+		c          *client
+		redirectID string
+		nameID     string
+	)
+
+	// Echoed back unchanged by every flow that carries it. A constant rather
+	// than something the first section sets, so a later section can still
+	// check it when an earlier one could not run.
+	const relay = "/portal/after-login"
+
 	var (
 		base        = getenv("ACCEPT_BASE", "http://127.0.0.1:10800")
 		host        = must("ACCEPT_HOST")
@@ -319,251 +371,266 @@ func main() {
 
 	// --- metadata -------------------------------------------------------------
 
-	section("Metadata — what a service provider configures itself from")
+	section("Metadata — what a service provider configures itself from", func() {
+		meta := newClient(base, host).get("/saml/metadata")
+		if meta.status != http.StatusOK {
+			die("/saml/metadata answered %d: %s", meta.status, truncate(meta.body))
+		}
+		check(strings.HasPrefix(meta.contentType, "application/samlmetadata+xml"),
+			"metadata is served as application/samlmetadata+xml", meta.contentType)
 
-	meta := newClient(base, host).get("/saml/metadata")
-	if meta.status != http.StatusOK {
-		die("/saml/metadata answered %d: %s", meta.status, truncate(meta.body))
-	}
-	check(strings.HasPrefix(meta.contentType, "application/samlmetadata+xml"),
-		"metadata is served as application/samlmetadata+xml", meta.contentType)
-
-	md := etree.NewDocument()
-	if err := md.ReadFromString(meta.body); err != nil {
-		die("the metadata is not XML: %v", err)
-	}
-
-	check(md.FindElement("//EntityDescriptor") != nil &&
-		md.FindElement("//EntityDescriptor").SelectAttrValue("entityID", "") == issuer,
-		"the metadata names this instance as the entity", issuer)
-
-	certEl := md.FindElement("//X509Certificate")
-	if certEl == nil {
-		die("the metadata publishes no certificate; a service provider has nothing to pin")
-	}
-	cert := parseCertificate(strings.TrimSpace(certEl.Text()))
-	check(cert != nil, "the published certificate parses as X.509")
-	check(cert != nil && time.Now().Before(cert.NotAfter),
-		"the published certificate has not expired", certificateWindow(cert))
-
-	bindings := map[string]bool{}
-	for _, sso := range md.FindElements("//SingleSignOnService") {
-		bindings[sso.SelectAttrValue("Binding", "")] = true
-	}
-	check(bindings["urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect"],
-		"HTTP-Redirect is advertised")
-	check(bindings["urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST"],
-		"HTTP-POST is advertised")
-
-	// The absence is the decision (P4-08). Front-channel Single Logout leaves a
-	// partial logout — a user told they are signed out of applications they are
-	// not — so the endpoint is not advertised and a service provider cannot
-	// build a logout button on it.
-	check(len(md.FindElements("//SingleLogoutService")) == 0,
-		"no SingleLogoutService is advertised, so nothing is built on a partial logout")
-
-	formats := []string{}
-	for _, f := range md.FindElements("//NameIDFormat") {
-		formats = append(formats, strings.TrimSpace(f.Text()))
-	}
-	check(contains(formats, "urn:oasis:names:tc:SAML:2.0:nameid-format:persistent"),
-		"the persistent NameID format is advertised")
-	check(!containsSubstring(formats, "emailAddress"),
-		"no email NameID format is advertised", strings.Join(formats, ", "))
-
-	// --- single logout --------------------------------------------------------
-
-	section("Single Logout — refused in the protocol's own vocabulary")
-
-	slo := newClient(base, host).get("/saml/slo")
-	check(slo.status != http.StatusNotFound,
-		"/saml/slo is not a 404 — a 404 reads as a misconfiguration to retry", slo.status)
-	check(strings.Contains(slo.body, "RequestDenied"),
-		"/saml/slo answers RequestDenied, which reads as a decision", truncate(slo.body))
-
-	// --- SP-initiated, HTTP-Redirect -----------------------------------------
-
-	section("SP-initiated on HTTP-Redirect")
-
-	redirectID := requestID("redir")
-	relay := "/portal/after-login"
-	c := newClient(base, host)
-
-	started := c.get("/saml/sso?" + url.Values{
-		"SAMLRequest": {deflateBase64(authnRequest(redirectID, entityID, issuer+"/saml/sso"))},
-		"RelayState":  {relay},
-	}.Encode())
-
-	check(started.status == http.StatusSeeOther || started.status == http.StatusFound,
-		"an AuthnRequest with no session is sent to the hosted login", started.status)
-	if !strings.Contains(started.location, "/login?request=saml") {
-		die("the login URL does not carry a SAML request: %q", started.location)
-	}
-	pass("the login URL namespaces the request as SAML")
-
-	answered := c.signIn(loginPath(started.location, host), email, password)
-	if answered.status != http.StatusOK {
-		die("signing in did not produce an assertion: %d %s", answered.status, truncate(answered.body))
-	}
-
-	got, err := readForm(answered.body)
-	if err != nil {
-		die("reading the delivered form: %v — %s", err, truncate(answered.body))
-	}
-
-	check(got.action == acsURL,
-		"the assertion is posted to the REGISTERED ACS URL, not the one the request named",
-		fmt.Sprintf("posted to %s; the request asked for %s", got.action, attackerACS))
-	check(got.action != attackerACS,
-		"the request's own AssertionConsumerServiceURL was ignored")
-
-	if err := verifyAssertion(got, cert); err != nil {
-		fail("the assertion verifies against the certificate in metadata")
-		note("%v", err)
-	} else {
-		pass("the assertion verifies against the certificate in metadata")
-	}
-
-	check(got.attr("//Response", "InResponseTo") == redirectID,
-		"the response answers the request it was sent",
-		got.attr("//Response", "InResponseTo"))
-	check(got.attr("//Response", "Destination") == acsURL,
-		"the response is addressed to the registered ACS URL")
-	check(got.relayState == relay, "RelayState came back unchanged", got.relayState)
-
-	nameID := got.text("//NameID")
-	check(nameID != "" && nameID != email,
-		"the NameID is not the user's email address", nameID)
-	check(got.attr("//NameID", "Format") == "urn:oasis:names:tc:SAML:2.0:nameid-format:persistent",
-		"the NameID is persistent", got.attr("//NameID", "Format"))
-	check(got.text("//Audience") == entityID,
-		"the assertion is restricted to this service provider", got.text("//Audience"))
-
-	// --- one answer per request -----------------------------------------------
-
-	section("One AuthnRequest, one answer")
-
-	replayed := c.get("/saml/sso?" + url.Values{
-		"SAMLRequest": {deflateBase64(authnRequest(redirectID, entityID, issuer+"/saml/sso"))},
-		"RelayState":  {relay},
-	}.Encode())
-
-	// The session is live now, so this takes the fast path — which records no
-	// pending row and answers immediately. Single-use is a property of the
-	// login path, not of this one, and the record says why: replaying against
-	// a live session needs the cookie that would have let you start a fresh
-	// sign-on anyway, and an unsigned AuthnRequest can be forged outright, so
-	// bounding replays of one id bounds nothing. The correlation defence is
-	// the service provider checking InResponseTo, where it belongs.
-	//
-	// So the property worth asserting here is narrower and still real: a
-	// second request never produces an assertion addressed anywhere but the
-	// registration, and the user is the same subject both times.
-	if replayed.status == http.StatusOK {
-		again, err := readForm(replayed.body)
-		check(err == nil && again.action == acsURL,
-			"a repeated request is still answered only at the registered ACS URL")
-		check(err == nil && again.text("//NameID") == nameID,
-			"the same user is the same subject to this service provider across logins",
-			"a NameID that changes per login is a new account at the service provider")
-	} else {
-		pass("a repeated request id is refused outright (%d)", replayed.status)
-	}
-
-	// --- SP-initiated, HTTP-POST ----------------------------------------------
-
-	section("SP-initiated on HTTP-POST")
-
-	postID := requestID("post")
-	p := newClient(base, host)
-	postStarted := p.form("/saml/sso", url.Values{
-		"SAMLRequest": {base64.StdEncoding.EncodeToString(
-			[]byte(authnRequest(postID, entityID, issuer+"/saml/sso")))},
-		"RelayState": {relay},
-	})
-	check(postStarted.status == http.StatusSeeOther || postStarted.status == http.StatusFound,
-		"an AuthnRequest on HTTP-POST is sent to the hosted login", postStarted.status)
-
-	postAnswered := p.signIn(loginPath(postStarted.location, host), email, password)
-	postGot, err := readForm(postAnswered.body)
-	if err != nil {
-		die("HTTP-POST did not produce an assertion: %v — %s", err, truncate(postAnswered.body))
-	}
-	if err := verifyAssertion(postGot, cert); err != nil {
-		fail("the HTTP-POST assertion verifies against the published certificate")
-		note("%v", err)
-	} else {
-		pass("the HTTP-POST assertion verifies against the published certificate")
-	}
-	check(postGot.attr("//Response", "InResponseTo") == postID,
-		"the HTTP-POST response answers its own request")
-	check(postGot.action == acsURL,
-		"HTTP-POST is held to the same registered ACS URL")
-
-	// --- an entity nobody registered ------------------------------------------
-
-	section("An entity ID nobody registered")
-
-	stranger := newClient(base, host).get("/saml/sso?" + url.Values{
-		"SAMLRequest": {deflateBase64(authnRequest(
-			requestID("strange"), "https://stranger.invalid/sp", issuer+"/saml/sso"))},
-	}.Encode())
-	check(stranger.status >= 400,
-		"an unregistered service provider is refused", stranger.status)
-	check(!strings.Contains(stranger.body, "SAMLResponse"),
-		"nothing is delivered to an unregistered service provider — there is no approved address to send it to")
-
-	// --- IdP-initiated --------------------------------------------------------
-
-	section("IdP-initiated, which is off until somebody turns it on")
-
-	// Two registrations, identical but for `allow_idp_initiated`, exercised in
-	// the same run against the same key and the same user. A single
-	// registration toggled between passes would show the same two outcomes and
-	// prove less: a refusal followed by a success is also what a fixed
-	// unrelated problem looks like.
-
-	i := newClient(base, host)
-	refused := i.get("/saml/init?" + url.Values{"entity_id": {entityID}}.Encode())
-	check(refused.status >= 400,
-		"a registration that has not opted in is refused", refused.status)
-	check(!strings.Contains(refused.body, "SAMLResponse"),
-		"not even a SAML failure is delivered to a service provider that did not ask for the capability")
-
-	unsolicited := i.get("/saml/init?" + url.Values{
-		"entity_id": {idpEntityID}, "RelayState": {relay},
-	}.Encode())
-	if unsolicited.status == http.StatusSeeOther || unsolicited.status == http.StatusFound {
-		unsolicited = i.signIn(loginPath(unsolicited.location, host), email, password)
-	}
-
-	idp, err := readForm(unsolicited.body)
-	if err != nil {
-		fail("an opted-in service provider receives an unsolicited assertion")
-		note("%v — %s", err, truncate(unsolicited.body))
-	} else {
-		pass("an opted-in service provider receives an unsolicited assertion")
-		pass("the opt-in is the only difference between the two registrations")
-
-		if err := verifyAssertion(idp, cert); err != nil {
-			fail("the unsolicited assertion verifies against the published certificate")
-			note("%v", err)
-		} else {
-			pass("the unsolicited assertion verifies against the published certificate")
+		md := etree.NewDocument()
+		if err := md.ReadFromString(meta.body); err != nil {
+			die("the metadata is not XML: %v", err)
 		}
 
-		check(!strings.Contains(string(idp.raw), "InResponseTo"),
-			"the unsolicited assertion claims to answer no request",
-			"an InResponseTo here invents a correlation the service provider would rely on")
-		check(idp.action == idpACSURL,
-			"the unsolicited assertion goes to that registration's own ACS URL", idp.action)
-		check(idp.text("//Audience") == idpEntityID,
-			"the unsolicited assertion is restricted to the service provider that opted in",
-			idp.text("//Audience"))
-		check(idp.text("//NameID") != nameID,
-			"the same user is a DIFFERENT subject to a different service provider",
-			"a NameID shared across service providers is a correlation handle they can join on")
-	}
+		check(md.FindElement("//EntityDescriptor") != nil &&
+			md.FindElement("//EntityDescriptor").SelectAttrValue("entityID", "") == issuer,
+			"the metadata names this instance as the entity", issuer)
+
+		certEl := md.FindElement("//X509Certificate")
+		if certEl == nil {
+			die("the metadata publishes no certificate; a service provider has nothing to pin")
+		}
+		cert = parseCertificate(strings.TrimSpace(certEl.Text()))
+		check(cert != nil, "the published certificate parses as X.509")
+		check(cert != nil && time.Now().Before(cert.NotAfter),
+			"the published certificate has not expired", certificateWindow(cert))
+
+		bindings := map[string]bool{}
+		for _, sso := range md.FindElements("//SingleSignOnService") {
+			bindings[sso.SelectAttrValue("Binding", "")] = true
+		}
+		check(bindings["urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect"],
+			"HTTP-Redirect is advertised")
+		check(bindings["urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST"],
+			"HTTP-POST is advertised")
+
+		// The absence is the decision (P4-08). Front-channel Single Logout leaves a
+		// partial logout — a user told they are signed out of applications they are
+		// not — so the endpoint is not advertised and a service provider cannot
+		// build a logout button on it.
+		check(len(md.FindElements("//SingleLogoutService")) == 0,
+			"no SingleLogoutService is advertised, so nothing is built on a partial logout")
+
+		formats := []string{}
+		for _, f := range md.FindElements("//NameIDFormat") {
+			formats = append(formats, strings.TrimSpace(f.Text()))
+		}
+		check(contains(formats, "urn:oasis:names:tc:SAML:2.0:nameid-format:persistent"),
+			"the persistent NameID format is advertised")
+		check(!containsSubstring(formats, "emailAddress"),
+			"no email NameID format is advertised", strings.Join(formats, ", "))
+
+		// --- single logout --------------------------------------------------------
+	})
+
+	section("Single Logout — refused in the protocol's own vocabulary", func() {
+		slo := newClient(base, host).get("/saml/slo")
+		check(slo.status != http.StatusNotFound,
+			"/saml/slo is not a 404 — a 404 reads as a misconfiguration to retry", slo.status)
+		check(strings.Contains(slo.body, "RequestDenied"),
+			"/saml/slo answers RequestDenied, which reads as a decision", truncate(slo.body))
+
+		// --- SP-initiated, HTTP-Redirect -----------------------------------------
+	})
+
+	section("SP-initiated on HTTP-Redirect", func() {
+		if cert == nil {
+			die("the metadata section could not publish a certificate, so an assertion here could not be verified against anything")
+		}
+
+		redirectID = requestID("redir")
+		c = newClient(base, host)
+
+		started := c.get("/saml/sso?" + url.Values{
+			"SAMLRequest": {deflateBase64(authnRequest(redirectID, entityID, issuer+"/saml/sso"))},
+			"RelayState":  {relay},
+		}.Encode())
+
+		check(started.status == http.StatusSeeOther || started.status == http.StatusFound,
+			"an AuthnRequest with no session is sent to the hosted login", started.status)
+		if !strings.Contains(started.location, "/login?request=saml") {
+			die("the login URL does not carry a SAML request: %q", started.location)
+		}
+		pass("the login URL namespaces the request as SAML")
+
+		answered := c.signIn(loginPath(started.location, host), email, password)
+		if answered.status != http.StatusOK {
+			die("signing in did not produce an assertion: %d %s", answered.status, truncate(answered.body))
+		}
+
+		got, err := readForm(answered.body)
+		if err != nil {
+			die("reading the delivered form: %v — %s", err, truncate(answered.body))
+		}
+
+		check(got.action == acsURL,
+			"the assertion is posted to the REGISTERED ACS URL, not the one the request named",
+			fmt.Sprintf("posted to %s; the request asked for %s", got.action, attackerACS))
+		check(got.action != attackerACS,
+			"the request's own AssertionConsumerServiceURL was ignored")
+
+		if err := verifyAssertion(got, cert); err != nil {
+			fail("the assertion verifies against the certificate in metadata")
+			note("%v", err)
+		} else {
+			pass("the assertion verifies against the certificate in metadata")
+		}
+
+		check(got.attr("//Response", "InResponseTo") == redirectID,
+			"the response answers the request it was sent",
+			got.attr("//Response", "InResponseTo"))
+		check(got.attr("//Response", "Destination") == acsURL,
+			"the response is addressed to the registered ACS URL")
+		check(got.relayState == relay, "RelayState came back unchanged", got.relayState)
+
+		nameID = got.text("//NameID")
+		check(nameID != "" && nameID != email,
+			"the NameID is not the user's email address", nameID)
+		check(got.attr("//NameID", "Format") == "urn:oasis:names:tc:SAML:2.0:nameid-format:persistent",
+			"the NameID is persistent", got.attr("//NameID", "Format"))
+		check(got.text("//Audience") == entityID,
+			"the assertion is restricted to this service provider", got.text("//Audience"))
+
+		// --- one answer per request -----------------------------------------------
+	})
+
+	section("One AuthnRequest, one answer", func() {
+		if c == nil || redirectID == "" {
+			die("no SP-initiated login completed, so there is nothing to repeat")
+		}
+
+		replayed := c.get("/saml/sso?" + url.Values{
+			"SAMLRequest": {deflateBase64(authnRequest(redirectID, entityID, issuer+"/saml/sso"))},
+			"RelayState":  {relay},
+		}.Encode())
+
+		// The session is live now, so this takes the fast path — which records no
+		// pending row and answers immediately. Single-use is a property of the
+		// login path, not of this one, and the record says why: replaying against
+		// a live session needs the cookie that would have let you start a fresh
+		// sign-on anyway, and an unsigned AuthnRequest can be forged outright, so
+		// bounding replays of one id bounds nothing. The correlation defence is
+		// the service provider checking InResponseTo, where it belongs.
+		//
+		// So the property worth asserting here is narrower and still real: a
+		// second request never produces an assertion addressed anywhere but the
+		// registration, and the user is the same subject both times.
+		if replayed.status == http.StatusOK {
+			again, err := readForm(replayed.body)
+			check(err == nil && again.action == acsURL,
+				"a repeated request is still answered only at the registered ACS URL")
+			check(err == nil && again.text("//NameID") == nameID,
+				"the same user is the same subject to this service provider across logins",
+				"a NameID that changes per login is a new account at the service provider")
+		} else {
+			pass("a repeated request id is refused outright (%d)", replayed.status)
+		}
+
+		// --- SP-initiated, HTTP-POST ----------------------------------------------
+	})
+
+	section("SP-initiated on HTTP-POST", func() {
+		if cert == nil {
+			die("the metadata section could not publish a certificate, so an assertion here could not be verified against anything")
+		}
+
+		postID := requestID("post")
+		p := newClient(base, host)
+		postStarted := p.form("/saml/sso", url.Values{
+			"SAMLRequest": {base64.StdEncoding.EncodeToString(
+				[]byte(authnRequest(postID, entityID, issuer+"/saml/sso")))},
+			"RelayState": {relay},
+		})
+		check(postStarted.status == http.StatusSeeOther || postStarted.status == http.StatusFound,
+			"an AuthnRequest on HTTP-POST is sent to the hosted login", postStarted.status)
+
+		postAnswered := p.signIn(loginPath(postStarted.location, host), email, password)
+		postGot, err := readForm(postAnswered.body)
+		if err != nil {
+			die("HTTP-POST did not produce an assertion: %v — %s", err, truncate(postAnswered.body))
+		}
+		if err := verifyAssertion(postGot, cert); err != nil {
+			fail("the HTTP-POST assertion verifies against the published certificate")
+			note("%v", err)
+		} else {
+			pass("the HTTP-POST assertion verifies against the published certificate")
+		}
+		check(postGot.attr("//Response", "InResponseTo") == postID,
+			"the HTTP-POST response answers its own request")
+		check(postGot.action == acsURL,
+			"HTTP-POST is held to the same registered ACS URL")
+
+		// --- an entity nobody registered ------------------------------------------
+	})
+
+	section("An entity ID nobody registered", func() {
+		stranger := newClient(base, host).get("/saml/sso?" + url.Values{
+			"SAMLRequest": {deflateBase64(authnRequest(
+				requestID("strange"), "https://stranger.invalid/sp", issuer+"/saml/sso"))},
+		}.Encode())
+		check(stranger.status >= 400,
+			"an unregistered service provider is refused", stranger.status)
+		check(!strings.Contains(stranger.body, "SAMLResponse"),
+			"nothing is delivered to an unregistered service provider — there is no approved address to send it to")
+
+		// --- IdP-initiated --------------------------------------------------------
+	})
+
+	section("IdP-initiated, which is off until somebody turns it on", func() {
+		if cert == nil {
+			die("the metadata section could not publish a certificate, so an assertion here could not be verified against anything")
+		}
+
+		// Two registrations, identical but for `allow_idp_initiated`, exercised in
+		// the same run against the same key and the same user. A single
+		// registration toggled between passes would show the same two outcomes and
+		// prove less: a refusal followed by a success is also what a fixed
+		// unrelated problem looks like.
+
+		i := newClient(base, host)
+		refused := i.get("/saml/init?" + url.Values{"entity_id": {entityID}}.Encode())
+		check(refused.status >= 400,
+			"a registration that has not opted in is refused", refused.status)
+		check(!strings.Contains(refused.body, "SAMLResponse"),
+			"not even a SAML failure is delivered to a service provider that did not ask for the capability")
+
+		unsolicited := i.get("/saml/init?" + url.Values{
+			"entity_id": {idpEntityID}, "RelayState": {relay},
+		}.Encode())
+		if unsolicited.status == http.StatusSeeOther || unsolicited.status == http.StatusFound {
+			unsolicited = i.signIn(loginPath(unsolicited.location, host), email, password)
+		}
+
+		idp, err := readForm(unsolicited.body)
+		if err != nil {
+			fail("an opted-in service provider receives an unsolicited assertion")
+			note("%v — %s", err, truncate(unsolicited.body))
+		} else {
+			pass("an opted-in service provider receives an unsolicited assertion")
+			pass("the opt-in is the only difference between the two registrations")
+
+			if err := verifyAssertion(idp, cert); err != nil {
+				fail("the unsolicited assertion verifies against the published certificate")
+				note("%v", err)
+			} else {
+				pass("the unsolicited assertion verifies against the published certificate")
+			}
+
+			check(!strings.Contains(string(idp.raw), "InResponseTo"),
+				"the unsolicited assertion claims to answer no request",
+				"an InResponseTo here invents a correlation the service provider would rely on")
+			check(idp.action == idpACSURL,
+				"the unsolicited assertion goes to that registration's own ACS URL", idp.action)
+			check(idp.text("//Audience") == idpEntityID,
+				"the unsolicited assertion is restricted to the service provider that opted in",
+				idp.text("//Audience"))
+			check(idp.text("//NameID") != nameID,
+				"the same user is a DIFFERENT subject to a different service provider",
+				"a NameID shared across service providers is a correlation handle they can join on")
+		}
+	})
 
 	// --- verdict ---------------------------------------------------------------
 
