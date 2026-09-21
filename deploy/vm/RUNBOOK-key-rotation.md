@@ -238,17 +238,39 @@ generate ──▶ next ──▶ send the new certificate to every service prov
                       └─ only when all of them confirm ──▶ rotate
 ```
 
-1. `keyctl -purpose saml generate` — needs `AUTH_ISSUER` set, because the
-   certificate's CommonName is the entity ID service providers will pin.
-2. `sudo deploy/vm/secrets.sh fix` — same as for an OIDC key.
+**The wrapper needs one more variable.** `kc` as defined above does not pass
+`AUTH_ISSUER`, and a SAML `generate` refuses without it rather than guessing —
+the CommonName in the certificate is the entity ID every service provider will
+pin, and a wrong one produces a certificate nobody can match. Use this variant
+for the SAML key set:
+
+```bash
+kcsaml() {
+  docker run --rm --network zedauth_default     -v /home/infra/auth-state/bin:/bin/kc     -v /home/infra/auth-state/secrets:/etc/zed-auth/secrets     -e AUTH_MIGRATE_DSN="postgres://auth_owner:${AUTH_POSTGRES_OWNER_PASSWORD}@postgres:5432/auth?sslmode=disable"     -e AUTH_SECRETS_DIR=/etc/zed-auth/secrets     -e AUTH_ISSUER="${AUTH_ISSUER}"     debian:12-slim /bin/kc/keyctl -purpose saml "$@"
+}
+```
+
+1. `kcsaml generate`. It writes `saml-signing-<kid>.pem` — the prefix differs
+   from the OIDC `jwt-signing-` one so a listing of the secrets directory says
+   which key signs what without opening anything.
+2. `sudo deploy/vm/secrets.sh fix` — same as for an OIDC key, and for the same
+   reason: the file must be owned by the service uid before the service can
+   read it.
 3. Extract the new certificate and send it to each service provider's
-   administrator. `keyctl -purpose saml list` shows the key; the certificate is
-   in the `signing_keys` row.
+   administrator. `kcsaml list` shows the key; the certificate is the
+   `certificate` column of its `signing_keys` row, and after step 5 it is also
+   what `/saml/metadata` publishes.
 4. **Wait for confirmation from every one of them.** Not a duration — an
    acknowledgement. There is no cache expiry to wait out.
-5. `keyctl -purpose saml rotate`.
+5. `kcsaml rotate`.
 6. Verify `/saml/metadata` now advertises the new certificate, then confirm a
    real login against at least one service provider before you walk away.
+   `scripts/acceptance-saml.sh` does the second part against a throwaway
+   registration of its own.
+
+`kcsaml jwks` refuses, and that is the correct answer rather than a missing
+feature: SAML has no JWKS, which is precisely why a SAML key carries a
+certificate and an OIDC key does not.
 
 **If a service provider cannot hold two certificates at once**, the rotation is
 a coordinated outage for that integration and must be scheduled as one. Say so
