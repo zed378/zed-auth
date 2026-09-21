@@ -128,6 +128,12 @@ const sidebar: SidebarsConfig = {
         },
         {
           type: "doc",
+          id: "api-reference/saml-single-logout-redirect",
+          label: "SAML Single Logout on HTTP-Redirect — deliberately unsupported",
+          className: "api-method get",
+        },
+        {
+          type: "doc",
           id: "api-reference/saml-single-logout",
           label: "SAML Single Logout — deliberately unsupported",
           className: "api-method post",

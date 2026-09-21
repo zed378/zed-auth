@@ -1,0 +1,1 @@
+{"parameters":[{"name":"SAMLRequest","in":"query","required":false,"schema":{"type":"string"},"description":"Ignored. Accepted so the refusal is what the sender sees."},{"name":"RelayState","in":"query","required":false,"schema":{"type":"string"},"description":"Ignored."}]}

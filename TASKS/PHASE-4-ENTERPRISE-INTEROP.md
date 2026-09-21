@@ -352,6 +352,7 @@ nothing.
 - [ ] Uploaded metadata is parsed with the same hardened parser configuration as assertions.
 - [ ] IdP metadata is published and consumable by a standard SP.
 - [ ] Certificate expiry produces a warning before it produces an outage.
+- [ ] `/saml/metadata` advertises every signing key that is `next` or `current`, not only `current`. Today it publishes one, which means rotating a SAML key breaks every service provider still pinning the old certificate at the instant `keyctl rotate` runs — the overlap that makes an OIDC rotation safe has no counterpart, and `deploy/vm/RUNBOOK-key-rotation.md` currently substitutes a round of emails for it.
 - [ ] `want_signed_requests` and `allow_idp_initiated` are settable through the API and the console, and the console says what each one costs — signing is refused on the HTTP-Redirect binding, and IdP-initiated sign-on is uncorrelated by construction. A toggle whose consequence is invisible is a toggle an administrator flips for the wrong reason.
 
 ---

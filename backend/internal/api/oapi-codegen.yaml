@@ -80,6 +80,7 @@ output-options:
     - samlSSORedirect
     - samlSSOPost
     - samlSingleLogout
+    - samlSingleLogoutRedirect
 
 generate:
   # Request and response types. The whole point: a field renamed in the spec
