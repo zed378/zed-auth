@@ -6,6 +6,14 @@ import { Badge } from "../components/Badge";
 import { Button } from "../components/Button";
 import { ClientSecretModal } from "../components/ClientSecretModal";
 import { Modal } from "../components/Modal";
+import {
+  SamlRegistrationFields,
+  draftFrom,
+  draftIsComplete,
+  emptySamlDraft,
+  inputFrom,
+} from "../components/SamlRegistrationFields";
+import type { SamlDraft, SamlRegistration } from "../components/SamlRegistrationFields";
 import { ProjectNav } from "../components/ProjectNav";
 import { Table } from "../components/Table";
 import type { Column } from "../components/Table";
@@ -19,6 +27,7 @@ type Application = {
   type: string;
   has_secret: boolean;
   redirect_uris: string[];
+  saml?: SamlRegistration;
 };
 
 /**
@@ -36,10 +45,12 @@ export function ApplicationsPage() {
   const applications = useApplications(orgId, projectId ?? null);
   const [creating, setCreating] = useState(false);
   const [issued, setIssued] = useState<{ name: string; secret: string } | null>(null);
+  const [editingSaml, setEditingSaml] = useState<Application | null>(null);
   const { hasRole } = useAuth();
 
   const project = (projects.data ?? []).find((candidate) => candidate.id === projectId);
   const rows = (applications.data ?? []) as Application[];
+  const canManage = hasRole("ORG_ADMIN", "ORG_OWNER", "INSTANCE_OWNER");
 
   const columns: Column<Application>[] = [
     { key: "name", header: "Name", cell: (app) => app.name },
@@ -74,19 +85,43 @@ export function ApplicationsPage() {
         // docs/UI-UX/13). "None" is not a problem — a public client is
         // supposed to have none — so it is muted rather than a warning.
         <Badge tone={app.has_secret ? "positive" : "muted"}>
-          {app.has_secret ? "Configured" : "None (public client)"}
+          {app.has_secret
+            ? "Configured"
+            : app.type === "saml"
+              ? "None (SAML)"
+              : "None (public client)"}
         </Badge>
       ),
     },
     {
       key: "redirects",
-      header: "Redirect URIs",
+      // Where a sign-in ends, whichever protocol it is. For SAML that is the
+      // registered ACS URL — the only address an assertion is ever sent to.
+      header: "Where sign-in ends",
       secondary: true,
       cell: (app) => (
         <span className="font-mono text-small text-text-secondary">
-          {app.redirect_uris.length === 0 ? "—" : app.redirect_uris.join(", ")}
+          {app.saml !== undefined
+            ? app.saml.acs_url
+            : app.redirect_uris.length === 0
+              ? "—"
+              : app.redirect_uris.join(", ")}
         </span>
       ),
+    },
+    {
+      key: "saml",
+      header: "SAML",
+      cell: (app) =>
+        app.saml === undefined ? null : (
+          <div className="flex flex-col items-start gap-1">
+            <code className="font-mono text-small text-text-secondary">{app.saml.entity_id}</code>
+            <CertificateStatus registration={app.saml} />
+            {canManage ? (
+              <Button onClick={() => setEditingSaml(app)}>SAML settings</Button>
+            ) : null}
+          </div>
+        ),
     },
   ];
 
@@ -146,6 +181,13 @@ export function ApplicationsPage() {
         }}
       />
 
+      <EditSamlModal
+        application={editingSaml}
+        orgId={orgId}
+        projectId={projectId ?? null}
+        onClose={() => setEditingSaml(null)}
+      />
+
       <ClientSecretModal
         open={issued !== null}
         applicationName={issued?.name ?? ""}
@@ -170,7 +212,8 @@ function CreateApplicationModal({
   onIssued: (name: string, secret: string | undefined) => void;
 }) {
   const [name, setName] = useState("");
-  const [type, setType] = useState<"web" | "spa" | "native" | "api">("web");
+  const [type, setType] = useState<"web" | "spa" | "native" | "api" | "saml">("web");
+  const [saml, setSaml] = useState<SamlDraft>(emptySamlDraft);
   const [redirects, setRedirects] = useState("");
   const [problem, setProblem] = useState<string | null>(null);
   const queryClient = useQueryClient();
@@ -181,14 +224,20 @@ function CreateApplicationModal({
         "/v1/organizations/{org_id}/projects/{project_id}/applications",
         {
           params: { path: { org_id: orgId as string, project_id: projectId as string } },
-          body: {
-            name: name.trim(),
-            type,
-            redirect_uris: redirects
-              .split("\n")
-              .map((line) => line.trim())
-              .filter((line) => line !== ""),
-          },
+          // A SAML application sends its registration and nothing OIDC; any
+          // other type sends redirect URIs and no registration. The service
+          // refuses the crossed combinations, so the console never builds one.
+          body:
+            type === "saml"
+              ? { name: name.trim(), type, saml: inputFrom(saml) }
+              : {
+                  name: name.trim(),
+                  type,
+                  redirect_uris: redirects
+                    .split("\n")
+                    .map((line) => line.trim())
+                    .filter((line) => line !== ""),
+                },
         },
       );
       if (error !== undefined) throw error;
@@ -201,6 +250,7 @@ function CreateApplicationModal({
       onIssued(data.name, data.client_secret);
       setName("");
       setRedirects("");
+      setSaml(emptySamlDraft());
       setProblem(null);
     },
     onError: (error: unknown) => {
@@ -228,7 +278,7 @@ function CreateApplicationModal({
           <Button
             variant="primary"
             loading={create.isPending}
-            disabled={name.trim() === ""}
+            disabled={name.trim() === "" || (type === "saml" && !draftIsComplete(saml))}
             onClick={() => create.mutate()}
           >
             Register
@@ -260,13 +310,21 @@ function CreateApplicationModal({
         <option value="spa">Single-page app — runs in a browser</option>
         <option value="native">Native — a mobile or desktop app</option>
         <option value="api">API — a service with no user present</option>
+        <option value="saml">SAML — a service provider that signs in with SAML 2.0</option>
       </select>
       <p id="app-type-help" className="mt-1 text-small text-text-secondary">
-        {publicClient
-          ? "A public client gets no secret: it cannot keep one confidential, so it uses PKCE instead."
-          : "A confidential client is issued a secret, shown once when it is registered."}{" "}
+        {type === "saml"
+          ? "A SAML service provider gets no secret: it trusts this service by its signing certificate."
+          : publicClient
+            ? "A public client gets no secret: it cannot keep one confidential, so it uses PKCE instead."
+            : "A confidential client is issued a secret, shown once when it is registered."}{" "}
         The type cannot be changed afterwards.
       </p>
+
+      {type === "saml" ? (
+        <SamlRegistrationFields idPrefix="app-saml" draft={saml} onChange={setSaml} />
+      ) : (
+        <>
 
       <label
         htmlFor="app-redirects"
@@ -286,6 +344,8 @@ function CreateApplicationModal({
         One per line, matched by exact string comparison — a wildcard would be matched literally
         and never match anything.
       </p>
+        </>
+      )}
 
       {problem !== null ? (
         <p role="alert" className="mt-3 text-small text-danger">
@@ -299,4 +359,137 @@ function CreateApplicationModal({
 function kindOf(error: unknown): "network" | "server" | "permission" | "validation" {
   const failure = error as { kind?: "network" | "server" | "permission" | "validation" } | null;
   return failure?.kind ?? "server";
+}
+
+/**
+ * The service provider's certificate, and whether it is about to stop working.
+ *
+ * The warning comes from the server (`certificate_expires_soon`), which is the
+ * one place the 30-day window is defined. Text carries it, not the colour: an
+ * administrator reading a screenshot in greyscale gets the same date.
+ */
+function CertificateStatus({ registration }: { registration: SamlRegistration }) {
+  if (registration.certificate_expires_at === undefined) {
+    return <Badge tone="muted">No certificate</Badge>;
+  }
+  const date = new Date(registration.certificate_expires_at).toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+  // No comparison against this browser's clock. The server decides whether the
+  // certificate is inside the window — including already past it — and a second
+  // opinion from a clock the administrator's laptop may have wrong would be a
+  // console disagreeing with the service it describes.
+  return registration.certificate_expires_soon === true ? (
+    <Badge tone="attention">{`Certificate expiry ${date} — ask for a new one`}</Badge>
+  ) : (
+    <Badge tone="neutral">{`Certificate valid until ${date}`}</Badge>
+  );
+}
+
+/**
+ * Changing a registration — including the two switches P4-08 shipped with no
+ * administrator in front of them.
+ *
+ * The whole registration is sent, not the fields that changed, because the
+ * service replaces it whole: several fields constrain each other, and a caller
+ * sending only a switch would be relying on values it has not looked at.
+ */
+function EditSamlModal({
+  application,
+  orgId,
+  projectId,
+  onClose,
+}: {
+  application: Application | null;
+  orgId: string | null;
+  projectId: string | null;
+  onClose: () => void;
+}) {
+  const [draft, setDraft] = useState<SamlDraft | null>(null);
+  const [problem, setProblem] = useState<string | null>(null);
+  const [seededFor, setSeededFor] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+
+  // Seeded each time a different application is opened, so a cancelled edit
+  // does not leak into the next one.
+  if (application?.saml !== undefined && seededFor !== application.id) {
+    setSeededFor(application.id);
+    setDraft(draftFrom(application.saml));
+    setProblem(null);
+  }
+
+  const close = () => {
+    setSeededFor(null);
+    setDraft(null);
+    onClose();
+  };
+
+  const save = useMutation({
+    mutationFn: async () => {
+      if (application === null || draft === null) return;
+      const { error } = await api.PATCH(
+        "/v1/organizations/{org_id}/projects/{project_id}/applications/{application_id}",
+        {
+          params: {
+            path: {
+              org_id: orgId as string,
+              project_id: projectId as string,
+              application_id: application.id,
+            },
+          },
+          body: { saml: inputFrom(draft) },
+        },
+      );
+      if (error !== undefined) throw error;
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: [...queryKeys.applications, orgId, projectId],
+      });
+      close();
+    },
+    onError: (error: unknown) => {
+      const envelope = error as { error?: { message?: string; details?: { issue?: string }[] } };
+      setProblem(
+        envelope.error?.details?.[0]?.issue ?? envelope.error?.message ?? "That could not be saved.",
+      );
+    },
+  });
+
+  return (
+    <Modal
+      open={application !== null && draft !== null}
+      title={`SAML settings — ${application?.name ?? ""}`}
+      onClose={close}
+      footer={
+        <>
+          <Button onClick={close}>Cancel</Button>
+          <Button
+            variant="primary"
+            loading={save.isPending}
+            disabled={draft === null || !draftIsComplete(draft)}
+            onClick={() => save.mutate()}
+          >
+            Save
+          </Button>
+        </>
+      }
+    >
+      {draft !== null ? (
+        <SamlRegistrationFields
+          idPrefix="edit-saml"
+          draft={draft}
+          onChange={setDraft}
+          allowMetadata={false}
+        />
+      ) : null}
+      {problem !== null ? (
+        <p role="alert" className="mt-3 text-small text-danger">
+          {problem}
+        </p>
+      ) : null}
+    </Modal>
+  );
 }
