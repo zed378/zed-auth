@@ -211,6 +211,37 @@ fi
 [ -n "$PARTNER_ORG_ID" ] || die "could not create the partner organization"
 ok "partner organization $PARTNER_ORG_ID"
 
+# A grant made BY the partner TO the e2e organization, for Granted Projects
+# (`P4-06`). Seeded by SQL for the same reason the partner organization is: the
+# E2E administrator holds ORG_ADMIN over `e2e` and nothing in `e2e-partner`, so
+# there is no API call it could make to create the receiving side of a grant.
+# Two roles, so the suite can prove the withheld one is never offered.
+RECEIVED_PROJECT="e2e-lent"
+RECEIVED_SHARED="lent-cashier"
+RECEIVED_WITHHELD="lent-manager"
+PARTNER_PROJECT_ID=$(psql_ "SELECT id FROM projects WHERE org_id = '$PARTNER_ORG_ID' AND name = '$RECEIVED_PROJECT' LIMIT 1")
+if [ -z "$PARTNER_PROJECT_ID" ]; then
+  PARTNER_PROJECT_ID=$(psql_ "INSERT INTO projects (org_id, name) VALUES ('$PARTNER_ORG_ID', '$RECEIVED_PROJECT') RETURNING id")
+  for key in "$RECEIVED_SHARED" "$RECEIVED_WITHHELD"; do
+    psql_ "INSERT INTO roles (org_id, project_id, key, display_name)
+           VALUES ('$PARTNER_ORG_ID', '$PARTNER_PROJECT_ID', '$key', '$key')" >/dev/null
+  done
+fi
+[ -n "$PARTNER_PROJECT_ID" ] || die "could not create the partner's project"
+
+RECEIVED_GRANT_ID=$(psql_ "SELECT id FROM project_grants
+                            WHERE project_id = '$PARTNER_PROJECT_ID'
+                              AND granted_org_id = '$ORG_ID'
+                              AND status = 'active' LIMIT 1")
+if [ -z "$RECEIVED_GRANT_ID" ]; then
+  RECEIVED_GRANT_ID=$(psql_ "INSERT INTO project_grants
+                               (project_id, granting_org_id, granted_org_id, granted_role_keys)
+                             VALUES ('$PARTNER_PROJECT_ID', '$PARTNER_ORG_ID', '$ORG_ID',
+                                     ARRAY['$RECEIVED_SHARED']) RETURNING id")
+fi
+[ -n "$RECEIVED_GRANT_ID" ] || die "could not create the received grant"
+ok "received grant $RECEIVED_GRANT_ID"
+
 ADMIN_ID=$(psql_ "SELECT id FROM users WHERE email = '$ADMIN_EMAIL' LIMIT 1")
 if [ -z "$ADMIN_ID" ]; then
   HASH=$(cd backend && PASSWORD="$ADMIN_PASSWORD" go run ./cmd/passwordhash)
@@ -450,6 +481,12 @@ cat > "$ENV_FILE" <<EOF
 export E2E_AUTH_ISSUER="$ISSUER"
 export E2E_ORG_ID="$ORG_ID"
 export E2E_PARTNER_ORG_ID="$PARTNER_ORG_ID"
+# The grant the partner made TO this organization, and the roles it does and
+# does not share (P4-06).
+export E2E_RECEIVED_GRANT_ID="$RECEIVED_GRANT_ID"
+export E2E_RECEIVED_PROJECT_NAME="$RECEIVED_PROJECT"
+export E2E_RECEIVED_SHARED_ROLE="$RECEIVED_SHARED"
+export E2E_RECEIVED_WITHHELD_ROLE="$RECEIVED_WITHHELD"
 export E2E_CONSOLE_CLIENT_ID="$CONSOLE_CLIENT"
 export E2E_BOOTSTRAP_REFRESH_TOKEN="$REFRESH"
 export E2E_MAILPIT_URL="$MAILPIT"

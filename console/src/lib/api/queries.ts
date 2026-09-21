@@ -217,6 +217,65 @@ export function useProjectGrants(orgId: string | null, projectId: string | null)
 }
 
 /**
+ * What another organization has lent to THIS one (P4-06).
+ *
+ * The mirror of `useProjectGrants`, and a different route rather than a filter
+ * on the same one: a grant row is visible to both parties, so the server
+ * answers "what was I given" and "what did I give" separately.
+ *
+ * Each row carries the project's name and the granting organization's, which
+ * are the granting side's rows and invisible to this tenant otherwise.
+ */
+export function useReceivedGrants(orgId: string | null) {
+  return useQuery({
+    queryKey: [...queryKeys.receivedGrants, orgId],
+    enabled: orgId !== null,
+    queryFn: async () => {
+      const all = await collectPages(async (token) => {
+        const { data, error } = await api.GET("/v1/organizations/{org_id}/project-grants", {
+          params: {
+            path: { org_id: orgId as string },
+            query: { page_size: PAGE_SIZE, ...tokenParam(token) },
+          },
+        });
+        if (error !== undefined) throw asFailure(error);
+        return { items: data.grants, next: data.page_info?.next_page_token };
+      });
+      return all.items;
+    },
+  });
+}
+
+/**
+ * Who in this organization holds a role through one received grant (P4-02).
+ *
+ * Listed under a revoked grant too: the assignments are inert, and an
+ * administrator clearing up after a partner's revocation needs to see them.
+ */
+export function useDelegatedUserGrants(orgId: string | null, grantId: string | null) {
+  return useQuery({
+    queryKey: [...queryKeys.delegatedGrants, orgId, grantId],
+    enabled: orgId !== null && grantId !== null,
+    queryFn: async () => {
+      const all = await collectPages(async (token) => {
+        const { data, error } = await api.GET(
+          "/v1/organizations/{org_id}/project-grants/{grant_id}/user-grants",
+          {
+            params: {
+              path: { org_id: orgId as string, grant_id: grantId as string },
+              query: { page_size: PAGE_SIZE, ...tokenParam(token) },
+            },
+          },
+        );
+        if (error !== undefined) throw asFailure(error);
+        return { items: data.grants, next: data.page_info?.next_page_token };
+      });
+      return all.items;
+    },
+  });
+}
+
+/**
  * Every grant one user holds, across every project (P2-12).
  *
  * Addressed by user rather than by project because that is the only shape the
