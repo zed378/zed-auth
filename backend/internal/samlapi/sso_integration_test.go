@@ -54,13 +54,38 @@ const idpIssuer = "https://auth.example.test"
 const sessionTokenLength = 43
 
 // staticKeys hands out one SAML key, or refuses.
-type staticKeys struct{ key *saml.SigningKey }
+type staticKeys struct {
+	key *saml.SigningKey
+
+	// next is a second key, published but not yet signing, for the metadata
+	// overlap a rotation depends on (P4-09).
+	next *saml.SigningKey
+}
 
 func (s staticKeys) SAML(context.Context) (*saml.SigningKey, error) {
 	if s.key == nil {
 		return nil, ErrNotConfigured
 	}
 	return s.key, nil
+}
+
+func (s staticKeys) Published(context.Context) ([]*x509.Certificate, error) {
+	if s.key == nil {
+		return nil, ErrNotConfigured
+	}
+	cert, err := s.key.Certificate()
+	if err != nil {
+		return nil, err
+	}
+	out := []*x509.Certificate{cert}
+	if s.next != nil {
+		nextCert, err := s.next.Certificate()
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, nextCert)
+	}
+	return out, nil
 }
 
 // staticSessions answers with one session, or none.

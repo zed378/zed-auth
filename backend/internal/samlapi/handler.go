@@ -29,6 +29,7 @@ package samlapi
 
 import (
 	"context"
+	"crypto/x509"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -46,6 +47,13 @@ import (
 type Keys interface {
 	// SAML returns the current signing key, or an error if none is configured.
 	SAML(ctx context.Context) (*saml.SigningKey, error)
+
+	// Published returns every key a service provider should trust: the one
+	// signing now, then the one that will (P4-09). Separate from SAML because
+	// the two answer different questions — what to sign with, and what to tell
+	// the other side to accept — and conflating them is what made a rotation
+	// break every integration at once.
+	Published(ctx context.Context) ([]*x509.Certificate, error)
 }
 
 // Providers resolves a registered service provider by its entity ID.
@@ -134,13 +142,16 @@ var ErrNotConfigured = errors.New("samlapi: no SAML signing key is configured")
 // certificate would be serving something nothing can verify, and a service
 // provider would only discover that at the first login.
 func (h *Handler) Metadata(w http.ResponseWriter, r *http.Request) {
-	key, err := h.Keys.SAML(r.Context())
+	// Every key a service provider should trust, not only the one signing
+	// now — see CachedKeys.Published. A document naming one certificate makes
+	// a rotation an outage that waits on other people.
+	keys, err := h.Keys.Published(r.Context())
 	if err != nil {
 		h.unavailable(w, "SAML is not configured on this instance.")
 		return
 	}
 
-	entity, err := saml.Metadata(h.Issuer, key, h.Endpoints)
+	entity, err := saml.Metadata(h.Issuer, keys, h.Endpoints)
 	if err != nil {
 		h.logError("building SAML metadata", err)
 		h.unavailable(w, "SAML metadata could not be produced.")

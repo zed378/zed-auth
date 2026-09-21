@@ -24,6 +24,7 @@ import (
 	"github.com/zed378/zed-auth/backend/internal/audit"
 	"github.com/zed378/zed-auth/backend/internal/management"
 	"github.com/zed378/zed-auth/backend/internal/oauth/client"
+	"github.com/zed378/zed-auth/backend/internal/saml"
 	"github.com/zed378/zed-auth/backend/internal/storage/postgres"
 )
 
@@ -41,6 +42,26 @@ type Handler struct {
 	Clients *client.Store
 	DB      *postgres.DB
 	Log     *slog.Logger
+
+	// Registrations manages the SAML service provider an application of type
+	// `saml` represents (P4-09). It writes inside the same transaction as the
+	// application itself: an application that exists without its registration
+	// matches no AuthnRequest, and one rolled back without the other would be
+	// exactly that.
+	Registrations *saml.Registrations
+
+	// Now is the clock the certificate-expiry warning is measured against.
+	// Injectable so a test can stand next to an expiry rather than generate a
+	// certificate thirty days out and hope.
+	Now func() time.Time
+}
+
+// now reads the clock, defaulting to the real one.
+func (h *Handler) now() time.Time {
+	if h.Now != nil {
+		return h.Now()
+	}
+	return time.Now()
 }
 
 // New builds a handler whose store audits through P1-15's guard.
@@ -53,9 +74,10 @@ type Handler struct {
 // application mutation as unaudited.
 func New(db *postgres.DB, recorder management.Recorder, log *slog.Logger) *Handler {
 	return &Handler{
-		Clients: client.NewStore(guarded{recorder}),
-		DB:      db,
-		Log:     log,
+		Clients:       client.NewStore(guarded{recorder}),
+		DB:            db,
+		Log:           log,
+		Registrations: saml.NewRegistrations(),
 	}
 }
 
@@ -86,13 +108,29 @@ func (h *Handler) ListApplications(
 
 	projectID := request.ProjectId.String()
 
-	var rows []client.Record
+	var (
+		rows          []client.Record
+		registrations map[string]saml.Managed
+	)
 	if err := h.inScope(ctx, func(tx *postgres.Tx) error {
 		if err := h.requireProject(ctx, tx, projectID); err != nil {
 			return err
 		}
 		var err error
 		rows, err = h.Clients.List(ctx, tx, projectID, cursor.After, cursor.ID, size)
+		if err != nil {
+			return err
+		}
+
+		// In the same transaction as the rows, so a registration cannot be
+		// read for an application the page no longer contains.
+		var samlIDs []string
+		for _, rec := range rows {
+			if rec.Application.Type == client.TypeSAML {
+				samlIDs = append(samlIDs, rec.Application.ID)
+			}
+		}
+		registrations, err = h.Registrations.ByApplications(ctx, tx, samlIDs)
 		return err
 	}); err != nil {
 		return nil, err
@@ -104,10 +142,16 @@ func (h *Handler) ListApplications(
 	}
 
 	out := api.ApplicationList{Applications: make([]api.Application, 0, len(page.Items))}
+	now := h.now()
 	for _, rec := range page.Items {
 		rendered, err := render(rec)
 		if err != nil {
 			return nil, err
+		}
+		if registration, ok := registrations[rec.Application.ID]; ok {
+			if rendered.Saml, err = renderSaml(registration, now); err != nil {
+				return nil, err
+			}
 		}
 		out.Applications = append(out.Applications, rendered)
 	}
@@ -141,6 +185,14 @@ func (h *Handler) CreateApplication(
 		}
 	}
 
+	if err := requireSamlConsistency(kind, request.Body.Saml); err != nil {
+		return nil, err
+	}
+	registration, err := samlInputFrom(request.Body.Saml)
+	if err != nil {
+		return nil, err
+	}
+
 	projectID := request.ProjectId.String()
 	app := client.Application{
 		ProjectID:              projectID,
@@ -152,12 +204,13 @@ func (h *Handler) CreateApplication(
 		// cross-origin by nobody, which is the safe state and the one every
 		// non-browser client wants (P1-29).
 		AllowedOrigins: values(request.Body.AllowedOrigins),
-		GrantTypes:     defaultGrants(values(request.Body.GrantTypes)),
+		GrantTypes:     defaultGrants(kind, values(request.Body.GrantTypes)),
 	}
 
 	var (
-		created client.Record
-		secret  client.Secret
+		created    client.Record
+		secret     client.Secret
+		registered saml.Managed
 	)
 	if err := h.inScope(ctx, func(tx *postgres.Tx) error {
 		if err := h.requireProject(ctx, tx, projectID); err != nil {
@@ -169,9 +222,21 @@ func (h *Handler) CreateApplication(
 
 		var err error
 		created, secret, err = h.Clients.Create(ctx, tx, app, actor(ctx))
+		if err != nil {
+			return err
+		}
+
+		if kind != client.TypeSAML {
+			return nil
+		}
+		// Same transaction as the application. An entity ID already taken
+		// rolls the application back with it, rather than leaving one that
+		// exists and matches nothing.
+		registration.ApplicationID = created.Application.ID
+		registered, err = h.Registrations.Create(ctx, tx, tx.OrgID(), registration)
 		return err
 	}); err != nil {
-		return nil, faultFrom(err)
+		return nil, faultFrom(samlFault(err))
 	}
 
 	body, err := render(created)
@@ -179,8 +244,17 @@ func (h *Handler) CreateApplication(
 		return nil, err
 	}
 
+	if kind == client.TypeSAML {
+		rendered, err := renderSaml(registered, h.now())
+		if err != nil {
+			return nil, err
+		}
+		body.Saml = rendered
+	}
+
 	out := api.ApplicationCreated{
 		Id: body.Id, ProjectId: body.ProjectId, Name: body.Name, Type: body.Type,
+		Saml:         body.Saml,
 		RedirectUris: body.RedirectUris, PostLogoutRedirectUris: body.PostLogoutRedirectUris,
 		AllowedOrigins: body.AllowedOrigins,
 		GrantTypes:     body.GrantTypes, HasSecret: body.HasSecret,
@@ -212,7 +286,34 @@ func (h *Handler) GetApplication(
 	if err != nil {
 		return nil, err
 	}
+
+	if rec.Application.Type == client.TypeSAML {
+		registration, err := h.readRegistration(ctx, rec.Application.ID)
+		if err != nil {
+			return nil, err
+		}
+		rendered.Saml = registration
+	}
 	return api.GetApplication200JSONResponse(rendered), nil
+}
+
+// readRegistration attaches the SAML half of an application.
+//
+// A `saml` application with no registration is reported as a fault rather than
+// rendered without one. It cannot be created that way — the create path writes
+// both in one transaction — so reaching it means the row was removed
+// underneath, and an application that silently renders as configured while
+// matching no AuthnRequest is the failure this task exists to prevent.
+func (h *Handler) readRegistration(ctx context.Context, applicationID string) (*api.SamlRegistration, error) {
+	var registration saml.Managed
+	if err := h.inScope(ctx, func(tx *postgres.Tx) error {
+		var err error
+		registration, err = h.Registrations.ByApplication(ctx, tx, applicationID)
+		return err
+	}); err != nil {
+		return nil, faultFrom(samlFault(err))
+	}
+	return renderSaml(registration, h.now())
 }
 
 // --- update -----------------------------------------------------------------------------
@@ -230,10 +331,22 @@ func (h *Handler) UpdateApplication(
 	projectID := request.ProjectId.String()
 	id := request.ApplicationId.String()
 
-	var updated client.Record
+	var (
+		updated    client.Record
+		registered saml.Managed
+		isSAML     bool
+	)
 	if err := h.inScope(ctx, func(tx *postgres.Tx) error {
 		before, err := h.Clients.GetInProject(ctx, tx, id, projectID)
 		if err != nil {
+			return err
+		}
+
+		// Checked against the STORED type, not a type in the body: `type` is
+		// immutable and absent from this schema, so the stored value is the
+		// only answer to "is this a SAML application".
+		isSAML = before.Type == client.TypeSAML
+		if err := requireSamlUpdate(isSAML, request.Body.Saml); err != nil {
 			return err
 		}
 
@@ -269,14 +382,39 @@ func (h *Handler) UpdateApplication(
 		}
 
 		updated, err = h.Clients.Update(ctx, tx, id, app, actor(ctx))
+		if err != nil {
+			return err
+		}
+
+		if !isSAML {
+			return nil
+		}
+		if request.Body.Saml == nil {
+			// Left alone, like every other omitted field. Read back so the
+			// response describes the application as it now stands rather than
+			// omitting half of it.
+			registered, err = h.Registrations.ByApplication(ctx, tx, id)
+			return err
+		}
+
+		replacement, err := samlInputFrom(request.Body.Saml)
+		if err != nil {
+			return err
+		}
+		registered, err = h.Registrations.Update(ctx, tx, id, replacement)
 		return err
 	}); err != nil {
-		return nil, faultFrom(err)
+		return nil, faultFrom(samlFault(err))
 	}
 
 	rendered, err := render(updated)
 	if err != nil {
 		return nil, err
+	}
+	if isSAML {
+		if rendered.Saml, err = renderSaml(registered, h.now()); err != nil {
+			return nil, err
+		}
 	}
 	return api.UpdateApplication200JSONResponse(rendered), nil
 }
@@ -546,11 +684,28 @@ func validName(name string) (string, error) {
 }
 
 // defaultGrants supplies the contract's default when the caller sends none.
-func defaultGrants(grants []string) []string {
-	if len(grants) == 0 {
-		return []string{client.GrantAuthorizationCode, client.GrantRefreshToken}
+//
+// Type-aware, because the default is not universal. A `saml` client
+// participates in no OAuth flow at all — `client.allowedGrants` gives it an
+// empty list on purpose — so handing it the OIDC default produces an
+// application the validator immediately refuses, for a grant the caller never
+// asked for.
+//
+// It is a default rather than a filter. A caller who explicitly asks for a
+// grant a SAML client cannot have is still told so, because quietly dropping
+// it would leave them believing something about their own architecture that
+// is not true (P1-18's rule for every type).
+func defaultGrants(kind client.Type, grants []string) []string {
+	if len(grants) > 0 {
+		return grants
 	}
-	return grants
+	if kind == client.TypeSAML {
+		// Empty, not nil. `applications.grant_types` is NOT NULL, so a nil
+		// slice is a constraint violation reported as a 500 rather than the
+		// "this client participates in no OAuth flow" it means.
+		return []string{}
+	}
+	return []string{client.GrantAuthorizationCode, client.GrantRefreshToken}
 }
 
 // render turns a stored record into the API resource.
