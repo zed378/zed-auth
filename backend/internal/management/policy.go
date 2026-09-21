@@ -149,6 +149,12 @@ var Policy = map[string]Requirement{
 	// grant only by granted_org_id, so the granting organization's
 	// administrators could not act here even through their own path (T4-4),
 	// and it refuses a grant owner whose grant is revoked.
+	// The receiving side's own list of what was delegated to it (P4-06).
+	// ORG_ADMIN over the organization in the path: this is a view of the
+	// organization's own affairs, not of one grant, so it is not
+	// grant-scoped.
+	"GET /v1/organizations/{org_id}/project-grants": {Role: OrgAdmin, Scope: ScopeOrganization},
+
 	"GET /v1/organizations/{org_id}/project-grants/{grant_id}/user-grants":              {Role: ProjectGrantOwner, Scope: ScopeProjectGrant},
 	"POST /v1/organizations/{org_id}/project-grants/{grant_id}/user-grants":             {Role: ProjectGrantOwner, Scope: ScopeProjectGrant},
 	"PATCH /v1/organizations/{org_id}/project-grants/{grant_id}/user-grants/{user_id}":  {Role: ProjectGrantOwner, Scope: ScopeProjectGrant},

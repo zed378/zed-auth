@@ -192,7 +192,8 @@ describe("navigation", () => {
       .filter((link) => link.querySelector("[title]") !== null)
       .map((link) => link.getAttribute("href"));
 
-    expect(badged).toEqual(["/granted-projects", "/settings"]);
+    // P4-06 built Granted Projects; its badge went with the placeholder.
+    expect(badged).toEqual(["/settings"]);
   });
 
   it("does not show the instance-owner section yet", () => {

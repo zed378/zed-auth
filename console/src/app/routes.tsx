@@ -7,6 +7,7 @@ import { OverviewPage } from "../pages/OverviewPage";
 import { ApplicationsPage } from "../pages/ApplicationsPage";
 import { AuditLogPage } from "../pages/AuditLogPage";
 import { AuthorizationsPage } from "../pages/AuthorizationsPage";
+import { GrantedProjectsPage } from "../pages/GrantedProjectsPage";
 import { PlaceholderPage } from "../pages/PlaceholderPage";
 import { PoliciesPage } from "../pages/PoliciesPage";
 import { ProjectGrantsPage } from "../pages/ProjectGrantsPage";
@@ -104,8 +105,8 @@ export function AppRoutes() {
       <Route
         path="/granted-projects"
         element={
-          <RequireAuth>
-            <PlaceholderPage title="Granted Projects" phase="4" />
+          <RequireAuth roles={["ORG_ADMIN", "ORG_OWNER", "INSTANCE_OWNER"]}>
+            <GrantedProjectsPage />
           </RequireAuth>
         }
       />

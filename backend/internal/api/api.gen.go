@@ -112,6 +112,12 @@ const (
 	Unavailable ReadinessStatusStatus = "unavailable"
 )
 
+// Defines values for ReceivedGrantStatus.
+const (
+	ReceivedGrantStatusActive  ReceivedGrantStatus = "active"
+	ReceivedGrantStatusRevoked ReceivedGrantStatus = "revoked"
+)
+
 // Defines values for TokenResponseTokenType.
 const (
 	TokenResponseTokenTypeBearer TokenResponseTokenType = "Bearer"
@@ -119,10 +125,10 @@ const (
 
 // Defines values for UserStatus.
 const (
-	UserStatusActive      UserStatus = "active"
-	UserStatusDeactivated UserStatus = "deactivated"
-	UserStatusInvited     UserStatus = "invited"
-	UserStatusLocked      UserStatus = "locked"
+	Active      UserStatus = "active"
+	Deactivated UserStatus = "deactivated"
+	Invited     UserStatus = "invited"
+	Locked      UserStatus = "locked"
 )
 
 // AdministeredOrganization One organization the caller administers, and what they hold over it.
@@ -1638,6 +1644,114 @@ type ReadinessStatus struct {
 // ReadinessStatusStatus defines model for ReadinessStatus.Status.
 type ReadinessStatusStatus string
 
+// ReceivedGrant A Project Grant as the organization that RECEIVED it sees it: which
+// project, from whom, and which of that project's roles it may assign.
+type ReceivedGrant struct {
+	CreatedAt time.Time `json:"created_at"`
+
+	// GrantedRoleKeys Exactly the roles this organization may assign through the grant.
+	// A role of that project which is not in this list may not be
+	// assigned, and the service refuses it on every request.
+	GrantedRoleKeys []RoleKey `json:"granted_role_keys"`
+
+	// GrantingOrgId A resource's stable identifier. Not sequential and not guessable.
+	//
+	// **This was specified as a prefixed, sortable identifier** — `usr_`,
+	// `org_`, `prj_` — and is a UUID instead. The change is deliberate and is
+	// recorded as `PG-23`.
+	//
+	// The prefix has a real benefit: an id pasted into a support ticket is
+	// self-describing, and passing a project id where a user id belongs is
+	// visible on sight rather than at the database. What it cannot survive is
+	// being applied to only part of the surface. `docs/PLAN/04` makes every
+	// primary key a UUID, the access token's `org_id` claim is a UUID, and
+	// OpenID Connect's `sub` — already shipped by `P1-08` — is a UUID that
+	// callers store as a user's permanent key.
+	//
+	// Prefixing only the Management API would give the same user two
+	// identifiers and make every consumer convert between them, which is a
+	// larger and more permanent papercut than the one the prefix removes.
+	// Prefixing everything means changing `sub`, which is a protocol field
+	// with its own conventions and a value integrators have already stored.
+	//
+	// So: UUIDs everywhere, and if prefixed identifiers are wanted later they
+	// arrive everywhere at once or not at all.
+	GrantingOrgId   ResourceId `json:"granting_org_id"`
+	GrantingOrgName string     `json:"granting_org_name"`
+
+	// HolderCount How many of this organization's users hold a role through the grant.
+	HolderCount int `json:"holder_count"`
+
+	// Id A resource's stable identifier. Not sequential and not guessable.
+	//
+	// **This was specified as a prefixed, sortable identifier** — `usr_`,
+	// `org_`, `prj_` — and is a UUID instead. The change is deliberate and is
+	// recorded as `PG-23`.
+	//
+	// The prefix has a real benefit: an id pasted into a support ticket is
+	// self-describing, and passing a project id where a user id belongs is
+	// visible on sight rather than at the database. What it cannot survive is
+	// being applied to only part of the surface. `docs/PLAN/04` makes every
+	// primary key a UUID, the access token's `org_id` claim is a UUID, and
+	// OpenID Connect's `sub` — already shipped by `P1-08` — is a UUID that
+	// callers store as a user's permanent key.
+	//
+	// Prefixing only the Management API would give the same user two
+	// identifiers and make every consumer convert between them, which is a
+	// larger and more permanent papercut than the one the prefix removes.
+	// Prefixing everything means changing `sub`, which is a protocol field
+	// with its own conventions and a value integrators have already stored.
+	//
+	// So: UUIDs everywhere, and if prefixed identifiers are wanted later they
+	// arrive everywhere at once or not at all.
+	Id ResourceId `json:"id"`
+
+	// ProjectId A resource's stable identifier. Not sequential and not guessable.
+	//
+	// **This was specified as a prefixed, sortable identifier** — `usr_`,
+	// `org_`, `prj_` — and is a UUID instead. The change is deliberate and is
+	// recorded as `PG-23`.
+	//
+	// The prefix has a real benefit: an id pasted into a support ticket is
+	// self-describing, and passing a project id where a user id belongs is
+	// visible on sight rather than at the database. What it cannot survive is
+	// being applied to only part of the surface. `docs/PLAN/04` makes every
+	// primary key a UUID, the access token's `org_id` claim is a UUID, and
+	// OpenID Connect's `sub` — already shipped by `P1-08` — is a UUID that
+	// callers store as a user's permanent key.
+	//
+	// Prefixing only the Management API would give the same user two
+	// identifiers and make every consumer convert between them, which is a
+	// larger and more permanent papercut than the one the prefix removes.
+	// Prefixing everything means changing `sub`, which is a protocol field
+	// with its own conventions and a value integrators have already stored.
+	//
+	// So: UUIDs everywhere, and if prefixed identifiers are wanted later they
+	// arrive everywhere at once or not at all.
+	ProjectId ResourceId `json:"project_id"`
+
+	// ProjectName The granting organization's name for the project.
+	ProjectName string                       `json:"project_name"`
+	RevokedAt   nullable.Nullable[time.Time] `json:"revoked_at,omitempty"`
+	Status      ReceivedGrantStatus          `json:"status"`
+}
+
+// ReceivedGrantStatus defines model for ReceivedGrant.Status.
+type ReceivedGrantStatus string
+
+// ReceivedGrantList defines model for ReceivedGrantList.
+type ReceivedGrantList struct {
+	Grants []ReceivedGrant `json:"grants"`
+
+	// PageInfo The pagination envelope every collection response embeds.
+	//
+	// Token-based rather than offset-based: an offset re-reads rows that
+	// shifted under concurrent writes, silently skipping or duplicating
+	// entries. For an audit log or a user list that is a correctness bug that
+	// nobody notices.
+	PageInfo *PageInfo `json:"page_info,omitempty"`
+}
+
 // RecoveryCodes defines model for RecoveryCodes.
 type RecoveryCodes struct {
 	// Codes Ten single-use codes, shown once.
@@ -2552,6 +2666,19 @@ type ListEventsParams struct {
 	To *time.Time `form:"to,omitempty" json:"to,omitempty"`
 }
 
+// ListReceivedProjectGrantsParams defines parameters for ListReceivedProjectGrants.
+type ListReceivedProjectGrantsParams struct {
+	// PageSize Maximum items to return. The server may return fewer, and returning
+	// fewer never means the collection is exhausted — only an absent
+	// `next_page_token` means that.
+	PageSize *PageSize `form:"page_size,omitempty" json:"page_size,omitempty"`
+
+	// PageToken The `next_page_token` from the previous response. Opaque: its contents
+	// are not part of the contract and must not be constructed, parsed, or
+	// persisted by a client.
+	PageToken *PageToken `form:"page_token,omitempty" json:"page_token,omitempty"`
+}
+
 // AssignProjectGrantOwnerParams defines parameters for AssignProjectGrantOwner.
 type AssignProjectGrantOwnerParams struct {
 	// IdempotencyKey A client-generated key making a retried `POST` safe. Replaying a
@@ -2970,6 +3097,9 @@ type ServerInterface interface {
 	// How many members would be affected by requiring two-step verification
 	// (GET /v1/organizations/{org_id}/mfa-impact)
 	GetMfaImpact(w http.ResponseWriter, r *http.Request, orgId OrganizationId)
+	// List the Project Grants made to this organization
+	// (GET /v1/organizations/{org_id}/project-grants)
+	ListReceivedProjectGrants(w http.ResponseWriter, r *http.Request, orgId OrganizationId, params ListReceivedProjectGrantsParams)
 	// List who may assign a received grant's roles
 	// (GET /v1/organizations/{org_id}/project-grants/{grant_id}/owners)
 	ListProjectGrantOwners(w http.ResponseWriter, r *http.Request, orgId OrganizationId, grantId ProjectGrantId)
@@ -3237,6 +3367,12 @@ func (_ Unimplemented) ListEvents(w http.ResponseWriter, r *http.Request, orgId 
 // How many members would be affected by requiring two-step verification
 // (GET /v1/organizations/{org_id}/mfa-impact)
 func (_ Unimplemented) GetMfaImpact(w http.ResponseWriter, r *http.Request, orgId OrganizationId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// List the Project Grants made to this organization
+// (GET /v1/organizations/{org_id}/project-grants)
+func (_ Unimplemented) ListReceivedProjectGrants(w http.ResponseWriter, r *http.Request, orgId OrganizationId, params ListReceivedProjectGrantsParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -4299,6 +4435,56 @@ func (siw *ServerInterfaceWrapper) GetMfaImpact(w http.ResponseWriter, r *http.R
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetMfaImpact(w, r, orgId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListReceivedProjectGrants operation middleware
+func (siw *ServerInterfaceWrapper) ListReceivedProjectGrants(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "org_id" -------------
+	var orgId OrganizationId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "org_id", chi.URLParam(r, "org_id"), &orgId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "org_id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, Oauth2Scopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListReceivedProjectGrantsParams
+
+	// ------------- Optional query parameter "page_size" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "page_size", r.URL.Query(), &params.PageSize)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "page_size", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "page_token" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "page_token", r.URL.Query(), &params.PageToken)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "page_token", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListReceivedProjectGrants(w, r, orgId, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -6851,6 +7037,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Get(options.BaseURL+"/v1/organizations/{org_id}/mfa-impact", wrapper.GetMfaImpact)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/v1/organizations/{org_id}/project-grants", wrapper.ListReceivedProjectGrants)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/v1/organizations/{org_id}/project-grants/{grant_id}/owners", wrapper.ListProjectGrantOwners)
 	})
 	r.Group(func(r chi.Router) {
@@ -8342,6 +8531,73 @@ func (response GetMfaImpact429JSONResponse) VisitGetMfaImpactResponse(w http.Res
 type GetMfaImpact500JSONResponse struct{ InternalErrorJSONResponse }
 
 func (response GetMfaImpact500JSONResponse) VisitGetMfaImpactResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListReceivedProjectGrantsRequestObject struct {
+	OrgId  OrganizationId `json:"org_id"`
+	Params ListReceivedProjectGrantsParams
+}
+
+type ListReceivedProjectGrantsResponseObject interface {
+	VisitListReceivedProjectGrantsResponse(w http.ResponseWriter) error
+}
+
+type ListReceivedProjectGrants200JSONResponse ReceivedGrantList
+
+func (response ListReceivedProjectGrants200JSONResponse) VisitListReceivedProjectGrantsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListReceivedProjectGrants401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ListReceivedProjectGrants401JSONResponse) VisitListReceivedProjectGrantsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListReceivedProjectGrants403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response ListReceivedProjectGrants403JSONResponse) VisitListReceivedProjectGrantsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListReceivedProjectGrants404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response ListReceivedProjectGrants404JSONResponse) VisitListReceivedProjectGrantsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListReceivedProjectGrants429JSONResponse struct{ RateLimitedJSONResponse }
+
+func (response ListReceivedProjectGrants429JSONResponse) VisitListReceivedProjectGrantsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Retry-After", fmt.Sprint(response.Headers.RetryAfter))
+	w.Header().Set("X-RateLimit-Limit", fmt.Sprint(response.Headers.XRateLimitLimit))
+	w.Header().Set("X-RateLimit-Remaining", fmt.Sprint(response.Headers.XRateLimitRemaining))
+	w.Header().Set("X-RateLimit-Reset", fmt.Sprint(response.Headers.XRateLimitReset))
+	w.WriteHeader(429)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type ListReceivedProjectGrants500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response ListReceivedProjectGrants500JSONResponse) VisitListReceivedProjectGrantsResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(500)
 
@@ -11597,6 +11853,9 @@ type StrictServerInterface interface {
 	// How many members would be affected by requiring two-step verification
 	// (GET /v1/organizations/{org_id}/mfa-impact)
 	GetMfaImpact(ctx context.Context, request GetMfaImpactRequestObject) (GetMfaImpactResponseObject, error)
+	// List the Project Grants made to this organization
+	// (GET /v1/organizations/{org_id}/project-grants)
+	ListReceivedProjectGrants(ctx context.Context, request ListReceivedProjectGrantsRequestObject) (ListReceivedProjectGrantsResponseObject, error)
 	// List who may assign a received grant's roles
 	// (GET /v1/organizations/{org_id}/project-grants/{grant_id}/owners)
 	ListProjectGrantOwners(ctx context.Context, request ListProjectGrantOwnersRequestObject) (ListProjectGrantOwnersResponseObject, error)
@@ -12375,6 +12634,33 @@ func (sh *strictHandler) GetMfaImpact(w http.ResponseWriter, r *http.Request, or
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetMfaImpactResponseObject); ok {
 		if err := validResponse.VisitGetMfaImpactResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListReceivedProjectGrants operation middleware
+func (sh *strictHandler) ListReceivedProjectGrants(w http.ResponseWriter, r *http.Request, orgId OrganizationId, params ListReceivedProjectGrantsParams) {
+	var request ListReceivedProjectGrantsRequestObject
+
+	request.OrgId = orgId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListReceivedProjectGrants(ctx, request.(ListReceivedProjectGrantsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListReceivedProjectGrants")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListReceivedProjectGrantsResponseObject); ok {
+		if err := validResponse.VisitListReceivedProjectGrantsResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

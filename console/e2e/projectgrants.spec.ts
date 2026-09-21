@@ -65,7 +65,12 @@ test.describe("Project Grants", () => {
 
     await signIn(page, admin);
     await page.goto(`/projects/${project.id}/grants`);
-    await expect(page.getByRole("heading", { name: "Project Grants" })).toBeVisible();
+    // Exact: a fresh project has no grants, so the empty state's
+    // "No Project Grants yet" heading is on the page too, and a substring
+    // match failed strict mode whenever the list resolved first.
+    await expect(
+      page.getByRole("heading", { name: "Project Grants", exact: true }),
+    ).toBeVisible();
 
     await page.getByRole("button", { name: /^create grant$/i }).first().click();
     const dialog = page.getByRole("dialog");

@@ -184,6 +184,118 @@ func (s *Store) List(
 	return out, s.names(ctx, tx, pointers)
 }
 
+// Received is one grant as the organization that received it sees it: the
+// contract plus the names of the project and the organization behind it, which
+// its own tenant cannot see (P4-06).
+type Received struct {
+	Grant
+	ProjectName     string
+	GrantingOrgName string
+}
+
+// ListReceived returns the grants made TO an organization, newest first.
+//
+// Filtered on granted_org_id, although RLS already shows this tenant both sides
+// of its own delegations: a receiving-side route must not list the grants this
+// organization MADE. Seeing a row and acting through it are different
+// questions, and P4-01's mutation run showed which one a filter answers.
+func (s *Store) ListReceived(
+	ctx context.Context, tx *postgres.Tx, grantedOrgID string, after management.Cursor, size int,
+) ([]Received, error) {
+	var afterTime, afterID any
+	if after.ID != "" {
+		afterTime, afterID = after.After, after.ID
+	}
+	rows, err := tx.Query(ctx, `
+		SELECT `+columns+`
+		  FROM project_grants
+		 WHERE granted_org_id = $1
+		   AND ($2::timestamptz IS NULL OR (created_at, id) < ($2, $3::uuid))
+		 ORDER BY created_at DESC, id DESC
+		 LIMIT $4`,
+		grantedOrgID, afterTime, afterID, size+1)
+	if err != nil {
+		return nil, fmt.Errorf("projectgrant: listing received grants: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var out []Received
+	for rows.Next() {
+		var r Received
+		if err := scan(rows, &r.Grant); err != nil {
+			return nil, fmt.Errorf("projectgrant: listing received grants: %w", err)
+		}
+		out = append(out, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("projectgrant: listing received grants: %w", err)
+	}
+	if len(out) == 0 {
+		return out, nil
+	}
+
+	// The names, through the one function that may read the granting side's
+	// rows, and only for grants this organization actually holds.
+	ids := make([]string, 0, len(out))
+	for _, r := range out {
+		ids = append(ids, r.ID)
+	}
+	named, err := tx.Query(ctx,
+		`SELECT grant_id, project_name, granting_org_name FROM received_grant_context($1::uuid[])`,
+		pq.Array(ids))
+	if err != nil {
+		return nil, fmt.Errorf("projectgrant: reading received grant names: %w", err)
+	}
+	defer func() { _ = named.Close() }()
+
+	type names struct{ project, org string }
+	byID := map[string]names{}
+	for named.Next() {
+		var id, project, org string
+		if err := named.Scan(&id, &project, &org); err != nil {
+			return nil, fmt.Errorf("projectgrant: reading received grant names: %w", err)
+		}
+		byID[id] = names{project, org}
+	}
+	if err := named.Err(); err != nil {
+		return nil, fmt.Errorf("projectgrant: reading received grant names: %w", err)
+	}
+	for i := range out {
+		out[i].ProjectName = byID[out[i].ID].project
+		out[i].GrantingOrgName = byID[out[i].ID].org
+	}
+
+	// The blast radius from this side: how many of THIS organization's users
+	// hold a role through each grant. The holder count function is bounded to
+	// the granting side, so it is counted directly here — these rows are this
+	// tenant's own.
+	holders, err := tx.Query(ctx, `
+		SELECT project_grant_id::text, count(DISTINCT user_id)
+		  FROM user_grants
+		 WHERE project_grant_id = ANY($1::uuid[])
+		 GROUP BY project_grant_id`, pq.Array(ids))
+	if err != nil {
+		return nil, fmt.Errorf("projectgrant: counting held roles: %w", err)
+	}
+	defer func() { _ = holders.Close() }()
+	counts := map[string]int{}
+	for holders.Next() {
+		var id string
+		var n int
+		if err := holders.Scan(&id, &n); err != nil {
+			return nil, fmt.Errorf("projectgrant: counting held roles: %w", err)
+		}
+		counts[id] = n
+	}
+	if err := holders.Err(); err != nil {
+		return nil, fmt.Errorf("projectgrant: counting held roles: %w", err)
+	}
+	for i := range out {
+		out[i].HolderCount = counts[out[i].ID]
+	}
+	return out, nil
+}
+
 // Get reads one grant of this project from the owning organization.
 func (s *Store) Get(ctx context.Context, tx *postgres.Tx, grantingOrgID, projectID, id string) (Grant, error) {
 	var g Grant

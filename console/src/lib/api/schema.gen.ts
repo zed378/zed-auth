@@ -1300,6 +1300,45 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/organizations/{org_id}/project-grants": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The organization that owns the resource. Every request is scoped to exactly one. */
+                org_id: components["parameters"]["OrganizationId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * List the Project Grants made to this organization
+         * @description Requires `ORG_ADMIN` over this organization.
+         *
+         *     The receiving side of delegation: the projects another organization has
+         *     lent to this one, with the roles it may assign. The granting side's
+         *     equivalent is
+         *     `GET /v1/organizations/{org_id}/projects/{project_id}/grants`, and this
+         *     route deliberately does **not** list grants this organization made — a
+         *     grant row is visible to both parties, and a receiving-side route that
+         *     listed both would conflate "can see" with "acts through".
+         *
+         *     `project_name` and `granting_org_name` are resolved for these grants
+         *     only. The project and the organization behind them belong to the
+         *     granting side and are otherwise invisible here, so the names come from
+         *     a lookup bounded to grants this organization actually holds.
+         *
+         *     Revoked grants stay listed, so a partner can see that access ended
+         *     rather than finding the roles simply gone.
+         */
+        get: operations["listReceivedProjectGrants"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/organizations/{org_id}/project-grants/{grant_id}/user-grants": {
         parameters: {
             query?: never;
@@ -2182,6 +2221,36 @@ export interface components {
         GrantCreate: {
             project_id: components["schemas"]["ResourceId"];
             role_keys: components["schemas"]["RoleKey"][];
+        };
+        /**
+         * @description A Project Grant as the organization that RECEIVED it sees it: which
+         *     project, from whom, and which of that project's roles it may assign.
+         */
+        ReceivedGrant: {
+            id: components["schemas"]["ResourceId"];
+            project_id: components["schemas"]["ResourceId"];
+            /** @description The granting organization's name for the project. */
+            project_name: string;
+            granting_org_id: components["schemas"]["ResourceId"];
+            granting_org_name: string;
+            /**
+             * @description Exactly the roles this organization may assign through the grant.
+             *     A role of that project which is not in this list may not be
+             *     assigned, and the service refuses it on every request.
+             */
+            granted_role_keys: components["schemas"]["RoleKey"][];
+            /** @description How many of this organization's users hold a role through the grant. */
+            holder_count: number;
+            /** @enum {string} */
+            status: "active" | "revoked";
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            revoked_at?: string | null;
+        };
+        ReceivedGrantList: {
+            grants: components["schemas"]["ReceivedGrant"][];
+            page_info?: components["schemas"]["PageInfo"];
         };
         ProjectGrantOwner: {
             user_id: components["schemas"]["ResourceId"];
@@ -5245,6 +5314,47 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["RateLimited"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    listReceivedProjectGrants: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Maximum items to return. The server may return fewer, and returning
+                 *     fewer never means the collection is exhausted — only an absent
+                 *     `next_page_token` means that.
+                 */
+                page_size?: components["parameters"]["PageSize"];
+                /**
+                 * @description The `next_page_token` from the previous response. Opaque: its contents
+                 *     are not part of the contract and must not be constructed, parsed, or
+                 *     persisted by a client.
+                 */
+                page_token?: components["parameters"]["PageToken"];
+            };
+            header?: never;
+            path: {
+                /** @description The organization that owns the resource. Every request is scoped to exactly one. */
+                org_id: components["parameters"]["OrganizationId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The grants made to this organization. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReceivedGrantList"];
+                };
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
