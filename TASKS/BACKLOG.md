@@ -905,6 +905,24 @@ Read literally the sentence defers the endpoint **the same document lists in its
 
 Found by running the system rather than by reading the plan.
 
+### BL-09 — The shipped-endpoint guard checks paths, not methods, and `POST /oauth/userinfo` slipped through it
+
+**Found**: 2026-09-21, adding `GET /saml/slo`. **Affects**: `openapi/openapi.yaml`, `scripts/openapi-shipped-paths.py`.
+
+`openapi-shipped-paths.py` compares documented **paths** against a shipped list, which is the right granularity for every generated endpoint: ADR-013 makes the generated router the documented surface, so adding an operation to the spec produces an interface method and the build fails until something implements it. The compiler is the check there, and it cannot be fooled.
+
+The exceptions are the eighteen hand-registered paths — excluded from generation in `oapi-codegen.yaml`, wired by hand in `server.go`. For those, **nothing connects the spec to the router**, in either direction. `/saml/slo` is what exposed it: POST was documented and served, GET was neither, and adding GET to the contract published a claim that nothing but a reviewer's attention verified.
+
+A method-level check over just those eighteen, reading the routes out of `server.go` rather than keeping a second hand-maintained list, immediately found a second instance:
+
+**`POST /oauth/userinfo` is served and undocumented.** `server.go:374` registers it and OIDC Core § 5.3.1 requires it — it is how a client sends an access token too long for a header. The public API reference describes only GET, so a consumer reading the contract builds a GET-only client and never learns the other half exists.
+
+Note which direction this one runs. The governance rule everything else here guards — never document a capability that has not shipped — has a quieter twin: a shipped capability nobody documented is one nobody can use, and no existing check looks for it.
+
+**Fix**: document `POST /oauth/userinfo` (excluding its operation id from generation, like its sibling), and extend the guard to compare methods for hand-registered paths only, with a floor on the parsed route count so a pattern that stops matching fails loudly instead of passing by reading nothing.
+
+---
+
 ### BL-08 — Three tables have a sweeper that nothing calls, and calling it naively would delete nothing
 
 **Found**: 2026-09-21, wiring `P4-08`. **Affects**: `idempotency_records`, `saml_authn_requests`, `saml_assertion_ids`.
