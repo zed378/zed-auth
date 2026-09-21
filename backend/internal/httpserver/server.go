@@ -742,6 +742,9 @@ type ProjectGrants interface {
 	GetProjectGrant(ctx context.Context, request api.GetProjectGrantRequestObject) (api.GetProjectGrantResponseObject, error)
 	RevokeProjectGrant(ctx context.Context, request api.RevokeProjectGrantRequestObject) (api.RevokeProjectGrantResponseObject, error)
 
+	// What this organization was given (P4-06).
+	ListReceivedProjectGrants(ctx context.Context, request api.ListReceivedProjectGrantsRequestObject) (api.ListReceivedProjectGrantsResponseObject, error)
+
 	// The receiving organization's side (P4-02).
 	ListDelegatedUserGrants(ctx context.Context, request api.ListDelegatedUserGrantsRequestObject) (api.ListDelegatedUserGrantsResponseObject, error)
 	AssignDelegatedRoles(ctx context.Context, request api.AssignDelegatedRolesRequestObject) (api.AssignDelegatedRolesResponseObject, error)

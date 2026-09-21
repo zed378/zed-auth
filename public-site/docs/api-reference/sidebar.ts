@@ -386,6 +386,12 @@ const sidebar: SidebarsConfig = {
         },
         {
           type: "doc",
+          id: "api-reference/list-received-project-grants",
+          label: "List the Project Grants made to this organization",
+          className: "api-method get",
+        },
+        {
+          type: "doc",
           id: "api-reference/list-delegated-user-grants",
           label: "List the roles assigned through a received grant",
           className: "api-method get",

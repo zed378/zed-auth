@@ -2009,6 +2009,48 @@ paths:
         "429": { $ref: "#/components/responses/RateLimited" }
         "500": { $ref: "#/components/responses/InternalError" }
 
+  /v1/organizations/{org_id}/project-grants:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationId"
+
+    get:
+      tags: [Project Grants]
+      operationId: listReceivedProjectGrants
+      summary: List the Project Grants made to this organization
+      description: |
+        Requires `ORG_ADMIN` over this organization.
+
+        The receiving side of delegation: the projects another organization has
+        lent to this one, with the roles it may assign. The granting side's
+        equivalent is
+        `GET /v1/organizations/{org_id}/projects/{project_id}/grants`, and this
+        route deliberately does **not** list grants this organization made — a
+        grant row is visible to both parties, and a receiving-side route that
+        listed both would conflate "can see" with "acts through".
+
+        `project_name` and `granting_org_name` are resolved for these grants
+        only. The project and the organization behind them belong to the
+        granting side and are otherwise invisible here, so the names come from
+        a lookup bounded to grants this organization actually holds.
+
+        Revoked grants stay listed, so a partner can see that access ended
+        rather than finding the roles simply gone.
+      parameters:
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+      responses:
+        "200":
+          description: The grants made to this organization.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReceivedGrantList"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
   /v1/organizations/{org_id}/project-grants/{grant_id}/user-grants:
     parameters:
       - $ref: "#/components/parameters/OrganizationId"
@@ -3368,6 +3410,61 @@ components:
           maxItems: 64
           items:
             $ref: "#/components/schemas/RoleKey"
+
+    ReceivedGrant:
+      type: object
+      description: |
+        A Project Grant as the organization that RECEIVED it sees it: which
+        project, from whom, and which of that project's roles it may assign.
+      required:
+        [id, project_id, project_name, granting_org_id, granting_org_name,
+         granted_role_keys, holder_count, status, created_at]
+      additionalProperties: false
+      properties:
+        id:
+          $ref: "#/components/schemas/ResourceId"
+        project_id:
+          $ref: "#/components/schemas/ResourceId"
+        project_name:
+          type: string
+          description: The granting organization's name for the project.
+        granting_org_id:
+          $ref: "#/components/schemas/ResourceId"
+        granting_org_name:
+          type: string
+        granted_role_keys:
+          type: array
+          items:
+            $ref: "#/components/schemas/RoleKey"
+          description: |
+            Exactly the roles this organization may assign through the grant.
+            A role of that project which is not in this list may not be
+            assigned, and the service refuses it on every request.
+        holder_count:
+          type: integer
+          description: How many of this organization's users hold a role through the grant.
+        status:
+          type: string
+          enum: [active, revoked]
+        created_at:
+          type: string
+          format: date-time
+        revoked_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    ReceivedGrantList:
+      type: object
+      required: [grants]
+      additionalProperties: false
+      properties:
+        grants:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReceivedGrant"
+        page_info:
+          $ref: "#/components/schemas/PageInfo"
 
     ProjectGrantOwner:
       type: object
