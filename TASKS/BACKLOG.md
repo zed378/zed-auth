@@ -915,11 +915,18 @@ The exceptions are the eighteen hand-registered paths — excluded from generati
 
 A method-level check over just those eighteen, reading the routes out of `server.go` rather than keeping a second hand-maintained list, immediately found a second instance:
 
-**`POST /oauth/userinfo` is served and undocumented.** `server.go:374` registers it and OIDC Core § 5.3.1 requires it — it is how a client sends an access token too long for a header. The public API reference describes only GET, so a consumer reading the contract builds a GET-only client and never learns the other half exists.
+**`POST /oauth/userinfo` is served and undocumented.** `server.go:374` registers it; the contract describes only GET, so a consumer reading the public reference builds a GET-only client and never learns the other half exists.
 
 Note which direction this one runs. The governance rule everything else here guards — never document a capability that has not shipped — has a quieter twin: a shipped capability nobody documented is one nobody can use, and no existing check looks for it.
 
-**Fix**: document `POST /oauth/userinfo` (excluding its operation id from generation, like its sibling), and extend the guard to compare methods for hand-registered paths only, with a floor on the parsed route count so a pattern that stops matching fails loudly instead of passing by reading nothing.
+**And looking at it raised a second question worth answering deliberately.** POST accepts the credential in the `Authorization` header and nowhere else, so today it offers nothing GET does not — which makes "POST is supported" a thinner claim than it reads as. RFC 6750 defines three ways to present a bearer token, and `userinfo/token.go` refuses two of them with one reason:
+
+- **§ 2.3, the URI query parameter.** Refused, correctly, and the comment says why: a query parameter reaches the access log of every proxy in the path, the browser history, and the `Referer` of whatever loads next. The specification itself calls it NOT RECOMMENDED.
+- **§ 2.2, the form-encoded body.** Refused by the same code, and none of that reasoning applies to it — a request body is not logged by proxies, not in history, and not in a `Referer`. It is the standard method, and sending the token in the body is the entire reason OIDC Core § 5.3.1 offers POST at all.
+
+So the header-only rule was written against § 2.3 and silently caught § 2.2 as well. That is a decision to make rather than a bug to patch: either accept the form body on POST — same Content-Type discipline, same refusal of a token presented twice — or keep header-only and say so in the contract, so a client using the standard method learns it from the documentation rather than from a 401 that reads as a bad token.
+
+**Fix**: document `POST /oauth/userinfo` (excluding its operation id from generation, like its sibling), settle the § 2.2 question and write the answer into the description, and extend the guard to compare methods for hand-registered paths only, with a floor on the parsed route count so a pattern that stops matching fails loudly instead of passing by reading nothing.
 
 ---
 
