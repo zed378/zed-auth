@@ -62,9 +62,13 @@ type Providers interface {
 	ByID(ctx context.Context, db saml.Querier, id string) (saml.Registration, error)
 }
 
-// Sessions is the live session behind the browser, if there is one.
+// Sessions resolves the session behind the browser.
+//
+// The same shape `internal/oauth/authorize` uses, so single sign-on across the
+// two protocols is the same session rather than two notions of one: a user who
+// signed in through OIDC has a session a SAML request finds, which is F-8.
 type Sessions interface {
-	FromRequest(r *http.Request) (session.Session, bool)
+	Lookup(ctx context.Context, presented string, policy session.Policy, now time.Time) (session.Session, error)
 }
 
 // Subjects builds what an assertion says about a user.
@@ -95,6 +99,11 @@ type Handler struct {
 
 	// LoginPath is where a browser with no usable session is sent.
 	LoginPath string
+
+	// Policy decides how long a session is good for. The same value the
+	// authorization endpoint uses, so the two protocols agree about whether a
+	// session is live.
+	Policy session.Policy
 
 	DB        *postgres.DB
 	Keys      Keys
@@ -179,6 +188,26 @@ func (h *Handler) unavailable(w http.ResponseWriter, message string) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.WriteHeader(http.StatusServiceUnavailable)
 	_, _ = w.Write([]byte(message + "\n"))
+}
+
+// current returns the live session behind this request, or false.
+//
+// Any failure is "no session", including an infrastructure one. Failing closed
+// here is a login prompt, which is recoverable; failing open would be an
+// assertion about a user nobody authenticated.
+func (h *Handler) current(r *http.Request) (session.Session, bool) {
+	token, ok := session.FromRequest(r)
+	if !ok {
+		return session.Session{}, false
+	}
+	found, err := h.Sessions.Lookup(r.Context(), token, h.Policy, h.now())
+	if err != nil {
+		if !errors.Is(err, session.ErrNotFound) && h.Log != nil {
+			h.Log.Warn("session lookup failed during a SAML request", "error", err.Error())
+		}
+		return session.Session{}, false
+	}
+	return found, true
 }
 
 func (h *Handler) logError(what string, err error) {

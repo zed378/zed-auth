@@ -50,6 +50,8 @@ import (
 	"github.com/zed378/zed-auth/backend/internal/projectgrant"
 	"github.com/zed378/zed-auth/backend/internal/ratelimit"
 	"github.com/zed378/zed-auth/backend/internal/role"
+	"github.com/zed378/zed-auth/backend/internal/saml"
+	"github.com/zed378/zed-auth/backend/internal/samlapi"
 	"github.com/zed378/zed-auth/backend/internal/session"
 	"github.com/zed378/zed-auth/backend/internal/sessionapi"
 	"github.com/zed378/zed-auth/backend/internal/signing"
@@ -588,8 +590,44 @@ func run() error {
 		Log:      log,
 	}
 
+	// --- the SAML identity provider (P4-07, P4-08) --------------------------
+	//
+	// Its own key set, by `purpose`, loaded through the same cache machinery as
+	// the OIDC one. A deployment that has never run `keyctl generate` for SAML
+	// has no SAML key, every endpoint below answers 503, and nothing else
+	// changes — which is what an instance that does not use SAML should look
+	// like.
+	samlKeyStore := signing.NewStore(
+		db.SQL(), config.NewSecretResolver(cfg.Environment != config.EnvLocal), signing.PurposeSAML)
+	samlKeys := signing.NewCache(func() (*signing.KeySet, error) {
+		loadCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+		defer cancel()
+		return samlKeyStore.Load(loadCtx)
+	}, signing.DefaultCacheTTL)
+
+	samlHandler := &samlapi.Handler{
+		Issuer: cfg.Issuer,
+		Endpoints: saml.Endpoints{
+			SSORedirect: cfg.Issuer + "/saml/sso",
+			SSOPost:     cfg.Issuer + "/saml/sso",
+		},
+		LoginPath: "/login",
+		Policy:    session.DefaultPolicy,
+		DB:        db,
+		Keys:      samlapi.NewCachedKeys(samlKeys),
+		Providers: saml.NewProviderStore(),
+		Sessions:  sessions,
+		Subjects:  samlapi.NewSubjectStore(),
+		Requests:  saml.NewRequests(),
+		Audit:     samlapi.NewAuditWriter(auditor),
+		Log:       log,
+	}
+
 	loginHandler := &login.Handler{
-		Authorization: authorizeHandler,
+		// One seam, two protocols. The dispatcher routes a finished sign-in
+		// back to whichever started it, from the request id alone, so this
+		// package never learns that SAML exists (P4-08).
+		Authorization: samlapi.NewDispatcher(authorizeHandler, samlHandler),
 		Sessions:      sessions,
 		Users:         authn.NewUserStore(),
 		Policies:      authn.NewPolicyStore(log),
@@ -807,6 +845,9 @@ func run() error {
 		Origins:         originChecker{store: clients, db: db, log: log},
 		Discovery:       discovery,
 		Authorize:       authorizeHandler,
+		SAMLMetadata:    http.HandlerFunc(samlHandler.Metadata),
+		SAMLSSO:         samlSSORoute(samlHandler),
+		SAMLSLO:         http.HandlerFunc(samlHandler.SingleLogout),
 		Token:           tokenHandler,
 		Introspect:      http.HandlerFunc(lifecycleHandler.Introspect),
 		Revoke:          http.HandlerFunc(lifecycleHandler.Revoke),
@@ -1712,4 +1753,27 @@ func (o tokenObserver) Denied(grant, errorCode string) {
 
 func (o tokenObserver) RefreshReuse() {
 	o.m.RefreshReuse.Inc()
+}
+
+// samlSSORoute serves both SAML bindings on one path.
+//
+// The metadata advertises one `Location` for HTTP-Redirect and HTTP-POST, so
+// the method decides which binding arrived: a GET carries the request
+// DEFLATE-compressed in the query, a POST base64-encoded in a form field.
+//
+// Split here rather than inside the handler so the routing decision is visible
+// where the routes are, and so a method nobody registered cannot reach a
+// binding parser at all.
+func samlSSORoute(h *samlapi.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			h.SSORedirect(w, r)
+		case http.MethodPost:
+			h.SSOPost(w, r)
+		default:
+			w.Header().Set("Allow", "GET, POST")
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
 }

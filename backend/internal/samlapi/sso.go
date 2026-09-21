@@ -100,7 +100,7 @@ func (h *Handler) sso(w http.ResponseWriter, r *http.Request, raw []byte, relayS
 	}
 
 	// A live session, or the hosted login.
-	current, ok := h.Sessions.FromRequest(r)
+	current, ok := h.current(r)
 	if !ok || current.OrgID != reg.OrgID || request.ForceAuthn {
 		h.toLogin(w, r, reg, request, relayState)
 		return
@@ -254,6 +254,17 @@ func (h *Handler) deliver(w http.ResponseWriter, reg saml.Registration, response
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
+
+	// #nosec G705 -- the taint is real and already neutralised. `form` is the
+	// output of saml.PostForm, which is html/template with contextual
+	// escaping; the only attacker-influenced values in it are RelayState and
+	// the destination, and both are interpolated as template data rather than
+	// concatenated. response_test.go asserts an injection payload comes back
+	// escaped and still carried, and a mutation that rebuilds the form by
+	// concatenation turns those tests red.
+	//
+	// gosec cannot see through the call, so it flags the write rather than the
+	// construction. Silenced here, narrowly, rather than by excluding the rule.
 	_, _ = w.Write(form)
 }
 

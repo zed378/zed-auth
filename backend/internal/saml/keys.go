@@ -1,6 +1,7 @@
 package saml
 
 import (
+	"crypto"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
@@ -121,9 +122,18 @@ func NewSigningKey(pair *signing.KeyPair, certPEM string) (*SigningKey, error) {
 	if pair == nil {
 		return nil, fmt.Errorf("saml: no key")
 	}
-	private, ok := pair.Private.(*rsa.PrivateKey)
+	return NewSigningKeyFrom(pair.KID, pair.Private, certPEM)
+}
+
+// NewSigningKeyFrom adapts a signer and its certificate.
+//
+// The form the running service uses: `internal/signing` hands out a
+// `crypto.Signer` for the current key rather than a whole KeyPair, because the
+// private half does not leave that package as PEM.
+func NewSigningKeyFrom(kid string, signer crypto.Signer, certPEM string) (*SigningKey, error) {
+	private, ok := signer.(*rsa.PrivateKey)
 	if !ok {
-		return nil, fmt.Errorf("saml: the signing key is %T, want RSA", pair.Private)
+		return nil, fmt.Errorf("saml: the signing key is %T, want RSA", signer)
 	}
 	cert, err := ParseCertificate(certPEM)
 	if err != nil {
@@ -139,7 +149,7 @@ func NewSigningKey(pair *signing.KeyPair, certPEM string) (*SigningKey, error) {
 		return nil, fmt.Errorf("%w: the certificate is for a different key", ErrNoCertificate)
 	}
 
-	return &SigningKey{private: private, der: cert.Raw, KID: pair.KID}, nil
+	return &SigningKey{private: private, der: cert.Raw, KID: kid}, nil
 }
 
 // GetKeyPair implements goxmldsig's X509KeyStore.
