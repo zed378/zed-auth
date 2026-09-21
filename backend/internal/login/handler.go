@@ -1141,13 +1141,71 @@ func (h *Handler) count(outcome string) {
 
 // validPendingID checks the shape of a pending request id before it is used.
 //
+// Checking the shape here means a crafted value never reaches Redis as a key,
+// and — more importantly — never reaches the template, because a value that
+// fails this test is answered by a page that renders nothing from the request
+// at all.
+//
+// # Two shapes, and why this does not name a protocol
+//
 // The ids authorize.SavePending mints are 32 random bytes in unpadded
-// base64url. Checking the shape here means a crafted value never reaches Redis
-// as a key, and — more importantly — never reaches the template, because a
-// value that fails this test is answered by a page that renders nothing from
-// the request at all.
+// base64url: exactly 43 characters, and that exactness is worth keeping.
+//
+// A second protocol mints ids of its own and namespaces them — `<name>:<id>` —
+// so the dispatcher in front of the Authorization seam can route one back to
+// whoever started it. This function accepts that shape too, as a CONVENTION
+// about ids rather than as knowledge of which protocols exist. Teaching the
+// login page the list of protocols is the thing P4-08's dispatcher was built
+// to avoid, and it would have to be edited again for the third.
+//
+// The namespaced body is bounded and restricted rather than exact, because it
+// is not this service's to mint: a SAML service provider chooses its own
+// request id. That makes it attacker-influenced, which is precisely why it is
+// bounded here as well as refused at the parser.
+//
+// This case was missing when the dispatcher landed. The login page routed a
+// namespaced id correctly and rejected it before routing, so every SAML login
+// through the hosted page answered "Nothing to sign in to" — and no test
+// noticed, because the tests that exercise SAML call the seam directly and the
+// tests that exercise this page only ever use an OAuth id.
 func validPendingID(id string) bool {
-	if len(id) != 43 {
+	if namespace, rest, ok := strings.Cut(id, ":"); ok {
+		return validIDNamespace(namespace) && validIDBody(rest, 1, maxNamespacedIDBytes)
+	}
+	return validIDBody(id, pendingIDBytes, pendingIDBytes)
+}
+
+// pendingIDBytes is the length of an id authorize.SavePending mints: 32 random
+// bytes in unpadded base64url.
+const pendingIDBytes = 43
+
+// maxNamespacedIDBytes bounds an id minted by another protocol.
+//
+// SAML's is an xsd:ID chosen by the service provider. 128 is far above what any
+// real one uses — a hex digest with a prefix is about 45 — and far below a
+// length that would make a URL or a page awkward.
+const maxNamespacedIDBytes = 128
+
+// validIDNamespace accepts the short lowercase name in front of the colon.
+func validIDNamespace(name string) bool {
+	if len(name) == 0 || len(name) > 8 {
+		return false
+	}
+	for _, c := range name {
+		if c < 'a' || c > 'z' {
+			return false
+		}
+	}
+	return true
+}
+
+// validIDBody accepts base64url characters plus the dot, within a length range.
+//
+// The dot is here for the namespaced case only in practice: an xsd:ID may
+// contain one and a base64url id never does, so accepting it widens nothing
+// for the ids this service mints itself.
+func validIDBody(id string, minLen, maxLen int) bool {
+	if len(id) < minLen || len(id) > maxLen {
 		return false
 	}
 	for _, c := range id {
@@ -1155,7 +1213,7 @@ func validPendingID(id string) bool {
 		case c >= 'A' && c <= 'Z':
 		case c >= 'a' && c <= 'z':
 		case c >= '0' && c <= '9':
-		case c == '-' || c == '_':
+		case c == '-' || c == '_' || c == '.':
 		default:
 			return false
 		}
