@@ -75,6 +75,12 @@ type fixture struct {
 	// Every mutation in this package must be visible to P1-15's guard, so the
 	// fixture always watches rather than only the one test that asserts it.
 	observer *countingObserver
+
+	// applications is the handler itself, so a test can move its clock. The
+	// certificate-expiry warning is a boundary, and a test that generated a
+	// certificate 29 days out would be testing near the boundary rather than
+	// at it (P4-09).
+	applications *Handler
 }
 
 func setup(t *testing.T) *fixture {
@@ -133,6 +139,8 @@ func setup(t *testing.T) *fixture {
 		BufferBody:  true,
 	}
 
+	applications := New(db, auditor, discard())
+
 	srv := httpserver.New(config.HTTPConfig{
 		Addr: "127.0.0.1:0", ReadTimeout: 5 * time.Second, WriteTimeout: 5 * time.Second,
 		ReadHeaderTimeout: 2 * time.Second, IdleTimeout: 5 * time.Second,
@@ -144,7 +152,7 @@ func setup(t *testing.T) *fixture {
 			Store: organization.NewStore(), DB: db, Audit: auditor, Log: discard(),
 		},
 		ProjectAPI:     &project.Handler{Store: project.NewStore(), DB: db, Audit: auditor, Log: discard()},
-		ApplicationAPI: New(db, auditor, discard()),
+		ApplicationAPI: applications,
 		RoleAPI:        role.New(db, auditor, discard()),
 		GrantAPI:       grant.New(db, auditor, discard()),
 		AuthzAPI:       &authz.Handler{DB: db, Log: discard()},
@@ -165,6 +173,7 @@ func setup(t *testing.T) *fixture {
 		orgA: orgA, orgB: orgB,
 		projectA: projectA, otherProjectA: otherProjectA, projectB: projectB,
 		userID: userID, clientID: clientID, observer: observer,
+		applications: applications,
 	}
 }
 
