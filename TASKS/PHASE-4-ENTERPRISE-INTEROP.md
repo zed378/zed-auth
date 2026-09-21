@@ -154,7 +154,7 @@
 
 | | |
 |---|---|
-| **Status** | TODO |
+| **Status** | DONE — 2026-09-18, [record](../MEMORY/records/2026-09-18-P4-04-delegated-claims-and-revocation.md), [spec](../MEMORY/specs/P4-04-delegated-claims-and-revocation.md). Tokens await cross-organization sign-in (ADR-025) |
 | **Depends on** | P4-02, P2-04 |
 | **Plan refs** | `docs/PLAN/08-AUTHORIZATION.md` Part C § Token Claim Format, § Full Permission Check Flow, `docs/PLAN/12-PERFORMANCE.md` |
 | **Spec required** | Yes — token and decision path |
@@ -171,12 +171,12 @@
 6. Instrument the Project Grant creation and revocation rate (`docs/PLAN/13` names unusual spikes as a possible misuse indicator).
 
 **Definition of Done**
-- [ ] Delegated roles appear with the correct `org_id` in the claim.
-- [ ] The permission check follows `docs/PLAN/08` Part C's documented sequence, verified step by step.
-- [ ] Revoking a grant removes access within the documented window, and immediately via `/v1/authz/check`.
-- [ ] The revocation window is documented publicly.
-- [ ] Grant rate metrics are emitted per `docs/PLAN/13`.
-- [ ] `docs/PLAN/12`'s authz latency targets still hold with delegation in the path.
+- [x] Delegated roles appear with the correct `org_id` in the claim — the delegating organization's, tested at the claim builder and at the reader. **No live path issues such a token yet**: cross-organization sign-in (ADR-025) is a separate card, and that limit is stated wherever the claim is documented.
+- [x] The permission check follows `docs/PLAN/08` Part C's documented sequence, verified step by step.
+- [x] Revoking a grant removes access within the documented window, and immediately via `/v1/authz/check`.
+- [x] The revocation window is documented publicly.
+- [x] Grant rate metrics are emitted per `docs/PLAN/13`.
+- [x] `docs/PLAN/12`'s authz latency targets still hold with delegation in the path.
 
 **Abuse cases to test**
 - A role claim from org A honored while acting in org B's context — `docs/PLAN/08` Part C step 3a exists precisely for this.

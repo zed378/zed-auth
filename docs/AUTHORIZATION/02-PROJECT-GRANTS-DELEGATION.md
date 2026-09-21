@@ -1,6 +1,6 @@
 # 02 - Project Grants and Cross-Organization Delegation
 
-> Category: **Authorization** (`docs/AUTHORIZATION/`) &nbsp;|&nbsp; Status: Partially implemented &nbsp;|&nbsp; Tasks: P4-01, P4-02, P4-03, P4-05 built; P4-04, P4-06 open &nbsp;|&nbsp; Verified against: `84eb9a2`
+> Category: **Authorization** (`docs/AUTHORIZATION/`) &nbsp;|&nbsp; Status: Partially implemented &nbsp;|&nbsp; Tasks: P4-01, P4-02, P4-03, P4-04, P4-05 built; P4-06 open &nbsp;|&nbsp; Verified against: `2b84577`
 
 ## Purpose
 
@@ -63,7 +63,7 @@ Audit events: `project_grant.created`, `project_grant.revoked` (granting organiz
 
 ## Security Considerations
 
-- **A delegated grant confers no access yet.** No reader of `user_grants` joins `project_grants`, and RLS hides delegated rows from the granting tenant, so they appear in no token and no `/v1/authz/check` decision. `P4-04` must add the reader join *in the same change* that makes the rows readable (threat review T4-2).
+- **A delegated grant confers access through `/v1/authz/check`** since `P4-04`. Both readers resolve a delegated row against its grant on every read — `grantsql.EffectiveRoleKeys` — so the effective set is `role_keys ∩ granted_role_keys` and nothing at all once the grant is revoked. The granting organization gained a read-only view of its own grants' rows in the same change, which is the ordering T4-2 demanded.
 - **Widening** is refused on every path that can write the row, including the direct-grant `PATCH` — the trigger fires on `role_keys`, which it did not before `P4-02` (`MEMORY/records/2026-09-17-P4-02-delegated-user-grants.md`).
 - **Cross-organization administration** is refused by scope, not by hierarchy (T4-4, `PG-44`).
 - **Enumeration** of organizations through `granted_org_id` is answered with one refusal for unknown, deleted, suspended and self (`P4-01` A-5).
@@ -77,9 +77,8 @@ Audit events: `project_grant.created`, `project_grant.revoked` (granting organiz
 
 ## Not Yet Built / Open Questions
 
-- `P4-04`: delegated roles in tokens and `/v1/authz/check`, the granting-side read policy, invalidation by grant, and a published revocation window.
+- **Cross-organization sign-in** (ADR-025): a partner's user still cannot sign in to the granting organization's applications, so no live path issues a token carrying a delegated role. The claim code is built and tested; the sign-in is not.
 - `P4-06`: the receiving organization's console screen.
-- Cross-organization sign-in: decided (ADR-025, stricter of both policies) and unbuilt.
 
 ## Related Documents
 
