@@ -351,6 +351,24 @@ else
   echo "      Fix: git update-index --chmod=+x <file>"
 fi
 
+# The reference documentation cites code. A citation nobody checks is a citation
+# that rots: a scaffold left behind, an endpoint that was renamed, a path that
+# moved. `check-docs.py` (P0-22) verifies them; it existed and nothing ran it,
+# which is the same failure one level up.
+if command -v python >/dev/null 2>&1 || command -v python3 >/dev/null 2>&1; then
+  py=$(command -v python3 || command -v python)
+  if docs_out=$("$py" scripts/check-docs.py 2>&1); then
+    pass "documentation citations resolve ($(printf '%s
+' "$docs_out" | tail -1))"
+  else
+    fail "documentation cites something that does not exist"
+    printf '%s
+' "$docs_out" | sed 's/^/      /'
+  fi
+else
+  skip "documentation citations" "python not installed"
+fi
+
 # The hook is only a control if it actually rejects. Verify rather than assume.
 if printf 'no task id here\n' > /tmp/_msgcheck && ! sh scripts/hooks/commit-msg /tmp/_msgcheck >/dev/null 2>&1 \
    && printf 'P0-01: valid\n' > /tmp/_msgcheck && sh scripts/hooks/commit-msg /tmp/_msgcheck >/dev/null 2>&1; then
