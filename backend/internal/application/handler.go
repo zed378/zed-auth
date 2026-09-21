@@ -108,13 +108,29 @@ func (h *Handler) ListApplications(
 
 	projectID := request.ProjectId.String()
 
-	var rows []client.Record
+	var (
+		rows          []client.Record
+		registrations map[string]saml.Managed
+	)
 	if err := h.inScope(ctx, func(tx *postgres.Tx) error {
 		if err := h.requireProject(ctx, tx, projectID); err != nil {
 			return err
 		}
 		var err error
 		rows, err = h.Clients.List(ctx, tx, projectID, cursor.After, cursor.ID, size)
+		if err != nil {
+			return err
+		}
+
+		// In the same transaction as the rows, so a registration cannot be
+		// read for an application the page no longer contains.
+		var samlIDs []string
+		for _, rec := range rows {
+			if rec.Application.Type == client.TypeSAML {
+				samlIDs = append(samlIDs, rec.Application.ID)
+			}
+		}
+		registrations, err = h.Registrations.ByApplications(ctx, tx, samlIDs)
 		return err
 	}); err != nil {
 		return nil, err
@@ -126,10 +142,16 @@ func (h *Handler) ListApplications(
 	}
 
 	out := api.ApplicationList{Applications: make([]api.Application, 0, len(page.Items))}
+	now := h.now()
 	for _, rec := range page.Items {
 		rendered, err := render(rec)
 		if err != nil {
 			return nil, err
+		}
+		if registration, ok := registrations[rec.Application.ID]; ok {
+			if rendered.Saml, err = renderSaml(registration, now); err != nil {
+				return nil, err
+			}
 		}
 		out.Applications = append(out.Applications, rendered)
 	}

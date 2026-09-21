@@ -2730,10 +2730,15 @@ export interface components {
             /** @example Billing portal */
             name: string;
             type: components["schemas"]["ApplicationType"];
+            saml?: components["schemas"]["SamlRegistration"];
             /**
              * @description Matched by **exact string comparison** at authorization time, never
              *     by prefix or pattern. Prefix matching is the open-redirect
              *     vulnerability (`docs/PLAN/09` § Protection Against Common Attacks).
+             *
+             *     Empty for a `saml` application, which participates in no redirect
+             *     flow: an assertion goes to the registered `saml.acs_url` and
+             *     nowhere else.
              * @example [
              *       "https://billing.example.com/callback"
              *     ]
@@ -2806,10 +2811,152 @@ export interface components {
             applications: components["schemas"]["Application"][];
             page_info?: components["schemas"]["PageInfo"];
         };
+        /**
+         * @description The SAML service provider an application of type `saml` represents.
+         *
+         *     Present on an application of that type and absent on every other. A
+         *     `saml` application without one is a registration nothing can use: the
+         *     entity ID is what an incoming `AuthnRequest` is matched against, and
+         *     the ACS URL is the only address an assertion is ever delivered to.
+         */
+        SamlRegistration: {
+            /**
+             * @description The service provider's own name, compared by **exact string
+             *     comparison** against the `Issuer` of an incoming `AuthnRequest`.
+             *
+             *     Unique across the instance rather than per organization, because an
+             *     entity ID is a global name in SAML: two organizations claiming the
+             *     same one would make "which service provider is this assertion for"
+             *     ambiguous at the moment it decides where an assertion goes.
+             * @example https://sp.example.com/saml/metadata
+             */
+            entity_id: string;
+            /**
+             * Format: uri
+             * @description Where an assertion is POSTed. `https` only — an assertion is a
+             *     bearer credential for the length of its validity window, and
+             *     delivering one over cleartext hands it to every hop in between.
+             *
+             *     **The request does not get to choose this.** An `AuthnRequest` may
+             *     carry its own `AssertionConsumerServiceURL`; it is ignored, and
+             *     this is used. That is the difference between an identity provider
+             *     and an open redirect with a signature on it.
+             * @example https://sp.example.com/saml/acs
+             */
+            acs_url: string;
+            /**
+             * @description The attributes this service provider receives in an assertion.
+             *
+             *     Empty means the `NameID` and nothing else, which is the correct
+             *     default for a party that has not asked for anything — the same
+             *     discipline `/oauth/userinfo` applies to scopes.
+             * @example [
+             *       "email",
+             *       "name"
+             *     ]
+             */
+            attribute_release: string[];
+            /**
+             * @description Whether this service provider's own `AuthnRequest`s must carry a
+             *     valid signature.
+             *
+             *     **Enforced on the HTTP-POST binding and refused on HTTP-Redirect.**
+             *     That binding does not sign the XML; it signs a query string as an
+             *     octet sequence with the signature in a separate parameter, which is
+             *     a different construction with its own canonicalisation rules and
+             *     its own history of implementations verifying the wrong bytes. It is
+             *     not implemented, so a service provider that requires signing and
+             *     arrives on HTTP-Redirect is refused rather than accepted
+             *     unverified.
+             *
+             *     Setting this without a `certificate` is refused: a flag with
+             *     nothing to verify against is worse than not offering it.
+             */
+            want_signed_requests: boolean;
+            /**
+             * @description The service provider's signing certificate, PEM-encoded. Required
+             *     when `want_signed_requests` is set.
+             */
+            certificate?: string;
+            /**
+             * @description Whether this service provider accepts a login it did not ask for.
+             *
+             *     **Off by default, and that default is the point.** An IdP-initiated
+             *     assertion answers no request, so the service provider has nothing
+             *     to correlate it against — which is the same shape as a CSRF: anyone
+             *     who can cause a browser to visit the initiation URL can have an
+             *     assertion delivered. Some service providers defend themselves; many
+             *     log the user in.
+             *
+             *     Turn it on per integration, in the open, because somebody decided
+             *     to — not because every registration quietly has it.
+             */
+            allow_idp_initiated: boolean;
+            /**
+             * Format: date-time
+             * @description When the service provider's certificate expires. Absent when there
+             *     is no certificate, which is not a problem: a service provider that
+             *     does not sign its requests has nothing to expire.
+             */
+            readonly certificate_expires_at?: string;
+            /**
+             * @description True within 30 days of expiry. The window is that long because the
+             *     remedy is not this service's to perform — somebody has to ask the
+             *     other party for a new certificate and wait for it — so a warning
+             *     measured in days would arrive after the only useful time to act.
+             *
+             *     An expired certificate does not fail quietly: every signed request
+             *     from that service provider is refused, and this is the warning that
+             *     exists so nobody finds out that way.
+             */
+            readonly certificate_expires_soon?: boolean;
+        };
+        /**
+         * @description A SAML registration as supplied by a caller.
+         *
+         *     Either `metadata_xml` **or** the fields, not both. Metadata is the
+         *     normal path — the other party publishes a document and typing its
+         *     contents out by hand is how an entity ID acquires a trailing space —
+         *     and the manual fields are there for a service provider that publishes
+         *     none.
+         */
+        SamlRegistrationInput: {
+            /**
+             * @description The service provider's SAML metadata document.
+             *
+             *     Parsed under the same hardening as an assertion: bounded in size
+             *     and nesting depth, DTDs and entity references refused, and a
+             *     document that does not survive a parse and re-serialise unchanged
+             *     rejected before anything reads it. It is untrusted XML from an
+             *     external party and is treated as such.
+             *
+             *     `entity_id`, `acs_url`, `certificate` and `want_signed_requests`
+             *     are read from it. Where it advertises several Assertion Consumer
+             *     Services, the HTTPS HTTP-POST one wins, `isDefault` before the
+             *     lowest `index`.
+             */
+            metadata_xml?: string;
+            entity_id?: string;
+            /** Format: uri */
+            acs_url?: string;
+            attribute_release?: string[];
+            want_signed_requests?: boolean;
+            certificate?: string;
+            allow_idp_initiated?: boolean;
+        };
         /** @description There is no `project_id` or `org_id` here — both come from the path. */
         ApplicationCreate: {
             name: string;
             type: components["schemas"]["ApplicationType"];
+            /**
+             * @description Required when `type` is `saml`, and refused otherwise.
+             *
+             *     Required because a `saml` application without one is a registration
+             *     nothing can use, and creating it in a second call would leave a
+             *     window in which the application exists and no `AuthnRequest` can be
+             *     matched to it.
+             */
+            saml?: components["schemas"]["SamlRegistrationInput"];
             redirect_uris?: string[];
             post_logout_redirect_uris?: string[];
             /**
@@ -2847,6 +2994,17 @@ export interface components {
          */
         ApplicationUpdate: {
             name?: string;
+            /**
+             * @description Replaces the whole registration, on an application of type `saml`
+             *     and no other.
+             *
+             *     The whole thing rather than the fields supplied, because several of
+             *     them constrain each other: `want_signed_requests` needs a
+             *     certificate, and a caller sending only the flag would be relying on
+             *     a certificate it has not looked at. Sending the registration means
+             *     the caller has seen all of it.
+             */
+            saml?: components["schemas"]["SamlRegistrationInput"];
             redirect_uris?: string[];
             post_logout_redirect_uris?: string[];
             /**

@@ -445,3 +445,69 @@ func TestACertificateNearingExpiryIsReportedAsExpiringSoon(t *testing.T) {
 		t.Error("a certificate outside the warning window is reported as expiring soon")
 	}
 }
+
+// An attribute nobody releases is refused rather than stored.
+//
+// `Email` with a capital would otherwise save cleanly and release nothing, and
+// the administrator who ticked it would believe the service provider now
+// receives an address. The refusal names the ones that exist.
+func TestAnUnknownAttributeIsRefused(t *testing.T) {
+	f := setup(t)
+	f.grant(management.OrgOwner, f.orgA)
+
+	w := f.call(t, http.MethodPost, f.apps(f.orgA, f.projectA),
+		samlBody("Typo", `{"entity_id":"https://typo.example.test",`+
+			`"acs_url":"https://typo.example.test/acs","attribute_release":["Email"]}`))
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status %d, want 400: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "display_name, email, role_keys, username") {
+		t.Errorf("the refusal does not name the releasable attributes: %s", w.Body.String())
+	}
+}
+
+// The list carries each registration, so the console can show a service
+// provider and its certificate warning without a request per row — and a
+// non-SAML application carries none.
+func TestTheListCarriesEachRegistration(t *testing.T) {
+	f := setup(t)
+	f.grant(management.OrgOwner, f.orgA)
+
+	mustStatus(t, f.call(t, http.MethodPost, f.apps(f.orgA, f.projectA),
+		samlBody("Listed SAML", `{"entity_id":"https://listed.example.test",`+
+			`"acs_url":"https://listed.example.test/acs"}`)), http.StatusCreated)
+	f.createConfidential(t, "Listed web")
+
+	w := mustStatus(t, f.call(t, http.MethodGet, f.apps(f.orgA, f.projectA), ""), http.StatusOK)
+
+	var list struct {
+		Applications []map[string]any `json:"applications"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &list); err != nil {
+		t.Fatalf("decoding the list: %v", err)
+	}
+
+	seen := map[string]bool{}
+	for _, app := range list.Applications {
+		name, _ := app["name"].(string)
+		registration, hasSaml := app["saml"].(map[string]any)
+		switch name {
+		case "Listed SAML":
+			seen[name] = true
+			if !hasSaml {
+				t.Fatal("the SAML application is listed without its registration")
+			}
+			if registration["entity_id"] != "https://listed.example.test" {
+				t.Errorf("entity_id %v", registration["entity_id"])
+			}
+		case "Listed web":
+			seen[name] = true
+			if hasSaml {
+				t.Error("a web application is listed with a SAML registration")
+			}
+		}
+	}
+	if !seen["Listed SAML"] || !seen["Listed web"] {
+		t.Fatalf("the list did not contain both applications: %v", seen)
+	}
+}

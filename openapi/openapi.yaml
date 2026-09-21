@@ -4283,6 +4283,17 @@ components:
         page_info:
           $ref: "#/components/schemas/PageInfo"
 
+    SamlAttribute:
+      type: string
+      enum: [display_name, email, role_keys, username]
+      description: |
+        An attribute a SAML assertion can carry.
+
+        A closed set, and a name outside it is refused rather than stored: an
+        attribute nobody produces is a setting that saves cleanly and releases
+        nothing, and the administrator who chose it would believe the service
+        provider receives something it does not.
+
     SamlRegistration:
       type: object
       description: |
@@ -4324,7 +4335,7 @@ components:
         attribute_release:
           type: array
           items:
-            type: string
+            $ref: "#/components/schemas/SamlAttribute"
           description: |
             The attributes this service provider receives in an assertion.
 
@@ -4427,7 +4438,7 @@ components:
         attribute_release:
           type: array
           items:
-            type: string
+            $ref: "#/components/schemas/SamlAttribute"
         want_signed_requests:
           type: boolean
         certificate:

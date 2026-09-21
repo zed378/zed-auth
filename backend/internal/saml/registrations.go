@@ -80,6 +80,20 @@ func (m Managed) CertificateExpiry() (time.Time, error) {
 // useful time to act on it.
 const CertificateWarningWindow = 30 * 24 * time.Hour
 
+// ReleasableAttributes is every attribute a registration may ask for.
+//
+// One list, read by both sides of the contract. The subject builder in
+// internal/samlapi produces exactly these names (a test asserts it), and
+// validateManaged refuses any other — because a name nobody produces is a
+// setting that does nothing. `Email` typed with a capital, or `mail` copied
+// from another product's documentation, would store cleanly and release
+// nothing, and the administrator who set it would believe the service
+// provider now receives an address.
+//
+// Sorted, so a console that renders it as checkboxes renders it the same way
+// every time.
+var ReleasableAttributes = []string{"display_name", "email", "role_keys", "username"}
+
 // Registrations manages SAML service provider registrations.
 type Registrations struct{}
 
@@ -142,6 +156,53 @@ func (r *Registrations) ByApplication(
 	}
 	m.CertificatePEM = certificate.String
 	return m, nil
+}
+
+// ByApplications reads the live registrations for several applications at once.
+//
+// One query for a page of applications rather than one per row. The console's
+// list shows each service provider and its certificate warning, and a page of a
+// hundred applications answered with a hundred and one queries is the shape
+// that is fine in a test and slow in the one organization that has a hundred.
+//
+// Applications with no registration are simply absent from the map.
+func (r *Registrations) ByApplications(
+	ctx context.Context, tx *postgres.Tx, applicationIDs []string,
+) (map[string]Managed, error) {
+	out := make(map[string]Managed, len(applicationIDs))
+	if len(applicationIDs) == 0 {
+		return out, nil
+	}
+
+	rows, err := tx.Query(ctx, `
+		SELECT id::text, application_id::text, org_id::text, entity_id, acs_url,
+		       attribute_release, want_signed_requests, certificate,
+		       allow_idp_initiated, created_at
+		  FROM saml_service_providers
+		 WHERE application_id = ANY($1::uuid[])
+		   AND revoked_at IS NULL`, pq.Array(applicationIDs))
+	if err != nil {
+		return nil, fmt.Errorf("saml: reading registrations: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var (
+			m           Managed
+			certificate sql.NullString
+		)
+		if err := rows.Scan(&m.ID, &m.ApplicationID, &m.OrgID, &m.EntityID, &m.ACSURL,
+			pq.Array(&m.AttributeRelease), &m.WantSignedRequests, &certificate,
+			&m.AllowIdPInitiated, &m.CreatedAt); err != nil {
+			return nil, fmt.Errorf("saml: reading registrations: %w", err)
+		}
+		m.CertificatePEM = certificate.String
+		out[m.ApplicationID] = m
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("saml: reading registrations: %w", err)
+	}
+	return out, nil
 }
 
 // Update replaces the registration an application owns.
@@ -217,6 +278,14 @@ func validateManaged(m Managed) error {
 		// An assertion is a bearer credential for the length of its window.
 		// Delivering one over cleartext hands it to every hop in between.
 		return invalidRegistration("acs_url", "must be an https URL")
+	}
+
+	for _, name := range m.AttributeRelease {
+		if !releasable(name) {
+			return invalidRegistration("attribute_release",
+				fmt.Sprintf("%q is not an attribute this service releases; the releasable ones are %s",
+					name, strings.Join(ReleasableAttributes, ", ")))
+		}
 	}
 
 	if m.CertificatePEM != "" {
@@ -295,4 +364,13 @@ func nullableText(s string) any {
 		return nil
 	}
 	return s
+}
+
+func releasable(name string) bool {
+	for _, known := range ReleasableAttributes {
+		if name == known {
+			return true
+		}
+	}
+	return false
 }
