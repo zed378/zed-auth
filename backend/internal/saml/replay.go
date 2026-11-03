@@ -96,14 +96,16 @@ func (r *Replay) Record(
 // Deliberately NOT tied to the assertion's own lifetime plus a margin. The
 // window is already enforced; anything beyond it is storage spent on a
 // credential that two independent checks would refuse.
-func (r *Replay) Prune(ctx context.Context, tx *postgres.Tx, now time.Time) (int64, error) {
-	result, err := tx.Exec(ctx, `DELETE FROM saml_assertion_ids WHERE expires_at <= $1`, now)
-	if err != nil {
+// Through a bounded SECURITY DEFINER function, and bounded per call (BL-08).
+// A plain DELETE here removed nothing and reported success — see
+// Requests.Prune for the mechanism.
+func (r *Replay) Prune(
+	ctx context.Context, tx *postgres.Tx, now time.Time, limit int,
+) (int64, error) {
+	var removed int64
+	if err := tx.QueryRow(ctx,
+		`SELECT sweep_saml_assertion_ids($1, $2)`, now, limit).Scan(&removed); err != nil {
 		return 0, fmt.Errorf("saml: pruning assertion ids: %w", err)
 	}
-	affected, err := result.RowsAffected()
-	if err != nil {
-		return 0, fmt.Errorf("saml: pruning assertion ids: %w", err)
-	}
-	return affected, nil
+	return removed, nil
 }

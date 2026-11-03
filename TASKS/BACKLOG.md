@@ -951,25 +951,35 @@ So the header-only rule was written against § 2.3 and silently caught § 2.2 as
 
 ---
 
-### BL-08 — Three tables have a sweeper that nothing calls, and calling it naively would delete nothing
+### BL-08 — ~~Three~~ **five** tables had a sweeper that nothing calls, and calling it naively would delete nothing — **RESOLVED 2026-09-30**
 
-**Found**: 2026-09-21, wiring `P4-08`. **Affects**: `idempotency_records`, `saml_authn_requests`, `saml_assertion_ids`.
+**Found**: 2026-09-21. **Rewritten 2026-09-30** when the audit found the count was wrong. **Closed** by `internal/maintenance` and migration 046.
 
-Each of the three has a written, tested, documented cleanup function. None of them is reachable from `cmd/authservice`. `saml.Replay.Prune`'s own comment states the property it does not deliver — *"the table would otherwise grow without bound … an unbounded table on the login path is a slow outage scheduled for whenever it stops fitting in memory."*
+`postgres.withScope` sets `app.current_org_id` to the empty string for instance scope, so `current_org_id()` is NULL and every tenant policy evaluates false. Its own comment states the intent: *"Instance-scoped work therefore still cannot read a policy-protected table by accident."*
 
-`saml_authn_requests` takes a row per SAML login and `Consume` only sets `consumed_at`, so nothing is ever removed. `sessions` is the one table of this shape with a real sweeper (`runSessionSweep`), which is why the pattern to copy already exists.
+The failure mode when code does it anyway is the worst available. A `SELECT` returns zero rows, an `UPDATE` or `DELETE` reports success having changed nothing, and **no error is raised anywhere**. A row hidden by row-level security is indistinguishable from a row that was never written — so a sweeper logs a cheerful zero forever while the table grows.
 
-**The part that makes this more than wiring.** All three tables are under row-level security. A sweeper runs outside any tenant — it has no organization to be — and under instance scope `current_org_id()` is NULL, so every policy evaluates false and a plain `DELETE` **succeeds having removed nothing**. `management.IdempotencyStore.Sweep` already solved this with a `SECURITY DEFINER` function and says so; the two `saml` Prunes are plain `DELETE`s and would silently no-op. A test asserting "no error" would pass.
+**The original entry undercounted. The real inventory was five tables, not three:**
 
-So the fix is three parts, and skipping the third re-creates the bug:
+| Table | State when found |
+|---|---|
+| `saml_authn_requests` | Plain `DELETE`, which would have removed nothing. Uncalled. |
+| `saml_assertion_ids` | Plain `DELETE`, same. Uncalled. |
+| `idempotency_records` | Correct `SECURITY DEFINER` function — and **also uncalled**, which the first draft of this entry got wrong by treating it as the counter-example rather than a third instance. |
+| `user_tokens` | **No sweeper at all.** One row per invite, reset and verification link. |
+| `refresh_tokens` | **No sweeper at all**, and worse than it looks: `session_id` is `ON DELETE SET NULL`, so the hourly session sweep nulled the link and left the row. One row per login *and* one more per rotation. |
 
-1. A migration giving each SAML table a bounded `SECURITY DEFINER` sweep function, as `sweep_idempotency_records` already is — expired rows only, a row limit, returning a count.
-2. One janitor goroutine beside `runSessionSweep` running all three on a ticker.
-3. Tests that assert the **count** and that prove the function is necessary: the direct `DELETE` under instance scope must be shown to remove nothing. Asserting the absence of an error is exactly the vacuous check that hid this.
+`sessions` was the only table of this shape already swept, which is why its function was the model for the rest.
 
-Per `BL-01`'s lesson, the janitor should log a success with its counts rather than only log failures — absence of success is the signal, and a sweeper that stops running produces no errors at all.
+**Fixed in three parts, because any two of them without the third leaves it broken:**
 
----
+1. **Migration 046** adds `sweep_saml_authn_requests`, `sweep_saml_assertion_ids`, `sweep_user_tokens` and `sweep_refresh_tokens` — `SECURITY DEFINER`, pinned `search_path`, `EXECUTE` to `auth_app` only, each narrowed to expired rows and bounded per call. None takes an organization, none returns row contents, and none can reach a live row, so none becomes a way to erase a credential or a pending login.
+2. **`internal/maintenance`** owns one janitor over all six tables, `sessions` included. Not a goroutine per table: the defect was never a forgotten line in `main.go`, it was that nothing owned the question *"is everything with an expiry actually being swept?"*. A table added next year is a `Task` in that list or it is not swept. It also logs a success line with every count on every pass, whether or not anything was removed — per `BL-01`, absence of success is the signal, and the old session sweeper logged only when it deleted something, making it silent when idle and silent when stopped.
+3. **A test that runs the broken version.** `TestABareDeleteUnderInstanceScopeRemovesNothingAndSaysNothing` performs the plain `DELETE` under instance scope and asserts it returns **no error and zero rows**, with the row still present afterwards. Without it, the fix is indistinguishable from the bug: every other test in the package passes either way.
+
+**Retention is per table, and each margin is a decision rather than a default.** The two SAML tables are deleted at expiry — both are refused by two independent checks once expired, so a kept row protects nothing. `user_tokens` keeps a week, because "the link you sent me does not work" is asked days later and the row is the answer. `refresh_tokens` keeps thirty days, the longest, because the row is the lineage `P3-06`'s reuse detection walks: an expired token needs none of it, but deleting the family history at expiry would remove it exactly when a stolen token surfaces.
+
+**What this cost, recorded because it is the lesson**: the original entry was written from a grep for `Prune` and `Sweep`, which found the functions that exist and therefore missed the two tables that had none. Looking for *cleanup code with no caller* finds less than looking for *every column named `expires_at`*.
 
 ### BL-06 — The OAuth endpoints are not behind the per-client rate limiter
 
