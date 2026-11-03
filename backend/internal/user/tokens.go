@@ -188,6 +188,30 @@ func (s *Store) LookupToken(ctx context.Context, db *postgres.DB, plaintext stri
 	return c, nil
 }
 
+// Sweep deletes invite and reset links past a cutoff (BL-08).
+//
+// Through a bounded SECURITY DEFINER function, because a sweeper has no tenant
+// and `user_tokens` is under row-level security: a plain DELETE under instance
+// scope reports success and removes nothing.
+//
+// The caller chooses the cutoff and keeps a margin. The row is what tells an
+// operator that an invitation was sent and used, and "the link you sent me does
+// not work" is a question asked days later.
+func (s *Store) Sweep(
+	ctx context.Context, db *postgres.DB, before time.Time, limit int,
+) (int64, error) {
+	var removed int64
+	err := db.WithInstanceScope(ctx, "sweeping expired invite and reset links",
+		func(tx *postgres.Tx) error {
+			return tx.QueryRow(ctx,
+				`SELECT sweep_user_tokens($1, $2)`, before, limit).Scan(&removed)
+		})
+	if err != nil {
+		return 0, fmt.Errorf("user: sweeping tokens: %w", err)
+	}
+	return removed, nil
+}
+
 // ConsumeToken marks a token used and returns who it belongs to.
 //
 // **A single conditional UPDATE, not a read followed by a write.** Two

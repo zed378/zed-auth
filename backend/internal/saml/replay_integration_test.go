@@ -193,7 +193,7 @@ func TestPruningRemovesOnlyExpiredAssertionIDs(t *testing.T) {
 	var removed int64
 	if err := f.db.WithTenant(context.Background(), f.orgID, func(tx *postgres.Tx) error {
 		var err error
-		removed, err = NewReplay().Prune(context.Background(), tx, now)
+		removed, err = NewReplay().Prune(context.Background(), tx, now, 1000)
 		return err
 	}); err != nil {
 		t.Fatalf("pruning: %v", err)
