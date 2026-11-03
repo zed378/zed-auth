@@ -321,6 +321,17 @@ func (m *Manager) Sweep(ctx context.Context, retain time.Duration, limit int, no
 	return m.store.Sweep(ctx, m.db, now.Add(-retain), limit)
 }
 
+// SweepBefore deletes sessions that expired before a cutoff.
+//
+// The same work as Sweep, expressed as the cutoff rather than as a retention
+// and a clock. The janitor in internal/maintenance owns retention for every
+// table it sweeps and hands each one the moment to delete before; taking a
+// duration here would mean it subtracted from a clock, and this method
+// subtracted it back.
+func (m *Manager) SweepBefore(ctx context.Context, before time.Time, limit int) (int, error) {
+	return m.store.Sweep(ctx, m.db, before, limit)
+}
+
 // IsLive reports whether a session is still usable, by its id.
 //
 // By id rather than by token, because the caller — P1-07's refresh grant —
