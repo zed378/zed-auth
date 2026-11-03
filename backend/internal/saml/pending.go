@@ -245,16 +245,23 @@ func (r *Requests) explain(ctx context.Context, tx *postgres.Tx, requestID strin
 }
 
 // Prune removes requests that can no longer be answered.
-func (r *Requests) Prune(ctx context.Context, tx *postgres.Tx, now time.Time) (int64, error) {
-	result, err := tx.Exec(ctx, `DELETE FROM saml_authn_requests WHERE expires_at <= $1`, now)
-	if err != nil {
+//
+// Through a bounded SECURITY DEFINER function, and bounded per call (BL-08).
+//
+// It used to be a plain DELETE, which could not work: a sweeper has no tenant,
+// instance scope makes current_org_id() NULL, every policy on the table then
+// evaluates false, and the statement reports success having removed nothing.
+// The table grew while the log said it had been swept. Nothing called it, so
+// nothing noticed.
+func (r *Requests) Prune(
+	ctx context.Context, tx *postgres.Tx, now time.Time, limit int,
+) (int64, error) {
+	var removed int64
+	if err := tx.QueryRow(ctx,
+		`SELECT sweep_saml_authn_requests($1, $2)`, now, limit).Scan(&removed); err != nil {
 		return 0, fmt.Errorf("saml: pruning AuthnRequests: %w", err)
 	}
-	affected, err := result.RowsAffected()
-	if err != nil {
-		return 0, fmt.Errorf("saml: pruning AuthnRequests: %w", err)
-	}
-	return affected, nil
+	return removed, nil
 }
 
 // NewRequestID returns an identifier for a sign-on this service started.

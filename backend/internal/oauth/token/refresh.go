@@ -100,6 +100,34 @@ type RefreshStore struct{}
 
 func NewRefreshStore() *RefreshStore { return &RefreshStore{} }
 
+// Sweep deletes refresh tokens past a cutoff (BL-08).
+//
+// `refresh_tokens.session_id` is ON DELETE SET NULL, so the hourly session
+// sweep nulls the link and leaves the token row behind — this table was growing
+// with every issue and every rotation, because rotation inserts a new row
+// rather than updating one.
+//
+// Bounded by `expires_at` only, and the caller keeps a long margin. A
+// revoked-but-unexpired token is never deletable here, deliberately: it is
+// exactly the row P3-06's reuse detection walks to tell a stolen token from a
+// new one. An expired token needs no lineage — it is refused for expiry before
+// lineage is consulted — but a family's history is what an incident
+// investigation reads, so the margin is generous rather than tight.
+func (s *RefreshStore) Sweep(
+	ctx context.Context, db *postgres.DB, before time.Time, limit int,
+) (int64, error) {
+	var removed int64
+	err := db.WithInstanceScope(ctx, "sweeping expired refresh tokens",
+		func(tx *postgres.Tx) error {
+			return tx.QueryRow(ctx,
+				`SELECT sweep_refresh_tokens($1, $2)`, before, limit).Scan(&removed)
+		})
+	if err != nil {
+		return 0, fmt.Errorf("token: sweeping refresh tokens: %w", err)
+	}
+	return removed, nil
+}
+
 // Issue creates a refresh token and returns its plaintext once.
 //
 // `familyID` empty starts a new family. P3-06 will pass an existing one when

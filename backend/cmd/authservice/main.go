@@ -36,6 +36,7 @@ import (
 	"github.com/zed378/zed-auth/backend/internal/httpserver"
 	"github.com/zed378/zed-auth/backend/internal/login"
 	"github.com/zed378/zed-auth/backend/internal/mail"
+	"github.com/zed378/zed-auth/backend/internal/maintenance"
 	"github.com/zed378/zed-auth/backend/internal/management"
 	"github.com/zed378/zed-auth/backend/internal/mfa"
 	"github.com/zed378/zed-auth/backend/internal/mfaapi"
@@ -229,11 +230,110 @@ func run() error {
 		log,
 	)
 
-	// Expired and long-revoked sessions are removed on a schedule rather than
-	// accumulating (P1-11 DoD item 4). Bounded per run, on the same pattern as
-	// the partition maintenance above: a long-neglected table is caught up over
-	// several runs instead of in one enormous transaction.
-	go runSessionSweep(ctx, sessions, log)
+	// The stores the janitor sweeps through. Constructed here rather than
+	// reused from the handlers below, because housekeeping must not depend on
+	// whether a protocol happens to be configured on this instance: an
+	// instance with no SAML key still has SAML tables if it ever had one, and
+	// those rows still need bounding.
+	janitorIdempotency := management.NewIdempotencyStore()
+	janitorRequests := saml.NewRequests()
+	janitorReplay := saml.NewReplay()
+	janitorUserTokens := user.NewStore()
+	janitorRefresh := token.NewRefreshStore()
+
+	// Housekeeping for every table with an expiry (BL-08).
+	//
+	// One janitor rather than a goroutine per table, and that is the whole
+	// point of it: four tables had a sweeper nothing called and one had none at
+	// all, and the reason was not a forgotten line here — it was that nothing
+	// owned the question "is everything with an expiry actually being swept?".
+	// A table added next year is a Task in this list or it is not swept, and
+	// the list is short enough to read.
+	//
+	// `sessions` is in it too, replacing its own goroutine. Two sweepers on two
+	// schedules would put the answer to that question back in two places, and
+	// the session one logged only when it removed something — which is the
+	// BL-01 shape: silent when idle and silent when stopped.
+	go (&maintenance.Janitor{
+		Log: log,
+		Tasks: []maintenance.Task{
+			{
+				// Kept for a week after expiry: the row is what the sessions
+				// screen shows to explain why somebody was signed out, and what
+				// an incident investigation reads (P1-11).
+				Name:   "sessions",
+				Before: func(now time.Time) time.Time { return now.Add(-sessionRetention) },
+				Sweep: func(ctx context.Context, before time.Time, limit int) (int64, error) {
+					removed, err := sessions.SweepBefore(ctx, before, limit)
+					return int64(removed), err
+				},
+			},
+			{
+				// At expiry. A replay of a completed request is answered from
+				// the stored response only while the record is live; past that
+				// the caller is expected to have moved on (P1-15).
+				Name:   "idempotency_records",
+				Before: func(now time.Time) time.Time { return now },
+				Sweep: func(ctx context.Context, before time.Time, limit int) (int64, error) {
+					return janitorIdempotency.Sweep(ctx, db, before, limit)
+				},
+			},
+			{
+				// At expiry. An AuthnRequest past its window cannot be answered
+				// — Consume checks it — so the row protects nothing (P4-08).
+				Name:   "saml_authn_requests",
+				Before: func(now time.Time) time.Time { return now },
+				Sweep: func(ctx context.Context, before time.Time, limit int) (int64, error) {
+					var removed int64
+					err := db.WithInstanceScope(ctx, "sweeping expired SAML AuthnRequests",
+						func(tx *postgres.Tx) error {
+							var err error
+							removed, err = janitorRequests.Prune(ctx, tx, before, limit)
+							return err
+						})
+					return removed, err
+				},
+			},
+			{
+				// At expiry. An expired assertion is refused by its own window,
+				// so remembering its id protects nothing (P4-07).
+				Name:   "saml_assertion_ids",
+				Before: func(now time.Time) time.Time { return now },
+				Sweep: func(ctx context.Context, before time.Time, limit int) (int64, error) {
+					var removed int64
+					err := db.WithInstanceScope(ctx, "sweeping expired SAML assertion ids",
+						func(tx *postgres.Tx) error {
+							var err error
+							removed, err = janitorReplay.Prune(ctx, tx, before, limit)
+							return err
+						})
+					return removed, err
+				},
+			},
+			{
+				// A week past expiry. "The link you sent me does not work" is a
+				// question asked days later, and the row is the answer.
+				Name:   "user_tokens",
+				Before: func(now time.Time) time.Time { return now.Add(-userTokenRetention) },
+				Sweep: func(ctx context.Context, before time.Time, limit int) (int64, error) {
+					return janitorUserTokens.Sweep(ctx, db, before, limit)
+				},
+			},
+			{
+				// Thirty days past expiry, the longest margin here. The row is
+				// the lineage P3-06's reuse detection walks, and a family's
+				// history is what an incident investigation reads. An expired
+				// token needs none of it — expiry refuses it first — but
+				// deleting the record at expiry would remove it at the moment a
+				// stolen token surfaces.
+				Name:   "refresh_tokens",
+				Before: func(now time.Time) time.Time { return now.Add(-refreshTokenRetention) },
+				Sweep: func(ctx context.Context, before time.Time, limit int) (int64, error) {
+					return janitorRefresh.Sweep(ctx, db, before, limit)
+				},
+			},
+		},
+	}).Run(ctx)
 
 	health := &httpserver.Health{
 		Checks:  []httpserver.Checker{db, redisChecker{rdb}},
@@ -1337,12 +1437,20 @@ func newPasswordChecks(cfg *config.Config, log *slog.Logger) passwordChecks {
 
 // --- session plumbing --------------------------------------------------------
 
-// sessionSweepInterval is how often expired sessions are removed.
+// userTokenRetention is how long an expired invite or reset link is kept.
 //
-// Hourly. Expiry is already enforced on every lookup, so this is housekeeping
-// rather than a control — its job is to stop the table growing without bound,
-// and an hour is far more often than that requires.
-const sessionSweepInterval = time.Hour
+// A week, matching sessions and for the same reason: the row is what answers
+// "the link you sent me does not work", and that is asked days later.
+const userTokenRetention = 7 * 24 * time.Hour
+
+// refreshTokenRetention is how long an expired refresh token is kept.
+//
+// Thirty days — the longest margin the janitor uses. The row is the lineage
+// P3-06's reuse detection walks, and a stolen token usually surfaces well after
+// the one it replaced expired. Expiry alone already refuses the credential, so
+// this margin costs nothing but rows and buys the history an investigation
+// needs.
+const refreshTokenRetention = 30 * 24 * time.Hour
 
 // sessionRetention is how long an expired or revoked session is kept before
 // deletion.
@@ -1352,30 +1460,6 @@ const sessionSweepInterval = time.Hour
 // it the moment it expires would remove the evidence at the moment it becomes
 // interesting.
 const sessionRetention = 7 * 24 * time.Hour
-
-// sessionSweepBatch bounds one run.
-const sessionSweepBatch = 1000
-
-func runSessionSweep(ctx context.Context, sessions *session.Manager, log *slog.Logger) {
-	ticker := time.NewTicker(sessionSweepInterval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			removed, err := sessions.Sweep(ctx, sessionRetention, sessionSweepBatch, time.Now())
-			if err != nil {
-				log.Warn("sweeping expired sessions failed", "error", err.Error())
-				continue
-			}
-			if removed > 0 {
-				log.Info("swept expired sessions", "removed", removed)
-			}
-		}
-	}
-}
 
 // sessionObserver reports session cache behaviour to the metrics registry.
 //

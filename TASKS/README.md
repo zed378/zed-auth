@@ -19,6 +19,7 @@ Nothing in this folder invents new architecture. Every task points back to the p
 | [`PHASE-5-HARDENING.md`](./PHASE-5-HARDENING.md) | Pentest, load testing, DR drill, accessibility audit, public trust page, launch readiness |
 | [`PHASE-F-FRONTEND-IMPLEMENTATION.md`](./PHASE-F-FRONTEND-IMPLEMENTATION.md) | **A track, not a sequence position** — every component and every page of the console, hosted auth screens, and public site. Foundation tasks run early and continuously; each page task is gated on the backend task that unblocks it |
 | [`BACKLOG.md`](./BACKLOG.md) | Open questions, deferred items, and gaps discovered in the plan |
+| [`AUDIT-2026-09-30.md`](./AUDIT-2026-09-30.md) | A dated cross-phase audit — findings that span tasks, each marked verified or reported, to be closed into task cards or `BACKLOG.md` and struck from there. A snapshot, not a second backlog |
 
 ## How to Use This Folder
 

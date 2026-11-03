@@ -88,7 +88,13 @@ _No records yet._
 _No records yet._
 
 ### Phase 4 — Enterprise Interoperability
-_No records yet._
+
+**This section is stale** — `MEMORY/records/` holds records for `P4-01` through `P4-09`
+that were never indexed here, and the Phase 2 and Phase 3 sections above are stale in the
+same way. Recorded as `AU-19` in `TASKS/AUDIT-2026-09-30.md` rather than backfilled in a
+commit about something else.
+
+- `BL-08` — [The tables whose cleanup nothing could reach](./records/2026-09-30-BL-08-janitor.md) — looking for cleanup code with no caller finds less than looking for every column named `expires_at`
 
 ### Phase 4b — ABAC
 _Conditional phase; not started._
