@@ -91,7 +91,10 @@ const (
 
 // Defines values for OrganizationSettingsAllowedLoginMethods.
 const (
-	Password OrganizationSettingsAllowedLoginMethods = "password"
+	Github    OrganizationSettingsAllowedLoginMethods = "github"
+	Google    OrganizationSettingsAllowedLoginMethods = "google"
+	Microsoft OrganizationSettingsAllowedLoginMethods = "microsoft"
+	Password  OrganizationSettingsAllowedLoginMethods = "password"
 )
 
 // Defines values for OrganizationUpdateStatus.
@@ -1257,10 +1260,9 @@ type OrganizationList struct {
 // copy free to drift. `TestSpecDefaultsMatchTheService` fails if the two
 // Go values and these stop agreeing.
 type OrganizationSettings struct {
-	// AllowedLoginMethods Only `password` is available in this phase. `passkey` and `social`
-	// are planned and are rejected until they work — an API that accepts
-	// a method nothing implements would silently disable every method
-	// that does.
+	// AllowedLoginMethods Password and the named social providers are accepted. Social sign-in
+	// also requires deployment credentials and an identity already linked
+	// to a local account. Generic `social` and `passkey` remain unsupported.
 	AllowedLoginMethods *[]OrganizationSettingsAllowedLoginMethods `json:"allowed_login_methods,omitempty"`
 
 	// MfaRequired Requires every member to hold a second factor. Enforced at sign-in:

@@ -177,6 +177,31 @@ describe("the stylesheet the browser receives", () => {
     // whole file exists to ask.
     expect(css).toMatch(/:focus-visible/);
     expect(css).toMatch(/prefers-reduced-motion/);
+    const reducedMotion = css.split(/@media\s*\(prefers-reduced-motion:\s*reduce\)/)[1] ?? "";
+    expect(reducedMotion).toMatch(/animation:\s*none !important/);
+    expect(reducedMotion).toMatch(/transition:\s*none !important/);
+  });
+
+  it("compiles the shared motion primitives with duration and easing tokens", () => {
+    for (const selector of [
+      ".motion-panel",
+      ".motion-modal",
+      ".motion-step-forward",
+      ".motion-step-backward",
+      "table tbody tr.motion-row-change",
+      ".motion-toast-enter",
+    ]) {
+      expect(css).toContain(selector);
+    }
+
+    expect(css).toMatch(/\.motion-panel\s*\{[^}]*var\(--duration-quick\)[^}]*var\(--ease-standard\)/);
+    expect(css).toMatch(/\.motion-panel\[data-state="closed"\]\s*\{[^}]*translateX\(100%\)/);
+    expect(css).toMatch(/\.motion-panel\[data-state="open"\]\s*\{[^}]*translateX\(0\)/);
+    expect(css).toMatch(/\.motion-modal\s*\{[^}]*var\(--duration-quick\)[^}]*var\(--ease-standard\)/);
+    expect(css).toMatch(/\.motion-modal\[data-state="closed"\]\s*\{[^}]*opacity:\s*0;[^}]*scale\(0\.98\)/);
+    expect(css).toMatch(/\.motion-modal\[data-state="open"\]\s*\{[^}]*opacity:\s*1;[^}]*scale\(1\)/);
+    expect(css).toMatch(/:is\(\[role="alertdialog"\], \[data-confirm-dialog\]\)\s*\{\s*animation:\s*none !important;\s*transition:\s*none !important;/);
+    expect(css).toMatch(/table tbody tr\s*\{\s*animation:\s*none;\s*transition:\s*none;/);
   });
 });
 

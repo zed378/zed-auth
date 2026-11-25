@@ -58,6 +58,12 @@ export default tseslint.config(
   },
 
   {
+    files: ["src/pages/**/*.{ts,tsx}"],
+    ignores: ["**/*.test.{ts,tsx}"],
+    rules: { "local/no-page-primitive": "error" },
+  },
+
+  {
     // Playwright's end-to-end tests.
     //
     // The React rules do not apply here and misfire badly if left on:

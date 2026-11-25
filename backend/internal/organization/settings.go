@@ -67,13 +67,10 @@ const (
 
 // LoginMethods are the values docs/PLAN/08 Part B names.
 //
-// Only `password` is implemented in Phase 1, and only `password` is accepted.
-// An API that takes "passkey" is describing a capability that does not exist,
-// which is exactly what docs/UI-UX/21's governance rule forbids — and a tenant
-// that configured it would have silently disabled every login method that
-// works.
+// Social providers are permitted individually. Generic social and primary
+// passkey login remain unsupported; neither names an implemented login flow.
 var (
-	implementedLoginMethods = []string{"password"}
+	implementedLoginMethods = []string{"password", "google", "microsoft", "github"}
 	plannedLoginMethods     = []string{"passkey", "social"}
 )
 

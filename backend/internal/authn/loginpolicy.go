@@ -48,14 +48,12 @@ type LoginPolicy struct {
 
 	// AllowedMethods are the ways a user may authenticate.
 	//
-	// Only `password` exists today. The list is enforced anyway, because the
-	// point of the setting is that a method not on it is refused **even if it
-	// is implemented** — and the moment Phase 3 adds passkeys, an organization
-	// that excluded them must not acquire them by upgrade.
+	// Password and each social provider are permitted independently. A newly
+	// configured provider is unavailable until the organization permits it.
 	AllowedMethods []string
 }
 
-// MethodPassword is the only method this phase implements.
+// MethodPassword names local password authentication in organization policy.
 const MethodPassword = "password"
 
 // DefaultLoginPolicy matches P0-07's column defaults.
@@ -144,7 +142,7 @@ func ParseLoginPolicy(settings []byte) (LoginPolicy, []Adjustment) {
 			// kept. Keeping it would make the policy look like it permits
 			// something, and the first person to notice would be whoever tried
 			// to use it.
-			if m == MethodPassword {
+			if m == MethodPassword || m == "google" || m == "microsoft" || m == "github" {
 				known = append(known, m)
 				continue
 			}

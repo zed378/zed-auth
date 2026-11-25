@@ -164,6 +164,11 @@ func (f *Framework) answerable(t Type) bool {
 }
 
 func (f *Framework) Required(ctx context.Context, userID, orgID, pendingID string) (Decision, error) {
+	return f.RequiredWithMethod(ctx, userID, orgID, pendingID, "")
+}
+
+// RequiredWithMethod preserves the verified primary method through the factor step.
+func (f *Framework) RequiredWithMethod(ctx context.Context, userID, orgID, pendingID, method string) (Decision, error) {
 	// A nil framework has nothing to challenge with. Answered here as well as
 	// kept out of the interface at the call site (cmd/authservice.challenger),
 	// because the failure it prevents is total: every sign-in answering 500 on
@@ -246,6 +251,7 @@ func (f *Framework) Required(ctx context.Context, userID, orgID, pendingID strin
 	}
 
 	stored, err := f.Challenges.Put(ctx, Challenge{
+		PrimaryMethod:   method,
 		UserID:          userID,
 		OrgID:           orgID,
 		PendingID:       pendingID,
@@ -396,6 +402,7 @@ func (f *Framework) Answer(ctx context.Context, handle, factorID, code string) (
 // the reason it has it: a login completing on the strength of a user id the
 // client supplied would be a login the client chose.
 type Outcome struct {
+	PrimaryMethod string
 	// Complete is true when the challenge is satisfied and a session may be
 	// created.
 	Complete bool
@@ -486,9 +493,10 @@ func (f *Framework) AnswerType(
 	// the failures, so a caller can audit against the right account without
 	// asking a second question whose answer it would then have to trust.
 	who := Outcome{
-		UserID:    challenge.UserID,
-		OrgID:     challenge.OrgID,
-		PendingID: challenge.PendingID,
+		PrimaryMethod: challenge.PrimaryMethod,
+		UserID:        challenge.UserID,
+		OrgID:         challenge.OrgID,
+		PendingID:     challenge.PendingID,
 	}
 
 	factorID, err := f.idOfType(ctx, challenge, t)
@@ -552,9 +560,10 @@ func (f *Framework) AnswerRecovery(
 	}
 
 	who := Outcome{
-		UserID:    challenge.UserID,
-		OrgID:     challenge.OrgID,
-		PendingID: challenge.PendingID,
+		PrimaryMethod: challenge.PrimaryMethod,
+		UserID:        challenge.UserID,
+		OrgID:         challenge.OrgID,
+		PendingID:     challenge.PendingID,
 	}
 
 	if challenge.Spent() {
@@ -689,9 +698,10 @@ func (f *Framework) AnswerWebAuthn(
 	}
 
 	who := Outcome{
-		UserID:    challenge.UserID,
-		OrgID:     challenge.OrgID,
-		PendingID: challenge.PendingID,
+		PrimaryMethod: challenge.PrimaryMethod,
+		UserID:        challenge.UserID,
+		OrgID:         challenge.OrgID,
+		PendingID:     challenge.PendingID,
 	}
 
 	if challenge.Spent() {

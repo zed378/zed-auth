@@ -20,8 +20,7 @@ type PasswordPolicy = {
 /**
  * `allowed_login_methods` is typed as the generated union, not `string[]`.
  *
- * The spec's enum is the set of methods the service implements — `password`
- * today, with `passkey` and `social` refused until they work. Widening it here
+ * The spec's enum is the set of methods the service implements. Widening it here
  * would let this screen offer a method the API rejects, which is the console
  * claiming a capability that does not exist.
  */
@@ -273,12 +272,13 @@ export function PoliciesPage() {
           <p className="text-small text-text-secondary">
             How people in this organization may sign in. At least one is required — an organization
             that permits none permits nobody.
+            Social sign-in also requires a configured provider and a linked local account.
           </p>
 
           <ul className="mt-3 flex flex-col gap-2">
             {LOGIN_METHODS.map((method) => {
-              const enabled = (current.allowed_login_methods ?? SETTINGS_DEFAULTS.allowed_login_methods).includes(
-                method,
+              const enabled = (current.allowed_login_methods ?? SETTINGS_DEFAULTS.allowed_login_methods).some(
+                (allowed) => allowed === method,
               );
               return (
                 <li key={method}>

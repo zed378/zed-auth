@@ -180,7 +180,7 @@ Pulled from across `docs/UI-UX/` so they are enforceable rather than remembered:
 
 | | |
 |---|---|
-| **Status** | TODO · **Depends on** P0-17 · **Surface** console · **Spec required** No |
+| **Status** | **DONE** — 2026-11-25 · **Depends on** P0-17 · **Surface** console · **Spec required** No |
 | **Plan refs** | `docs/UI-UX/10-MOTION-DESIGN.md`, `docs/UI-UX/13-ACCESSIBILITY.md` § Motion & Animation |
 
 **Goal** — Durations and easing curves as tokens, not hard-coded per component. `docs/UI-UX/10` § Ownership asks for exactly this "once implementation begins" — this is that moment.
@@ -193,11 +193,28 @@ Pulled from across `docs/UI-UX/` so they are enforceable rather than remembered:
 5. Keep durations at the fast end — this console is used dozens of times a day by the same people, and a repeat user should never be waiting on an animation.
 
 **Definition of Done**
-- [ ] Every animation in `docs/UI-UX/10`'s table has a token-driven implementation.
-- [ ] With `prefers-reduced-motion: reduce`, every animation becomes an instant state change, verified by test.
-- [ ] Confirmation dialogs have no entrance animation.
-- [ ] Table sort and filter produce no row animation.
-- [ ] No component hard-codes a duration.
+- [x] Every animation in `docs/UI-UX/10`'s table has a token-driven implementation.
+- [x] With `prefers-reduced-motion: reduce`, every animation becomes an instant state change, verified in the source and compiled CSS.
+- [x] Confirmation dialogs have no entrance animation.
+- [x] Table sort and filter produce no row animation; only an explicitly changed row can animate.
+- [x] No component hard-codes a duration; all named motion primitives use the shared tokens.
+
+**Frontend implementation chain** (`docs/UI-UX/19`)
+
+| Step | Answer |
+|---|---|
+| Design | Functional, fast motion only, matching `docs/UI-UX/10`; no decorative movement. |
+| Component | Shared CSS primitives for panels, modals, directional steps, changed table rows, and toast entry; no component dependency. |
+| State | Open/closed panel and modal; forward/backward step entry; changed row; toast entry; reduced-motion preference. |
+| Interaction | State transitions use the shared duration/easing tokens. Confirmation dialogs and table sort/filter remain instant. |
+| API Dependency | None. |
+| Loading | Skeleton content swaps instantly when ready. |
+| Error | Not applicable; this task does not render or fetch data. |
+| Empty | Not applicable; this task does not render data collections. |
+| Permission | Not applicable; no protected UI or API surface. |
+| Responsive | Motion timing is unchanged across breakpoints; no animation conveys information by itself. |
+| Accessibility | `prefers-reduced-motion: reduce` removes animations and transitions globally; confirmations interrupt immediately. |
+| Test | Vitest source-token checks plus Tailwind-compiled CSS assertions; full console checks and production build. |
 
 ---
 
@@ -205,7 +222,7 @@ Pulled from across `docs/UI-UX/` so they are enforceable rather than remembered:
 
 | | |
 |---|---|
-| **Status** | TODO · **Depends on** P0-17 · **Surface** console · **Spec required** No |
+| **Status** | **WIP** — initial development-only workbench, branded preview and primitive lint guard; full catalog pending · **Depends on** P0-17 · **Surface** console · **Spec required** No |
 | **Plan refs** | `docs/UI-UX/05-DESIGN-SYSTEM.md` § Governance, `docs/UI-UX/07-COMPONENT-SPECIFICATION.md`, `docs/PLAN/06-FRONTEND-ARCHITECTURE.md` |
 
 **Goal** — A place where components live, are viewed in every state, and are reviewed — so `docs/UI-UX/05`'s governance rule ("any new token or component must be added here before being used in a page spec") is enforceable rather than aspirational.

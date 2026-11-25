@@ -8,11 +8,12 @@
   },
   "scripts": {
     "dev": "vite",
+    "workbench": "vite --host 127.0.0.1 --open /workbench.html",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
+    "test": "vitest run --maxWorkers=4",
     "test:watch": "vitest",
     "api:generate": "openapi-typescript ../openapi/openapi.yaml --default-non-nullable false -o src/lib/api/schema.gen.ts",
     "patterns:generate": "node scripts/gen-patterns.mjs",

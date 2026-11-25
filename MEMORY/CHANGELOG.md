@@ -10,6 +10,43 @@ Format follows Keep a Changelog conventions, grouped by release once releases ex
 
 ## Unreleased
 
+### 2026-11-25 - Parallel implementation: VM social config and PF-02 scaffolding
+
+- Updated vulnerable OTel/compress/x-net dependencies and required transitives. Backend unit tests/build/vet and security scans pass; full integration status is tracked in the [BL-11 remediation record](./records/2026-11-25-BL-11-dependency-remediation.md).
+- Fixed optional social provider settings missing from both VM service environments; added CI render checks for disabled/configured providers and database credential isolation. Added an operator configuration/recovery [runbook record](./records/2026-11-25-P4-10-vm-social-config.md).
+- Added a development-only component workbench, branded preview, initial Button/Badge/Table examples and page primitive lint guard ([record](./records/2026-11-25-PF-02-workbench-scaffolding.md)). PF-02 remains WIP pending the full catalog and acceptance.
+
+### 2026-11-25 - P4-10.3: hosted social sign-in
+
+**Added** - hosted provider integration ([record](./records/2026-11-25-P4-10.3-hosted-social-login.md))
+
+- Google/Microsoft/GitHub start and callback routes use browser-bound single-use state and existing linked accounts; organization policy is checked before exchange, lookup and issuance.
+- Local MFA challenges and forced enrollment preserve the provider in session authentication methods without claiming a password. Known-user failures retain internal audit context; provider credentials remain excluded.
+- Hosted provider links, REST organization policy values, console controls and generated API clients are synchronized. P4-10.3 remains REVIEW; staging acceptance, BL-11 and authenticated linking (P4-11) remain outstanding.
+
+### 2026-11-25 - P4-10.2: social providers and single-use state
+
+**Added** - social federation foundation ([record](./records/2026-11-25-P4-10.2-social-provider-foundation.md))
+- Optional provider configuration and secret references, exact HTTPS callbacks, Redis state/PKCE/nonce with browser/tenant binding, bounded OIDC discovery/JWKS verification, and GitHub OAuth profile/email resolution.
+- All 1,700 backend unit tests, build, vet, and focused PostgreSQL/Redis/mock-provider TLS integration pass. The full integration run has 2,583 passes and 12 grant-package failures from a PostgreSQL container startup timeout; isolated rerun results are recorded separately.
+- P4-10.2 remains REVIEW: BL-11 still reports six reachable dependency vulnerabilities. P4-10.3 will add callback/policy/MFA/session/audit/UI integration; social sign-in is not yet exposed.
+
+### 2026-11-25 — P4-10.1: social identity storage
+
+**Added** — existing-account identity persistence ([record](./records/2026-11-25-P4-10.1-social-identity-storage.md))
+- Unique, exact provider-subject bindings and a tenant-scoped read repository. Email is never an identity lookup fallback, and an unknown subject cannot create an account.
+- RLS follows the linked user's organization, runtime UPDATE is revoked, and PostgreSQL tests cover cross-tenant attempts, concurrent collisions, email changes, and rollback.
+- P4-10 remains WIP pending provider/state/callback implementation and acceptance; this subtask introduces no social login endpoint.
+- Existing vulnerability baseline fails `govulncheck` with 15 reachable findings (BL-11); P4-10.1 remains in REVIEW despite passing focused tests, unit tests, build, vet, and gosec.
+- The full integration run reported 2,422 passes and 12 failures in existing rate-limit/user tests; both affected packages passed on a serial rerun. The original failed run is retained in the validation record.
+
+### 2026-11-25 — PF-01: motion system
+
+**Added** — shared motion primitives in the console ([record](./records/2026-11-25-PF-01-motion-tokens.md))
+- Panels, modals, step changes, changed rows and toast entry use the existing duration/easing tokens. Reduced-motion preferences remove transitions and animations; destructive confirmations and table sorting stay instant.
+- The console test command caps Vitest at four workers so the full suite avoids resource-driven timeouts.
+- Validation: console lint, typecheck, production build, and all 302 tests pass.
+
 ### 2026-09-12 — Phase 2 begins: roles, and who may define them
 
 **Added** — the role model ([`P2-01`](./records/2026-09-12-P2-01-role-model.md), [spec](./specs/P2-01-role-model.md))

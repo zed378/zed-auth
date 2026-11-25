@@ -37,6 +37,7 @@ import (
 	"github.com/zed378/zed-auth/backend/internal/oauth/authorize"
 	"github.com/zed378/zed-auth/backend/internal/ratelimit"
 	"github.com/zed378/zed-auth/backend/internal/session"
+	"github.com/zed378/zed-auth/backend/internal/social"
 	"github.com/zed378/zed-auth/backend/internal/storage/postgres"
 )
 
@@ -219,6 +220,7 @@ const (
 
 // Handler serves the login page.
 type Handler struct {
+	Social        *SocialFlow
 	Authorization Authorization
 	Sessions      Sessions
 	Users         Users
@@ -374,6 +376,7 @@ func (h *Handler) csrfFor(w http.ResponseWriter, r *http.Request) (string, error
 // page assembles everything the form needs from the database.
 func (h *Handler) page(ctx context.Context, pending authorize.Pending, id string) (Page, error) {
 	branding := DefaultBranding
+	var socialProviders []SocialButton
 
 	err := h.DB.WithTenant(ctx, pending.App.OrgID, func(tx *postgres.Tx) error {
 		found, rejected, err := h.Brandings.Branding(ctx, tx, pending.App.OrgID)
@@ -382,6 +385,17 @@ func (h *Handler) page(ctx context.Context, pending authorize.Pending, id string
 		}
 		h.warnBranding(pending.App.OrgID, rejected)
 		branding = found
+		if h.Social != nil {
+			policy, err := h.Policies.LoginPolicy(ctx, tx, pending.App.OrgID)
+			if err != nil {
+				return err
+			}
+			for _, item := range []struct{ key, name string }{{"google", "Google"}, {"microsoft", "Microsoft"}, {"github", "GitHub"}} {
+				if policy.Allows(item.key) && h.Social.Providers[social.Provider(item.key)] != nil {
+					socialProviders = append(socialProviders, SocialButton{Name: item.name, Path: SocialPath + item.key + "?request=" + url.QueryEscape(id)})
+				}
+			}
+		}
 		return nil
 	})
 	if err != nil {
@@ -391,12 +405,13 @@ func (h *Handler) page(ctx context.Context, pending authorize.Pending, id string
 	style, hash := renderStyle(branding.AccentColor)
 
 	return Page{
-		AppName:    pending.App.Name,
-		Branding:   branding,
-		Style:      style,
-		StyleHash:  hash,
-		RequestID:  id,
-		ForgotPath: ForgotPath + "?request=" + url.QueryEscape(id),
+		SocialProviders: socialProviders,
+		AppName:         pending.App.Name,
+		Branding:        branding,
+		Style:           style,
+		StyleHash:       hash,
+		RequestID:       id,
+		ForgotPath:      ForgotPath + "?request=" + url.QueryEscape(id),
 		// Where this sign-in ends, for the Content-Security-Policy. The URI
 		// was matched against the registration by exact string comparison in
 		// P1-06 before this request was ever stored, so it is a registered
@@ -878,6 +893,13 @@ func (h *Handler) issue(
 	r *http.Request, pending authorize.Pending, user authn.User,
 	loginPolicy authn.LoginPolicy, used []mfa.Type, recovery bool,
 ) (attempt, session.Session, func(context.Context) error) {
+	return h.issueWithMethod(r, pending, user, loginPolicy, used, recovery, "")
+}
+
+func (h *Handler) issueWithMethod(
+	r *http.Request, pending authorize.Pending, user authn.User,
+	loginPolicy authn.LoginPolicy, used []mfa.Type, recovery bool, method string,
+) (attempt, session.Session, func(context.Context) error) {
 	var (
 		out        attempt
 		created    session.Session
@@ -889,6 +911,13 @@ func (h *Handler) issue(
 	ip := h.clientIP(r)
 
 	err := h.DB.WithTenant(ctx, pending.App.OrgID, func(tx *postgres.Tx) error {
+		if method != "" {
+			var err error
+			user, loginPolicy, err = h.socialUserForIssue(ctx, tx, pending, user, method, len(used) > 0 || recovery)
+			if err != nil {
+				return err
+			}
+		}
 		// Replace the session this browser already had, if any.
 		//
 		// The cookie is about to be overwritten, so whatever it pointed at
@@ -913,7 +942,7 @@ func (h *Handler) issue(
 			// `mfa.AuthMethods` rather than a literal, so the RFC 8176 names
 			// and the "`mfa` only for two distinct categories" rule live in one
 			// place — P3-01 § 7.
-			AuthMethods: mfa.AuthMethodsWithRecovery(true, recovery, used...),
+			AuthMethods: mfa.AuthMethodsWithPrimary(method, recovery, used...),
 			IP:          ip,
 			UserAgent:   r.UserAgent(),
 			// The organization's own session lifetime (P2-10), not the

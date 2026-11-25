@@ -25,7 +25,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  GO_VERSION: "1.26.6"
+  GO_VERSION: "1.26.11"
 
 jobs:
   # --- Task ID enforcement --------------------------------------------------
@@ -686,6 +686,7 @@ jobs:
           docker compose -f deploy/vm/docker-compose.yml config -q
           docker compose -f deploy/vm/docker-compose.tunnel.yml config -q
           docker compose -f deploy/vm/docker-compose.yml -f deploy/vm/docker-compose.metrics-port.yml config -q
+          python3 scripts/check-vm-social-config.py
           DEMO_ISSUER=https://ci.example.com DEMO_WEBAPP_CLIENT_ID=app-a DEMO_WEBAPP_CLIENT_SECRET=secret \
             DEMO_WEBAPP_BASE_URL=https://a.ci.example.com DEMO_SPA_CLIENT_ID=app-b DEMO_SPA_BASE_URL=https://b.ci.example.com \
             docker compose -f deploy/demo/docker-compose.yml config -q

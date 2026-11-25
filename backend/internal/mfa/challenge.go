@@ -56,6 +56,7 @@ const MaxAttempts = 5
 
 // Challenge is a login that has proven a password and not yet proven a factor.
 type Challenge struct {
+	PrimaryMethod string `json:"primary_method,omitempty"`
 	// UserID and OrgID are here and NOT in anything the client holds.
 	UserID string `json:"user_id"`
 	OrgID  string `json:"org_id"`

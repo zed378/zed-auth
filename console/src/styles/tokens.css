@@ -218,6 +218,86 @@
 }
 
 /*
+ * The shared motion primitives from docs/UI-UX/10. Components choose a named
+ * interaction, never their own duration or easing value. Destructive dialogs
+ * and table rows stay still unless a newly changed row opts into its highlight.
+ */
+.motion-panel {
+  transition: transform var(--duration-quick) var(--ease-standard);
+}
+
+.motion-panel[data-state="closed"] {
+  transform: translateX(100%);
+}
+
+.motion-panel[data-state="open"] {
+  transform: translateX(0);
+}
+
+.motion-modal {
+  transition:
+    opacity var(--duration-quick) var(--ease-standard),
+    transform var(--duration-quick) var(--ease-standard);
+}
+
+.motion-modal[data-state="closed"] {
+  opacity: 0;
+  transform: scale(0.98);
+}
+
+.motion-modal[data-state="open"] {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.motion-step-forward {
+  animation: motion-step-forward var(--duration-quick) var(--ease-standard) both;
+}
+
+.motion-step-backward {
+  animation: motion-step-backward var(--duration-quick) var(--ease-standard) both;
+}
+
+table tbody tr.motion-row-change {
+  animation: motion-row-change var(--duration-quick) var(--ease-standard) both;
+}
+
+.motion-toast-enter {
+  animation: motion-toast-enter var(--duration-quick) var(--ease-standard) both;
+}
+
+@keyframes motion-step-forward {
+  from { opacity: 0; transform: translateX(0.5rem); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes motion-step-backward {
+  from { opacity: 0; transform: translateX(-0.5rem); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes motion-row-change {
+  from { background-color: var(--color-bg-base); }
+  to { background-color: transparent; }
+}
+
+@keyframes motion-toast-enter {
+  from { opacity: 0; transform: translateY(0.25rem); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Confirmation dialogs interrupt immediately; table sorting/filtering swaps rows. */
+:is([role="alertdialog"], [data-confirm-dialog]) {
+  animation: none !important;
+  transition: none !important;
+}
+
+table tbody tr {
+  animation: none;
+  transition: none;
+}
+
+/*
  * The focus ring.
  *
  * Defined once, here, and never suppressed for aesthetic reasons — docs/UI-UX/13
@@ -243,9 +323,8 @@
   *,
   *::before,
   *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
+    animation: none !important;
+    transition: none !important;
     scroll-behavior: auto !important;
   }
 }

@@ -361,11 +361,24 @@ nothing.
 
 | | |
 |---|---|
-| **Status** | TODO |
+| **Status** | **WIP** — identity, provider/state, and hosted callback integration in REVIEW; staging acceptance pending; existing vulnerability baseline tracked in BL-11 |
 | **Depends on** | P1-11, P1-19 |
 | **Plan refs** | `docs/PLAN/02-REQUIREMENTS.md` FR-3, `docs/PLAN/05-API-CONTRACT.md` § Social login, `docs/PLAN/08-AUTHORIZATION.md` Part B (`allowed_login_methods`) |
 | **Spec required** | Yes — authentication |
 | **Surface** | backend |
+
+**Implementation breakdown** — [feature spec](./specs/P4-10-social-login-federation.md); ADR-028 and ADR-030 govern the provider protocol and existing-account-only behavior.
+
+VM integration follow-up: both VM manifests forward optional provider settings;
+four CI render fixtures verify enabled/disabled configuration and owner credential
+isolation. Configuration, recovery and live acceptance instructions are in
+`deploy/vm/RUNBOOK-social-login.md`. Parent remains WIP; this is not staging acceptance.
+
+| Sub-task | Scope | Status |
+|---|---|---|
+| P4-10.1 | Identity schema, tenant-scoped subject lookup, and database abuse-case tests | **REVIEW** — focused tests/build/vet/gosec pass; full-suite verification and BL-11 baseline findings recorded in the [change record](../MEMORY/records/2026-11-25-P4-10.1-social-identity-storage.md) |
+| P4-10.2 | Provider configuration, secrets, state/PKCE/nonce, and provider adapters | **REVIEW** — config, Redis single-use state, OIDC discovery/JWKS verification, and GitHub OAuth adapters implemented; 1,700 backend unit tests and focused PostgreSQL/Redis/TLS flows pass; full-suite and security gate details in the [change record](../MEMORY/records/2026-11-25-P4-10.2-social-provider-foundation.md) |
+| P4-10.3 | Callback policy/MFA/session/audit integration, hosted UI, and acceptance tests | **REVIEW** — browser-bound hosted routes, linked-account-only resolution, policy/MFA/session/audit integration, provider controls and generated clients implemented; local verification and remaining acceptance in the [change record](../MEMORY/records/2026-11-25-P4-10.3-hosted-social-login.md) |
 
 **Goal** — Act as an OIDC Relying Party toward Google, Microsoft, and GitHub, while keeping roles centrally managed — `docs/PLAN/05` is explicit that a federated user still gets a `users` record.
 
@@ -374,18 +387,18 @@ nothing.
 2. Store provider client secrets in the secret manager (`P0-14`), never in configuration files.
 3. Validate the provider's ID token fully: signature against their JWKS, issuer, audience, expiry, and nonce.
 4. Handle unverified email correctly. Trusting an unverified email from a provider allows account takeover by registering that address at the provider — this is a well-known attack, and the mitigation is to require `email_verified` or to fall back to explicit linking.
-5. Create a local `users` record for every federated user and link it through `user_identities` (`docs/PLAN/04`), so grants and roles work identically regardless of login method (`docs/PLAN/05`).
+5. Resolve the pre-linked provider subject through `user_identities` to an existing local `users` record, so grants and roles work identically regardless of login method (`docs/PLAN/05`). ADR-030 forbids automatic provisioning or email-based linking; P4-11 supplies authenticated linking.
 6. Enforce `allowed_login_methods` from organization policy (`docs/PLAN/08` Part B) — a provider not on the list is refused even though it is implemented.
 7. Record the provider in `auth_methods` and `amr`.
 8. Handle provider outages gracefully: a user with only a social login and no password needs a documented path when the provider is down.
 
 **Definition of Done**
 - [ ] All three providers work end-to-end.
-- [ ] An unverified email from a provider does not automatically link to an existing account.
-- [ ] Every federated user has a local `users` record with normal grant handling.
-- [ ] Organization policy can disallow a provider.
-- [ ] Provider secrets live only in the secret manager.
-- [ ] `amr` records the provider used.
+- [x] An unverified email from a provider does not automatically link to an existing account.
+- [x] Every federated user has a local `users` record with normal grant handling.
+- [x] Organization policy can disallow a provider.
+- [x] Provider secrets live only in the secret manager.
+- [x] `amr` records the provider used.
 
 **Abuse cases to test**
 - Account takeover via an unverified email claim from a provider.
@@ -467,7 +480,7 @@ nothing.
 
 | | |
 |---|---|
-| **Status** | TODO |
+| **Status** | **DROPPED** — deferred by project owner 2026-11-25; no named integration; see DF-05 and ADR-029. |
 | **Depends on** | P1-19 |
 | **Plan refs** | `docs/PLAN/05-API-CONTRACT.md` § Standards Used (SCIM: Phase 4, optional), `docs/PLAN/01-PRODUCT-SCOPE.md` § Out of Scope ("Deferred to Phase 4 (optional)") |
 | **Spec required** | Yes |
@@ -588,5 +601,5 @@ Plus, from this phase's own scope:
 
 - [ ] Social login works for all three providers with verified-email handling.
 - [ ] Webhooks deliver reliably with SSRF defenses verified.
-- [ ] SCIM is either delivered against a named integration or explicitly deferred in `BACKLOG.md`.
+- [x] SCIM is explicitly deferred in `BACKLOG.md` (DF-05); no named integration was provided (ADR-029).
 - [ ] The console exposes the Project Grants tab, the Granted Projects list, and the SAML application type.

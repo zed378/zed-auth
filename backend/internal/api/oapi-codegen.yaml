@@ -60,6 +60,9 @@ output-options:
   # checks that the spec claims nothing beyond what ships. Only the code
   # generation is skipped, and httpserver registers the handlers explicitly.
   exclude-operation-ids:
+    # Hosted HTML routes need raw query/cookie validation, like /oauth/authorize.
+    - socialLoginStart
+    - socialLoginCallback
     - authorize
     - token
     - userinfo

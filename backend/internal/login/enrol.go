@@ -79,9 +79,10 @@ type Enroller interface {
 // cannot enrol a factor onto a different account, and the pending request ties
 // it to one login.
 type EnrolState struct {
-	UserID    string `json:"user_id"`
-	OrgID     string `json:"org_id"`
-	PendingID string `json:"pending_id"`
+	PrimaryMethod string `json:"primary_method,omitempty"`
+	UserID        string `json:"user_id"`
+	OrgID         string `json:"org_id"`
+	PendingID     string `json:"pending_id"`
 
 	// FactorID is the pending factor this enrolment is completing.
 	FactorID string `json:"factor_id"`
@@ -157,6 +158,12 @@ func enrolFromRequest(r *http.Request) (string, bool) {
 func (h *Handler) beginForcedEnrolment(
 	ctx context.Context, user authn.User, pending authorize.Pending,
 ) (handle string, enrolment mfa.Enrolment, err error) {
+	return h.beginForcedEnrolmentWithMethod(ctx, user, pending, "")
+}
+
+func (h *Handler) beginForcedEnrolmentWithMethod(
+	ctx context.Context, user authn.User, pending authorize.Pending, method string,
+) (handle string, enrolment mfa.Enrolment, err error) {
 	if h.Enrol == nil || h.Enrolments == nil {
 		return "", mfa.Enrolment{}, errors.New("login: forced enrolment is not configured")
 	}
@@ -171,10 +178,11 @@ func (h *Handler) beginForcedEnrolment(
 	}
 
 	handle, err = h.Enrolments.Put(ctx, EnrolState{
-		UserID:    user.ID,
-		OrgID:     user.OrgID,
-		PendingID: pending.ID,
-		FactorID:  enrolment.FactorID,
+		PrimaryMethod: method,
+		UserID:        user.ID,
+		OrgID:         user.OrgID,
+		PendingID:     pending.ID,
+		FactorID:      enrolment.FactorID,
 	}, EnrolmentTTL)
 	if err != nil {
 		return "", mfa.Enrolment{}, err
@@ -440,7 +448,7 @@ func (h *Handler) completeEnrolment(
 	ctx := r.Context()
 
 	user, loginPolicy, err := h.userForChallenge(ctx, mfa.Outcome{
-		UserID: state.UserID, OrgID: state.OrgID,
+		UserID: state.UserID, OrgID: state.OrgID, PrimaryMethod: state.PrimaryMethod,
 	})
 	if err != nil {
 		h.serverError(w, r, "loading the user for an enrolment", err)
@@ -448,7 +456,7 @@ func (h *Handler) completeEnrolment(
 	}
 
 	// The factor was just proven, so this session used it. `amr` says so.
-	out, current, invalidate := h.issue(r, pending, user, loginPolicy, []mfa.Type{mfa.TypeTOTP}, false)
+	out, current, invalidate := h.issueWithMethod(r, pending, user, loginPolicy, []mfa.Type{mfa.TypeTOTP}, false, state.PrimaryMethod)
 	if out.result != resultAuthenticated {
 		h.serverError(w, r, "creating a session", out.err)
 		return

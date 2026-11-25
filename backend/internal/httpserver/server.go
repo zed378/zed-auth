@@ -120,6 +120,7 @@ type Deps struct {
 	// codes against them. openapi.yaml documents them so the served surface is
 	// still fully described, and nothing is generated from them.
 	Login  http.Handler
+	Social http.Handler
 	Forgot http.Handler
 
 	// Enrol serves GET and POST /login/mfa/enrol — forced enrolment (P3-07).
@@ -417,6 +418,10 @@ func New(cfg config.HTTPConfig, deps Deps) *Server {
 		// across two registrations would be two places to keep those in step.
 		mux.Method(http.MethodGet, "/login", deps.Login)
 		mux.Method(http.MethodPost, "/login", deps.Login)
+	}
+	if deps.Social != nil {
+		mux.Method(http.MethodGet, "/login/social/{provider}", deps.Social)
+		mux.Method(http.MethodGet, "/login/social/{provider}/callback", deps.Social)
 	}
 	if deps.MFA != nil {
 		// One handler for both methods, for the reason /login gives: the page

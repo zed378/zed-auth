@@ -2,9 +2,9 @@
 
 Single source of truth for where the project stands. Updated in the same commit as the work it describes (`00-TASK-CONVENTIONS.md` global DoD item 8).
 
-**Last updated**: 2026-09-21
-**Current phase**: Phase 4 — Enterprise Interop (6 / 16). The [Phase 4 threat review](../MEMORY/records/2026-09-15-P3-15-phase-4-threat-review.md)'s T4-1 is decided (ADR-025: the stricter of both organizations' policies applies); T4-2, subset validation at the readers, is built (`P4-04`). Phase 3 complete (15 / 15), tagged `v0.3.0-phase3`, **accepted on staging** — [summary](../MEMORY/records/2026-09-15-P3-phase-3-summary.md). Phase 2 complete (17 / 17), tagged `v0.2.0-phase2`. Phase 0 is 21 / 22; `P0-20` stays WIP pending the pull-based deployment re-read
-**Overall**: 88 / 179 tasks done
+**Last updated**: 2026-11-25
+**Current phase**: Phase 4 — Enterprise Interop (9 / 16). The [Phase 4 threat review](../MEMORY/records/2026-09-15-P3-15-phase-4-threat-review.md)'s T4-1 is decided (ADR-025: the stricter of both organizations' policies applies); T4-2, subset validation at the readers, is built (`P4-04`). Phase 3 complete (15 / 15), tagged `v0.3.0-phase3`, **accepted on staging** — [summary](../MEMORY/records/2026-09-15-P3-phase-3-summary.md). Phase 2 complete (17 / 17), tagged `v0.2.0-phase2`. Phase 0 is 21 / 22; `P0-20` stays WIP pending the pull-based deployment re-read
+**Overall**: 92 / 179 tasks done
 
 > **Staging runs Phases 1–3** (2026-09-15, `P3-15`). Phase 2 was verified on a local
 > Docker stack while the VM was unreachable; access was restored and Phases 2 and 3 were
@@ -35,10 +35,10 @@ Sizes: `S` under half a day · `M` one to two days · `L` several days · `XL` m
 | [Phase 1 — MVP: Core Auth + SSO](./PHASE-1-MVP-CORE-AUTH-SSO.md) | 29 | 29 | **COMPLETE** — [summary](../MEMORY/records/2026-09-12-P1-phase-1-summary.md), tagged `v0.1.0-phase1` | Phase 0 exit checklist |
 | [Phase 2 — RBAC & Multi-Tenancy](./PHASE-2-RBAC-MULTITENANCY.md) | 17 | 17 | **COMPLETE** — [summary](../MEMORY/records/2026-09-12-P2-phase-2-summary.md), tagged `v0.2.0-phase2`. Not yet on staging | Phase 1 exit + `P1-28` — **met** 2026-09-12 |
 | [Phase 3 — Advanced Security](./PHASE-3-ADVANCED-SECURITY.md) | 15 | 15 | **Complete** — accepted on staging 2026-09-15, tagged `v0.3.0-phase3` | Phase 2 exit + threat model review |
-| [Phase 4 — Enterprise Interop](./PHASE-4-ENTERPRISE-INTEROP.md) | 16 | 6 | **ACTIVE** — Phase 3 exit met; [threat review](../MEMORY/records/2026-09-15-P3-15-phase-4-threat-review.md) done; T4-1 decided (ADR-025) | Phase 3 exit + threat model review |
+| [Phase 4 — Enterprise Interop](./PHASE-4-ENTERPRISE-INTEROP.md) | 16 | 9 | **ACTIVE** — Phase 3 exit met; threat review done; T4-1 decided (ADR-025); optional SCIM deferred (ADR-029) | Phase 3 exit + threat model review |
 | [Phase 4b — ABAC](./PHASE-4B-ABAC.md) | 11 | 0 | **CONDITIONAL** | A concrete requirement RBAC cannot express (`P4B-00`) |
 | [Phase 5 — Hardening](./PHASE-5-HARDENING.md) | 16 | 0 | Not started | Phase 4 exit; 4b done or declined |
-| [Phase F — Frontend Implementation](./PHASE-F-FRONTEND-IMPLEMENTATION.md) | 53 | 0 | **TRACK** — runs alongside | Foundation: `P0-17`. Pages: each carries its own gate |
+| [Phase F — Frontend Implementation](./PHASE-F-FRONTEND-IMPLEMENTATION.md) | 53 | 1 | **TRACK** — runs alongside | Foundation: `P0-17`. Pages: each carries its own gate |
 
 > Phase 3 and Phase 4 may be swapped **as whole phases** if business need demands it (`docs/PLAN/16`'s note). They are never interleaved task by task.
 >
@@ -176,10 +176,10 @@ Sizes: `S` under half a day · `M` one to two days · `L` several days · `XL` m
 | P4-07 | SAML 2.0 IdP — core | L | **DONE** — the assertion machinery and the layer that refuses a malicious one: XML bounded before it is parsed (size, depth, DTDs, entities) and round-trip-validated, and `Verify` validates the element about to be CONSUMED rather than the document, which is what makes signature wrapping fail rather than pass. Audience, window and replay are enforced by the package that builds them, and the replay defence IS a primary key. Its own key set by `purpose`, carrying a certificate an OIDC key has no use for. `goxmldsig` upgraded to v1.6.0 for GO-2026-4753 — and the ADR corrected, because an advisory check against a dependency nothing calls proves nothing. Migrations 040 and 041, two fuzz targets, 19 mutations | P1-11 |
 | P4-08 | SAML SP- and IdP-initiated flows | L | **DONE** — both flows end to end. SP-initiated on both bindings, verified by verifying the assertion; IdP-initiated opt-in per registration and off by default, carrying no `InResponseTo` because it answers no request. The login page is not edited at all: the request id carries a `saml:` namespace and a dispatcher routes it, so the most security-critical path in the service gains no branch. Three switches were stored and enforced by nothing and now are not — signed `AuthnRequest`s (refused on HTTP-Redirect rather than accepted unverified), the IdP-initiated opt-in, and Single Logout's refusal, which reached only one of its two bindings. Migrations 042–044, 38 mutations, all caught | P4-07 |
 | P4-09 | SAML application type and metadata | M | **DONE** — a `saml` application is registered from its partner's metadata or by hand, through the API and the console, in one transaction with its registration. The metadata is untrusted XML and goes through P4-07's gate on the server. `/saml/metadata` now publishes the key that will sign as well as the one that does, so a rotation no longer breaks every service provider at once. Five defects found while building it, all of which compiled — among them a `Published` that silently dropped every `next` key, and a constraint translation that could never execute under pgx. 38 mutations | P4-07, P1-18 |
-| P4-10 | Social login federation | L | TODO | P1-11, P1-19 |
+| P4-10 | Social login federation | L | **WIP** — P4-10.1–3 in REVIEW; VM provider configuration and recovery runbook added; BL-11 reachable scan now passes, full integration validation and staging acceptance pending | P1-11, P1-19 |
 | P4-11 | Account linking and reconciliation | L | TODO | P4-10 |
 | P4-12 | Webhooks | L | TODO | P0-12 |
-| P4-13 | SCIM provisioning (optional) | L | TODO | P1-19 |
+| P4-13 | SCIM provisioning (optional) | L | **DROPPED** — deferred by project owner 2026-11-25; no named integration; DF-05 / ADR-029 | P1-19 |
 | P4-14 | Docs — delegation, SAML, social login | M | TODO | P4-06, P4-09, P4-10 |
 | P4-15 | Phase 4 test suite | L | TODO | all above |
 | P4-16 | Phase 4 acceptance validation | M | TODO | P4-15 |
@@ -241,8 +241,8 @@ Runs alongside Phases 0–5, not after them. **Foundation** tasks are phase-inde
 
 | ID | Task | Size | Status | Depends on |
 |---|---|---|---|---|
-| PF-01 | Motion tokens and the reduced-motion contract | S | TODO | P0-17 |
-| PF-02 | Component library scaffolding and workbench | M | TODO | P0-17 |
+| PF-01 | Motion tokens and the reduced-motion contract | S | **DONE** — token-driven panel, modal, step, row-change, and toast primitives; reduced motion removes transitions/animations; destructive confirmations and table sorting stay still | P0-17 |
+| PF-02 | Component library scaffolding and workbench | M | **WIP** — development workbench, initial Button/Badge/Table examples, branded preview and page primitive lint guard; full catalog and browser acceptance pending | P0-17 |
 | PF-03 | Button | S | TODO | PF-02 |
 | PF-04 | Table | L | TODO | PF-02 |
 | PF-05 | Form field primitives | L | TODO | PF-02 |

@@ -433,7 +433,7 @@ func (h *Handler) completeChallenge(
 		return
 	}
 
-	out, current, invalidate := h.issue(r, pending, user, loginPolicy, outcome.Methods, outcome.Recovery)
+	out, current, invalidate := h.issueWithMethod(r, pending, user, loginPolicy, outcome.Methods, outcome.Recovery, outcome.PrimaryMethod)
 	if out.result != resultAuthenticated {
 		h.serverError(w, r, "creating a session", out.err)
 		return

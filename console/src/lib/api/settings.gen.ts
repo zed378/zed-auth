@@ -31,4 +31,4 @@ export const SETTINGS_DEFAULTS = {
 } as const;
 
 /** Every login method the service implements today. */
-export const LOGIN_METHODS = ["password"] as const;
+export const LOGIN_METHODS = ["password","google","microsoft","github"] as const;

@@ -905,6 +905,27 @@ Read literally the sentence defers the endpoint **the same document lists in its
 
 Found by running the system rather than by reading the plan.
 
+### BL-11 — The existing Go/dependency baseline fails vulnerability scanning
+
+**Found**: 2026-11-25, validating P4-10.1. **Status**: OPEN. **Affects**: backend security/CI gate and release acceptance.
+
+`govulncheck ./...` exits 1 and reports 15 reachable vulnerabilities in the existing Go standard library and dependencies. Representative findings are `GO-2026-6859` in `net/http` on Go 1.26.6, `GO-2026-6974` in OpenTelemetry v1.46.0, and `GO-2026-6865` in `github.com/klauspost/compress` v1.19.1. The scanner also reports additional imported/module-only findings, separate from those 15 reachable results.
+
+P4-10.1 adds no dependency and does not change `backend/go.mod` or `backend/go.sum` (verified against HEAD). Its focused PostgreSQL tests, full backend unit tests, build, vet, and gosec checks pass, but that is not a passing vulnerability gate. The initial full integration run had failures in the existing ratelimit/user packages; both passed on a serial rerun without code/test changes. The original failed full run remains recorded. P4-10.1 remains in REVIEW until the required gates pass; P4-10 remains WIP.
+
+**Fix**: review the current advisories, update the Go patch/toolchain and affected dependency versions together with their CI/container pins as a separate security maintenance change, then rerun full backend unit/integration tests and `govulncheck ./...`. Do not suppress findings to close the gate. Details and validation status: [P4-10.1 record](../MEMORY/records/2026-11-25-P4-10.1-social-identity-storage.md).
+
+**P4-10.2 follow-up (2026-11-25)**: scanning the existing working tree on Go 1.26.11 reports **6 reachable vulnerabilities from 3 modules**: OpenTelemetry `GO-2026-6974`, compress `GO-2026-6865`, and x/net `GO-2026-6617`, `GO-2026-6612`, `GO-2026-6611`, `GO-2026-6603`. The scanner names fixed dependency versions 1.47.0, 1.20.2, and 0.60.0 respectively. No dependency upgrade or finding suppression is included in the provider foundation; BL-11 stays OPEN. See the [P4-10.2 record](../MEMORY/records/2026-11-25-P4-10.2-social-provider-foundation.md) for test and gate results.
+
+**Parallel remediation (2026-11-25)**: dependency versions above are now installed
+with their required transitives. The elevated scan reports zero reachable or
+imported-package vulnerabilities; gosec reports zero issues and all 1,727 backend
+unit tests/build/vet pass. Three non-imported module-only advisories remain.
+Full integration and demo validation are pending; BL-11 remains OPEN until that
+validation finishes. [Remediation record](../MEMORY/records/2026-11-25-BL-11-dependency-remediation.md).
+
+---
+
 ### BL-10 — Nothing catches a query that reads an RLS-protected table under instance scope
 
 **Found**: 2026-09-21, after the second occurrence. **Affects**: every `WithInstanceScope` call site, and `BL-08`'s janitor before it is written.
@@ -1099,7 +1120,7 @@ Carried over from `docs/PLAN/01-PRODUCT-SCOPE.md` § Out of Scope, recorded here
 | DF-02 | Fully white-labeled per-tenant UI | Deferred | Basic org branding proves insufficient |
 | DF-03 | No-code visual policy builder | Deferred | Only if the Rego editor proves unusable for real authors |
 | DF-04 | Big-bang migration | Explicitly rejected | Never — migration is gradual, app by app |
-| DF-05 | Full SCIM provisioning | Deferred to Phase 4, optional | A named external IdP integration needs it (`P4-13`'s gate) |
+| DF-05 | Full SCIM provisioning | **Deferred by project owner 2026-11-25**; `P4-13` closed as `DROPPED` (ADR-029) | A named external IdP integration requires it; reopen `P4-13` with the integration recorded first |
 | DF-06 | Database-per-tenant isolation | Deferred indefinitely | A contractual isolation requirement appears |
 | DF-07 | One user in multiple organizations (workspace switching) | Deferred | A real need appears; `docs/PLAN/18` R-09 warns specifically against building it prematurely |
 | DF-08 | ABAC (Phase 4b) | Conditional | `P4B-00`'s gate is satisfied |

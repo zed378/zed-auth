@@ -57,6 +57,9 @@ Decisions `TASKS/` has identified as needing an ADR, listed here so they are not
 | P2-09 | Tenant resolution: subdomain, path, email domain, or single default | Each has real infrastructure and UX costs; changing it later is disruptive |
 | P3-06 | Refresh rotation retry grace window | Too strict logs real users out constantly; too loose weakens reuse detection |
 | ~~P3-08~~ | ~~Anomaly response: step-up authentication, or notify only~~ — **decided 2026-09-13**, ADR-024: notify only, and notifications default off until the false-positive rate is measured | Step-up on a false positive is disruptive; notification alone is passive |
+| ~~P4-10~~ | ~~GitHub federation protocol~~ — **decided 2026-11-25**, ADR-028: GitHub OAuth 2.0 profile/email API; Google and Microsoft remain OIDC | GitHub user sign-in does not provide the OIDC ID token required by the plan's common verification path |
+| ~~P4-13~~ | ~~Whether to build optional SCIM without a named integration~~ — **decided 2026-11-25**, ADR-029: defer to DF-05 until an external IdP integration requires it | SCIM's own readiness gate requires a named integration before implementation |
+| ~~P4-10~~ | ~~Whether social login provisions users automatically~~ — **decided 2026-11-25**, ADR-030: only existing users may sign in; linking requires an authenticated session through P4-11 | Automatic provisioning would grant membership based only on an external identity and email claim |
 | P4-16 | Whether to undertake Phase 4b (ABAC) at all | `docs/PLAN/08` Part D and `docs/PLAN/16` both say build it only on concrete need |
 | P4B-03 | Behavior when no ABAC policy matches: fall back to RBAC, or deny | An ambiguous default here is a security bug waiting for an auditor to find |
 | ~~PG-01..PG-11~~ | ~~Plan gaps~~ — **resolved 2026-09-08** by amending the plan documents. See ADR-002 through ADR-004 | — |
@@ -66,6 +69,106 @@ Decisions `TASKS/` has identified as needing an ADR, listed here so they are not
 ---
 
 ## Log
+
+### ADR-030 — Social login requires an existing local account and authenticated linking
+
+| | |
+|---|---|
+| **Date** | 2026-11-25 |
+| **Status** | Accepted |
+| **Task** | `P4-10`, `P4-11` |
+| **Deciders** | Project owner |
+
+**Context**
+
+P4-10 requires federated sign-in while preserving local users, but does not specify just-in-time provisioning. P4-11 already requires provider linking to occur only in an authenticated local session, and forbids linking by matching email. The project owner selected that path for an identity with no existing local link.
+
+**Decision**
+
+Social sign-in resolves only a pre-existing `(provider, provider_subject)` link to a local user in the authorization request's organization. An unlinked identity cannot sign in, create a user, or attach itself based on email. The user must first authenticate through an existing method and link the provider in P4-11 account settings.
+
+**Alternatives considered**
+
+- **Automatically create an active local user:** would make any provider account with a verified email a route to membership in the organization selected by the requesting client.
+- **Require administrator provisioning before linking:** safer than just-in-time provisioning but adds a manual step for every new user; the selected P4-11 flow makes the user prove control of an existing account instead.
+
+**Consequences**
+
+- A new user cannot use social login as their first authentication method. An organization must provision their local account and they must link the provider while authenticated.
+- Matching or changing provider email addresses never transfers a link. Stable provider subjects remain the key.
+- P4-10 and P4-11 must share one identity store and callback-state mechanism without allowing a callback to choose its own organization.
+
+**Plan impact**
+
+None. This narrows the linking behavior to the authenticated-session rule already stated in the P4-11 task.
+
+---
+
+### ADR-028 — Use GitHub OAuth 2.0 profile and email APIs for federation
+
+| | |
+|---|---|
+| **Date** | 2026-11-25 |
+| **Status** | Accepted |
+| **Task** | `P4-10` |
+| **Deciders** | Project owner |
+
+**Context**
+
+`docs/PLAN/05` groups Google, Microsoft, and GitHub as OIDC providers. GitHub's normal user sign-in integration is OAuth 2.0 and does not issue an OIDC ID token, so it cannot follow the same token-verification path as Google and Microsoft. The project owner chose the GitHub OAuth 2.0 profile/email API option for P4-10.
+
+**Decision**
+
+Use OIDC Authorization Code + PKCE, nonce, discovery, JWKS signature verification, and complete ID-token claim validation for Google and Microsoft. For GitHub, use OAuth 2.0 Authorization Code + PKCE, validate state, then retrieve the stable account ID from GitHub's authenticated profile API and the email-verification status from its email API. Do not treat an unverified email as proof of ownership or use email to match an existing local account. Tokens remain ephemeral and are never logged.
+
+**Alternatives considered**
+
+- **Require OIDC from all three providers:** impossible for GitHub's normal user sign-in flow.
+- **Ship Google and Microsoft only:** violates the selected P4-10 provider set.
+- **Replace GitHub:** possible, but the project owner selected the GitHub OAuth profile/email API.
+
+**Consequences**
+
+- The GitHub path has no ID token and therefore needs a separate API-backed identity resolver; its validation is not interchangeable with OIDC token validation.
+- GitHub's provider scopes and email verification response must be checked explicitly. A missing or unverified email cannot silently become a verified local email.
+- Mock-provider integration tests can verify protocol behavior without live client credentials. Real provider deployment verification still needs registered applications and secret-manager references.
+
+**Plan impact**
+
+This is an explicit deviation selected by the project owner before implementation. `docs/PLAN/05-API-CONTRACT.md` still describes GitHub as OIDC; a separate, deliberate plan-document update is recommended and is not part of this implementation.
+
+---
+
+### ADR-029 — Defer SCIM until a named integration requires it
+
+| | |
+|---|---|
+| **Date** | 2026-11-25 |
+| **Status** | Accepted |
+| **Task** | `P4-13` |
+| **Deciders** | Project owner |
+
+**Context**
+
+P4-13's gate prohibits speculative SCIM work and asks for a named external IdP integration. The project owner selected deferral; no integration has been named.
+
+**Decision**
+
+Do not implement SCIM now. Close the open task as `DROPPED` and track it in the existing DF-05 backlog row. Reconsider only when a specific external IdP integration requires SCIM.
+
+**Alternatives considered**
+
+- **Implement speculatively:** conflicts with P4-13's gate and risks shipping a provisioning API no consumer needs.
+- **Leave the task TODO:** misrepresents the owner's decision as an unresolved implementation commitment.
+
+**Consequences**
+
+- No `/Users` or `/Groups` provisioning endpoints exist. A future integration must name its provider and justify re-opening the work.
+- P4-13 is recorded as deliberately deferred; the Phase 4 criterion is satisfied by this decision and DF-05 tracking.
+
+**Plan impact**
+
+None. `docs/PLAN/01` already defines SCIM as optional and deferred until a concrete integration requires it.
 
 ### ADR-001 — Establish `TASKS/` and `MEMORY/` as the execution layer
 

@@ -37,7 +37,7 @@ cd ~/auth
 docker run --rm -v "$PWD:/src" -w /src/backend \
   -v /home/infra/auth-state/bin:/out \
   -v /home/infra/auth-state/gocache:/gocache -e GOCACHE=/gocache -e GOMODCACHE=/gocache/mod \
-  golang:1.26.6 go build -buildvcs=false -o /out/keyctl ./cmd/keyctl
+  golang:1.26.11 go build -buildvcs=false -o /out/keyctl ./cmd/keyctl
 ```
 
 Then define the wrapper. **Read the mount paths before you paste this** — they

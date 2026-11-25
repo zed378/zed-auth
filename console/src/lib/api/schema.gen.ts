@@ -4,6 +4,56 @@
  */
 
 export interface paths {
+    "/login/social/{provider}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Start hosted social sign-in
+         * @description Requires an existing pending hosted authorization request, an enabled
+         *     provider and organization permission for that provider. Sets a Secure,
+         *     HttpOnly, host-only browser binding cookie, then redirects with PKCE
+         *     and single-use state. Existing linked accounts only; no email matching
+         *     or automatic provisioning. Account linking is not exposed by this route.
+         */
+        get: operations["socialLoginStart"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/login/social/{provider}/callback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Complete a hosted social provider callback
+         * @description Validates browser-bound single-use state before exchanging the code.
+         *     The tenant and pending request come from server-bound context, never
+         *     callback query parameters. Rechecks organization policy, resolves an
+         *     existing linked account by stable provider subject, and enforces account
+         *     status and local MFA before issuing a session. Session authentication
+         *     methods name the provider. Unknown identities and provider failures use
+         *     the same generic hosted error. Codes and provider tokens are never returned.
+         */
+        get: operations["socialLoginCallback"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/.well-known/openid-configuration": {
         parameters: {
             query?: never;
@@ -2608,15 +2658,14 @@ export interface components {
             /** @default 12 */
             session_lifetime_hours?: number;
             /**
-             * @description Only `password` is available in this phase. `passkey` and `social`
-             *     are planned and are rejected until they work — an API that accepts
-             *     a method nothing implements would silently disable every method
-             *     that does.
+             * @description Password and the named social providers are accepted. Social sign-in
+             *     also requires deployment credentials and an identity already linked
+             *     to a local account. Generic `social` and `passkey` remain unsupported.
              * @default [
              *       "password"
              *     ]
              */
-            allowed_login_methods?: "password"[];
+            allowed_login_methods?: ("password" | "google" | "microsoft" | "github")[];
         };
         /**
          * @description One organization the caller administers, and what they hold over it.
@@ -3856,6 +3905,88 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    socialLoginStart: {
+        parameters: {
+            query: {
+                request: string;
+            };
+            header?: never;
+            path: {
+                provider: "google" | "microsoft" | "github";
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Generic retryable hosted sign-in error. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": string;
+                };
+            };
+            /** @description Redirect to the configured provider authorization endpoint. */
+            302: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Generic hosted error when no valid pending request can be resolved. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": string;
+                };
+            };
+        };
+    };
+    socialLoginCallback: {
+        parameters: {
+            query?: {
+                state?: string;
+                code?: string;
+                error?: string;
+            };
+            header?: never;
+            path: {
+                provider: "google" | "microsoft" | "github";
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Hosted MFA challenge, forced enrollment, or generic retryable error. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": string;
+                };
+            };
+            /** @description Session established; resume the existing authorization flow. */
+            302: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Generic hosted error for invalid or expired browser context. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": string;
+                };
+            };
+        };
+    };
     getOpenIDConfiguration: {
         parameters: {
             query?: never;

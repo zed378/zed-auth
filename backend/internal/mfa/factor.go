@@ -311,3 +311,27 @@ func AuthMethodsWithRecovery(password, recovery bool, used ...Type) []string {
 	sort.Strings(methods)
 	return methods
 }
+
+// AuthMethodsWithPrimary records a verified social provider without claiming a password.
+// Provider authentication plus a local factor or recovery code satisfies step-up.
+func AuthMethodsWithPrimary(primary string, recovery bool, used ...Type) []string {
+	if primary == "" || primary == "password" {
+		return AuthMethodsWithRecovery(true, recovery, used...)
+	}
+	methods := AuthMethods(false, used...)
+	methods = append(methods, primary)
+	if !recovery && len(methods) > 1 {
+		recovery = true
+	}
+	if recovery {
+		found := false
+		for _, method := range methods {
+			found = found || method == MethodMultiFactor
+		}
+		if !found {
+			methods = append(methods, MethodMultiFactor)
+		}
+	}
+	sort.Strings(methods)
+	return methods
+}

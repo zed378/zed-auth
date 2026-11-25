@@ -17,6 +17,4 @@
 // permissive defaults come from.
 module github.com/zed378/zed-auth/demo
 
-go 1.26.5
-
-toolchain go1.26.6
+go 1.26.11

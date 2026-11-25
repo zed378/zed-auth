@@ -36,6 +36,7 @@ import (
 // steer, because the only attacker-influenced value is Email, which the person
 // typing it supplied themselves.
 type Page struct {
+	SocialProviders []SocialButton
 	// AppName is the registered name of the application the user is signing
 	// in to. It comes from the applications table, not from the request.
 	AppName string
@@ -83,6 +84,8 @@ type Page struct {
 	// arise from a registration the service accepted.
 	RedirectOrigin string
 }
+
+type SocialButton struct{ Name, Path string }
 
 // The messages. Every credential failure uses the same one.
 //
@@ -411,6 +414,9 @@ var pageTemplate = template.Must(template.New("login").Parse(`<!DOCTYPE html>
 </div>
 <button type="submit">Sign in</button>
 </form>
+{{range .SocialProviders}}
+<p><a href="{{.Path}}">Continue with {{.Name}}</a></p>
+{{end}}
 <p class="foot"><a href="{{.ForgotPath}}">Forgot your password?</a></p>
 </div>
 </main>

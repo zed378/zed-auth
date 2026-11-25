@@ -156,6 +156,32 @@ describe("the accessibility rules that are easy to delete by accident", () => {
 
   it("honours prefers-reduced-motion", () => {
     // docs/UI-UX/13 § Motion calls this "a hard requirement, not a nice-to-have".
-    expect(CSS).toMatch(/@media \(prefers-reduced-motion: reduce\)/);
+    expect(CSS).toMatch(/@media \(prefers-reduced-motion: reduce\)\s*\{[\s\S]*?animation:\s*none !important;[\s\S]*?transition:\s*none !important;/);
+  });
+
+  it("uses the shared token-driven primitives for each specified motion", () => {
+    for (const primitive of [
+      ".motion-panel",
+      ".motion-modal",
+      ".motion-step-forward",
+      ".motion-step-backward",
+      "table tbody tr.motion-row-change",
+      ".motion-toast-enter",
+    ]) {
+      expect(CSS).toContain(primitive);
+    }
+
+    const motionRules = CSS.match(/\.motion-[a-z-]+\s*\{[^}]+\}|table tbody tr\.motion-row-change\s*\{[^}]+\}/g) ?? [];
+    expect(motionRules).toHaveLength(6);
+    for (const rule of motionRules) {
+      expect(rule).toMatch(/var\(--duration-quick\)/);
+      expect(rule).toMatch(/var\(--ease-standard\)/);
+      expect(rule).not.toMatch(/\b(?:\d+\.?\d*|\.\d+)(?:ms|s)\b/);
+    }
+  });
+
+  it("keeps destructive confirmations and table row sorting motionless", () => {
+    expect(CSS).toMatch(/:is\(\[role="alertdialog"\], \[data-confirm-dialog\]\)\s*\{\s*animation:\s*none !important;\s*transition:\s*none !important;/);
+    expect(CSS).toMatch(/table tbody tr\s*\{\s*animation:\s*none;\s*transition:\s*none;/);
   });
 });

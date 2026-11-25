@@ -137,6 +137,10 @@ The token is required even though the port is unpublished, and that is not belt-
 
 ### 5. Start
 
+For optional provider configuration and outage recovery, see
+[RUNBOOK-social-login.md](RUNBOOK-social-login.md). Social login remains in review;
+keep it disabled until live acceptance and authenticated account linking are ready.
+
 ```bash
 sudo cp /opt/zed-auth/deploy/vm/zed-auth.service /etc/systemd/system/
 sudo systemctl daemon-reload

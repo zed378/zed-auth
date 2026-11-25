@@ -75,6 +75,22 @@ function makeStringRule({ pattern, messageId, message }) {
 
 export default {
   rules: {
+    "no-page-primitive": {
+      meta: {
+        type: "problem",
+        schema: [],
+        messages: { primitive: "Import {{name}} from the component library instead of defining a page-local primitive (PF-02)." },
+      },
+      create(context) {
+        const primitives = new Set(["Button", "Badge", "Table", "Modal", "SidePanel", "ConfirmDialog", "RoleSourceBadge", "RoleList", "Skeleton", "LoadingRegion", "EmptyState", "ErrorState"]);
+        function check(node) {
+          if (node.id?.type === "Identifier" && primitives.has(node.id.name)) {
+            context.report({ node, messageId: "primitive", data: { name: node.id.name } });
+          }
+        }
+        return { FunctionDeclaration: check, VariableDeclarator: check, ClassDeclaration: check };
+      },
+    },
     /**
      * A raw hex colour or CSS colour function in application code.
      *

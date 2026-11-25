@@ -76,6 +76,10 @@ type Config struct {
 	// rather than failing silently at the first invitation.
 	Mail MailConfig
 
+	// Social holds optional provider credentials. Hosted callbacks are derived
+	// from Issuer rather than accepted from a sign-in request.
+	Social SocialConfig
+
 	// Issuer is the OIDC issuer identifier. It must exactly match the `iss`
 	// claim the token issuer emits and the `issuer` field in the discovery
 	// document — a mismatch breaks every conforming client library, and it is a
@@ -337,6 +341,7 @@ func LoadFrom(getenv Getenv) (*Config, error) {
 	cfg := &Config{
 		Environment: Environment(l.optional("AUTH_ENV", string(EnvLocal))),
 		Issuer:      l.required("AUTH_ISSUER"),
+		Social:      l.social(),
 		Mail: MailConfig{
 			SMTPURL:        l.optional("AUTH_SMTP_URL", ""),
 			From:           l.optional("AUTH_MAIL_FROM", ""),
@@ -394,6 +399,7 @@ func LoadFrom(getenv Getenv) (*Config, error) {
 	}
 
 	l.validate(cfg)
+	l.validateSocial(cfg)
 
 	if len(l.problems) > 0 {
 		sort.Strings(l.problems)

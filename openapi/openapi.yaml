@@ -54,7 +54,7 @@ info:
     Grants.
 
     Endpoints that do not exist yet are deliberately absent until they are
-    real — currently SAML, social sign-in, webhooks and SCIM. Delegated roles
+    real — currently webhooks and SCIM. Delegated roles
     granted through a Project Grant do not yet appear in tokens or in
     `/v1/authz/check`; that arrives with `P4-04`.
 
@@ -105,6 +105,82 @@ tags:
       reconnaissance endpoint (`docs/SECURITY/02` §12).
 
 paths:
+  /login/social/{provider}:
+    get:
+      operationId: socialLoginStart
+      tags: [Discovery]
+      summary: Start hosted social sign-in
+      description: |
+        Requires an existing pending hosted authorization request, an enabled
+        provider and organization permission for that provider. Sets a Secure,
+        HttpOnly, host-only browser binding cookie, then redirects with PKCE
+        and single-use state. Existing linked accounts only; no email matching
+        or automatic provisioning. Account linking is not exposed by this route.
+      security: []
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          schema: {type: string, enum: [google, microsoft, github]}
+        - name: request
+          in: query
+          required: true
+          schema: {type: string, maxLength: 256}
+      responses:
+        '302':
+          description: Redirect to the configured provider authorization endpoint.
+        '200':
+          description: Generic retryable hosted sign-in error.
+          content:
+            text/html:
+              schema: {type: string}
+        '400':
+          description: Generic hosted error when no valid pending request can be resolved.
+          content:
+            text/html:
+              schema: {type: string}
+
+  /login/social/{provider}/callback:
+    get:
+      operationId: socialLoginCallback
+      tags: [Discovery]
+      summary: Complete a hosted social provider callback
+      description: |
+        Validates browser-bound single-use state before exchanging the code.
+        The tenant and pending request come from server-bound context, never
+        callback query parameters. Rechecks organization policy, resolves an
+        existing linked account by stable provider subject, and enforces account
+        status and local MFA before issuing a session. Session authentication
+        methods name the provider. Unknown identities and provider failures use
+        the same generic hosted error. Codes and provider tokens are never returned.
+      security: []
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          schema: {type: string, enum: [google, microsoft, github]}
+        - name: state
+          in: query
+          schema: {type: string, maxLength: 128}
+        - name: code
+          in: query
+          schema: {type: string, maxLength: 4096}
+        - name: error
+          in: query
+          schema: {type: string, maxLength: 256}
+      responses:
+        '302':
+          description: Session established; resume the existing authorization flow.
+        '200':
+          description: Hosted MFA challenge, forced enrollment, or generic retryable error.
+          content:
+            text/html:
+              schema: {type: string}
+        '400':
+          description: Generic hosted error for invalid or expired browser context.
+          content:
+            text/html:
+              schema: {type: string}
   /.well-known/openid-configuration:
     get:
       tags: [Discovery]
@@ -3991,12 +4067,11 @@ components:
           default: [password]
           items:
             type: string
-            enum: [password]
+            enum: [password, google, microsoft, github]
           description: |
-            Only `password` is available in this phase. `passkey` and `social`
-            are planned and are rejected until they work — an API that accepts
-            a method nothing implements would silently disable every method
-            that does.
+            Password and the named social providers are accepted. Social sign-in
+            also requires deployment credentials and an identity already linked
+            to a local account. Generic `social` and `passkey` remain unsupported.
 
     AdministeredOrganization:
       type: object

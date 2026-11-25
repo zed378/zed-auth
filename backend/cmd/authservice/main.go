@@ -56,6 +56,7 @@ import (
 	"github.com/zed378/zed-auth/backend/internal/session"
 	"github.com/zed378/zed-auth/backend/internal/sessionapi"
 	"github.com/zed378/zed-auth/backend/internal/signing"
+	"github.com/zed378/zed-auth/backend/internal/social"
 	"github.com/zed378/zed-auth/backend/internal/storage/postgres"
 	"github.com/zed378/zed-auth/backend/internal/user"
 )
@@ -723,7 +724,23 @@ func run() error {
 		Log:       log,
 	}
 
+	socialAdapters, err := social.ConfiguredAdapters(cfg, config.NewSecretResolver(cfg.Environment != config.EnvLocal))
+	if err != nil {
+		return err
+	}
+	var socialFlow *login.SocialFlow
+	if len(socialAdapters) > 0 {
+		providers := make(map[social.Provider]login.SocialProvider, len(socialAdapters))
+		for provider, adapter := range socialAdapters {
+			providers[provider] = adapter
+		}
+		socialFlow = &login.SocialFlow{Issuer: cfg.Issuer, Providers: providers,
+			States: social.NewStateStore(rdb), Identities: social.NewStore(),
+			Quota: ratelimit.NewQuotas(rdb, rateLimitObserver{metrics}, log).WithQuota(ratelimit.Quota{Limit: 20, Window: time.Minute}, "social"),
+		}
+	}
 	loginHandler := &login.Handler{
+		Social: socialFlow,
 		// One seam, two protocols. The dispatcher routes a finished sign-in
 		// back to whichever started it, from the request id alone, so this
 		// package never learns that SAML exists (P4-08).
@@ -955,6 +972,7 @@ func run() error {
 		UserInfo:        userInfoHandler,
 		Logout:          logoutHandler,
 		Login:           loginHandler,
+		Social:          socialRoute(loginHandler),
 		Forgot:          http.HandlerFunc(loginHandler.Forgot),
 		MFA:             mfaRoute(factorFramework, loginHandler),
 		Passkey:         passkeyRoute(factorFramework, loginHandler),
@@ -1289,6 +1307,14 @@ func factorOrg(ctx context.Context, db *postgres.DB, factorID string) (string, e
 		return "", fmt.Errorf("no organization for factor %s", factorID)
 	}
 	return orgID.String, nil
+}
+
+// socialRoute omits hosted provider routes when no provider is configured.
+func socialRoute(h *login.Handler) http.Handler {
+	if h.Social == nil {
+		return nil
+	}
+	return http.HandlerFunc(h.SocialLogin)
 }
 
 // mfaRoute registers /login/mfa only when there is a framework behind it.
