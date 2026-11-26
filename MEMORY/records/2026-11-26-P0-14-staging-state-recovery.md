@@ -44,14 +44,16 @@ is proximity in time, not an established cause.
 - The one `ERROR` line after rollout is the refresh-token reuse detection that the
   acceptance run triggers.
 
+The previous OIDC and SAML keys (`I7jnBopn…`, `puL5f1vJ…`) were retired the same
+day: their private halves are gone and their custody on 2026-11-16 is unknown.
+Afterwards JWKS listed only the new key, and Phase 3 (18) and SAML (39)
+acceptance passed again.
+
 Console sign-in was not clicked through in a browser; the authorize redirect and
 the CORS preflight for the console origin answer correctly.
 
 ## Open
 
-- The previous OIDC and SAML keys are still `previous`, so they still verify.
-  Their private halves are gone and their custody on 2026-11-16 is unknown.
-  Retire them as on 2026-09-11 (`RUNBOOK-key-rotation.md`).
 - `PG-29`: the secrets directory is still not backed up.
 - Backups are local only (`AUTH_BACKUP_REMOTE` unset), on the same disk.
 - Nothing prevents or alerts on the next deletion of `auth-state`.
