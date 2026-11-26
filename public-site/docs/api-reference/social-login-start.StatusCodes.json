@@ -1,0 +1,1 @@
+{"responses":{"200":{"description":"Generic retryable hosted sign-in error.","content":{"text/html":{"schema":{"type":"string"}}}},"302":{"description":"Redirect to the configured provider authorization endpoint."},"400":{"description":"Generic hosted error when no valid pending request can be resolved.","content":{"text/html":{"schema":{"type":"string"}}}}}}

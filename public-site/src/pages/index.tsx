@@ -74,10 +74,11 @@ const CAPABILITIES: Capability[] = [
   {
     title: "Roles that scale to delegation",
     body:
-      "Per-project roles and grants are built today. Cross-organization " +
-      "delegation comes next: a partner manages their own team's access, without " +
-      "being able to grant a role you did not delegate.",
-    phase: "Phase 4",
+      "Lend a project to a partner organization with a fixed list of roles. Their " +
+      "administrator assigns only those roles to their own people, the authorization " +
+      "check honours them, and revoking the grant ends them. Partner users cannot " +
+      "sign in to your applications yet, so delegated roles are not in tokens.",
+    phase: "Shipped — Phase 4",
   },
   {
     title: "Policies when roles are not enough",
@@ -138,9 +139,10 @@ export default function Home(): ReactNode {
             against a live deployment rather than written from the specification. Roles,
             more than one organization, two-step verification, passkeys, session
             management and refresh token rotation run on the same deployment, where
-            Phase 3's acceptance checks were executed against them. Delegation and
-            policies are specified and not started. There is no hosted signup: you run it
-            yourself, from source.
+            Phase 3's acceptance checks were executed against them. Cross-organization
+            delegation, from Phase 4, passed its own acceptance checks there too.
+            Attribute-based policies are specified and not started. There is no hosted
+            signup: you run it yourself, from source.
           </p>
         </div>
       </header>
@@ -161,10 +163,9 @@ export default function Home(): ReactNode {
         <div className="site-container">
           <h2>What it does, and what it will do</h2>
           <p className="site-lede" style={{ marginBottom: "2.5rem" }}>
-            Two of these are built and running; the other two are specified and not
-            started, although the roles the third builds on already exist. The
-            label on each card says which, and it is checked against the roadmap board
-            on every build rather than kept true by hand.
+            Three of these are built and running; the fourth is specified and not
+            started. The label on each card says which, and it is checked against the
+            roadmap board on every build rather than kept true by hand.
           </p>
 
           <div className="site-grid">
