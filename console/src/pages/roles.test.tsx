@@ -166,9 +166,11 @@ describe("the role form", () => {
     // a rejection the user cannot explain.
     const form = within(screen.getByRole("dialog"));
     await userEvent.type(form.getByLabelText("Key"), "Cashier");
-
+    expect(form.getByLabelText("Key")).toHaveAttribute("aria-invalid", "false");
+    await userEvent.tab();
     expect(form.getByLabelText("Key")).toHaveAttribute("aria-invalid", "true");
-    expect(form.getByRole("button", { name: /define role/i })).toBeDisabled();
+    await userEvent.click(form.getByRole("button", { name: /define role/i }));
+    expect(form.getByLabelText("Key")).toHaveFocus();
   });
 
   it("names the permission that is wrong rather than saying one of them is", async () => {
@@ -180,8 +182,8 @@ describe("the role form", () => {
     await userEvent.type(screen.getByLabelText("Key"), "cashier");
     await userEvent.type(screen.getByLabelText("Name"), "Cashier");
     await userEvent.type(screen.getByLabelText("Permissions"), "sale:create\nnot a key");
-
-    expect(screen.getByText(/“not a key” is not a permission key/i)).toBeInTheDocument();
+    await userEvent.tab();
+    expect(screen.getByLabelText("Permissions")).toHaveAccessibleDescription(/“not a key” is not a permission key/i);
   });
 
   it("refuses a duplicate permission rather than quietly folding it", async () => {
@@ -193,10 +195,11 @@ describe("the role form", () => {
     await userEvent.type(screen.getByLabelText("Key"), "cashier");
     await userEvent.type(screen.getByLabelText("Name"), "Cashier");
     await userEvent.type(screen.getByLabelText("Permissions"), "sale:read\nsale:read");
+    await userEvent.tab();
 
     // The server refuses duplicates rather than folding them. A client that
     // deduplicated would send something other than what was typed.
-    expect(screen.getByText(/is listed twice/i)).toBeInTheDocument();
+    expect(screen.getByLabelText("Permissions")).toHaveAccessibleDescription(/is listed twice/i);
   });
 
   it("accepts a role with no permissions at all", async () => {

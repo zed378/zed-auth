@@ -152,7 +152,7 @@ describe("finding a user", () => {
     renderScreen(<AuthorizationsPage />, PATH, ROUTE);
     await userEvent.type(await screen.findByLabelText(/find a user/i), "nobody");
 
-    expect(await screen.findByText(/Nobody in this organization matches/i)).toBeInTheDocument();
+    expect(await screen.findByText(/No users match that search/i)).toBeInTheDocument();
   });
 
   it("invites a search rather than claiming there is nothing", async () => {

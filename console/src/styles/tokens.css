@@ -250,6 +250,12 @@
   transform: scale(1);
 }
 
+/* Mounting an open dialog still uses the shared transition tokens. */
+@starting-style {
+  .motion-panel[data-state="open"] { transform: translateX(100%); }
+  .motion-modal[data-state="open"] { opacity: 0; transform: scale(0.98); }
+}
+
 .motion-step-forward {
   animation: motion-step-forward var(--duration-quick) var(--ease-standard) both;
 }
@@ -347,4 +353,16 @@ body {
  * and timestamps is immediate. */
 table {
   font-variant-numeric: tabular-nums;
+}
+
+/* Skip offscreen table rendering without removing rows from keyboard or accessibility navigation. */
+.table-render-window {
+  content-visibility: auto;
+  contain-intrinsic-size: auto calc(var(--font-size-body) * var(--line-height-body) + var(--spacing-3) * 2);
+}
+
+@media (hover: none) {
+  .table-row-actions {
+    opacity: 1;
+  }
 }

@@ -1,15 +1,19 @@
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "react-router-dom";
 
 import { Badge } from "../components/Badge";
 import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import { TextAreaField, TextField } from "../components/FormField";
+import { FormSummary, FormSystem, useExplicitForm } from "../components/FormSystem";
 import { Modal } from "../components/Modal";
 import { ProjectNav } from "../components/ProjectNav";
 import { Table } from "../components/Table";
 import type { Column } from "../components/Table";
-import { api, queryKeys } from "../lib/api/client";
+import { CollectionStateBoundary } from "../components/states";
+import { api } from "../lib/api/client";
+import { invalidateQueries, mutationInvalidations } from "../lib/api/queryPolicy";
 import {
   PERMISSION_KEY_MAX_LENGTH,
   ROLE_KEY_MAX_LENGTH,
@@ -52,16 +56,23 @@ type Role = {
 export function RolesPage() {
   const { projectId } = useParams<{ projectId: string }>();
   const orgId = useOrgId();
+  return <RolesInProject key={JSON.stringify([orgId, projectId])} orgId={orgId} projectId={projectId ?? null} />;
+}
+
+function RolesInProject({ orgId, projectId }: { orgId: string | null; projectId: string | null }) {
   const projects = useProjects(orgId);
   const roles = useRoles(orgId, projectId ?? null);
   const { hasRole } = useAuth();
 
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<Role | null>(null);
+  const [editOpen, setEditOpen] = useState(false);
   const [deleting, setDeleting] = useState<Role | null>(null);
   const [search, setSearch] = useState("");
 
   const project = (projects.data ?? []).find((candidate) => candidate.id === projectId);
+  const accessDenied = (roles.isError && kindOf(roles.error) === "permission") ||
+    (projects.isError && kindOf(projects.error) === "permission");
   // Memoised because `roles.data ?? []` is a fresh array on every render, and
   // an unstable input makes the filter below recompute whether or not anything
   // changed.
@@ -79,7 +90,7 @@ export function RolesPage() {
 
   // UX only. The API refuses independently on every request, and a hidden
   // button has never been a security control (`docs/PLAN/08`, `CLAUDE.md`).
-  const mayManage = hasRole("ORG_ADMIN", "ORG_OWNER", "INSTANCE_OWNER");
+  const mayManage = !accessDenied && hasRole("ORG_ADMIN", "ORG_OWNER", "INSTANCE_OWNER");
 
   const columns: Column<Role>[] = [
     {
@@ -142,7 +153,7 @@ export function RolesPage() {
         </Link>{" "}
         /{" "}
         <Link to={`/projects/${projectId ?? ""}`} className="underline">
-          {project?.name ?? "…"}
+          {accessDenied ? "Project" : project?.name ?? "…"}
         </Link>{" "}
         / <span aria-current="page">Roles</span>
       </nav>
@@ -164,7 +175,7 @@ export function RolesPage() {
         <code className="font-mono text-small">admin</code> in any other project.
       </p>
 
-      <div className="mt-4">
+      {!accessDenied ? <div className="mt-4">
         <label htmlFor="role-search" className="block text-small font-medium text-text-secondary">
           Search
         </label>
@@ -176,35 +187,38 @@ export function RolesPage() {
           placeholder="Key or name"
           className="mt-1 w-full max-w-sm rounded border border-border bg-bg-base px-3 py-2 text-body text-text-primary"
         />
-      </div>
+      </div> : null}
 
       <div className="mt-4">
+        <CollectionStateBoundary
+          count={rows.length}
+          loading={roles.isPending}
+          failed={roles.isError}
+          permitted={!accessDenied}
+          errorKind={kindOf(roles.error) === "network" ? "network" : "server"}
+          onRetry={() => void roles.refetch()}
+          what="roles"
+          loadingLabel="Loading roles"
+          skeleton={<Table<Role> caption="Roles in this project" columns={columns}
+            rows={[]} rowKey={(role) => role.id} status="loading" what="roles" />}
+          filtered={search.trim() !== ""}
+          onClearFilter={() => setSearch("")}
+          emptyAction={mayManage ? (
+            <Button variant="primary" onClick={() => setCreating(true)}>Define the first role</Button>
+          ) : undefined}
+        >
         <Table<Role>
           caption={`Roles in ${project?.name ?? "this project"}`}
           columns={columns}
           rows={rows}
           rowKey={(role) => role.id}
-          status={roles.isPending ? "loading" : roles.isError ? "error" : "ready"}
-          errorKind={kindOf(roles.error)}
-          onRetry={() => void roles.refetch()}
+          status="ready"
           what="roles"
-          // "No roles defined yet" and "no roles match the search" are
-          // different situations wanting different recoveries — a create
-          // action versus a cleared search (`docs/UI-UX/14`, step 6).
-          filtered={search.trim() !== "" && all.length > 0}
-          onClearFilter={() => setSearch("")}
-          emptyAction={
-            mayManage ? (
-              <Button variant="primary" onClick={() => setCreating(true)}>
-                Define the first role
-              </Button>
-            ) : undefined
-          }
           actions={
             mayManage
               ? (role) => (
                   <span className="flex justify-end gap-2">
-                    <Button onClick={() => setEditing(role)}>Edit</Button>
+                    <Button onClick={() => { setEditing(role); setEditOpen(true); }}>Edit</Button>
                     {role.is_builtin ? (
                       // NOT a disabled button. A control that cannot be used
                       // and does not say why is exactly what step 5 forbids,
@@ -224,25 +238,29 @@ export function RolesPage() {
               : undefined
           }
         />
+        </CollectionStateBoundary>
       </div>
 
       <RoleFormModal
-        open={creating}
+        open={!accessDenied && creating}
         orgId={orgId}
         projectId={projectId ?? null}
         onClose={() => setCreating(false)}
+        onSaved={() => setCreating(false)}
       />
 
       <RoleFormModal
-        open={editing !== null}
+        key={editing?.id ?? "edit"}
+        open={!accessDenied && editOpen}
         orgId={orgId}
         projectId={projectId ?? null}
         existing={editing ?? undefined}
-        onClose={() => setEditing(null)}
+        onClose={() => setEditOpen(false)}
+        onSaved={() => { setEditOpen(false); setEditing(null); }}
       />
 
       <DeleteRoleDialog
-        role={deleting}
+        role={accessDenied ? null : deleting}
         orgId={orgId}
         projectId={projectId ?? null}
         onClose={() => setDeleting(null)}
@@ -264,43 +282,22 @@ function RoleFormModal({
   projectId,
   existing,
   onClose,
+  onSaved,
 }: {
   open: boolean;
   orgId: string | null;
   projectId: string | null;
   existing?: Role;
   onClose: () => void;
+  onSaved: () => void;
 }) {
   const editingExisting = existing !== undefined;
-
-  const [key, setKey] = useState("");
-  const [displayName, setDisplayName] = useState("");
-  const [permissions, setPermissions] = useState("");
-  const [problem, setProblem] = useState<string | null>(null);
+  const formId = useId();
   const queryClient = useQueryClient();
 
-  // Seed the fields from the role being edited, keyed on its id so reopening
-  // with a different role does not show the previous one's values.
-  const [seeded, setSeeded] = useState<string | null>(null);
-  if (open && editingExisting && seeded !== existing.id) {
-    setSeeded(existing.id);
-    setKey(existing.key);
-    setDisplayName(existing.display_name);
-    setPermissions(existing.permission_keys.join("\n"));
-    setProblem(null);
-  }
-  if (!open && seeded !== null) setSeeded(null);
-
-  function reset() {
-    setKey("");
-    setDisplayName("");
-    setPermissions("");
-    setProblem(null);
-  }
-
   const save = useMutation({
-    mutationFn: async () => {
-      const permissionKeys = splitPermissions(permissions);
+    mutationFn: async (values: { key: string; display_name: string; permission_keys: string }) => {
+      const permissionKeys = splitPermissions(values.permission_keys);
 
       if (editingExisting) {
         const { data, error } = await api.PATCH(
@@ -315,7 +312,7 @@ function RoleFormModal({
             },
             // `permission_keys` replaces the set entirely — the API is
             // explicit that a partial update of an array is ambiguous.
-            body: { display_name: displayName.trim(), permission_keys: permissionKeys },
+            body: { display_name: values.display_name.trim(), permission_keys: permissionKeys },
           },
         );
         if (error !== undefined) throw error;
@@ -327,8 +324,8 @@ function RoleFormModal({
         {
           params: { path: { org_id: orgId as string, project_id: projectId as string } },
           body: {
-            key: key.trim(),
-            display_name: displayName.trim(),
+            key: values.key.trim(),
+            display_name: values.display_name.trim(),
             permission_keys: permissionKeys,
           },
         },
@@ -337,130 +334,70 @@ function RoleFormModal({
       return data;
     },
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: [...queryKeys.roles, orgId, projectId] });
-      reset();
-      onClose();
+      void invalidateQueries(queryClient, mutationInvalidations.roles(orgId, projectId)).catch(() => undefined);
+      form.reset();
+      onSaved();
     },
-    onError: (error: unknown) => setProblem(messageFor(error)),
   });
 
-  // Validated with the SERVER's rules, from the generated patterns.
-  const keyProblem = editingExisting ? null : roleKeyProblem(key);
-  const nameProblem = displayName.trim() === "" ? "A name is required." : null;
-  const permissionProblem = permissionsProblem(permissions);
-  const blocked = keyProblem !== null || nameProblem !== null || permissionProblem !== null;
-
-  function dismiss() {
-    reset();
-    onClose();
-  }
-
-  const keyInvalid = keyProblem !== null && key !== "";
+  const form = useExplicitForm({
+    initialValues: {
+      key: existing?.key ?? "",
+      display_name: existing?.display_name ?? "",
+      permission_keys: existing?.permission_keys.join("\n") ?? "",
+    },
+    fields: {
+      key: { label: "Key", validate: (key) => editingExisting ? undefined : roleKeyProblem(key) ?? undefined },
+      display_name: { label: "Name", validate: (name) => name.trim() === "" ? "A name is required." : undefined },
+      permission_keys: { label: "Permissions", validate: (permissions) => permissionsProblem(permissions) ?? undefined },
+    },
+    onSave: async (values) => { await save.mutateAsync(values); },
+  });
 
   return (
     <Modal
       open={open}
       title={editingExisting ? `Edit ${existing.display_name}` : "Define a role"}
-      onClose={dismiss}
+      onClose={onClose}
+      dismissible={!form.saving}
       footer={
         <>
-          <Button onClick={dismiss}>Cancel</Button>
+          <Button onClick={onClose} disabled={form.saving} disabledReason="Wait for role saving to finish.">Cancel</Button>
           <Button
             variant="primary"
-            loading={save.isPending}
-            disabled={blocked}
-            onClick={() => save.mutate()}
+            loading={form.saving}
+            type="submit"
+            form={formId}
           >
             {editingExisting ? "Save changes" : "Define role"}
           </Button>
         </>
       }
     >
-      <label htmlFor="role-key" className="block text-small font-medium text-text-secondary">
-        Key
-      </label>
-      <input
-        id="role-key"
-        value={key}
-        onChange={(event) => setKey(event.currentTarget.value)}
-        readOnly={editingExisting}
-        aria-invalid={keyInvalid || undefined}
-        aria-describedby={keyInvalid ? "role-key-error" : "role-key-help"}
-        maxLength={ROLE_KEY_MAX_LENGTH}
-        className="mt-1 w-full rounded border border-border bg-bg-base px-3 py-2 font-mono text-body text-text-primary"
-      />
-      {/*
-        Helper text and error text never appear together — the error REPLACES
-        the help rather than stacking under it (docs/UI-UX/07 § Form Field).
-
-        `readOnly` rather than `disabled` when editing: a read-only input is
-        still focusable and still announced, so somebody arriving by keyboard
-        reaches the field and hears the sentence explaining why it cannot
-        change. A disabled input is skipped in silence, which is the failure
-        step 5 names.
-      */}
-      {keyInvalid ? (
-        <p id="role-key-error" className="mt-1 text-small text-danger">
-          {keyProblem}
-        </p>
-      ) : (
-        <p id="role-key-help" className="mt-1 text-small text-text-secondary">
-          {editingExisting
+      <FormSystem {...form.formProps} id={formId} pattern="explicit" className="space-y-4">
+        <TextField
+          label="Key"
+          {...form.field("key")}
+          readOnly={editingExisting}
+          maxLength={ROLE_KEY_MAX_LENGTH}
+          helperText={editingExisting
             ? "A role's key cannot be changed, by anyone. Grants reference it by name with nothing to cascade, so re-keying would silently remove access from everyone holding it — a rename that revokes."
             : "Lower-case letters, digits, underscores and hyphens. This is the name that appears inside a token."}
-        </p>
-      )}
-
-      <label htmlFor="role-name" className="mt-4 block text-small font-medium text-text-secondary">
-        Name
-      </label>
-      <input
-        id="role-name"
-        value={displayName}
-        onChange={(event) => setDisplayName(event.currentTarget.value)}
-        aria-describedby="role-name-help"
-        maxLength={128}
-        className="mt-1 w-full rounded border border-border bg-bg-base px-3 py-2 text-body text-text-primary"
-      />
-      <p id="role-name-help" className="mt-1 text-small text-text-secondary">
-        What administrators see in this list. It can be changed at any time.
-      </p>
-
-      <label
-        htmlFor="role-permissions"
-        className="mt-4 block text-small font-medium text-text-secondary"
-      >
-        Permissions
-      </label>
-      <textarea
-        id="role-permissions"
-        rows={6}
-        value={permissions}
-        onChange={(event) => setPermissions(event.currentTarget.value)}
-        aria-invalid={permissionProblem !== null || undefined}
-        aria-describedby={
-          permissionProblem !== null ? "role-permissions-error" : "role-permissions-help"
-        }
-        className="mt-1 w-full rounded border border-border bg-bg-base px-3 py-2 font-mono text-small text-text-primary"
-      />
-      {permissionProblem !== null ? (
-        <p id="role-permissions-error" className="mt-1 text-small text-danger">
-          {permissionProblem}
-        </p>
-      ) : (
-        <p id="role-permissions-help" className="mt-1 text-small text-text-secondary">
-          One per line, as <code className="font-mono">resource:action</code> — for example{" "}
-          <code className="font-mono">billing.invoice:read</code>. A role may have none; a role with
-          no permissions is a label, and labels are useful before the permissions exist.
-          {editingExisting ? " Saving replaces the whole set." : ""}
-        </p>
-      )}
-
-      {problem !== null ? (
-        <p role="alert" className="mt-3 text-small text-danger">
-          {problem}
-        </p>
-      ) : null}
+        />
+        <TextField
+          label="Name"
+          {...form.field("display_name")}
+          maxLength={128}
+          helperText="What administrators see in this list. It can be changed at any time."
+        />
+        <TextAreaField
+          label="Permissions"
+          {...form.field("permission_keys")}
+          rows={6}
+          helperText={`One per line, as resource:action — for example billing.invoice:read. A role may have none; a role with no permissions is a label, and labels are useful before the permissions exist.${editingExisting ? " Saving replaces the whole set." : ""}`}
+        />
+        <FormSummary message={form.summary} />
+      </FormSystem>
     </Modal>
   );
 }
@@ -506,7 +443,7 @@ function DeleteRoleDialog({
       if (error !== undefined) throw error;
     },
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: [...queryKeys.roles, orgId, projectId] });
+      void invalidateQueries(queryClient, mutationInvalidations.roles(orgId, projectId));
       setProblem(null);
       onClose();
     },
@@ -617,6 +554,7 @@ function permissionsProblem(value: string): string | null {
 // --- error shaping -----------------------------------------------------------
 
 function kindOf(error: unknown): "network" | "server" | "permission" | "validation" {
+  if (error instanceof TypeError) return "network";
   const failure = error as { kind?: "network" | "server" | "permission" | "validation" } | null;
   return failure?.kind ?? "server";
 }

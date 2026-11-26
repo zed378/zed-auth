@@ -12,11 +12,11 @@
 |---|---|
 | **Design** | `docs/UI-UX/08` § Policies — Access tab, mapping onto `organizations.settings` (`docs/PLAN/08` Part B). Four grouped sections in the order an administrator thinks about them: passwords, sessions, sign-in methods, multi-factor |
 | **Component** | Shared `Button`, `Badge`, `ConfirmDialog`, `ErrorState`, `Skeleton`, and two local field components. No design-system addition: a labelled number input with a range and a "what it is today" line has one caller, and a component with one caller is a generalisation nobody asked for |
-| **State** | Loading, loaded, refused, editing, invalid per field, unchanged (nothing to save), changed harmlessly, changed in a way that reduces access, confirming, saving, save refused by the server, saved |
-| **Interaction** | Edits are local until saved, so nothing is applied halfway. Save is disabled until something changed AND everything validates. A change that takes access away opens a confirmation naming who it affects; one that does not is applied directly. Clearing a field means "use the service default" and says so |
+| **State** | Loading, loaded, refused, editing, invalid per field, unchanged (nothing to save), changed harmlessly, changed in a way that reduces access, confirming, saving, save refused by the server, saved. A non-permission refresh failure keeps last-known policies and the current draft visible; permission denial suppresses cached policies and drafts |
+| **Interaction** | Edits are local until saved, so nothing is applied halfway. Save is disabled until something changes; invalid drafts remain submittable so blur/submit validation can explain and focus each problem. A change that takes access away opens a confirmation naming who it affects; one that does not is applied directly. Clearing a field means "use the service default" and says so |
 | **API Dependency** | `GET`/`PATCH /v1/organizations/{org_id}`. The PATCH sends the **whole** settings document, not the changed fields — so what the screen shows and what is stored are the same thing. The API merges key by key, deeply since this task fixed the shallow merge |
 | **Loading** | One skeleton the height of the form. Not per-field: the form is a single read, and four skeletons for one request implies four things arriving separately |
-| **Error** | `ErrorState` for the read, distinguishing refusal from failure. A refused save renders the server's own `details[0].issue` where there is one, inline, and **leaves the form as it was** — discarding somebody's edits because the server disagreed with one of them is the worst possible response to a validation error |
+| **Error** | `ErrorState` for the read, distinguishing refusal from failure. A first-read failure offers retry without rendering fields; a refresh failure offers retry beside last-known values and preserves edits. A refusal hides cached settings and local drafts. A refused save maps standard field details to the corresponding controls, focuses the first invalid field and **leaves the form as it was** — discarding somebody's edits because the server disagreed with one of them is the worst possible response to a validation error |
 | **Empty** | Not applicable: an organization always has settings, whether stored or defaulted. The nearest thing is a setting with no stored value, which is a **third state** rather than an empty one and gets its own sentence: "Not set — the service applies 12" |
 | **Permission** | The route is guarded to `ORG_OWNER`/`INSTANCE_OWNER`, which matches the API's requirement for `PATCH /v1/organizations/{org_id}`. UX only; the API refuses independently |
 | **Responsive** | `max-w-2xl` on the form, `max-w-prose` on every explanatory paragraph, number inputs at a fixed `w-32` so they do not stretch to the width of a section. Nothing is a table, so no column decision arises |
@@ -54,3 +54,12 @@ Raising `min_length` from 12 to 16 is an unambiguous tightening, and it silently
 Fixed with a general `jsonb_deep_merge` rather than a special case for `password_policy`, so the next nested setting does not rediscover it. Objects recurse; **everything else is replaced**, which is what keeps `allowed_login_methods` removable — a merge that concatenated arrays would make it impossible to ever take a login method away.
 
 This screen sends the whole document anyway, so it would not have hit the bug. Every other API consumer would.
+
+
+## PF-17 continuation
+
+The typed explicit-save adapter adds blur/submit validation, nested API field
+errors, live summaries, pending locks and organization-scoped drafts without
+changing policy enforcement or the whole-settings payload. Confirmation saves
+the reviewed settings snapshot. See [the policy form chain](./implementation-chain-PF-17-policies.md)
+for implementation and regression evidence.

@@ -9,6 +9,7 @@ import { AccountShell } from "./app/shell/AccountShell";
 import { AppShell } from "./app/shell/AppShell";
 import { RequireAuth } from "./app/RequireAuth";
 import { AccountPage } from "./pages/AccountPage";
+import { queryStaleTime } from "./lib/api/queryPolicy";
 
 /**
  * TanStack Query holds all cached server data.
@@ -26,7 +27,7 @@ const queryClient = new QueryClient({
       // Authorization data goes stale in a way that matters. A role revoked in
       // another tab should not linger behind a long cache window, so the
       // default is short and screens that can afford more say so explicitly.
-      staleTime: 30_000,
+      staleTime: queryStaleTime.directory,
 
       // Refetching on every window focus is noisy for an admin who alt-tabs
       // between the console and a ticket. Reconnect is kept: a resumed laptop

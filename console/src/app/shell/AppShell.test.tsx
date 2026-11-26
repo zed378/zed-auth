@@ -36,7 +36,7 @@ beforeEach(() => {
   vi.stubEnv("VITE_AUTH_ISSUER", "https://auth.example.test");
 });
 
-function renderShell(children = <h1>Page</h1>) {
+function renderShell(children = <h1>Page</h1>, initialEntries = ["/"]) {
   // A QueryClient because the shell now renders the organization switcher,
   // which reads `GET /v1/me/organizations` (P2-13). The shell's own
   // assertions are unaffected: with no token the switcher renders nothing.
@@ -46,7 +46,7 @@ function renderShell(children = <h1>Page</h1>) {
 
   return render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter>
+        <MemoryRouter initialEntries={initialEntries}>
         <AuthProvider>
           <AppShell>{children}</AppShell>
         </AuthProvider>
@@ -157,7 +157,6 @@ describe("navigation", () => {
       "/",
       "/projects",
       "/users",
-      "/granted-projects",
       "/policies",
       "/audit-log",
       "/settings",
@@ -172,7 +171,6 @@ describe("navigation", () => {
       "Overview",
       "Projects",
       "Users",
-      "Granted Projects",
       "Policies",
       "Audit Log",
       "Settings",
@@ -205,6 +203,51 @@ describe("navigation", () => {
     expect(within(nav).queryByText(/instance/i)).toBeNull();
   });
 
+  it("discloses the advanced grants destination to a manager of the active organization", async () => {
+    const payload = btoa(JSON.stringify({ sub: "user-1", org_id: "org-1", roles: ["ORG_ADMIN"] }))
+      .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+    storeToken(`header.${payload}.signature`, 3600);
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url);
+      if (url.pathname === "/v1/me/organizations") {
+        return Response.json({ organizations: [{ id: "org-1", name: "Acme", roles: ["ORG_ADMIN"] }] });
+      }
+      if (url.pathname === "/v1/organizations/org-1/project-grants") {
+        return Response.json({ grants: [] });
+      }
+      return Response.json({ error: { code: "NOT_FOUND", message: "Not found" } }, { status: 404 });
+    }));
+
+    renderShell();
+    expect(await screen.findByRole("link", { name: "Granted Projects" })).toBeInTheDocument();
+    clearToken();
+    vi.unstubAllGlobals();
+  });
+
+  it("derives the active link from the router and labels the collapsed tablet rail", () => {
+    renderShell(<h1>Projects</h1>, ["/projects"]);
+    const nav = screen.getByRole("navigation");
+
+    expect(within(nav).getByRole("link", { name: "Projects" })).toHaveAttribute("aria-current", "page");
+    expect(within(nav).getByRole("link", { name: "Overview" })).not.toHaveAttribute("aria-current", "page");
+    expect(within(nav).queryByRole("link", { name: "Granted Projects" })).not.toBeInTheDocument();
+  });
+
+  it("lets tablet users expand and collapse the icon rail", async () => {
+    const user = userEvent.setup();
+    renderShell();
+    const nav = screen.getByRole("navigation");
+    const expand = within(nav).getByRole("button", { name: "Expand navigation" });
+
+    expect(nav).toHaveAttribute("data-tablet-expanded", "false");
+    await user.click(expand);
+    const collapse = within(nav).getByRole("button", { name: "Collapse navigation" });
+    expect(collapse).toHaveAttribute("aria-expanded", "true");
+    expect(nav).toHaveAttribute("data-tablet-expanded", "true");
+    await user.click(collapse);
+    expect(nav).toHaveAttribute("data-tablet-expanded", "false");
+  });
+
   it("reaches every navigation link by keyboard", async () => {
     // docs/UI-UX/13: every interactive element is reachable and operable by
     // keyboard alone. Tabbing from the skip link should walk the whole nav.
@@ -214,6 +257,8 @@ describe("navigation", () => {
     const links = within(screen.getByRole("navigation")).getAllByRole("link");
 
     await user.tab(); // skip link
+    await user.tab(); // tablet navigation control; hidden from the desktop tab order
+    expect(screen.getByRole("button", { name: /navigation/i })).toHaveFocus();
     for (const link of links) {
       await user.tab();
       expect(link).toHaveFocus();

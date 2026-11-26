@@ -6,11 +6,12 @@ import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { Modal } from "../components/Modal";
 import { QrCode } from "../components/QrCode";
-import { ErrorState, Skeleton } from "../components/states";
+import { CollectionStateBoundary, LoadingRegion, Skeleton } from "../components/states";
 import { Table } from "../components/Table";
 import type { Column } from "../components/Table";
-import { api, queryKeys } from "../lib/api/client";
+import { api } from "../lib/api/client";
 import { ApiFailure, asFailure, useMyMfa, useUserMfa } from "../lib/api/queries";
+import { invalidateQueries, mutationInvalidations } from "../lib/api/queryPolicy";
 import type { components } from "../lib/api/schema.gen";
 import { useAuth } from "../lib/auth/AuthProvider";
 import { authConfig } from "../lib/auth/config";
@@ -31,11 +32,12 @@ type Factor = components["schemas"]["MfaFactor"];
  */
 export function MfaTab({ orgId, userId }: { orgId: string | null; userId: string }) {
   const { claims } = useAuth();
-  const self = claims !== null && claims.subject === userId;
+  if (claims === null) return <LoadingRegion label="Loading second factors"><Skeleton className="h-40 w-full" /></LoadingRegion>;
+  const self = claims.subject === userId;
   return self ? (
     <MyFactors orgId={orgId} returnPath={`/users/${userId}?tab=mfa`} />
   ) : (
-    <MemberFactors orgId={orgId} userId={userId} />
+    <MemberFactors key={`${orgId}:${userId}`} orgId={orgId} userId={userId} />
   );
 }
 
@@ -57,14 +59,23 @@ function MemberFactors({ orgId, userId }: { orgId: string | null; userId: string
     },
     onSuccess: () => {
       setResetting(false);
-      void queryClient.invalidateQueries({ queryKey: [...queryKeys.mfa, orgId] });
+      void invalidateQueries(queryClient, mutationInvalidations.mfa(orgId));
     },
   });
 
   const rows = factors.data?.factors ?? [];
+  const kind = factors.error instanceof ApiFailure ? factors.error.kind : "server";
 
+  // A successful MFA response also contains recovery metadata. Keep its
+  // empty-factor guidance inside the boundary instead of hiding that metadata.
   return (
-    <>
+    <CollectionStateBoundary
+      loading={factors.isPending} failed={factors.isError} count={factors.data === undefined ? 0 : 1}
+      permitted={!(factors.isError && kind === "permission")}
+      skeleton={<Skeleton className="h-40 w-full" />} loadingLabel="Loading second factors"
+      what="second factors" onRetry={() => void factors.refetch()}
+      errorKind={kind === "network" ? "network" : "server"}
+    >
       <p className="max-w-prose text-body text-text-secondary">
         Second factors are managed by the person they belong to. You can see what they have set up,
         and reset it if they have lost access.
@@ -73,8 +84,8 @@ function MemberFactors({ orgId, userId }: { orgId: string | null; userId: string
       <div className="mt-4">
         <FactorTable
           factors={rows}
-          status={factors.isPending ? "loading" : factors.isError ? "error" : "ready"}
-          errorKind={factors.error instanceof ApiFailure ? factors.error.kind : "server"}
+          status="ready"
+          errorKind="server"
           onRetry={() => void factors.refetch()}
           emptyText="This user has no second factor."
         />
@@ -119,7 +130,7 @@ function MemberFactors({ orgId, userId }: { orgId: string | null; userId: string
           The reset did not go through. {reset.error instanceof Error ? reset.error.message : ""}
         </p>
       ) : null}
-    </>
+    </CollectionStateBoundary>
   );
 }
 
@@ -171,6 +182,10 @@ const LOW_RECOVERY_CODES = 3;
  * hosted passkey page send the user back to.
  */
 export function MyFactors({ orgId, returnPath }: { orgId: string | null; returnPath: string }) {
+  return <ScopedMyFactors key={`${orgId}:${returnPath}`} orgId={orgId} returnPath={returnPath} />;
+}
+
+function ScopedMyFactors({ orgId, returnPath }: { orgId: string | null; returnPath: string }) {
   const { login } = useAuth();
   const queryClient = useQueryClient();
   const mfa = useMyMfa(orgId, true);
@@ -181,7 +196,7 @@ export function MyFactors({ orgId, returnPath }: { orgId: string | null; returnP
   const [codes, setCodes] = useState<string[] | null>(null);
   const [needsSignIn, setNeedsSignIn] = useState(false);
 
-  const refresh = () => void queryClient.invalidateQueries({ queryKey: [...queryKeys.mfa, orgId] });
+  const refresh = () => void invalidateQueries(queryClient, mutationInvalidations.mfa(orgId));
 
   /** Routes a refusal: a stale session asks for sign-in; anything else is thrown on. */
   const handle = (error: unknown) => {
@@ -234,18 +249,12 @@ export function MyFactors({ orgId, returnPath }: { orgId: string | null; returnP
     },
   });
 
-  if (mfa.isPending) return <Skeleton className="h-40 w-full" />;
-  if (mfa.isError) {
-    return (
-      <ErrorState
-        kind={mfa.error instanceof ApiFailure ? mfa.error.kind : "server"}
-        onRetry={() => void mfa.refetch()}
-      />
-    );
-  }
-
+  const kind = mfa.error instanceof ApiFailure ? mfa.error.kind : "server";
+  const details: components["schemas"]["MyMfa"] = mfa.data ?? {
+    factors: [], recovery_codes_remaining: 0, mfa_required: false, available_types: [],
+  };
   const { factors, recovery_codes_remaining: remaining, mfa_required: required, available_types: types } =
-    mfa.data;
+    details;
   const lastUnderMandate = required && factors.length === 1;
   const canTotp = types.includes("totp") && !factors.some((f) => f.type === "totp");
   const canPasskey = types.includes("webauthn");
@@ -268,7 +277,13 @@ export function MyFactors({ orgId, returnPath }: { orgId: string | null; returnP
     failure instanceof ApiFailure && failure.code !== "REAUTHENTICATION_REQUIRED" ? failure : null;
 
   return (
-    <>
+    <CollectionStateBoundary
+      loading={mfa.isPending} failed={mfa.isError} count={mfa.data === undefined ? 0 : 1}
+      permitted={!(mfa.isError && kind === "permission")}
+      skeleton={<Skeleton className="h-40 w-full" />} loadingLabel="Loading second factors"
+      what="second factors" onRetry={() => void mfa.refetch()}
+      errorKind={kind === "network" ? "network" : "server"}
+    >
       {types.length === 0 ? (
         <div className="rounded border border-border bg-bg-surface p-5">
           <h2 className="text-heading-3 font-medium text-text-primary">
@@ -296,7 +311,7 @@ export function MyFactors({ orgId, returnPath }: { orgId: string | null; returnP
       ) : null}
 
       {required && factors.length === 0 && types.length > 0 ? (
-        <MandateNotice graceEndsAt={mfa.data.grace_ends_at ?? null} />
+        <MandateNotice graceEndsAt={mfa.data?.grace_ends_at ?? null} />
       ) : required ? (
         <p className="mb-3 max-w-prose text-body text-text-secondary">
           Your organization requires a second factor to sign in.
@@ -423,7 +438,7 @@ export function MyFactors({ orgId, returnPath }: { orgId: string | null; returnP
       />
 
       {codes !== null ? <RecoveryCodesDialog codes={codes} onDone={() => setCodes(null)} /> : null}
-    </>
+    </CollectionStateBoundary>
   );
 }
 

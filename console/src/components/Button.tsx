@@ -1,3 +1,4 @@
+import { createContext, useContext, useEffect, useMemo, useRef } from "react";
 import type { ButtonHTMLAttributes, ReactNode } from "react";
 
 /**
@@ -19,11 +20,31 @@ export type ButtonVariant = "primary" | "secondary" | "destructive" | "danger-te
 interface Props extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, "className"> {
   variant?: ButtonVariant;
   loading?: boolean;
+  disabledReason?: string;
   children: ReactNode;
 }
 
+const PrimaryCountContext = createContext<((primary: boolean) => () => void) | null>(null);
+
+export function ButtonSection({ children }: { children: ReactNode }) {
+  const count = useRef(0);
+  const register = useMemo(
+    () => (primary: boolean) => {
+      if (!primary) return () => undefined;
+      count.current += 1;
+      if (count.current === 2 && import.meta.env.DEV) {
+        console.warn("ButtonSection should contain at most one primary button.");
+      }
+      return () => { count.current -= 1; };
+    },
+    [],
+  );
+
+  return <PrimaryCountContext.Provider value={register}>{children}</PrimaryCountContext.Provider>;
+}
+
 const base =
-  "inline-flex items-center justify-center gap-2 rounded border px-3 py-2 text-body " +
+  "inline-flex min-h-7 min-w-7 items-center justify-center gap-2 rounded border px-3 py-2 text-body " +
   "font-medium transition-colors focus-visible:outline focus-visible:outline-2 " +
   "focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed " +
   "disabled:opacity-60";
@@ -35,17 +56,31 @@ const variants: Record<ButtonVariant, string> = {
   "danger-text": "border-border bg-bg-surface text-danger hover:bg-bg-base",
 };
 
-export function Button({ variant = "secondary", loading = false, children, ...rest }: Props) {
+export function Button({ variant = "secondary", loading = false, disabledReason, children, ...rest }: Props) {
+  const registerPrimary = useContext(PrimaryCountContext);
+  const disabled = rest.disabled === true;
+
+  useEffect(() => {
+    return registerPrimary?.(variant === "primary");
+  }, [registerPrimary, variant]);
+
+  useEffect(() => {
+    if (disabled && !loading && !disabledReason && import.meta.env.DEV) {
+      console.warn("Disabled Button requires a disabledReason.");
+    }
+  }, [disabled, disabledReason, loading]);
+
   return (
     <button
       {...rest}
       // A loading button is disabled, or a second click fires a second
       // request — and on a create that is two objects.
-      disabled={rest.disabled === true || loading}
+      disabled={disabled || loading}
       // The label is REPLACED rather than hidden, and the element keeps its
       // width through `min-w`. A button that shrinks while it works moves
       // everything beside it (docs/UI-UX/07 § Button states).
       aria-busy={loading || undefined}
+      title={disabled && disabledReason ? disabledReason : rest.title}
       className={`${base} ${variants[variant]}`}
     >
       {loading ? (

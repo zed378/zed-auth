@@ -1,10 +1,12 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/ConfirmDialog";
-import { ErrorState, Skeleton } from "../components/states";
+import { FormSummary, FormSystem } from "../components/FormSystem";
+import { ErrorState, LoadingRegion, Skeleton } from "../components/states";
 import { api, queryKeys } from "../lib/api/client";
+import { invalidateQueries, mutationInvalidations } from "../lib/api/queryPolicy";
 import { LOGIN_METHODS, SETTINGS_BOUNDS, SETTINGS_DEFAULTS } from "../lib/api/settings.gen";
 import { asFailure, useOrganization, useOrgId } from "../lib/api/queries";
 import type { components } from "../lib/api/schema.gen";
@@ -32,6 +34,15 @@ type Settings = {
   session_lifetime_hours?: number;
   allowed_login_methods?: LoginMethod[];
 };
+
+const policyFields = [
+  { name: "min_length", path: "password_policy.min_length", label: "Minimum length" },
+  { name: "require_uppercase", path: "password_policy.require_uppercase", label: "Require an upper-case letter" },
+  { name: "max_age_days", path: "password_policy.max_age_days", label: "Expire passwords after" },
+  { name: "session_lifetime_hours", path: "session_lifetime_hours", label: "Sessions last" },
+  { name: "allowed_login_methods", path: "allowed_login_methods", label: "Sign-in methods" },
+  { name: "mfa_required", path: "mfa_required", label: "Require a second factor" },
+];
 
 /**
  * The Policies (Access) screen (P2-14, `docs/UI-UX/08` § Policies — Access tab).
@@ -62,6 +73,10 @@ type Settings = {
  */
 export function PoliciesPage() {
   const orgId = useOrgId();
+  return <PoliciesScope key={orgId} orgId={orgId} />;
+}
+
+function PoliciesScope({ orgId }: { orgId: string | null }) {
   const organization = useOrganization(orgId);
   const queryClient = useQueryClient();
 
@@ -72,18 +87,36 @@ export function PoliciesPage() {
     [organization.data?.settings],
   );
 
+  const accessDenied = organization.isError && kindOf(organization.error) === "permission";
+
   const [draft, setDraft] = useState<Settings | null>(null);
-  const [confirming, setConfirming] = useState(false);
+  const [confirmation, setConfirmation] = useState<Settings | null>(null);
+  const confirming = confirmation !== null;
   const [problem, setProblem] = useState<string | null>(null);
+  const [problems, setProblems] = useState<Record<string, string>>({});
   const [saved, setSaved] = useState(false);
+  const formRef = useRef<HTMLFormElement>(null);
+  const focusField = useRef<string | null>(null);
+  const saving = useRef(false);
 
   // Seeded from the server once it arrives, keyed on the organization so a
   // switch does not leave the previous tenant's policy in the form.
   const [seededFor, setSeededFor] = useState<string | null>(null);
+  // A refusal invalidates any local copy of the protected policy, including a
+  // draft. If access returns later, the form is seeded from the fresh response.
+  if (accessDenied && seededFor !== null) {
+    setSeededFor(null);
+    setDraft(null);
+    setConfirmation(null);
+    setProblem(null);
+    setProblems({});
+    setSaved(false);
+  }
   if (organization.isSuccess && orgId !== null && seededFor !== orgId) {
     setSeededFor(orgId);
     setDraft(stored);
     setProblem(null);
+    setProblems({});
     setSaved(false);
   }
 
@@ -116,21 +149,30 @@ export function PoliciesPage() {
       if (error !== undefined) throw error;
     },
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: [...queryKeys.organizations, orgId] });
-      setConfirming(false);
+      void invalidateQueries(queryClient, mutationInvalidations.organization(orgId)).catch(() => undefined);
+      setConfirmation(null);
       setProblem(null);
+      setProblems({});
       setSaved(true);
     },
     onError: (error: unknown) => {
-      setConfirming(false);
-      setProblem(messageFor(error));
+      setConfirmation(null);
+      const mapped = policyFailure(error);
+      report(mapped.fields, mapped.message);
     },
+    onSettled: () => { saving.current = false; },
   });
 
-  const problems = useMemo(() => validate(current), [current]);
+  useEffect(() => {
+    if (save.isPending || confirming || focusField.current === null) return;
+    const element = formRef.current?.elements.namedItem(focusField.current);
+    if (element instanceof HTMLElement) element.focus();
+    focusField.current = null;
+  }, [problems, save.isPending, confirming]);
+
   const reductions = useMemo(
-    () => reducesAccess(stored, current, impact.data ?? null),
-    [stored, current, impact.data],
+    () => reducesAccess(stored, confirmation ?? current, impact.data ?? null),
+    [stored, confirmation, current, impact.data],
   );
   const changed = useMemo(
     () => JSON.stringify(normalise(stored)) !== JSON.stringify(normalise(current)),
@@ -142,30 +184,84 @@ export function PoliciesPage() {
     setSaved(false);
   }
 
+  function report(next: Record<string, string>, fallback: string | null = null) {
+    setProblems(next);
+    const invalid = policyFields.filter((field) => next[field.name]);
+    setProblem(invalid.length
+      ? `Check ${invalid.length} ${invalid.length === 1 ? "field" : "fields"}: ${invalid.map((field) => field.label).join(", ")}.${fallback ? ` ${fallback}` : ""}`
+      : fallback);
+    focusField.current = invalid[0]?.name ?? null;
+    return invalid.length === 0;
+  }
+
+  function readSettings(): Settings {
+    const data = formRef.current ? new FormData(formRef.current) : null;
+    const number = (name: string, fallback: number | undefined) => {
+      const raw = data?.get(name);
+      return typeof raw === "string" ? raw.trim() === "" ? undefined : Number(raw) : fallback;
+    };
+    const minLength = number("min_length", current.password_policy?.min_length);
+    const maxAge = number("max_age_days", current.password_policy?.max_age_days);
+    return {
+      ...current,
+      password_policy: current.password_policy === undefined && minLength === undefined && maxAge === undefined ? undefined : {
+        ...current.password_policy,
+        min_length: minLength,
+        max_age_days: maxAge,
+      },
+      session_lifetime_hours: number("session_lifetime_hours", current.session_lifetime_hours),
+    };
+  }
+
+  function blur(name: string) {
+    const next = readSettings();
+    setDraft(next);
+    setProblems((previous) => {
+      const updated = { ...previous };
+      delete updated[name];
+      const issue = validate(next)[name];
+      if (issue) updated[name] = issue;
+      return updated;
+    });
+  }
+
+  function commit(settings: Settings) {
+    if (saving.current) return;
+    saving.current = true;
+    save.mutate(settings);
+  }
+
   function submit() {
-    if (Object.keys(problems).length > 0) return;
+    if (saving.current || confirming) return;
+    const next = readSettings();
+    setDraft(next);
+    setSaved(false);
+    if (!report(validate(next))) return;
     // Step 5: a change that could reduce access for existing users is
     // confirmed; one that cannot is applied.
-    if (reductions.length > 0) {
-      setConfirming(true);
+    if (reducesAccess(stored, next, impact.data ?? null).length > 0) {
+      setConfirmation(next);
       return;
     }
-    save.mutate(current);
+    commit(next);
   }
 
   if (organization.isPending) {
     return (
       <>
         <h1 className="text-heading-1 font-medium text-text-primary">Access policies</h1>
-        <div className="mt-6 max-w-2xl" aria-busy="true" aria-live="polite">
-          <span className="sr-only">Loading this organization's policies</span>
-          <Skeleton className="h-64 w-full" />
-        </div>
+        <LoadingRegion label="Loading this organization's policies">
+          <div className="mt-6 max-w-2xl">
+            <Skeleton className="h-64 w-full" />
+          </div>
+        </LoadingRegion>
       </>
     );
   }
 
-  if (organization.isError) {
+  // Without a prior successful read there is nothing safe to show after a
+  // failure. Permission denial always takes this path, even with cached data.
+  if (organization.isError && (!organization.data || accessDenied)) {
     return (
       <>
         <h1 className="text-heading-1 font-medium text-text-primary">Access policies</h1>
@@ -187,23 +283,37 @@ export function PoliciesPage() {
         everyone who signs in through it.
       </p>
 
-      <form
+      {organization.isError ? (
+        <div className="mt-4 max-w-2xl">
+          <ErrorState
+            kind={kindOf(organization.error) === "network" ? "network" : "server"}
+            detail="Showing last-known policies. Try again to refresh these settings."
+            onRetry={() => void organization.refetch()}
+          />
+        </div>
+      ) : null}
+
+      <FormSystem
+        ref={formRef}
+        pattern="explicit"
         className="mt-6 max-w-2xl"
         onSubmit={(event) => {
           event.preventDefault();
           submit();
         }}
       >
-        <fieldset className="rounded border border-border bg-bg-surface p-5">
+        <fieldset disabled={save.isPending || confirming} className="rounded border border-border bg-bg-surface p-5">
           <legend className="px-2 text-heading-3 font-medium text-text-primary">Passwords</legend>
 
           <NumberField
             id="min-length"
+            name="min_length"
             label="Minimum length"
             value={current.password_policy?.min_length}
             fallback={SETTINGS_DEFAULTS.min_length}
             bounds={SETTINGS_BOUNDS.min_length}
             problem={problems.min_length}
+            onBlur={() => blur("min_length")}
             help={`Characters. The service will not accept a value below ${SETTINGS_BOUNDS.min_length.min}: a per-organization setting that could go under the platform floor would be a way to switch the floor off.`}
             onChange={(value) =>
               update({
@@ -215,9 +325,12 @@ export function PoliciesPage() {
 
           <BooleanField
             id="require-uppercase"
+            name="require_uppercase"
             label="Require an upper-case letter"
             value={current.password_policy?.require_uppercase}
             fallback={SETTINGS_DEFAULTS.require_uppercase}
+            problem={problems.require_uppercase}
+            onBlur={() => blur("require_uppercase")}
             onChange={(value) =>
               update({
                 ...current,
@@ -228,11 +341,13 @@ export function PoliciesPage() {
 
           <NumberField
             id="max-age"
+            name="max_age_days"
             label="Expire passwords after"
             value={current.password_policy?.max_age_days}
             fallback={SETTINGS_DEFAULTS.max_age_days}
             bounds={SETTINGS_BOUNDS.max_age_days}
             problem={problems.max_age_days}
+            onBlur={() => blur("max_age_days")}
             help="Days. 0 means passwords never expire — a real choice, and increasingly the recommended one: NIST SP 800-63B argues forced rotation makes passwords worse."
             onChange={(value) =>
               update({
@@ -249,22 +364,24 @@ export function PoliciesPage() {
           </p>
         </fieldset>
 
-        <fieldset className="mt-5 rounded border border-border bg-bg-surface p-5">
+        <fieldset disabled={save.isPending || confirming} className="mt-5 rounded border border-border bg-bg-surface p-5">
           <legend className="px-2 text-heading-3 font-medium text-text-primary">Sessions</legend>
 
           <NumberField
             id="session-lifetime"
+            name="session_lifetime_hours"
             label="Sessions last"
             value={current.session_lifetime_hours}
             fallback={SETTINGS_DEFAULTS.session_lifetime_hours}
             bounds={SETTINGS_BOUNDS.session_lifetime_hours}
             problem={problems.session_lifetime_hours}
+            onBlur={() => blur("session_lifetime_hours")}
             help="Hours, from sign-in. A value outside the range is clamped by the service rather than refused, and the clamp is logged — but a value it has to clamp is one nobody intended."
             onChange={(value) => update({ ...current, session_lifetime_hours: value })}
           />
         </fieldset>
 
-        <fieldset className="mt-5 rounded border border-border bg-bg-surface p-5">
+        <fieldset disabled={save.isPending || confirming} className="mt-5 rounded border border-border bg-bg-surface p-5">
           <legend className="px-2 text-heading-3 font-medium text-text-primary">
             Sign-in methods
           </legend>
@@ -285,6 +402,10 @@ export function PoliciesPage() {
                   <label className="flex items-center gap-3">
                     <input
                       type="checkbox"
+                      name={method === LOGIN_METHODS[0] ? "allowed_login_methods" : undefined}
+                      aria-invalid={problems.allowed_login_methods !== undefined || undefined}
+                      aria-describedby={problems.allowed_login_methods !== undefined ? "login-methods-error" : undefined}
+                      onBlur={() => blur("allowed_login_methods")}
                       checked={enabled}
                       onChange={(event) => {
                         const on = event.currentTarget.checked;
@@ -304,20 +425,23 @@ export function PoliciesPage() {
           </ul>
 
           {problems.allowed_login_methods !== undefined ? (
-            <p role="alert" className="mt-2 text-small text-danger">
+            <p id="login-methods-error" role="alert" className="mt-2 text-small text-danger">
               {problems.allowed_login_methods}
             </p>
           ) : null}
         </fieldset>
 
-        <fieldset className="mt-5 rounded border border-border bg-bg-surface p-5">
+        <fieldset disabled={save.isPending || confirming} className="mt-5 rounded border border-border bg-bg-surface p-5">
           <legend className="px-2 text-heading-3 font-medium text-text-primary">Multi-factor</legend>
 
           <BooleanField
             id="mfa-required"
+            name="mfa_required"
             label="Require a second factor"
             value={current.mfa_required}
             fallback={SETTINGS_DEFAULTS.mfa_required}
+            problem={problems.mfa_required}
+            onBlur={() => blur("mfa_required")}
             onChange={(value) => update({ ...current, mfa_required: value })}
           />
 
@@ -325,9 +449,7 @@ export function PoliciesPage() {
         </fieldset>
 
         {problem !== null ? (
-          <p role="alert" className="mt-4 text-small text-danger">
-            {problem}
-          </p>
+          <div className="mt-4"><FormSummary message={problem} /></div>
         ) : null}
 
         {saved ? (
@@ -341,31 +463,33 @@ export function PoliciesPage() {
             type="submit"
             variant="primary"
             loading={save.isPending}
-            disabled={!changed || Object.keys(problems).length > 0}
+            disabled={!changed || confirming}
           >
             Save policies
           </Button>
           {changed ? (
             <Button
               type="button"
+              disabled={save.isPending || confirming}
               onClick={() => {
                 update(stored);
                 setProblem(null);
+                setProblems({});
               }}
             >
               Discard changes
             </Button>
           ) : null}
         </div>
-      </form>
+      </FormSystem>
 
       <ConfirmDialog
         open={confirming}
         title="Apply a change that reduces access?"
         verb="Apply policies"
         busy={save.isPending}
-        onCancel={() => setConfirming(false)}
-        onConfirm={() => save.mutate(current)}
+        onCancel={() => { if (!saving.current) setConfirmation(null); }}
+        onConfirm={() => { if (confirmation !== null) commit(confirmation); }}
         consequence={
           <>
             <p>These changes affect people who are signed in right now:</p>
@@ -389,6 +513,7 @@ export function PoliciesPage() {
 /** A number the service bounds, with what it is today shown beside it. */
 function NumberField({
   id,
+  name,
   label,
   value,
   fallback,
@@ -396,8 +521,10 @@ function NumberField({
   problem,
   help,
   onChange,
+  onBlur,
 }: {
   id: string;
+  name: string;
   label: string;
   value: number | undefined;
   fallback: number;
@@ -405,6 +532,7 @@ function NumberField({
   problem?: string;
   help: string;
   onChange: (value: number | undefined) => void;
+  onBlur: () => void;
 }) {
   const configured = value !== undefined;
 
@@ -415,6 +543,7 @@ function NumberField({
       </label>
       <input
         id={id}
+        name={name}
         type="number"
         inputMode="numeric"
         min={bounds.min}
@@ -427,6 +556,7 @@ function NumberField({
           const raw = event.currentTarget.value.trim();
           onChange(raw === "" ? undefined : Number(raw));
         }}
+        onBlur={onBlur}
         className="mt-1 w-32 rounded border border-border bg-bg-base px-3 py-2 text-body text-text-primary"
       />
       {/*
@@ -460,29 +590,39 @@ function NumberField({
 
 function BooleanField({
   id,
+  name,
   label,
   value,
   fallback,
   onChange,
+  onBlur,
+  problem,
 }: {
   id: string;
+  name: string;
   label: string;
   value: boolean | undefined;
   fallback: boolean;
   onChange: (value: boolean) => void;
+  onBlur: () => void;
+  problem?: string;
 }) {
   return (
     <div className="mt-4">
       <label className="flex items-center gap-3">
         <input
           id={id}
+          name={name}
           type="checkbox"
+          aria-invalid={problem !== undefined || undefined}
+          aria-describedby={problem !== undefined ? `${id}-error` : undefined}
           checked={value ?? fallback}
           onChange={(event) => onChange(event.currentTarget.checked)}
+          onBlur={onBlur}
         />
         <span className="text-body text-text-primary">{label}</span>
       </label>
-      {value === undefined ? (
+      {problem !== undefined ? <p id={`${id}-error`} className="mt-1 text-small text-danger">{problem}</p> : value === undefined ? (
         <p className="mt-1 text-small text-text-secondary">
           Not set — the service applies {fallback ? "on" : "off"}.
         </p>
@@ -637,11 +777,24 @@ function kindOf(error: unknown): "network" | "server" | "permission" | "validati
   return failure?.kind ?? "server";
 }
 
-function messageFor(error: unknown): string {
-  const envelope = error as { error?: { message?: string; details?: { issue?: string }[] } };
-  return (
-    envelope?.error?.details?.[0]?.issue ??
-    envelope?.error?.message ??
-    "Those policies could not be saved. Please try again."
-  );
+function policyFailure(failure: unknown): { fields: Record<string, string>; message: string | null } {
+  const fields: Record<string, string> = {};
+  const fallback = "Those policies could not be saved. Your entries are retained. Try again.";
+  if (typeof failure !== "object" || failure === null || !("error" in failure)) {
+    return { fields, message: fallback };
+  }
+  const error = failure.error;
+  if (typeof error !== "object" || error === null) return { fields, message: fallback };
+  const unmapped: string[] = [];
+  if ("details" in error && Array.isArray(error.details)) {
+    for (const detail of error.details) {
+      if (typeof detail !== "object" || detail === null || typeof detail.issue !== "string") continue;
+      const field = policyFields.find(({ name, path }) => detail.field === name || detail.field === path || detail.field === `settings.${path}`);
+      if (field) fields[field.name] = [fields[field.name], detail.issue].filter(Boolean).join(" ");
+      else unmapped.push(detail.issue);
+    }
+  }
+  const message = unmapped.join(" ") || (Object.keys(fields).length ? null
+    : "message" in error && typeof error.message === "string" ? error.message : fallback);
+  return { fields, message };
 }

@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 import type { ReactNode } from "react";
 
 import { Skeleton } from "../components/states";
+import { SETTINGS_DEFAULTS } from "../lib/api/settings.gen";
 import { useEvents, useOrganization, useOrgId, useProjects, useUsers } from "../lib/api/queries";
 import type { ApiFailure } from "../lib/api/queries";
 
@@ -29,6 +30,10 @@ export function OverviewPage() {
   // Counted from the rows read. When the read stopped at its bound the true
   // number is higher, and the card says "at least" rather than a wrong total.
   const usersComplete = users.data?.complete ?? true;
+  const passwordPolicy = organization.data?.settings?.password_policy;
+  const passwordMinLength = passwordPolicy?.min_length ?? SETTINGS_DEFAULTS.min_length;
+  const passwordRequiresUppercase = passwordPolicy?.require_uppercase ?? SETTINGS_DEFAULTS.require_uppercase;
+  const passwordMaxAge = passwordPolicy?.max_age_days ?? SETTINGS_DEFAULTS.max_age_days;
 
   return (
     <>
@@ -88,6 +93,38 @@ export function OverviewPage() {
         </h2>
         <ActivityTrend query={events} />
       </section>
+
+      <section aria-labelledby="settings-summary" className="mt-6">
+        <h2 id="settings-summary" className="text-heading-2 font-medium text-text-primary">
+          Organization settings
+        </h2>
+        {organization.isPending ? (
+          <Skeleton className="mt-2 h-24 w-full" />
+        ) : organization.isError ? (
+          <p className="mt-2 text-body text-text-secondary">Organization settings could not be loaded.</p>
+        ) : (
+          <dl className="mt-2 grid gap-4 tablet:grid-cols-2 desktop:grid-cols-3">
+            <div>
+              <dt className="text-small text-text-secondary">Multi-factor authentication</dt>
+              <dd className="text-body text-text-primary">
+                {(organization.data?.settings?.mfa_required ?? SETTINGS_DEFAULTS.mfa_required) ? "Required" : "Not required"}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-small text-text-secondary">Password policy</dt>
+              <dd className="text-body text-text-primary">
+                At least {passwordMinLength} characters{passwordRequiresUppercase ? ", including uppercase" : ""}; {passwordMaxAge === 0 ? "passwords do not expire." : `expire every ${passwordMaxAge} days.`}
+              </dd>
+            </div>
+          </dl>
+        )}
+      </section>
+
+      <nav aria-label="Organization details" className="mt-6 flex flex-wrap gap-4 text-body">
+        <Link to="/projects" className="text-accent underline">View projects</Link>
+        <Link to="/users" className="text-accent underline">Manage users</Link>
+        <Link to="/audit-log" className="text-accent underline">View audit log</Link>
+      </nav>
     </>
   );
 }

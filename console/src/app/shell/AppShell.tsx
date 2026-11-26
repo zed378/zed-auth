@@ -2,6 +2,8 @@ import type { ReactNode } from "react";
 
 import { SideNav } from "./SideNav";
 import { SessionBar } from "./SessionBar";
+import { OrgSwitcher } from "./OrgSwitcher";
+import { GlobalSearch } from "./GlobalSearch";
 import { SkipLink } from "./SkipLink";
 import { UnsupportedWidth } from "./UnsupportedWidth";
 
@@ -44,7 +46,11 @@ export function AppShell({ children }: { children: ReactNode }) {
           <SideNav />
 
           <div className="flex min-w-0 flex-1 flex-col">
-            <SessionBar />
+            <div className="flex min-h-14 flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-border px-5 py-2 desktop:px-6">
+              <OrgSwitcher />
+              <GlobalSearch />
+              <SessionBar />
+            </div>
 
             {/*
               tabIndex={-1} makes this a programmatic focus target for the skip

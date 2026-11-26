@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 
 import { api, queryKeys } from "./client";
+import { queryStaleTime } from "./queryPolicy";
 import { useOrgContext } from "../org/OrgProvider";
 
 /**
@@ -81,13 +82,14 @@ export function useOrgId(): string | null {
 export function useAdministeredOrganizations(enabled: boolean) {
   return useQuery({
     queryKey: [...queryKeys.administered],
+    staleTime: queryStaleTime.directory,
     enabled,
     queryFn: async () => {
       const all = await collectPages(async (token) => {
-        const { data, error } = await api.GET("/v1/me/organizations", {
+        const { data, error, response } = await api.GET("/v1/me/organizations", {
           params: { query: { page_size: PAGE_SIZE, ...tokenParam(token) } },
         });
-        if (error !== undefined) throw asFailure(error);
+        if (error !== undefined) throw asFailure(error, response.status);
         return { items: data.organizations, next: data.page_info?.next_page_token };
       });
       return all.items;
@@ -98,12 +100,13 @@ export function useAdministeredOrganizations(enabled: boolean) {
 export function useOrganization(orgId: string | null) {
   return useQuery({
     queryKey: [...queryKeys.organizations, orgId],
+    staleTime: queryStaleTime.configuration,
     enabled: orgId !== null,
     queryFn: async () => {
-      const { data, error } = await api.GET("/v1/organizations/{org_id}", {
+      const { data, error, response } = await api.GET("/v1/organizations/{org_id}", {
         params: { path: { org_id: orgId as string } },
       });
-      if (error !== undefined) throw asFailure(error);
+      if (error !== undefined) throw asFailure(error, response.status);
       return data;
     },
   });
@@ -112,16 +115,17 @@ export function useOrganization(orgId: string | null) {
 export function useProjects(orgId: string | null) {
   return useQuery({
     queryKey: [...queryKeys.projects, orgId],
+    staleTime: queryStaleTime.directory,
     enabled: orgId !== null,
     queryFn: async () => {
       const all = await collectPages(async (token) => {
-        const { data, error } = await api.GET("/v1/organizations/{org_id}/projects", {
+        const { data, error, response } = await api.GET("/v1/organizations/{org_id}/projects", {
           params: {
             path: { org_id: orgId as string },
             query: { page_size: PAGE_SIZE, ...tokenParam(token) },
           },
         });
-        if (error !== undefined) throw asFailure(error);
+        if (error !== undefined) throw asFailure(error, response.status);
         return { items: data.projects, next: data.page_info?.next_page_token };
       });
       return all.items;
@@ -132,10 +136,11 @@ export function useProjects(orgId: string | null) {
 export function useApplications(orgId: string | null, projectId: string | null) {
   return useQuery({
     queryKey: [...queryKeys.applications, orgId, projectId],
+    staleTime: queryStaleTime.directory,
     enabled: orgId !== null && projectId !== null,
     queryFn: async () => {
       const all = await collectPages(async (token) => {
-        const { data, error } = await api.GET(
+        const { data, error, response } = await api.GET(
           "/v1/organizations/{org_id}/projects/{project_id}/applications",
           {
             params: {
@@ -144,7 +149,7 @@ export function useApplications(orgId: string | null, projectId: string | null) 
             },
           },
         );
-        if (error !== undefined) throw asFailure(error);
+        if (error !== undefined) throw asFailure(error, response.status);
         return { items: data.applications, next: data.page_info?.next_page_token };
       });
       return all.items;
@@ -166,10 +171,11 @@ export function useApplications(orgId: string | null, projectId: string | null) 
 export function useRoles(orgId: string | null, projectId: string | null) {
   return useQuery({
     queryKey: [...queryKeys.roles, orgId, projectId],
+    staleTime: queryStaleTime.access,
     enabled: orgId !== null && projectId !== null,
     queryFn: async () => {
       const all = await collectPages(async (token) => {
-        const { data, error } = await api.GET(
+        const { data, error, response } = await api.GET(
           "/v1/organizations/{org_id}/projects/{project_id}/roles",
           {
             params: {
@@ -178,7 +184,7 @@ export function useRoles(orgId: string | null, projectId: string | null) {
             },
           },
         );
-        if (error !== undefined) throw asFailure(error);
+        if (error !== undefined) throw asFailure(error, response.status);
         return { items: data.roles, next: data.page_info?.next_page_token };
       });
       return all.items;
@@ -196,10 +202,11 @@ export function useRoles(orgId: string | null, projectId: string | null) {
 export function useProjectGrants(orgId: string | null, projectId: string | null) {
   return useQuery({
     queryKey: [...queryKeys.projectGrants, orgId, projectId],
+    staleTime: queryStaleTime.access,
     enabled: orgId !== null && projectId !== null,
     queryFn: async () => {
       const all = await collectPages(async (token) => {
-        const { data, error } = await api.GET(
+        const { data, error, response } = await api.GET(
           "/v1/organizations/{org_id}/projects/{project_id}/grants",
           {
             params: {
@@ -208,7 +215,7 @@ export function useProjectGrants(orgId: string | null, projectId: string | null)
             },
           },
         );
-        if (error !== undefined) throw asFailure(error);
+        if (error !== undefined) throw asFailure(error, response.status);
         return { items: data.grants, next: data.page_info?.next_page_token };
       });
       return all.items;
@@ -229,16 +236,17 @@ export function useProjectGrants(orgId: string | null, projectId: string | null)
 export function useReceivedGrants(orgId: string | null) {
   return useQuery({
     queryKey: [...queryKeys.receivedGrants, orgId],
+    staleTime: queryStaleTime.access,
     enabled: orgId !== null,
     queryFn: async () => {
       const all = await collectPages(async (token) => {
-        const { data, error } = await api.GET("/v1/organizations/{org_id}/project-grants", {
+        const { data, error, response } = await api.GET("/v1/organizations/{org_id}/project-grants", {
           params: {
             path: { org_id: orgId as string },
             query: { page_size: PAGE_SIZE, ...tokenParam(token) },
           },
         });
-        if (error !== undefined) throw asFailure(error);
+        if (error !== undefined) throw asFailure(error, response.status);
         return { items: data.grants, next: data.page_info?.next_page_token };
       });
       return all.items;
@@ -255,10 +263,11 @@ export function useReceivedGrants(orgId: string | null) {
 export function useDelegatedUserGrants(orgId: string | null, grantId: string | null) {
   return useQuery({
     queryKey: [...queryKeys.delegatedGrants, orgId, grantId],
+    staleTime: queryStaleTime.access,
     enabled: orgId !== null && grantId !== null,
     queryFn: async () => {
       const all = await collectPages(async (token) => {
-        const { data, error } = await api.GET(
+        const { data, error, response } = await api.GET(
           "/v1/organizations/{org_id}/project-grants/{grant_id}/user-grants",
           {
             params: {
@@ -267,7 +276,7 @@ export function useDelegatedUserGrants(orgId: string | null, grantId: string | n
             },
           },
         );
-        if (error !== undefined) throw asFailure(error);
+        if (error !== undefined) throw asFailure(error, response.status);
         return { items: data.grants, next: data.page_info?.next_page_token };
       });
       return all.items;
@@ -290,13 +299,14 @@ export function useDelegatedUserGrants(orgId: string | null, grantId: string | n
 export function useUserGrants(orgId: string | null, userId: string | null) {
   return useQuery({
     queryKey: [...queryKeys.grants, orgId, userId],
+    staleTime: queryStaleTime.access,
     enabled: orgId !== null && userId !== null,
     queryFn: async () => {
-      const { data, error } = await api.GET(
+      const { data, error, response } = await api.GET(
         "/v1/organizations/{org_id}/users/{user_id}/grants",
         { params: { path: { org_id: orgId as string, user_id: userId as string } } },
       );
-      if (error !== undefined) throw asFailure(error);
+      if (error !== undefined) throw asFailure(error, response.status);
       return data.grants;
     },
   });
@@ -312,10 +322,11 @@ export function useUserGrants(orgId: string | null, userId: string | null) {
 export function useMyMfa(orgId: string | null, enabled: boolean) {
   return useQuery({
     queryKey: [...queryKeys.mfa, orgId, "me"],
+    staleTime: queryStaleTime.access,
     enabled: orgId !== null && enabled,
     queryFn: async () => {
-      const { data, error } = await api.GET("/v1/me/mfa");
-      if (error !== undefined) throw asFailure(error);
+      const { data, error, response } = await api.GET("/v1/me/mfa");
+      if (error !== undefined) throw asFailure(error, response.status);
       return data;
     },
   });
@@ -325,12 +336,13 @@ export function useMyMfa(orgId: string | null, enabled: boolean) {
 export function useUserMfa(orgId: string | null, userId: string | null, enabled: boolean) {
   return useQuery({
     queryKey: [...queryKeys.mfa, orgId, userId],
+    staleTime: queryStaleTime.access,
     enabled: orgId !== null && userId !== null && enabled,
     queryFn: async () => {
-      const { data, error } = await api.GET("/v1/organizations/{org_id}/users/{user_id}/mfa", {
+      const { data, error, response } = await api.GET("/v1/organizations/{org_id}/users/{user_id}/mfa", {
         params: { path: { org_id: orgId as string, user_id: userId as string } },
       });
-      if (error !== undefined) throw asFailure(error);
+      if (error !== undefined) throw asFailure(error, response.status);
       return data;
     },
   });
@@ -339,13 +351,14 @@ export function useUserMfa(orgId: string | null, userId: string | null, enabled:
 export function useUsers(orgId: string | null, search: string) {
   return useQuery({
     queryKey: [...queryKeys.users, orgId, search],
+    staleTime: queryStaleTime.directory,
     enabled: orgId !== null,
     queryFn: async () => {
       // `complete` travels with the rows: this is the one collection an
       // organization realistically outgrows the bound on, and both the list
       // and the Overview's counts have to say so when it has.
       return collectPages(async (token) => {
-        const { data, error } = await api.GET("/v1/organizations/{org_id}/users", {
+        const { data, error, response } = await api.GET("/v1/organizations/{org_id}/users", {
           params: {
             path: { org_id: orgId as string },
             query: {
@@ -355,7 +368,7 @@ export function useUsers(orgId: string | null, search: string) {
             },
           },
         });
-        if (error !== undefined) throw asFailure(error);
+        if (error !== undefined) throw asFailure(error, response.status);
         return { items: data.users, next: data.page_info?.next_page_token };
       });
     },
@@ -365,15 +378,16 @@ export function useUsers(orgId: string | null, search: string) {
 export function useEvents(orgId: string | null, eventTypes: string[]) {
   return useQuery({
     queryKey: [...queryKeys.events, orgId, eventTypes.join(",")],
+    staleTime: queryStaleTime.audit,
     enabled: orgId !== null,
     queryFn: async () => {
-      const { data, error } = await api.GET("/v1/organizations/{org_id}/events", {
+      const { data, error, response } = await api.GET("/v1/organizations/{org_id}/events", {
         params: {
           path: { org_id: orgId as string },
           query: { page_size: 50, ...(eventTypes.length === 0 ? {} : { event_type: eventTypes }) },
         },
       });
-      if (error !== undefined) throw asFailure(error);
+      if (error !== undefined) throw asFailure(error, response.status);
       return data.events;
     },
   });
@@ -412,10 +426,10 @@ export class ApiFailure extends Error {
   }
 }
 
-export function asFailure(error: unknown): ApiFailure {
+export function asFailure(error: unknown, status?: number): ApiFailure {
   const envelope = error as { error?: { code?: string; message?: string } } | undefined;
   return new ApiFailure(
-    envelope?.error?.code ?? "SERVER_ERROR",
+    status === 403 ? "PERMISSION_DENIED" : envelope?.error?.code ?? "SERVER_ERROR",
     envelope?.error?.message ?? "The request failed.",
   );
 }

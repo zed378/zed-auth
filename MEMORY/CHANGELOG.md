@@ -10,6 +10,53 @@ Format follows Keep a Changelog conventions, grouped by release once releases ex
 
 ## Unreleased
 
+### 2026-11-26 - PF-17: SAML and organization-policy forms
+
+- Parallel adoption of field validation, API detail mapping, draft recovery and scoped pending saves over existing operations; policy confirmation keeps the reviewed settings snapshot ([record](./records/2026-11-26-PF-17-saml-policy-forms.md)). PF-17 remains WIP for remaining adoption and live/manual acceptance.
+- Lint/typecheck, 631 console tests across 56 files, production build and 14 Chromium workbench checks pass. Fixed ambiguous test selectors and the grid's 32px token mismatch with its documented 24px full gutter.
+- Documentation checks report zero problems across 188 documents; diff whitespace checks pass. No commit or deployment performed.
+
+### 2026-11-26 - PF-17: application registration and Project Grant forms
+
+- Parallel adoption of shared explicit forms over existing Management API operations; follow-up integration passes 631 console tests and 14 Chromium workbench checks ([record](./records/2026-11-26-PF-17-application-grant-forms.md)). PF-17 remains WIP.
+
+### 2026-11-26 - PF-16/17: policy, user detail and invitation
+
+- Policies and User Detail adopt shared stale-refresh and permission-denial handling; the two-step user invitation uses shared validation, review and API field mapping. PF-16/17 and affected page tasks remain WIP ([record](./records/2026-11-26-PF-16-17-policy-detail-invite.md)).
+- Full console check passes: 584 tests across 49 files, lint/typecheck, production build, 13 Chromium checks, documentation citations (188) and diff whitespace.
+
+### 2026-11-26 - PF-16: Applications, Authorizations and user security
+
+- Applications, Authorizations and Sessions/MFA adopt shared collection states, request-local recovery, denied cache/dialog suppression and scoped drafts. Parent task remains WIP ([record](./records/2026-11-26-PF-16-detail-collections.md)).
+- Full console checks pass: 572 component tests across 46 files, lint/typecheck/build, 13 Chromium workbench checks, docs (188) and diff whitespace.
+
+### 2026-11-26 - PF-16: Users, Roles and Project Grants
+
+- Three more console collections adopt shared loading, empty, stale-error and permission states. HTTP 403 remains a permission failure with an unrecognized error code; closed invitation panels defer project queries. Parent task remains WIP ([record](./records/2026-11-26-PF-16-collection-adoption.md)).
+
+### 2026-11-26 - PF-16/17: parallel screen adoption
+
+- Projects and Audit Log adopt shared collection states; role create/edit forms adopt shared validation and retained drafts. Fixed an eager closed-panel users fetch and registered responsive workbench fixtures. Parent tasks remain WIP ([record](./records/2026-11-26-PF-16-17-screen-adoption.md)).
+
+### 2026-11-25 - PF-16/17: cross-cutting console state and forms
+
+- Added shared collection-state and form-system primitives with workbench fixtures and implementation-chain evidence. Both tasks remain WIP pending screen adoption and CI/manual acceptance ([record](./records/2026-11-25-PF-16-17-cross-cutting.md)).
+
+### 2026-11-25 - PF-08/10/11: confirmation, search and supporting primitives
+
+- Integrated typed/async confirmation, debounced URL search and seven supporting workbench component groups ([record](./records/2026-11-25-PF-08-10-11-catalog.md)).
+- Lint/typecheck/build and six search tests pass; all six Chromium cases pass across runs. Component worker startup failures keep the suite non-green and tasks REVIEW; acceptance and caller adoption remain pending.
+
+### 2026-11-25 - PF-06/07/09: parallel component catalog
+
+- Added modal/panel focus and scroll ownership, tablet takeover, six status badges, tags, accessible delegation disclosure and route-derived breadcrumbs.
+- Full console check (405 tests), build and five Chromium regressions pass. Tasks remain REVIEW pending manual acceptance and breadcrumb adoption ([record](./records/2026-11-25-PF-06-07-09-catalog.md)).
+
+### 2026-11-25 - PF-03–05: console primitives
+
+- Added Button development diagnostics, stale-data Table behaviors, responsive disclosures and cursor controls, and accessible form primitives with draft undo.
+- Extended the component workbench with field states; browser and performance acceptance remain pending ([record](./records/2026-11-25-PF-03-05-primitives.md)).
+
 ### 2026-11-25 - Parallel implementation: VM social config and PF-02 scaffolding
 
 - Updated vulnerable OTel/compress/x-net dependencies and required transitives. Backend unit tests/build/vet and security scans pass; full integration status is tracked in the [BL-11 remediation record](./records/2026-11-25-BL-11-dependency-remediation.md).

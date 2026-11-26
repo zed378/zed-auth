@@ -10,18 +10,18 @@ The rule that makes this worth writing down: **"not applicable" is an acceptable
 
 | Step | Answer |
 |---|---|
-| **Design** | `docs/UI-UX/18` § Organization Overview, in its stated order: attention banner (conditional), three KPI cards, activity trend. Objective is "operational status in ≤5 seconds", so nothing above the fold is decorative |
+| **Design** | `docs/UI-UX/18` § Organization Overview, in its stated order: attention banner (conditional), three KPI cards, activity trend, organization settings summary, then navigation to Projects, Users, and Audit Log. Objective is "operational status in ≤5 seconds", so nothing above the fold is decorative |
 | **Component** | `Skeleton`; KPI card is local to this screen — it appears nowhere else, and a design-system component with one caller is a generalisation nobody asked for |
-| **State** | Loading (per card, independently), loaded, per-card error, org-name loading, activity empty, activity error, banner present / absent |
+| **State** | Loading (per card, independently), loaded, per-card error, org-name/settings loading or error, activity empty, activity error, banner present / absent |
 | **Interaction** | KPI cards link **only** where a destination exists (`docs/UI-UX/18`); the activity trend is deliberately not clickable and carries no hover affordance. Per-card retry is a button inside the card |
 | **API Dependency** | `GET /v1/organizations/{org_id}`, `.../projects`, `.../users`, `.../events` — four independent queries, so one failure does not blank the page |
-| **Loading** | Skeletons matching each element's geometry (`docs/UI-UX/09`): a heading-sized bar for the org name, a number-sized block per KPI, a block for the trend |
-| **Error** | **Per card**, inline, with retry — `docs/UI-UX/18` is explicit that a failed KPI fetch must not produce a full-page error. The trend degrades to a sentence saying the rest of the page is unaffected |
+| **Loading** | Skeletons matching each element's geometry (`docs/UI-UX/09`): a heading-sized bar for the org name, a number-sized block per KPI, a block for the trend and settings summary |
+| **Error** | **Per card**, inline, with retry — `docs/UI-UX/18` is explicit that a failed KPI fetch must not produce a full-page error. The trend degrades to a sentence saying the rest of the page is unaffected; failed organization settings show a local status |
 | **Empty** | An organization with no activity in seven days gets a sentence, not a chart of zeros. Zero users or zero projects render as `0` — a real answer, not an empty state |
 | **Permission** | Any signed-in member. The counts come from endpoints that require `ORG_ADMIN`; a caller without it sees the per-card error, which is the honest rendering of a refusal |
 | **Responsive** | 3 columns at ≥1024px, 2 per row at 768–1023px, and below 768px the shell replaces the layout entirely — so there is no single-column case to design (`docs/UI-UX/12`) |
 | **Accessibility** | One `h1`; `section` elements labelled by their headings; the KPI grid has a visually hidden heading so it is a named region; the trend is a real `table` with a caption and a per-row number, because a bar alone is unreadable; the banner is `role="status"` |
-| **Test** | Component tests for the four states and the conditional banner; the E2E suite covers landing after login |
+| **Test** | Component tests cover policy summaries, detail destinations, the new-organization empty state, and accessibility; the E2E suite covers landing after login |
 
 ---
 

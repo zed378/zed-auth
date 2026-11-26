@@ -4,7 +4,10 @@ The management console: a React + TypeScript SPA that authenticates as an ordina
 
 **Governing documents**: `docs/PLAN/06-FRONTEND-ARCHITECTURE.md` (engineering), the whole `docs/UI-UX/` folder (design), starting at `docs/UI-UX/00-DESIGN-DIRECTION.md`. Task breakdown: `TASKS/PHASE-F-FRONTEND-IMPLEMENTATION.md`.
 
-**Status**: `P0-17`. The shell exists — tokens, routing, navigation, error boundary, API client. The screens themselves are Phase 1; every nav destination renders a placeholder that says so.
+**Status**: management screens through Phase 4 delegation/SAML exist. Phase F is
+bringing the component library, shared states/forms and acceptance evidence into
+line with the UI specification. See `TASKS/PROGRESS.md` for individual gates;
+workbench fixtures do not indicate that a capability has shipped.
 
 ---
 
@@ -31,6 +34,8 @@ npm run lint
 npm run typecheck
 npm test
 npm run api:generate # regenerate the typed client from openapi/openapi.yaml
+npm run workbench    # development-only component catalog
+npm run test:workbench # standalone Chromium component browser checks
 ```
 
 ---

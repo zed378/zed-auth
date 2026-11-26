@@ -1,12 +1,24 @@
 // Public primitives. Domain forms remain in their own modules.
-export { Button } from "./Button";
+export { Button, ButtonSection } from "./Button";
 export type { ButtonVariant } from "./Button";
+export { ChoiceField, FormField, MultiValueField, RadioGroupField, SelectField, TextAreaField, TextField, ToggleField } from "./FormField";
+export type { RadioOption } from "./FormField";
 export { Badge, statusTone } from "./Badge";
-export type { Tone } from "./Badge";
+export { Breadcrumb, ConsoleBreadcrumb } from "./Breadcrumb";
+export { StatusBadge } from "./Badge";
+export { Tag } from "./Tag";
+export type { BadgeStatus, Tone } from "./Badge";
+export type { BreadcrumbItem, ConsoleBreadcrumbProps } from "./Breadcrumb";
 export { Table } from "./Table";
 export type { Column } from "./Table";
 export { Modal } from "./Modal";
 export { SidePanel } from "./SidePanel";
 export { ConfirmDialog } from "./ConfirmDialog";
+export { SearchInput, ScopedSearchInput } from "./SearchInput";
+export type { SearchInputProps } from "./SearchInput";
+export { Tabs, StepIndicator, Toast, InlineSuccess, CopyButton, KpiCard, PaginationFooter, InlineErrorBanner } from "./Supporting";
+export type { TabItem } from "./Supporting";
 export { RoleList, RoleSourceBadge } from "./RoleSourceBadge";
-export { EmptyState, ErrorState, LoadingRegion, Skeleton } from "./states";
+export { CollectionStateBoundary, EmptyState, ErrorState, FilteredEmptyState, InitialEmptyState, LoadingRegion, PermissionDeniedState, Skeleton, resolveCollectionState } from "./states";
+export type { CollectionState } from "./states";
+export { FormSystem, FormReview, FormSummary, formValidators, useExplicitForm } from "./FormSystem";

@@ -7,8 +7,9 @@ import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { ProjectNav } from "../components/ProjectNav";
 import { RoleList } from "../components/RoleSourceBadge";
-import { ErrorState, Skeleton } from "../components/states";
-import { api, queryKeys } from "../lib/api/client";
+import { CollectionStateBoundary, PermissionDeniedState, Skeleton } from "../components/states";
+import { api } from "../lib/api/client";
+import { invalidateQueries, mutationInvalidations } from "../lib/api/queryPolicy";
 import { useOrgId, useProjects, useRoles, useUserGrants, useUsers } from "../lib/api/queries";
 import { useAuth } from "../lib/auth/AuthProvider";
 import { useDebounced } from "../lib/useDebounced";
@@ -35,6 +36,10 @@ type Role = { id: string; key: string; display_name: string; permission_keys: st
 export function AuthorizationsPage() {
   const { projectId } = useParams<{ projectId: string }>();
   const orgId = useOrgId();
+  return <ScopedAuthorizationsPage key={`${orgId}:${projectId}`} orgId={orgId} projectId={projectId ?? null} />;
+}
+
+function ScopedAuthorizationsPage({ orgId, projectId }: { orgId: string | null; projectId: string | null }) {
   const projects = useProjects(orgId);
   const roles = useRoles(orgId, projectId ?? null);
   const { hasRole } = useAuth();
@@ -46,11 +51,16 @@ export function AuthorizationsPage() {
   // keyboard; only the request waits (`P2-12` step 2).
   const search = useDebounced(typed);
   const users = useUsers(orgId, search);
+  const grants = useUserGrants(orgId, selected?.id ?? null);
 
   const project = (projects.data ?? []).find((candidate) => candidate.id === projectId);
   const results = (users.data?.items ?? []) as User[];
 
   const mayManage = hasRole("ORG_ADMIN", "ORG_OWNER", "INSTANCE_OWNER");
+
+  if ([projects, roles, users, grants].some((query) => query.isError && kindOf(query.error) === "permission")) {
+    return <><h1 className="text-heading-1 font-medium text-text-primary">Authorizations</h1><PermissionDeniedState /></>;
+  }
 
   return (
     <>
@@ -110,6 +120,10 @@ export function AuthorizationsPage() {
             projectName={project?.name ?? "this project"}
             roles={(roles.data ?? []) as Role[]}
             rolesPending={roles.isPending}
+            rolesFailed={roles.isError}
+            rolesError={roles.error}
+            onRetryRoles={() => void roles.refetch()}
+            grants={grants}
             mayManage={mayManage}
             onClear={() => setSelected(null)}
           />
@@ -123,6 +137,7 @@ export function AuthorizationsPage() {
             error={users.error}
             onRetry={() => void users.refetch()}
             onPick={setSelected}
+            onClear={() => setTyped("")}
           />
         )}
       </div>
@@ -146,6 +161,7 @@ function SearchResults({
   error,
   onRetry,
   onPick,
+  onClear,
 }: {
   typed: string;
   settled: string;
@@ -155,35 +171,25 @@ function SearchResults({
   error: unknown;
   onRetry: () => void;
   onPick: (user: User) => void;
+  onClear: () => void;
 }) {
-  if (failed) return <ErrorState kind={kindOf(error)} onRetry={onRetry} />;
-
-  if (pending) {
-    return (
-      <div aria-busy="true" aria-live="polite">
-        <span className="sr-only">Searching</span>
+  return <CollectionStateBoundary loading={pending} failed={failed} count={!failed && users.length === 0 && settled.trim() === "" ? 1 : users.length}
+    loadingLabel="Searching" what="users" filtered={settled.trim() !== ""} onClearFilter={onClear}
+    errorKind={kindOf(error) === "network" ? "network" : "server"} onRetry={onRetry}
+    skeleton={<>
         {[0, 1, 2].map((index) => (
           <div key={index} className="border-b border-border py-3">
             <Skeleton className="h-4 w-64" />
           </div>
         ))}
-      </div>
-    );
-  }
-
-  if (users.length === 0) {
+    </>}>
+  {users.length === 0 ? (
     // The two kinds of nothing, again (`docs/UI-UX/14`). One of them is not an
     // empty state at all — it is a screen waiting to be used.
-    return (
       <p className="rounded border border-border bg-bg-surface p-5 text-body text-text-secondary">
-        {settled.trim() === ""
-          ? "Type an email address or name above to find someone."
-          : `Nobody in this organization matches “${settled}”.`}
+        Type an email address or name above to find someone.
       </p>
-    );
-  }
-
-  return (
+  ) : (
     <>
       <p aria-live="polite" className="text-small text-text-secondary">
         {users.length} {users.length === 1 ? "person" : "people"} match
@@ -209,7 +215,8 @@ function SearchResults({
         ))}
       </ul>
     </>
-  );
+  )}
+  </CollectionStateBoundary>;
 }
 
 /**
@@ -222,6 +229,10 @@ function UserAccessPanel({
   projectName,
   roles,
   rolesPending,
+  rolesFailed,
+  rolesError,
+  onRetryRoles,
+  grants,
   mayManage,
   onClear,
 }: {
@@ -231,10 +242,13 @@ function UserAccessPanel({
   projectName: string;
   roles: Role[];
   rolesPending: boolean;
+  rolesFailed: boolean;
+  rolesError: unknown;
+  onRetryRoles: () => void;
+  grants: ReturnType<typeof useUserGrants>;
   mayManage: boolean;
   onClear: () => void;
 }) {
-  const grants = useUserGrants(orgId, user.id);
   const [editing, setEditing] = useState(false);
   const [revoking, setRevoking] = useState(false);
 
@@ -242,7 +256,9 @@ function UserAccessPanel({
     (candidate) => candidate.project_id === projectId,
   );
 
-  return (
+  return <CollectionStateBoundary loading={grants.isPending} failed={grants.isError} count={grants.data === undefined ? 0 : 1}
+    loadingLabel="Loading user access" what="grants" skeleton={<Skeleton className="h-6 w-48" />}
+    errorKind={kindOf(grants.error) === "network" ? "network" : "server"} onRetry={() => void grants.refetch()}>
     <section aria-label={`Access for ${user.email}`}>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
@@ -259,13 +275,7 @@ function UserAccessPanel({
       <div className="mt-4 rounded border border-border bg-bg-surface p-5">
         <h3 className="text-heading-3 font-medium text-text-primary">Roles in {projectName}</h3>
 
-        {grants.isPending ? (
-          <Skeleton className="mt-3 h-6 w-48" />
-        ) : grants.isError ? (
-          <div className="mt-3">
-            <ErrorState kind={kindOf(grants.error)} onRetry={() => void grants.refetch()} />
-          </div>
-        ) : grant === undefined ? (
+        {grant === undefined ? (
           // Step 6: least privilege, stated. A blank here would be ambiguous
           // between "none" and "we did not load it".
           <p className="mt-2 max-w-prose text-body text-text-secondary">
@@ -306,6 +316,9 @@ function UserAccessPanel({
         user={user}
         roles={roles}
         rolesPending={rolesPending}
+        rolesFailed={rolesFailed}
+        rolesError={rolesError}
+        onRetryRoles={onRetryRoles}
         existing={grant?.role_keys ?? []}
         onClose={() => setEditing(false)}
       />
@@ -319,7 +332,7 @@ function UserAccessPanel({
         onClose={() => setRevoking(false)}
       />
     </section>
-  );
+  </CollectionStateBoundary>;
 }
 
 /**
@@ -338,6 +351,9 @@ function AssignRolesModal({
   user,
   roles,
   rolesPending,
+  rolesFailed,
+  rolesError,
+  onRetryRoles,
   existing,
   onClose,
 }: {
@@ -348,6 +364,9 @@ function AssignRolesModal({
   user: User;
   roles: Role[];
   rolesPending: boolean;
+  rolesFailed: boolean;
+  rolesError: unknown;
+  onRetryRoles: () => void;
   existing: string[];
   onClose: () => void;
 }) {
@@ -395,7 +414,7 @@ function AssignRolesModal({
       if (error !== undefined) throw error;
     },
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: [...queryKeys.grants, orgId, user.id] });
+      void invalidateQueries(queryClient, mutationInvalidations.grants(orgId, user.id));
       onClose();
     },
     onError: (error: unknown) => setProblem(messageFor(error)),
@@ -425,13 +444,14 @@ function AssignRolesModal({
       busy={save.isPending}
       onCancel={onClose}
       onConfirm={() => {
-        if (!emptied && changed) save.mutate();
+        if (!rolesPending && !rolesFailed && !emptied && changed) save.mutate();
       }}
       consequence={
         <>
-          {rolesPending ? (
-            <Skeleton className="h-24 w-full" />
-          ) : roles.length === 0 ? (
+          <CollectionStateBoundary loading={rolesPending} failed={rolesFailed} count={!rolesFailed && roles.length === 0 ? 1 : roles.length}
+            loadingLabel="Loading roles" what="roles" skeleton={<Skeleton className="h-24 w-full" />}
+            errorKind={kindOf(rolesError) === "network" ? "network" : "server"} onRetry={onRetryRoles}>
+          {roles.length === 0 ? (
             <p className="text-text-secondary">
               This project has no roles yet, so there is nothing to grant. Define one on the{" "}
               <Link to={`/projects/${projectId ?? ""}/roles`} className="underline">
@@ -475,6 +495,7 @@ function AssignRolesModal({
               </ul>
             </fieldset>
           )}
+          </CollectionStateBoundary>
 
           {emptied && roles.length > 0 ? (
             <p className="mt-3 text-small text-text-secondary">
@@ -529,7 +550,7 @@ function RevokeDialog({
       if (error !== undefined) throw error;
     },
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: [...queryKeys.grants, orgId, user.id] });
+      void invalidateQueries(queryClient, mutationInvalidations.grants(orgId, user.id));
       setProblem(null);
       onClose();
     },

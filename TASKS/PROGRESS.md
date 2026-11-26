@@ -2,7 +2,7 @@
 
 Single source of truth for where the project stands. Updated in the same commit as the work it describes (`00-TASK-CONVENTIONS.md` global DoD item 8).
 
-**Last updated**: 2026-11-25
+**Last updated**: 2026-11-26
 **Current phase**: Phase 4 — Enterprise Interop (9 / 16). The [Phase 4 threat review](../MEMORY/records/2026-09-15-P3-15-phase-4-threat-review.md)'s T4-1 is decided (ADR-025: the stricter of both organizations' policies applies); T4-2, subset validation at the readers, is built (`P4-04`). Phase 3 complete (15 / 15), tagged `v0.3.0-phase3`, **accepted on staging** — [summary](../MEMORY/records/2026-09-15-P3-phase-3-summary.md). Phase 2 complete (17 / 17), tagged `v0.2.0-phase2`. Phase 0 is 21 / 22; `P0-20` stays WIP pending the pull-based deployment re-read
 **Overall**: 92 / 179 tasks done
 
@@ -242,35 +242,35 @@ Runs alongside Phases 0–5, not after them. **Foundation** tasks are phase-inde
 | ID | Task | Size | Status | Depends on |
 |---|---|---|---|---|
 | PF-01 | Motion tokens and the reduced-motion contract | S | **DONE** — token-driven panel, modal, step, row-change, and toast primitives; reduced motion removes transitions/animations; destructive confirmations and table sorting stay still | P0-17 |
-| PF-02 | Component library scaffolding and workbench | M | **WIP** — development workbench, initial Button/Badge/Table examples, branded preview and page primitive lint guard; full catalog and browser acceptance pending | P0-17 |
-| PF-03 | Button | S | TODO | PF-02 |
-| PF-04 | Table | L | TODO | PF-02 |
-| PF-05 | Form field primitives | L | TODO | PF-02 |
-| PF-06 | Modal and Side Panel | M | TODO | PF-02, PF-01 |
-| PF-07 | Badge and Tag (incl. role-source badge) | S | TODO | PF-02 |
-| PF-08 | Confirmation Dialog (incl. typed-confirmation) | M | TODO | PF-06 |
-| PF-09 | Breadcrumb | S | TODO | PF-02 |
-| PF-10 | Search Input — global and scoped | M | TODO | PF-02 |
-| PF-11 | Supporting components (tabs, step indicator, toast, copy, KPI card, pagination, error banner) | L | TODO | PF-02 |
-| PF-12 | Routing and permission-gated navigation | L | TODO | PF-02, P1-21 |
+| PF-02 | Component library scaffolding and workbench | M | **WIP** — all specified component families, branded preview, inventory/lint guards and CI browser checks; final browser/manual acceptance pending | P0-17 |
+| PF-03 | Button | S | **REVIEW** — disabled-reason diagnostics and primary-section warnings; browser geometry and caller adoption pending | PF-02 |
+| PF-04 | Table | L | **REVIEW** — stale data, sorting, row menu, responsive details and cursor controls; browser/performance acceptance pending | PF-02 |
+| PF-05 | Form field primitives | L | **REVIEW** — accessible inputs, validation, immediate switches and draft-list undo; browser acceptance pending | PF-02 |
+| PF-06 | Modal and Side Panel | M | **REVIEW** — focus/scroll ownership, tablet takeover, motion and Chromium regressions; manual AT pending | PF-02, PF-01 |
+| PF-07 | Badge and Tag (incl. role-source badge) | S | **REVIEW** — six statuses, tags, source disclosure and contrast tests; manual AT pending | PF-02 |
+| PF-08 | Confirmation Dialog (incl. typed-confirmation) | M | **REVIEW** — exact typing, current async consequences, busy guards and success acknowledgement; page adoption/manual acceptance pending | PF-06 |
+| PF-09 | Breadcrumb | S | **REVIEW** — route-derived hierarchy, navigation and axe tests; adoption across nested screens pending | PF-02 |
+| PF-10 | Search Input — global and scoped | M | **REVIEW** — debounced queries, delayed feedback, current result announcements and URL filters; persistent shell adoption remains PF-14 | PF-02 |
+| PF-11 | Supporting components (tabs, step indicator, toast, copy, KPI card, pagination, error banner) | L | **REVIEW** — seven workbench groups, URL tabs/step example, clipboard feedback and cursor pagination; page/browser/AT acceptance pending | PF-02 |
+| PF-12 | Routing and permission-gated navigation | L | **WIP** — lazy route chunks and direct-route guards; shared permission mapping remains | PF-02, P1-21 |
 | PF-13 | Navigation chrome and organization context | M | TODO | PF-12, PF-09 |
 | PF-14 | Global search | M | TODO | PF-10, PF-12 |
 | PF-15 | Progressive disclosure rules | S | TODO | PF-13 |
-| PF-16 | Four-state system (loading/empty/error/permission) | M | TODO | PF-04 |
-| PF-17 | Form system | L | TODO | PF-05 |
+| PF-16 | Four-state system (loading/empty/error/permission) | M | **WIP** — shared states adopted by Granted Projects, Projects, Audit Log, Users, Roles, Project Grants, Applications, Authorizations, Sessions/MFA, Policies and User Detail; remaining screens and acceptance pending | PF-04 |
+| PF-17 | Form system | L | **WIP** — validation, API field mapping and retained drafts adopted by project, role, user invitation, application/SAML, Project Grant and organization-policy forms; remaining adoption and live/manual acceptance pending | PF-05 |
 | PF-18 | Responsive grid and unsupported-width boundary | M | TODO | PF-13 |
-| PF-19 | Accessibility infrastructure | M | TODO | PF-02 |
-| PF-20 | Data layer conventions | M | TODO | P0-16, P1-21 |
+| PF-19 | Accessibility infrastructure | M | **WIP** — CI axe/lint/contrast, shared focus/live regions and repeatable manual procedure; target-size/manual acceptance pending | PF-02 |
+| PF-20 | Data layer conventions | M | **WIP** — resource freshness, centralized mutation invalidation and HTTP 403 read mapping; auth-flow acceptance remains | P0-16, P1-21 |
 
 ### Console screens — each gated on its backend task
 
 | ID | Screen | Size | Status | Gate |
 |---|---|---|---|---|
-| PF-21 | Organization Overview | L | TODO | P1-16 |
+| PF-21 | Organization Overview | L | **REVIEW** — policy summary, real drill-down links and activity states implemented; browser acceptance pending | P1-16 |
 | PF-22 | Project list | M | TODO | P1-17 |
 | PF-23 | Applications tab | L | TODO | P1-18 |
-| PF-24 | User list (incl. invite Flow 1) | L | TODO | P1-19 |
-| PF-25 | User detail shell + Profile tab | M | TODO | P1-19 |
+| PF-24 | User list (incl. invite Flow 1) | L | **WIP** — list states and shared two-step invite form implemented; E2E, async email-in-use validation and acceptance pending | P1-19 |
+| PF-25 | User detail shell + Profile tab | M | **WIP** — tab/profile baseline and shared detail states implemented; end-to-end and acceptance pending | P1-19 |
 | PF-26 | Audit Log | M | TODO | P1-20 |
 | PF-27 | Organization Settings | M | TODO | P1-16 |
 | PF-28 | Instance screens (org list, policies, audit) | L | TODO | P1-16, P1-20 |

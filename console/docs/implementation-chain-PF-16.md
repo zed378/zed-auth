@@ -1,0 +1,22 @@
+# PF-16 — Shared collection states
+
+References: `docs/UI-UX/14-EMPTY-LOADING-ERROR-STATES.md`, `docs/UI-UX/09-INTERACTION-DESIGN.md`, task PF-16.
+
+| Step | Implementation |
+|---|---|
+| Design | Factual empty messages and actionable failure copy; no destructive styling for request errors. |
+| Component | `states.tsx`: `resolveCollectionState`, `CollectionStateBoundary`, `InitialEmptyState`, `FilteredEmptyState`, `PermissionDeniedState`; compatible `EmptyState`, `ErrorState`, `Skeleton`, `LoadingRegion`. Table consumes the shared priority resolver. Granted Projects and Projects adopt the collection boundary around their API-backed lists. |
+| State | Permission denial hides cached contents. Definitive failure wins over loading, which wins over empty. Successful nonempty results show content. |
+| Interaction | Filter recovery invokes the supplied filter callback. Retry invokes only the supplied request callback, with no page navigation, reload, or scroll call. |
+| API Dependency | None in primitives. The caller supplies query flags, authoritative permission state, cached result count and a resource-specific refetch callback. |
+| Loading | Caller-provided skeleton geometry inside an announced busy loading region; empty results are withheld until loading finishes. |
+| Error | Inline banner retains mounted last-known contents on refresh failure; absent data renders the error alone. Form validation/API-field mapping and top-of-form failures belong to PF-17. |
+| Empty | Separate initial and filtered components. Filtered results never render a create action and do not assert that undisclosed records exist. |
+| Permission | Generic administrator recovery guidance without resource names, cached rows, server detail or retry. A received-grants permission denial also passes null to the management panel and closes its nested removal confirmation, hiding cached management content. Projects hides its search, create actions and open creation dialog after an authoritative permission failure; cached names are withheld from the dialog. Drafts stay in memory for recovery but are absent from the DOM while access is denied. This presentation does not replace server authorization. |
+| Responsive | Wrapping text and fluid skeletons follow the existing token system; no fixed viewport assumptions. |
+| Accessibility | Errors use `role=alert`; loading uses `aria-busy` and a polite announcement. Recovery controls use shared keyboard-accessible buttons. |
+| Test | `states.test.tsx` covers overlapping loading/error flags, filtered recovery, mounted draft retention on stale failure, request-local retry and cached content suppression after permission denial. `grantedprojects.states.test.tsx` covers real fetch-backed pending/empty, stale failure/retry, denied cache suppression and denial while management is open. `projects.states.test.tsx` covers pending-to-empty, filter recovery without a request, stable stale-table retry, draft retention on list failure and suppression of cached rows/open creation drafts after denial. These page tests use the generated API client with fetch fixtures, not a live backend. Existing Table tests cover stale refresh behavior. The workbench exposes all six states under default and branded themes. New Projects tests await root verification. |
+
+This foundation is adopted by Granted Projects, Projects, [Audit Log](./implementation-chain-PF-16-audit.md), [Users](./implementation-chain-PF-16-users.md), [Roles](./implementation-chain-PF-16-roles.md), [Project Grants](./implementation-chain-PF-16-projectgrants.md), [Applications](./implementation-chain-PF-16-applications.md), [Authorizations](./implementation-chain-PF-16-authorizations.md), [Sessions/MFA](./implementation-chain-PF-16-usersecurity.md), [User Detail](./implementation-chain-PF-16-userdetail.md), and [Policies](./implementation-chain-PF-16-policies.md). Existing pages using ad hoc query branches still require adoption; PF-16 stays WIP until page adoption, PF-17 form treatments, complete test evidence, and manual accessibility acceptance are verified. No backend or authorization policy is changed.
+
+Validation on 2026-11-26: the full console component suite passed 584 tests across 49 files, including the fetch-backed state regressions. Granted Projects defers its panel's users query until a grant is selected; the list retry test verifies no unrelated request occurs. Lint, typecheck, production build, and 13 Chromium workbench checks pass. Live API and manual accessibility acceptance remain pending.

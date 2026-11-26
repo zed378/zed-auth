@@ -1,4 +1,4 @@
-import { screen, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -150,7 +150,9 @@ describe("registering a SAML application", () => {
     const dialog = await openRegister();
 
     await userEvent.type(dialog.getByLabelText("Name"), "Empty");
-    expect(dialog.getByRole("button", { name: "Register" })).toBeDisabled();
+    await userEvent.click(dialog.getByRole("button", { name: "Register" }));
+    expect(dialog.getByLabelText("Metadata document")).toHaveAccessibleDescription("Paste the service provider's metadata document.");
+    expect(dialog.getByLabelText("Metadata document")).toHaveFocus();
   });
 
   it("says what each switch costs, beside the switch", async () => {
@@ -186,9 +188,9 @@ describe("registering a SAML application", () => {
     await userEvent.type(dialog.getByLabelText("Metadata document"), "<x/>");
     await userEvent.click(dialog.getByRole("button", { name: "Register" }));
 
-    expect(await dialog.findByRole("alert")).toHaveTextContent(
+    await waitFor(() => expect(dialog.getByLabelText("Metadata document")).toHaveAccessibleDescription(
       "the metadata advertises no HTTPS HTTP-POST AssertionConsumerService",
-    );
+    ));
     // The choice survives the refusal (docs/FRONTEND/07).
     expect(dialog.getByLabelText("Metadata document")).toHaveValue("<x/>");
   });

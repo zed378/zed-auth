@@ -2,6 +2,13 @@ import { render, screen, cleanup } from "@testing-library/react";
 import { catalog } from "./catalog";
 
 describe("component workbench", () => {
+  it("includes each component family specified in docs/UI-UX/07", () => {
+    const required = ["Button", "Table", "Form Field", "Modal / Side Panel", "Badge / Tag", "Confirmation Dialog", "Breadcrumb", "Search Input", "Responsive Grid"];
+    const names = catalog.map((entry) => entry.name);
+    expect(new Set(names).size).toBe(names.length);
+    for (const name of required) expect(names).toContain(name);
+  });
+
   for (const entry of catalog) {
     describe(entry.name, () => {
       it("documents the usage rule and each registered required state", () => {
