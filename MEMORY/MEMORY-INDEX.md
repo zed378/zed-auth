@@ -10,6 +10,7 @@ Add a line here as part of writing the record — an unindexed record is a recor
 
 | Date | Task | Record | Hook |
 |---|---|---|---|
+| 2026-11-26 | P0-14 | [Staging state recovery](./records/2026-11-26-P0-14-staging-state-recovery.md) | `auth-state` emptied again on 11-16; rebuilt with new keys, `main` deployed, acceptance 71/71, old keys retired; secrets not yet backed up |
 | 2026-11-26 | P0-13 | [CI repair](./records/2026-11-26-P0-13-ci-repair.md) | Browser jobs pinned to Ubuntu 24.04, API reference regenerated, delegation marked shipped on the landing page; remaining docs copy belongs to P4-14 |
 | 2026-11-26 | PF-14/16/17 | [Review of the parallel console work](./records/2026-11-26-PF-review-fixes.md) | Unconfirmed Project Grant creation, unparsable CI workflow and stale full-replacement editors fixed; 34/34 end-to-end pass; roles directory-denial scope and PF-13–15 bookkeeping open |
 | 2026-11-26 | PF-17 | [SAML and policy forms](./records/2026-11-26-PF-17-saml-policy-forms.md) | Nested SAML errors, reviewed policy snapshot and scoped drafts; 631 console tests and 14 Chromium checks pass; live/manual acceptance pending |

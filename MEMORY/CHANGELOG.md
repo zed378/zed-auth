@@ -10,6 +10,10 @@ Format follows Keep a Changelog conventions, grouped by release once releases ex
 
 ## Unreleased
 
+### 2026-11-26 - P0-14: staging recovered and `main` deployed
+
+- `~/auth-state` had been emptied again; it was rebuilt with new keys, migrations 046 and 047 applied, and console and public site restored ([record](./records/2026-11-26-P0-14-staging-state-recovery.md)).
+
 ### 2026-11-26 - P0-13: CI repair
 
 - Browser jobs pinned to `ubuntu-24.04`, public API reference regenerated, and the landing page now says delegation shipped, with its sign-in limit ([record](./records/2026-11-26-P0-13-ci-repair.md)).
