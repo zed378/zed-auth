@@ -301,7 +301,10 @@ jobs:
   # --- Console --------------------------------------------------------------
   console:
     name: Console
-    runs-on: ubuntu-latest
+    # Pinned: this job installs a Playwright browser, and the locked Playwright
+    # (1.56.1) refuses Ubuntu 26.04, which `ubuntu-latest` now points to. Move
+    # it together with a Playwright upgrade.
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: console
@@ -372,7 +375,8 @@ jobs:
   # so a failure here is reproducible locally without reading this file.
   e2e:
     name: End-to-end (browser)
-    runs-on: ubuntu-latest
+    # Pinned for the same reason as the console job.
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
