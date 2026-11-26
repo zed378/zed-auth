@@ -10,6 +10,10 @@ Format follows Keep a Changelog conventions, grouped by release once releases ex
 
 ## Unreleased
 
+### 2026-11-26 - PF-14/16/17: review fixes for the parallel console work
+
+- Project Grant `Review` no longer creates the grant without confirmation. Repaired an unparsable CI workflow and the end-to-end suite; reopened role and SAML editors now reseed when the stored record changed; global search ignores results for earlier input ([record](./records/2026-11-26-PF-review-fixes.md)). Parent tasks unchanged. No commit or deployment performed.
+
 ### 2026-11-26 - PF-17: SAML and organization-policy forms
 
 - Parallel adoption of field validation, API detail mapping, draft recovery and scoped pending saves over existing operations; policy confirmation keeps the reviewed settings snapshot ([record](./records/2026-11-26-PF-17-saml-policy-forms.md)). PF-17 remains WIP for remaining adoption and live/manual acceptance.

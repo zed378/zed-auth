@@ -386,10 +386,13 @@ function EditSamlModal({
   projectId: string | null;
   onClose: () => void;
 }) {
+  // A save replaces the whole registration, so an unsaved draft is kept only
+  // while the stored one it started from is unchanged.
+  const version = (app: Application | null) => app && JSON.stringify([app.id, app.saml]);
   const [selected, setSelected] = useState(application);
-  if (application !== null && selected?.id !== application.id) setSelected(application);
+  if (application !== null && version(selected) !== version(application)) setSelected(application);
   if (selected?.saml === undefined) return null;
-  return <EditSamlForm key={selected.id} application={selected} orgId={orgId} projectId={projectId}
+  return <EditSamlForm key={version(selected)} application={selected} orgId={orgId} projectId={projectId}
     open={application !== null} onClose={onClose} onSaved={() => { setSelected(null); onClose(); }} />;
 }
 

@@ -135,7 +135,10 @@ export function GlobalSearch() {
     return () => { window.clearTimeout(timer); setSlowQuery(null); };
   }, [loading, query]);
 
-  const selectedIndex = results.length === 0 ? 0 : active % results.length;
+  // Only results for the text now in the box may be shown or chosen.
+  const current = !loading && !failure && query.length >= 2 && rawQuery.trim() === query;
+  const selectable = current ? results : [];
+  const selectedIndex = selectable.length === 0 ? 0 : active % selectable.length;
 
   function close() {
     setOpen(false);
@@ -154,15 +157,15 @@ export function GlobalSearch() {
   }
 
   function onInputKeyDown(event: KeyboardEvent<HTMLInputElement>) {
-    if (event.key === "ArrowDown" && results.length > 0) {
+    if (event.key === "ArrowDown" && selectable.length > 0) {
       event.preventDefault();
-      setActive((index) => (index + 1) % results.length);
-    } else if (event.key === "ArrowUp" && results.length > 0) {
+      setActive((index) => (index + 1) % selectable.length);
+    } else if (event.key === "ArrowUp" && selectable.length > 0) {
       event.preventDefault();
-      setActive((index) => (index + results.length - 1) % results.length);
-    } else if (event.key === "Enter" && results[selectedIndex]) {
+      setActive((index) => (index + selectable.length - 1) % selectable.length);
+    } else if (event.key === "Enter" && selectable[selectedIndex]) {
       event.preventDefault();
-      choose(results[selectedIndex]);
+      choose(selectable[selectedIndex]);
     }
   }
 
@@ -177,15 +180,15 @@ export function GlobalSearch() {
       <label htmlFor="global-search-input" className="sr-only">Search organizations, projects, and users</label>
       <input ref={input} id="global-search-input" type="search" value={rawQuery} onChange={(event) => { setActive(0); setRawQuery(event.target.value); }}
         onKeyDown={onInputKeyDown} role="combobox" aria-expanded={query.length >= 2}
-        aria-controls="global-search-results" aria-activedescendant={results[active] ? `global-search-option-${active}` : undefined}
+        aria-controls="global-search-results" aria-activedescendant={selectable[selectedIndex] ? `global-search-option-${selectedIndex}` : undefined}
         aria-autocomplete="list" placeholder="Name, email, or ID" autoComplete="off"
         className="w-full rounded-md border border-border bg-bg-surface px-3 py-2 text-body text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent" />
       <div id="global-search-results" role="listbox" aria-label="Search results" className="mt-3 max-h-96 overflow-y-auto">
         {rawQuery.trim().length < 2 ? <p className="py-4 text-small text-text-secondary">Type at least two characters to search.</p> : null}
         {showLoading ? <p role="status" aria-live="polite" className="py-4 text-small text-text-secondary">Searching…</p> : null}
         {!loading && failure ? <p role="alert" className="py-4 text-small text-danger">Search failed. Try again in a moment.</p> : null}
-        {!loading && !failure && canSearch && query.length >= 2 && results.length === 0 ? <p role="status" className="py-4 text-small text-text-secondary">No matching resources.</p> : null}
-        {!loading && !failure && results.length > 0 ? <GroupedResults results={results} active={selectedIndex} onChoose={choose} onActiveChange={setActive} /> : null}
+        {current && results.length === 0 ? <p role="status" className="py-4 text-small text-text-secondary">No matching resources.</p> : null}
+        {selectable.length > 0 ? <GroupedResults results={selectable} active={selectedIndex} onChoose={choose} onActiveChange={setActive} /> : null}
       </div>
     </Modal>
   </>;

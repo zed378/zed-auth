@@ -64,6 +64,7 @@ export function useExplicitForm<T extends Record<string, string>>({ initialValue
   const [summary, setSummary] = useState("");
   const [saving, setSaving] = useState(false);
   const busy = useRef(false);
+  const wasReset = useRef(false);
   const formRef = useRef<HTMLFormElement>(null);
   const focusField = useRef<string | null>(null);
   const names = Object.keys(fields) as Array<keyof T & string>;
@@ -117,9 +118,11 @@ export function useExplicitForm<T extends Record<string, string>>({ initialValue
     busy.current = true;
     setSaving(true);
     setSummary("");
+    wasReset.current = false;
     try {
       await onSave(next);
-      setSummary("Changes saved.");
+      // A form its caller reset during the save is a fresh one, with nothing to report.
+      if (!wasReset.current) setSummary("Changes saved.");
     } catch (failure) {
       const mapped: Errors<T> = {};
       const error = serverError(failure);
@@ -158,7 +161,7 @@ export function useExplicitForm<T extends Record<string, string>>({ initialValue
   }
 
   return { values, errors, summary, saving, field, formProps: { ref: formRef, onSubmit: submit },
-    reset: () => { setValues(initialValues); setErrors({}); setSummary(""); },
+    reset: () => { wasReset.current = true; setValues(initialValues); setErrors({}); setSummary(""); },
     validate: (selected?: Array<keyof T & string>) => {
       const next = formRef.current ? readValues(formRef.current) : values;
       setValues(next);

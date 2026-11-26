@@ -250,7 +250,9 @@ function RolesInProject({ orgId, projectId }: { orgId: string | null; projectId:
       />
 
       <RoleFormModal
-        key={editing?.id ?? "edit"}
+        // A save replaces every permission, so an unsaved draft is kept only
+        // while the role it started from is unchanged.
+        key={editing ? JSON.stringify([editing.id, editing.display_name, editing.permission_keys]) : "edit"}
         open={!accessDenied && editOpen}
         orgId={orgId}
         projectId={projectId ?? null}

@@ -241,7 +241,8 @@ describe("creating a grant", () => {
     await userEvent.type(form.getByLabelText("Organization ID"), ` ${PARTNER.toUpperCase()} `);
     await userEvent.click(form.getByLabelText(/manager/));
     await userEvent.click(form.getByLabelText(/cashier/));
-    await userEvent.click(form.getByRole("button", { name: "Review" }));
+    const reviewButton = form.getByRole("button", { name: "Review" });
+    await userEvent.click(reviewButton);
 
     // Flow 2's confirmation step: nothing is sent by Review.
     expect(calls).toHaveLength(0);
@@ -249,7 +250,12 @@ describe("creating a grant", () => {
     expect(review.getByText("Confirm the grant")).toBeInTheDocument();
     expect(review.getByText(/Not shared: owner/)).toBeInTheDocument();
 
-    await userEvent.click(review.getByRole("button", { name: "Create grant" }));
+    // A real browser submits on the Review click if React turns that same node
+    // into the submit button. jsdom does not, so assert the node is a new one.
+    const create = review.getByRole("button", { name: "Create grant" });
+    expect(create).not.toBe(reviewButton);
+
+    await userEvent.click(create);
 
     await waitFor(() => expect(calls).toHaveLength(1));
     expect(calls[0].method).toBe("POST");

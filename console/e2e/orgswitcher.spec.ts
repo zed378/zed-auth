@@ -28,10 +28,10 @@ test.describe("the organization switcher", () => {
     // Step 4: unmistakable at all times, not only where a switch is possible.
     // The E2E administrator administers exactly one organization, so this is
     // also the single-organization case — a label, with no control.
-    // Scoped to the navigation. The organization is named "e2e" on this stack
+    // Scoped to the shell header. The organization is named "e2e" on this stack
     // and so is the overview page's heading — an unscoped locator matches both
     // and proves neither.
-    const chrome = page.getByRole("navigation", { name: /console/i });
+    const chrome = page.getByRole("banner");
 
     for (const destination of ["/", "/projects", "/users", "/audit-log"]) {
       await page.goto(destination);
@@ -88,9 +88,9 @@ test.describe("the organization switcher", () => {
     // state and wonder what broke. This is the switcher reporting server-side
     // truth back at the user: the organization in the URL is not one the
     // caller administers.
-    await expect(
-      page.getByRole("navigation", { name: /console/i }).getByRole("status"),
-    ).toContainText(/do not administer this organization/i);
+    await expect(page.getByRole("banner").getByRole("status")).toContainText(
+      /do not administer this organization/i,
+    );
 
     // Nothing from the caller's own organization leaked into a context they
     // are not in. A console that quietly fell back to the token's organization

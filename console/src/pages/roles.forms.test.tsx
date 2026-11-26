@@ -84,6 +84,7 @@ describe("shared role forms", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     await user.click(screen.getByRole("button", { name: "Define role" }));
     expect(screen.getByLabelText("Key")).toHaveValue("");
+    expect(screen.queryByText("Changes saved.")).not.toBeInTheDocument();
     expect(bodies).toHaveLength(2);
   });
 

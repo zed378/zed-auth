@@ -166,6 +166,21 @@ describe("SAML settings form", () => {
     expect(screen.getByLabelText("Signing certificate (optional)")).toHaveValue("");
   });
 
+  it("reseeds a reopened editor when the registration changed on the server", async () => {
+    const applications = [application];
+    const calls = stub(() => Response.json(application), applications);
+    const client = mount(); await edit();
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    // The certificate is rotated elsewhere while the editor is closed.
+    applications[0] = { ...application, saml: { ...application.saml, certificate: "rotated certificate" } };
+    await act(() => client.invalidateQueries({ queryKey: queryKeys.applications }));
+    await edit();
+    expect(screen.getByLabelText("Signing certificate (optional)")).toHaveValue("rotated certificate");
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(calls).toHaveLength(1));
+    expect(calls[0].body).toMatchObject({ saml: { certificate: "rotated certificate" } });
+  });
+
   it("maps indexed attribute errors to the editable release choices", async () => {
     stub(() => Response.json({ error: { code: "VALIDATION_ERROR", details: [{ field: "saml.attribute_release[0]", issue: "Choose a supported attribute." }] } }, { status: 400 }));
     mount(); await edit();

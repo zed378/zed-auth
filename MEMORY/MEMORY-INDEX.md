@@ -10,6 +10,7 @@ Add a line here as part of writing the record — an unindexed record is a recor
 
 | Date | Task | Record | Hook |
 |---|---|---|---|
+| 2026-11-26 | PF-14/16/17 | [Review of the parallel console work](./records/2026-11-26-PF-review-fixes.md) | Unconfirmed Project Grant creation, unparsable CI workflow and stale full-replacement editors fixed; 34/34 end-to-end pass; roles directory-denial scope and PF-13–15 bookkeeping open |
 | 2026-11-26 | PF-17 | [SAML and policy forms](./records/2026-11-26-PF-17-saml-policy-forms.md) | Nested SAML errors, reviewed policy snapshot and scoped drafts; 631 console tests and 14 Chromium checks pass; live/manual acceptance pending |
 | 2026-11-26 | PF-19 | [Checkbox and radio target sizes](./records/2026-11-26-PF-19-target-sizes.md) | Shared choice fields keep a 24px target with component and compiled-style regressions; PF-19 remains WIP pending manual and assistive-technology acceptance |
 | 2026-11-26 | PF-17 | [Application and Project Grant forms](./records/2026-11-26-PF-17-application-grant-forms.md) | Parallel shared-form adoption over existing APIs; follow-up integration passes 631 console tests and 14 Chromium checks |

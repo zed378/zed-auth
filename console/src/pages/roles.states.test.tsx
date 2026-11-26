@@ -52,6 +52,27 @@ beforeEach(() => {
 });
 
 describe("Roles shared collection states", () => {
+  it("reseeds a reopened editor when the role changed on the server", async () => {
+    let current = role;
+    const bodies: unknown[] = [];
+    stubRoles(async (request) => {
+      if (request.method !== "PATCH") return Response.json({ roles: [current] });
+      bodies.push(await request.json());
+      return Response.json(current);
+    });
+    const client = mount();
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Edit" }));
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    // Another administrator revokes the permission while the editor is closed.
+    current = { ...role, permission_keys: [] };
+    await act(() => client.invalidateQueries({ queryKey: rolesKey }));
+    await waitFor(() => expect(screen.getByText("None — a label only")).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: "Edit" }));
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(bodies).toEqual([{ display_name: "Cashier", permission_keys: [] }]));
+  });
+
   it("announces pending rows before showing a genuine empty list", async () => {
     let finish!: (response: Response) => void;
     stubRoles(() => new Promise<Response>((resolve) => { finish = resolve; }));

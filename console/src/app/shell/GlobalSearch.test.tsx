@@ -72,6 +72,20 @@ describe("global search", () => {
     expect(screen.getByTestId("location")).toHaveTextContent("/users/user-2?org=org-1");
   });
 
+  it("ignores Enter while the shown results belong to an earlier query", async () => {
+    const user = userEvent.setup();
+    renderSearch();
+    fireEvent.keyDown(window, { key: "k", ctrlKey: true });
+    const input = await screen.findByRole("combobox");
+    await user.type(input, "billing");
+    await screen.findByRole("option", { name: /Billing.*project-1.*Project/i });
+    fireEvent.change(input, { target: { value: "zzz" } });
+    expect(screen.queryByRole("option")).not.toBeInTheDocument();
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(screen.getByTestId("location")).toHaveTextContent(/^\/users$/);
+  });
+
   it("keeps ordinary signed-in users out of directory search", async () => {
     renderSearch(["PROJECT_OWNER"]);
     fireEvent.keyDown(window, { key: "k", ctrlKey: true });

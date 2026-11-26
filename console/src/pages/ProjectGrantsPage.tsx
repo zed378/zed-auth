@@ -356,14 +356,16 @@ function CreateGrantModal({
             >
               Back
             </Button>
-            <Button variant="primary" loading={form.saving} type="submit" form="create-project-grant">
+            {/* The keys keep React from turning the clicked Review node into
+                this submit button, which would send the grant unconfirmed. */}
+            <Button key="create" variant="primary" loading={form.saving} type="submit" form="create-project-grant">
               Create grant
             </Button>
           </>
         ) : (
           <>
             <Button onClick={dismiss}>Cancel</Button>
-            <Button variant="primary" onClick={() => { if (form.validate()) setReviewing(true); }}>
+            <Button key="review" type="button" variant="primary" onClick={() => { if (form.validate()) setReviewing(true); }}>
               Review
             </Button>
           </>
