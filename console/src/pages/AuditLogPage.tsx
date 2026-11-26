@@ -4,8 +4,10 @@ import { useQuery } from "@tanstack/react-query";
 import { Button } from "../components/Button";
 import { Table } from "../components/Table";
 import type { Column } from "../components/Table";
+import { CollectionStateBoundary } from "../components/states";
 import { api, queryKeys } from "../lib/api/client";
-import { useOrgId } from "../lib/api/queries";
+import { asFailure, useOrgId } from "../lib/api/queries";
+import { queryStaleTime } from "../lib/api/queryPolicy";
 
 type Event = {
   id: string;
@@ -37,9 +39,10 @@ export function AuditLogPage() {
 
   const events = useQuery({
     queryKey: [...queryKeys.events, orgId, type, from, to, cursor ?? ""],
+    staleTime: queryStaleTime.audit,
     enabled: orgId !== null,
     queryFn: async () => {
-      const { data, error } = await api.GET("/v1/organizations/{org_id}/events", {
+      const { data, error, response } = await api.GET("/v1/organizations/{org_id}/events", {
         params: {
           path: { org_id: orgId as string },
           query: {
@@ -53,7 +56,7 @@ export function AuditLogPage() {
           },
         },
       });
-      if (error !== undefined) throw error;
+      if (error !== undefined) throw asFailure(error, response.status);
       return data;
     },
   });
@@ -61,6 +64,14 @@ export function AuditLogPage() {
   const rows = (events.data?.events ?? []) as Event[];
   const nextToken = events.data?.page_info?.next_page_token;
   const filtered = type !== "" || from !== "" || to !== "";
+  const accessDenied = events.isError && kindOf(events.error) === "permission";
+
+  function clearFilters() {
+    setType("");
+    setFrom("");
+    setTo("");
+    setCursors([]);
+  }
 
   const columns: Column<Event>[] = [
     {
@@ -165,39 +176,46 @@ export function AuditLogPage() {
       </div>
 
       <div className="mt-4">
-        <Table<Event>
-          caption="Audit events, newest first"
-          columns={columns}
-          rows={rows}
-          rowKey={(event) => event.id}
-          status={events.isPending ? "loading" : events.isError ? "error" : "ready"}
-          errorKind={kindOf(events.error)}
+        <CollectionStateBoundary
+          count={rows.length}
+          loading={events.isPending}
+          failed={events.isError}
+          permitted={!accessDenied}
+          errorKind={kindOf(events.error) === "network" ? "network" : "server"}
           onRetry={() => void events.refetch()}
           what="events"
+          loadingLabel="Loading audit events"
           filtered={filtered}
-          onClearFilter={() => {
-            setType("");
-            setFrom("");
-            setTo("");
-            setCursors([]);
-          }}
-          actions={(event) => (
-            <button
-              type="button"
-              aria-expanded={expanded === event.id}
-              aria-controls={`detail-${event.id}`}
-              onClick={() => setExpanded(expanded === event.id ? null : event.id)}
-              className="text-accent underline"
-            >
-              {expanded === event.id ? "Hide detail" : "Detail"}
-            </button>
-          )}
-        />
+          onClearFilter={clearFilters}
+          skeleton={
+            <Table<Event> caption="Audit events, newest first" columns={columns}
+              rows={[]} rowKey={(event) => event.id} status="loading" what="events" />
+          }
+        >
+          <Table<Event>
+            caption="Audit events, newest first"
+            columns={columns}
+            rows={rows}
+            rowKey={(event) => event.id}
+            status="ready"
+            what="events"
+            actions={(event) => (
+              <button
+                type="button"
+                aria-expanded={expanded === event.id}
+                aria-controls={`detail-${event.id}`}
+                onClick={() => setExpanded(expanded === event.id ? null : event.id)}
+                className="text-accent underline"
+              >
+                {expanded === event.id ? "Hide detail" : "Detail"}
+              </button>
+            )}
+          />
+          {expanded !== null ? (
+            <EventDetail event={rows.find((row) => row.id === expanded)} />
+          ) : null}
+        </CollectionStateBoundary>
       </div>
-
-      {expanded !== null ? (
-        <EventDetail event={rows.find((row) => row.id === expanded)} />
-      ) : null}
 
       {/*
         Cursor pagination against P1-20. Forward only, with a stack so "back"
@@ -205,17 +223,21 @@ export function AuditLogPage() {
         a keyset cursor has no page numbers, and pretending otherwise would
         mean an offset query on a table with no ceiling.
       */}
-      <div className="mt-4 flex gap-2">
-        <Button disabled={cursors.length === 0} onClick={() => setCursors(cursors.slice(0, -1))}>
-          Previous
-        </Button>
-        <Button
-          disabled={nextToken === undefined || nextToken === null}
-          onClick={() => setCursors([...cursors, nextToken as string])}
-        >
-          Next
-        </Button>
-      </div>
+      {!accessDenied ? (
+        <div className="mt-4 flex gap-2">
+          <Button disabled={cursors.length === 0} disabledReason="This is the first page."
+            onClick={() => setCursors(cursors.slice(0, -1))}>
+            Previous
+          </Button>
+          <Button
+            disabled={nextToken === undefined || nextToken === null}
+            disabledReason={nextToken === undefined || nextToken === null ? "There are no more events." : undefined}
+            onClick={() => setCursors([...cursors, nextToken as string])}
+          >
+            Next
+          </Button>
+        </div>
+      ) : null}
     </>
   );
 }
@@ -263,6 +285,7 @@ function EventDetail({ event }: { event: Event | undefined }) {
 }
 
 function kindOf(error: unknown): "network" | "server" | "permission" | "validation" {
+  if (error instanceof TypeError) return "network";
   const failure = error as { kind?: "network" | "server" | "permission" | "validation" } | null;
   return failure?.kind ?? "server";
 }

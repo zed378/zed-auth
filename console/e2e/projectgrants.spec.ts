@@ -77,7 +77,9 @@ test.describe("Project Grants", () => {
     await dialog.getByLabel("Organization ID").fill(partner);
     // Nothing ticked yet: the warning, and no way forward.
     await expect(dialog.getByText("This Project Grant has no roles selected yet.")).toBeVisible();
-    await expect(dialog.getByRole("button", { name: "Review" })).toBeDisabled();
+    await dialog.getByRole("button", { name: "Review" }).click();
+    await expect(dialog.getByText("Select at least one role to share.")).toBeVisible();
+    await expect(dialog.getByRole("button", { name: "Create grant" })).toHaveCount(0);
 
     await dialog.getByRole("checkbox", { name: new RegExp(shared) }).check();
     // The summary builds as the box is ticked.
@@ -85,6 +87,8 @@ test.describe("Project Grants", () => {
 
     await dialog.getByRole("button", { name: "Review" }).click();
     await expect(dialog.getByText(`Not shared: ${withheld}.`)).toBeVisible();
+    // Review only reviews: nothing exists until the second button.
+    expect((await api<GrantList>("GET", grantsPath)).grants).toHaveLength(0);
     await dialog.getByRole("button", { name: "Create grant" }).click();
     await expect(dialog).toBeHidden();
 

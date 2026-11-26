@@ -4,11 +4,12 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Badge } from "../components/Badge";
 import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/ConfirmDialog";
-import { ErrorState, Skeleton } from "../components/states";
+import { CollectionStateBoundary, Skeleton } from "../components/states";
 import { Table } from "../components/Table";
 import type { Column } from "../components/Table";
 import { api, queryKeys } from "../lib/api/client";
 import { ApiFailure, PAGE_SIZE, asFailure, collectPages } from "../lib/api/queries";
+import { invalidateQueries, mutationInvalidations, queryStaleTime } from "../lib/api/queryPolicy";
 import type { components } from "../lib/api/schema.gen";
 import { useAuth } from "../lib/auth/AuthProvider";
 
@@ -40,6 +41,10 @@ type Session = components["schemas"]["Session"];
  * low-risk action the example describes — so that row asks first.
  */
 export function SessionsTab({ orgId, userId }: { orgId: string | null; userId: string }) {
+  return <ScopedSessions key={`${orgId}:${userId}`} orgId={orgId} userId={userId} />;
+}
+
+function ScopedSessions({ orgId, userId }: { orgId: string | null; userId: string }) {
   const { claims, logout } = useAuth();
   const self = claims !== null && claims.subject === userId;
   const queryClient = useQueryClient();
@@ -51,16 +56,17 @@ export function SessionsTab({ orgId, userId }: { orgId: string | null; userId: s
 
   const sessions = useQuery({
     queryKey: key,
-    enabled: orgId !== null,
+    staleTime: queryStaleTime.sessions,
+    enabled: orgId !== null && claims !== null,
     queryFn: async () => {
       const all = await collectPages(async (token) => {
         const query = { page_size: PAGE_SIZE, ...(token === undefined ? {} : { page_token: token }) };
-        const { data, error } = self
+        const { data, error, response } = self
           ? await api.GET("/v1/me/sessions", { params: { query } })
           : await api.GET("/v1/organizations/{org_id}/users/{user_id}/sessions", {
               params: { path: { org_id: orgId as string, user_id: userId }, query },
             });
-        if (error !== undefined) throw asFailure(error);
+        if (error !== undefined) throw asFailure(error, response.status);
         return { items: data.sessions, next: data.page_info?.next_page_token };
       });
       return all.items;
@@ -105,7 +111,7 @@ export function SessionsTab({ orgId, userId }: { orgId: string | null; userId: s
         logout();
       }
     },
-    onSettled: () => void queryClient.invalidateQueries({ queryKey: key }),
+    onSettled: () => void invalidateQueries(queryClient, mutationInvalidations.sessions(orgId, self ? "me" : userId ?? "")),
   });
 
   const revokeOthers = useMutation({
@@ -116,24 +122,15 @@ export function SessionsTab({ orgId, userId }: { orgId: string | null; userId: s
     },
     onSuccess: (count) => {
       setNotice(count === 1 ? "1 other session was signed out." : `${count} other sessions were signed out.`);
-      void queryClient.invalidateQueries({ queryKey: key });
+      void invalidateQueries(queryClient, mutationInvalidations.sessions(orgId, self ? "me" : userId ?? ""));
     },
     onError: (error) => {
       setNotice(error instanceof ApiFailure ? error.message : "The other sessions could not be signed out.");
     },
   });
 
-  if (sessions.isPending) return <Skeleton className="h-40 w-full" />;
-  if (sessions.isError) {
-    return (
-      <ErrorState
-        kind={sessions.error instanceof ApiFailure ? sessions.error.kind : "server"}
-        onRetry={() => void sessions.refetch()}
-      />
-    );
-  }
-
-  const rows = sessions.data;
+  const rows = sessions.data ?? [];
+  const kind = sessions.error instanceof ApiFailure ? sessions.error.kind : "server";
   const others = rows.filter((row) => !row.current);
 
   const columns: Column<Session>[] = [
@@ -153,7 +150,13 @@ export function SessionsTab({ orgId, userId }: { orgId: string | null; userId: s
   ];
 
   return (
-    <>
+    <CollectionStateBoundary
+      loading={sessions.isPending} failed={sessions.isError} count={rows.length}
+      permitted={!(sessions.isError && kind === "permission")}
+      skeleton={<Skeleton className="h-40 w-full" />} loadingLabel="Loading active sessions"
+      what="active sessions" onRetry={() => void sessions.refetch()}
+      errorKind={kind === "network" ? "network" : "server"}
+    >
       {self ? (
         <div className="mb-4 flex flex-wrap items-center gap-3">
           <Button
@@ -217,7 +220,7 @@ export function SessionsTab({ orgId, userId }: { orgId: string | null; userId: s
         }}
         consequence={<p>This is the session you are using now. You will be signed out of the console.</p>}
       />
-    </>
+    </CollectionStateBoundary>
   );
 }
 

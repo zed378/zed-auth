@@ -187,7 +187,8 @@ describe("creating a grant", () => {
     expect(warning).not.toHaveClass("text-danger");
 
     await userEvent.type(form.getByLabelText("Organization ID"), PARTNER);
-    expect(form.getByRole("button", { name: "Review" })).toBeDisabled();
+    await userEvent.click(form.getByRole("button", { name: "Review" }));
+    expect(form.getByText("Select at least one role to share.")).toBeInTheDocument();
   });
 
   it("builds the plain-language summary live as roles are ticked", async () => {
@@ -213,7 +214,8 @@ describe("creating a grant", () => {
     await userEvent.click(form.getByLabelText(/cashier/));
 
     expect(form.getByLabelText("Organization ID")).toHaveAttribute("aria-invalid", "true");
-    expect(form.getByRole("button", { name: "Review" })).toBeDisabled();
+    await userEvent.click(form.getByRole("button", { name: "Review" }));
+    expect(form.getByLabelText("Organization ID")).toHaveFocus();
   });
 
   it("says so when the ID is this organization's own", async () => {
@@ -227,8 +229,9 @@ describe("creating a grant", () => {
     const form = await openCreate();
 
     await userEvent.type(form.getByLabelText("Organization ID"), own);
+    await userEvent.tab();
 
-    expect(form.getByText(/this organization's own ID/)).toBeInTheDocument();
+    expect(form.getByLabelText("Organization ID")).toHaveAccessibleDescription(/this organization's own ID/);
   });
 
   it("confirms on a second step, then sends exactly the ticked roles", async () => {
@@ -238,7 +241,8 @@ describe("creating a grant", () => {
     await userEvent.type(form.getByLabelText("Organization ID"), ` ${PARTNER.toUpperCase()} `);
     await userEvent.click(form.getByLabelText(/manager/));
     await userEvent.click(form.getByLabelText(/cashier/));
-    await userEvent.click(form.getByRole("button", { name: "Review" }));
+    const reviewButton = form.getByRole("button", { name: "Review" });
+    await userEvent.click(reviewButton);
 
     // Flow 2's confirmation step: nothing is sent by Review.
     expect(calls).toHaveLength(0);
@@ -246,7 +250,12 @@ describe("creating a grant", () => {
     expect(review.getByText("Confirm the grant")).toBeInTheDocument();
     expect(review.getByText(/Not shared: owner/)).toBeInTheDocument();
 
-    await userEvent.click(review.getByRole("button", { name: "Create grant" }));
+    // A real browser submits on the Review click if React turns that same node
+    // into the submit button. jsdom does not, so assert the node is a new one.
+    const create = review.getByRole("button", { name: "Create grant" });
+    expect(create).not.toBe(reviewButton);
+
+    await userEvent.click(create);
 
     await waitFor(() => expect(calls).toHaveLength(1));
     expect(calls[0].method).toBe("POST");
@@ -254,7 +263,7 @@ describe("creating a grant", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   });
 
-  it("shows the server's refusal on the confirmation step and keeps the choices", async () => {
+  it("maps the server's refusal to its editable field and keeps the choices", async () => {
     stub([], () => ({
       status: 400,
       body: {
@@ -278,7 +287,7 @@ describe("creating a grant", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent(/cannot receive a grant/);
 
-    await userEvent.click(screen.getByRole("button", { name: "Back" }));
+    expect(screen.getByLabelText("Organization ID")).toHaveFocus();
     expect(screen.getByLabelText("Organization ID")).toHaveValue(PARTNER);
     expect(screen.getByLabelText(/cashier/)).toBeChecked();
   });

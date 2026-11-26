@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "react-router-dom";
 
@@ -6,18 +6,26 @@ import { Badge } from "../components/Badge";
 import { Button } from "../components/Button";
 import { ClientSecretModal } from "../components/ClientSecretModal";
 import { Modal } from "../components/Modal";
+import { SelectField, TextAreaField, TextField } from "../components/FormField";
+import { FormSummary, FormSystem, useExplicitForm } from "../components/FormSystem";
 import {
   SamlRegistrationFields,
   draftFrom,
-  draftIsComplete,
   emptySamlDraft,
   inputFrom,
+  samlDraftValues,
+  samlFieldBindings,
+  samlFormFailure,
+  samlFormRules,
+  samlFormValues,
 } from "../components/SamlRegistrationFields";
 import type { SamlDraft, SamlRegistration } from "../components/SamlRegistrationFields";
 import { ProjectNav } from "../components/ProjectNav";
 import { Table } from "../components/Table";
 import type { Column } from "../components/Table";
-import { api, queryKeys } from "../lib/api/client";
+import { CollectionStateBoundary } from "../components/states";
+import { api } from "../lib/api/client";
+import { invalidateQueries, mutationInvalidations } from "../lib/api/queryPolicy";
 import { useApplications, useOrgId, useProjects } from "../lib/api/queries";
 import { useAuth } from "../lib/auth/AuthProvider";
 
@@ -41,6 +49,10 @@ type Application = {
 export function ApplicationsPage() {
   const { projectId } = useParams<{ projectId: string }>();
   const orgId = useOrgId();
+  return <ApplicationsScope key={JSON.stringify([orgId, projectId])} orgId={orgId} projectId={projectId ?? null} />;
+}
+
+function ApplicationsScope({ orgId, projectId }: { orgId: string | null; projectId: string | null }) {
   const projects = useProjects(orgId);
   const applications = useApplications(orgId, projectId ?? null);
   const [creating, setCreating] = useState(false);
@@ -50,7 +62,9 @@ export function ApplicationsPage() {
 
   const project = (projects.data ?? []).find((candidate) => candidate.id === projectId);
   const rows = (applications.data ?? []) as Application[];
-  const canManage = hasRole("ORG_ADMIN", "ORG_OWNER", "INSTANCE_OWNER");
+  const accessDenied = (applications.isError && kindOf(applications.error) === "permission")
+    || (projects.isError && kindOf(projects.error) === "permission");
+  const canManage = !accessDenied && hasRole("ORG_ADMIN", "ORG_OWNER", "INSTANCE_OWNER");
 
   const columns: Column<Application>[] = [
     { key: "name", header: "Name", cell: (app) => app.name },
@@ -133,14 +147,14 @@ export function ApplicationsPage() {
         <Link to="/projects" className="underline">
           Projects
         </Link>{" "}
-        / <span aria-current="page">{project?.name ?? "…"}</span>
+        / <span aria-current="page">{accessDenied ? "Project" : project?.name ?? "…"}</span>
       </nav>
 
       <ProjectNav projectId={projectId ?? ""} />
 
       <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-heading-1 font-medium text-text-primary">Applications</h1>
-        {hasRole("ORG_ADMIN", "ORG_OWNER", "INSTANCE_OWNER") ? (
+        {canManage ? (
           <Button variant="primary" onClick={() => setCreating(true)}>
             Register application
           </Button>
@@ -148,28 +162,37 @@ export function ApplicationsPage() {
       </div>
 
       <div className="mt-4">
+        <CollectionStateBoundary
+          count={rows.length}
+          loading={applications.isPending}
+          failed={applications.isError}
+          permitted={!accessDenied}
+          errorKind={kindOf(applications.error) === "network" ? "network" : "server"}
+          onRetry={() => void applications.refetch()}
+          what="applications"
+          loadingLabel="Loading applications"
+          skeleton={<Table<Application> caption={`Applications in ${project?.name ?? "this project"}`}
+            columns={columns} rows={[]} rowKey={(app) => app.id} status="loading" what="applications" />}
+          emptyAction={canManage ? (
+            <Button variant="primary" onClick={() => setCreating(true)}>
+              Register the first application
+            </Button>
+          ) : undefined}
+        >
         <Table<Application>
           caption={`Applications in ${project?.name ?? "this project"}`}
           columns={columns}
           rows={rows}
           rowKey={(app) => app.id}
-          status={applications.isPending ? "loading" : applications.isError ? "error" : "ready"}
-          errorKind={kindOf(applications.error)}
-          onRetry={() => void applications.refetch()}
+          status="ready"
           what="applications"
           filtered={false}
-          emptyAction={
-            hasRole("ORG_ADMIN", "ORG_OWNER", "INSTANCE_OWNER") ? (
-              <Button variant="primary" onClick={() => setCreating(true)}>
-                Register the first application
-              </Button>
-            ) : undefined
-          }
         />
+        </CollectionStateBoundary>
       </div>
 
       <CreateApplicationModal
-        open={creating}
+        open={canManage && creating}
         orgId={orgId}
         projectId={projectId ?? null}
         onClose={() => setCreating(false)}
@@ -182,16 +205,17 @@ export function ApplicationsPage() {
       />
 
       <EditSamlModal
-        application={editingSaml}
+        key={canManage ? "manage" : "readonly"}
+        application={canManage ? editingSaml : null}
         orgId={orgId}
         projectId={projectId ?? null}
         onClose={() => setEditingSaml(null)}
       />
 
       <ClientSecretModal
-        open={issued !== null}
-        applicationName={issued?.name ?? ""}
-        secret={issued?.secret ?? ""}
+        open={canManage && issued !== null}
+        applicationName={canManage ? issued?.name ?? "" : ""}
+        secret={canManage ? issued?.secret ?? "" : ""}
         onClose={() => setIssued(null)}
       />
     </>
@@ -211,15 +235,12 @@ function CreateApplicationModal({
   onClose: () => void;
   onIssued: (name: string, secret: string | undefined) => void;
 }) {
-  const [name, setName] = useState("");
-  const [type, setType] = useState<"web" | "spa" | "native" | "api" | "saml">("web");
+  const formId = useId();
   const [saml, setSaml] = useState<SamlDraft>(emptySamlDraft);
-  const [redirects, setRedirects] = useState("");
-  const [problem, setProblem] = useState<string | null>(null);
   const queryClient = useQueryClient();
 
   const create = useMutation({
-    mutationFn: async () => {
+    mutationFn: async ({ name, type, redirect_uris, registration }: { name: string; type: "web" | "spa" | "native" | "api" | "saml"; redirect_uris: string; registration: SamlDraft }) => {
       const { data, error } = await api.POST(
         "/v1/organizations/{org_id}/projects/{project_id}/applications",
         {
@@ -229,41 +250,41 @@ function CreateApplicationModal({
           // refuses the crossed combinations, so the console never builds one.
           body:
             type === "saml"
-              ? { name: name.trim(), type, saml: inputFrom(saml) }
+              ? { name: name.trim(), type, saml: inputFrom(registration) }
               : {
                   name: name.trim(),
                   type,
-                  redirect_uris: redirects
+                  redirect_uris: redirect_uris
                     .split("\n")
                     .map((line) => line.trim())
                     .filter((line) => line !== ""),
                 },
         },
       );
-      if (error !== undefined) throw error;
+      if (error !== undefined) throw samlFormFailure(error, registration);
       return data;
     },
     onSuccess: (data) => {
-      void queryClient.invalidateQueries({
-        queryKey: [...queryKeys.applications, orgId, projectId],
-      });
+      void invalidateQueries(queryClient, mutationInvalidations.applications(orgId, projectId)).catch(() => undefined);
       onIssued(data.name, data.client_secret);
-      setName("");
-      setRedirects("");
+      form.reset();
       setSaml(emptySamlDraft());
-      setProblem(null);
-    },
-    onError: (error: unknown) => {
-      const envelope = error as { error?: { message?: string; details?: { issue?: string }[] } };
-      // The server's per-field detail where there is one: a wildcard redirect
-      // URI comes back with a sentence explaining why exact matching means a
-      // wildcard would match nothing (P1-18), and that is more useful than
-      // "invalid".
-      setProblem(
-        envelope.error?.details?.[0]?.issue ?? envelope.error?.message ?? "That could not be saved.",
-      );
     },
   });
+
+  const form = useExplicitForm({
+    initialValues: { name: "", type: "web", redirect_uris: "", ...samlFormValues(emptySamlDraft()) },
+    fields: {
+      name: { label: "Name", validate: (value) => value.trim() ? undefined : "Enter an application name." },
+      type: { label: "Type" },
+      redirect_uris: { label: "Redirect URIs" },
+      ...samlFormRules(saml, (values) => values.type === "saml"),
+    },
+    onSave: async (values) => {
+      await create.mutateAsync({ ...values, type: values.type as "web" | "spa" | "native" | "api" | "saml", registration: samlDraftValues(saml, values) });
+    },
+  });
+  const type = form.values.type;
 
   const publicClient = type === "spa" || type === "native";
 
@@ -272,86 +293,44 @@ function CreateApplicationModal({
       open={open}
       title="Register an application"
       onClose={onClose}
+      dismissible={!form.saving}
       footer={
         <>
-          <Button onClick={onClose}>Cancel</Button>
+          <Button onClick={onClose} disabled={form.saving} disabledReason="Wait for registration to finish.">Cancel</Button>
           <Button
             variant="primary"
-            loading={create.isPending}
-            disabled={name.trim() === "" || (type === "saml" && !draftIsComplete(saml))}
-            onClick={() => create.mutate()}
+            loading={form.saving}
+            type="submit"
+            form={formId}
           >
             Register
           </Button>
         </>
       }
     >
-      <label htmlFor="app-name" className="block text-small font-medium text-text-secondary">
-        Name
-      </label>
-      <input
-        id="app-name"
-        value={name}
-        onChange={(event) => setName(event.currentTarget.value)}
-        className="mt-1 w-full rounded border border-border bg-bg-base px-3 py-2 text-body text-text-primary"
-      />
-
-      <label htmlFor="app-type" className="mt-4 block text-small font-medium text-text-secondary">
-        Type
-      </label>
-      <select
-        id="app-type"
-        value={type}
-        onChange={(event) => setType(event.currentTarget.value as typeof type)}
-        aria-describedby="app-type-help"
-        className="mt-1 w-full rounded border border-border bg-bg-base px-3 py-2 text-body text-text-primary"
-      >
-        <option value="web">Web — a server-side application</option>
-        <option value="spa">Single-page app — runs in a browser</option>
-        <option value="native">Native — a mobile or desktop app</option>
-        <option value="api">API — a service with no user present</option>
-        <option value="saml">SAML — a service provider that signs in with SAML 2.0</option>
-      </select>
-      <p id="app-type-help" className="mt-1 text-small text-text-secondary">
-        {type === "saml"
-          ? "A SAML service provider gets no secret: it trusts this service by its signing certificate."
+      <FormSystem {...form.formProps} id={formId} pattern="explicit" className="space-y-3">
+        <TextField label="Name" {...form.field("name")} />
+        <SelectField label="Type" {...form.field("type")} helperText={type === "saml"
+          ? "A SAML service provider gets no secret: it trusts this service by its signing certificate. The type cannot be changed afterwards."
           : publicClient
-            ? "A public client gets no secret: it cannot keep one confidential, so it uses PKCE instead."
-            : "A confidential client is issued a secret, shown once when it is registered."}{" "}
-        The type cannot be changed afterwards.
-      </p>
+            ? "A public client gets no secret: it cannot keep one confidential, so it uses PKCE instead. The type cannot be changed afterwards."
+            : "A confidential client is issued a secret, shown once when it is registered. The type cannot be changed afterwards."}>
+          <option value="web">Web — a server-side application</option>
+          <option value="spa">Single-page app — runs in a browser</option>
+          <option value="native">Native — a mobile or desktop app</option>
+          <option value="api">API — a service with no user present</option>
+          <option value="saml">SAML — a service provider that signs in with SAML 2.0</option>
+        </SelectField>
 
-      {type === "saml" ? (
-        <SamlRegistrationFields idPrefix="app-saml" draft={saml} onChange={setSaml} />
-      ) : (
-        <>
+        {type === "saml" ? (
+          <fieldset disabled={form.saving}><SamlRegistrationFields idPrefix="app-saml" draft={samlDraftValues(saml, form.values)} onChange={setSaml} fields={samlFieldBindings(form.field)} /></fieldset>
+        ) : (
+          <TextAreaField label="Redirect URIs" {...form.field("redirect_uris")} rows={3}
+            helperText="One per line, matched by exact string comparison — a wildcard would be matched literally and never match anything." />
+        )}
 
-      <label
-        htmlFor="app-redirects"
-        className="mt-4 block text-small font-medium text-text-secondary"
-      >
-        Redirect URIs
-      </label>
-      <textarea
-        id="app-redirects"
-        rows={3}
-        value={redirects}
-        onChange={(event) => setRedirects(event.currentTarget.value)}
-        aria-describedby="app-redirects-help"
-        className="mt-1 w-full rounded border border-border bg-bg-base px-3 py-2 font-mono text-small text-text-primary"
-      />
-      <p id="app-redirects-help" className="mt-1 text-small text-text-secondary">
-        One per line, matched by exact string comparison — a wildcard would be matched literally
-        and never match anything.
-      </p>
-        </>
-      )}
-
-      {problem !== null ? (
-        <p role="alert" className="mt-3 text-small text-danger">
-          {problem}
-        </p>
-      ) : null}
+        <FormSummary message={form.summary} />
+      </FormSystem>
     </Modal>
   );
 }
@@ -407,28 +386,30 @@ function EditSamlModal({
   projectId: string | null;
   onClose: () => void;
 }) {
-  const [draft, setDraft] = useState<SamlDraft | null>(null);
-  const [problem, setProblem] = useState<string | null>(null);
-  const [seededFor, setSeededFor] = useState<string | null>(null);
+  // A save replaces the whole registration, so an unsaved draft is kept only
+  // while the stored one it started from is unchanged.
+  const version = (app: Application | null) => app && JSON.stringify([app.id, app.saml]);
+  const [selected, setSelected] = useState(application);
+  if (application !== null && version(selected) !== version(application)) setSelected(application);
+  if (selected?.saml === undefined) return null;
+  return <EditSamlForm key={version(selected)} application={selected} orgId={orgId} projectId={projectId}
+    open={application !== null} onClose={onClose} onSaved={() => { setSelected(null); onClose(); }} />;
+}
+
+function EditSamlForm({ application, orgId, projectId, open, onClose, onSaved }: {
+  application: Application;
+  orgId: string | null;
+  projectId: string | null;
+  open: boolean;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [draft, setDraft] = useState(() => draftFrom(application.saml as SamlRegistration));
+  const formId = useId();
   const queryClient = useQueryClient();
 
-  // Seeded each time a different application is opened, so a cancelled edit
-  // does not leak into the next one.
-  if (application?.saml !== undefined && seededFor !== application.id) {
-    setSeededFor(application.id);
-    setDraft(draftFrom(application.saml));
-    setProblem(null);
-  }
-
-  const close = () => {
-    setSeededFor(null);
-    setDraft(null);
-    onClose();
-  };
-
   const save = useMutation({
-    mutationFn: async () => {
-      if (application === null || draft === null) return;
+    mutationFn: async (registration: SamlDraft) => {
       const { error } = await api.PATCH(
         "/v1/organizations/{org_id}/projects/{project_id}/applications/{application_id}",
         {
@@ -439,57 +420,54 @@ function EditSamlModal({
               application_id: application.id,
             },
           },
-          body: { saml: inputFrom(draft) },
+          body: { saml: inputFrom(registration) },
         },
       );
-      if (error !== undefined) throw error;
+      if (error !== undefined) throw samlFormFailure(error, registration);
     },
     onSuccess: () => {
-      void queryClient.invalidateQueries({
-        queryKey: [...queryKeys.applications, orgId, projectId],
-      });
-      close();
+      void invalidateQueries(queryClient, mutationInvalidations.applications(orgId, projectId)).catch(() => undefined);
+      onSaved();
     },
-    onError: (error: unknown) => {
-      const envelope = error as { error?: { message?: string; details?: { issue?: string }[] } };
-      setProblem(
-        envelope.error?.details?.[0]?.issue ?? envelope.error?.message ?? "That could not be saved.",
-      );
-    },
+  });
+  const form = useExplicitForm({
+    initialValues: samlFormValues(draft),
+    fields: samlFormRules(draft, () => true),
+    onSave: async (values) => { await save.mutateAsync(samlDraftValues(draft, values)); },
   });
 
   return (
     <Modal
-      open={application !== null && draft !== null}
-      title={`SAML settings — ${application?.name ?? ""}`}
-      onClose={close}
+      open={open}
+      title={`SAML settings — ${application.name}`}
+      onClose={onClose}
+      dismissible={!form.saving}
       footer={
         <>
-          <Button onClick={close}>Cancel</Button>
+          <Button onClick={onClose} disabled={form.saving} disabledReason="Wait for settings to finish saving.">Cancel</Button>
           <Button
             variant="primary"
-            loading={save.isPending}
-            disabled={draft === null || !draftIsComplete(draft)}
-            onClick={() => save.mutate()}
+            loading={form.saving}
+            type="submit"
+            form={formId}
           >
             Save
           </Button>
         </>
       }
     >
-      {draft !== null ? (
+      <FormSystem {...form.formProps} id={formId} pattern="explicit" className="space-y-3">
+      <fieldset disabled={form.saving}>
         <SamlRegistrationFields
           idPrefix="edit-saml"
-          draft={draft}
+          draft={samlDraftValues(draft, form.values)}
           onChange={setDraft}
           allowMetadata={false}
+          fields={samlFieldBindings(form.field)}
         />
-      ) : null}
-      {problem !== null ? (
-        <p role="alert" className="mt-3 text-small text-danger">
-          {problem}
-        </p>
-      ) : null}
+      </fieldset>
+      <FormSummary message={form.summary} />
+      </FormSystem>
     </Modal>
   );
 }

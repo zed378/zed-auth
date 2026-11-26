@@ -94,7 +94,7 @@ export function OrgSwitcher() {
   if (homeOrgId === null) return null;
 
   return (
-    <div ref={panel} className="relative px-3 pb-3">
+    <div ref={panel} className="relative min-w-0 max-w-64 flex-1">
       <p className="text-small text-text-secondary" id="org-switcher-label">
         Organization
       </p>

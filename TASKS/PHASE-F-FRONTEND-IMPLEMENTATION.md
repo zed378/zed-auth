@@ -222,7 +222,7 @@ Pulled from across `docs/UI-UX/` so they are enforceable rather than remembered:
 
 | | |
 |---|---|
-| **Status** | **WIP** — initial development-only workbench, branded preview and primitive lint guard; full catalog pending · **Depends on** P0-17 · **Surface** console · **Spec required** No |
+| **Status** | **WIP** — full family catalog, branded preview, primitive lint guard and CI browser checks implemented; final browser/manual acceptance pending · **Depends on** P0-17 · **Surface** console · **Spec required** No |
 | **Plan refs** | `docs/UI-UX/05-DESIGN-SYSTEM.md` § Governance, `docs/UI-UX/07-COMPONENT-SPECIFICATION.md`, `docs/PLAN/06-FRONTEND-ARCHITECTURE.md` |
 
 **Goal** — A place where components live, are viewed in every state, and are reviewed — so `docs/UI-UX/05`'s governance rule ("any new token or component must be added here before being used in a page spec") is enforceable rather than aspirational.
@@ -247,7 +247,7 @@ Pulled from across `docs/UI-UX/` so they are enforceable rather than remembered:
 
 | | |
 |---|---|
-| **Status** | TODO · **Depends on** PF-02 · **Surface** console · **Spec required** No |
+| **Status** | **REVIEW** — development diagnostics and examples implemented; caller adoption and browser acceptance pending · **Depends on** PF-02 · **Surface** console · **Spec required** No |
 | **Plan refs** | `docs/UI-UX/07-COMPONENT-SPECIFICATION.md` § Button, `docs/UI-UX/15-FORM-UX.md`, `docs/UI-UX/13-ACCESSIBILITY.md` |
 
 **Goal** — Three variants mapped one-to-one to action severity, so an admin can gauge risk from color before reading the label (`docs/UI-UX/05`).
@@ -275,7 +275,7 @@ Pulled from across `docs/UI-UX/` so they are enforceable rather than remembered:
 
 | | |
 |---|---|
-| **Status** | TODO · **Depends on** PF-02 · **Surface** console · **Spec required** No |
+| **Status** | **REVIEW** — table behaviors implemented; browser geometry and performance acceptance pending · **Depends on** PF-02 · **Surface** console · **Spec required** No |
 | **Plan refs** | `docs/UI-UX/07-COMPONENT-SPECIFICATION.md` § Table, `docs/UI-UX/14-EMPTY-LOADING-ERROR-STATES.md`, `docs/UI-UX/12-RESPONSIVE-BEHAVIOR.md`, `docs/UI-UX/11-MICRO-INTERACTIONS.md` |
 
 **Goal** — The console's primary data-display pattern, built once. `docs/UI-UX/08` is explicit: no screen invents its own table.
@@ -305,7 +305,7 @@ Pulled from across `docs/UI-UX/` so they are enforceable rather than remembered:
 
 | | |
 |---|---|
-| **Status** | TODO · **Depends on** PF-02 · **Surface** console · **Spec required** No |
+| **Status** | **REVIEW** — field primitives and workbench examples implemented; browser acceptance pending · **Depends on** PF-02 · **Surface** console · **Spec required** No |
 | **Plan refs** | `docs/UI-UX/07-COMPONENT-SPECIFICATION.md` § Form Field, `docs/UI-UX/15-FORM-UX.md`, `docs/UI-UX/13-ACCESSIBILITY.md`, `docs/UI-UX/11-MICRO-INTERACTIONS.md` |
 
 **Goal** — One field anatomy across the whole console: label → input → helper text → error text, with error text *replacing* helper text rather than appearing alongside it.
@@ -334,7 +334,7 @@ Pulled from across `docs/UI-UX/` so they are enforceable rather than remembered:
 
 | | |
 |---|---|
-| **Status** | TODO · **Depends on** PF-02, PF-01 · **Surface** console · **Spec required** No |
+| **Status** | **REVIEW** — shared focus/scroll ownership, distinct motion, tablet takeover and Chromium regressions; manual AT acceptance pending · **Depends on** PF-02, PF-01 · **Surface** console · **Spec required** No |
 | **Plan refs** | `docs/UI-UX/07-COMPONENT-SPECIFICATION.md` § Modal / Side Panel, `docs/UI-UX/09-INTERACTION-DESIGN.md` § Keyboard & Focus, `docs/UI-UX/10-MOTION-DESIGN.md`, `docs/UI-UX/12-RESPONSIVE-BEHAVIOR.md` |
 
 **Goal** — Two deliberately distinct variants, used for distinct purposes, never interchangeably.
@@ -348,12 +348,12 @@ Pulled from across `docs/UI-UX/` so they are enforceable rather than remembered:
 6. Prevent background scroll while open, without shifting layout when the scrollbar disappears.
 
 **Definition of Done**
-- [ ] Both variants exist with their distinct motion.
-- [ ] The component refuses (or warns) if a destructive confirmation is rendered as a side panel.
-- [ ] Focus enters on open and returns to the trigger on close, verified by test.
-- [ ] Escape closes both variants.
-- [ ] Side panel becomes a takeover at tablet width.
-- [ ] No layout shift when opening.
+- [x] Both variants exist with their distinct motion.
+- [x] The component refuses (or warns) if a destructive confirmation is rendered as a side panel.
+- [x] Focus enters on open and returns to the trigger on close, verified by test.
+- [x] Escape closes both variants (acknowledgement-only secret dialogs intentionally do not dismiss).
+- [x] Side panel becomes a takeover at tablet width.
+- [x] No layout shift when opening, verified with Chromium geometry assertions.
 
 ---
 
@@ -361,7 +361,7 @@ Pulled from across `docs/UI-UX/` so they are enforceable rather than remembered:
 
 | | |
 |---|---|
-| **Status** | TODO · **Depends on** PF-02 · **Surface** console · **Spec required** No |
+| **Status** | **REVIEW** — six status badges, metadata tags, accessible delegation source disclosure and AA token contrast tests; manual AT acceptance pending · **Depends on** PF-02 · **Surface** console · **Spec required** No |
 | **Plan refs** | `docs/UI-UX/07-COMPONENT-SPECIFICATION.md` § Badge / Tag, `docs/UI-UX/06-VISUAL-LANGUAGE.md`, `docs/UI-UX/13-ACCESSIBILITY.md` |
 
 **Goal** — Status and role-source communicated reliably, never by color alone.
@@ -373,10 +373,10 @@ Pulled from across `docs/UI-UX/` so they are enforceable rather than remembered:
 4. Ensure every badge color meets AA contrast against both background tokens, in the default theme and under organization branding.
 
 **Definition of Done**
-- [ ] Every status in `docs/UI-UX/06`'s table has a badge with color, icon, and text.
-- [ ] A badge cannot be rendered without text.
-- [ ] The role-source badge supports both values from the start.
-- [ ] Contrast passes in both themes.
+- [x] Every status in `docs/UI-UX/06`'s table has a badge with color, icon, and text.
+- [x] A badge cannot be rendered without text.
+- [x] The role-source badge supports both values from the start.
+- [x] Contrast passes in both themes (reserved foreground tokens remain invariant under allowed accent branding).
 
 ---
 
@@ -384,7 +384,7 @@ Pulled from across `docs/UI-UX/` so they are enforceable rather than remembered:
 
 | | |
 |---|---|
-| **Status** | TODO · **Depends on** PF-06 · **Surface** console · **Spec required** No |
+| **Status** | **REVIEW** — typed/async/busy/success states implemented; high-risk caller adoption and manual acceptance pending · **Depends on** PF-06 · **Surface** console · **Spec required** No |
 | **Plan refs** | `docs/UI-UX/07-COMPONENT-SPECIFICATION.md` § Confirmation Dialog, `docs/UI-UX/09-INTERACTION-DESIGN.md` § Consequence Before Confirmation, `docs/UI-UX/04-USER-FLOWS.md` |
 
 **Goal** — The component that carries the console's single governing interaction rule. Getting this right once means every access-changing action behaves predictably.
@@ -411,7 +411,7 @@ Pulled from across `docs/UI-UX/` so they are enforceable rather than remembered:
 
 | | |
 |---|---|
-| **Status** | TODO · **Depends on** PF-02 · **Surface** console · **Spec required** No |
+| **Status** | **REVIEW** — reusable and route-derived hierarchy with navigation/axe tests and workbench examples; adoption across all nested screens pending · **Depends on** PF-02 · **Surface** console · **Spec required** No |
 | **Plan refs** | `docs/UI-UX/07-COMPONENT-SPECIFICATION.md` § Breadcrumb, `docs/UI-UX/03-INFORMATION-ARCHITECTURE.md` § Breadcrumb & Wayfinding |
 
 **Goal** — Wayfinding that reflects the real data hierarchy, which `docs/UI-UX/03` says matters most for admins moving between "Projects" and "Granted Projects" — where knowing *whose* project you are looking at is a correctness question, not a convenience.
@@ -425,9 +425,9 @@ Pulled from across `docs/UI-UX/` so they are enforceable rather than remembered:
 
 **Definition of Done**
 - [ ] The trail matches the data hierarchy on every nested screen.
-- [ ] Every segment navigates.
-- [ ] Owned and delegated projects are distinguishable in the trail.
-- [ ] Truncation never hides identity from a screen reader.
+- [x] Every segment navigates.
+- [x] Owned and delegated projects are distinguishable in the trail.
+- [x] Truncation never hides identity from a screen reader.
 
 ---
 
@@ -435,7 +435,7 @@ Pulled from across `docs/UI-UX/` so they are enforceable rather than remembered:
 
 | | |
 |---|---|
-| **Status** | TODO · **Depends on** PF-02 · **Surface** console · **Spec required** No |
+| **Status** | **REVIEW** — both primitives and URL persistence implemented; persistent global shell adoption remains PF-14 · **Depends on** PF-02 · **Surface** console · **Spec required** No |
 | **Plan refs** | `docs/UI-UX/07-COMPONENT-SPECIFICATION.md` § Search Input, `docs/UI-UX/11-MICRO-INTERACTIONS.md` § Search-as-You-Type, `docs/UI-UX/03-INFORMATION-ARCHITECTURE.md` § Search |
 
 **Steps**
@@ -457,7 +457,7 @@ Pulled from across `docs/UI-UX/` so they are enforceable rather than remembered:
 
 | | |
 |---|---|
-| **Status** | TODO · **Depends on** PF-02 · **Surface** console · **Spec required** No |
+| **Status** | **REVIEW** — seven component groups and workbench states implemented; caller/browser/AT acceptance pending · **Depends on** PF-02 · **Surface** console · **Spec required** No |
 | **Plan refs** | `docs/UI-UX/07`, `docs/UI-UX/11-MICRO-INTERACTIONS.md`, `docs/UI-UX/15-FORM-UX.md` § Multi-Step Forms, `docs/UI-UX/18-DETAILED-PAGE-SPECIFICATIONS.md` |
 
 **Goal** — The components `docs/UI-UX/` requires by implication but does not give their own section: without these, each page invents its own.
@@ -486,7 +486,7 @@ Pulled from across `docs/UI-UX/` so they are enforceable rather than remembered:
 
 | | |
 |---|---|
-| **Status** | TODO · **Depends on** PF-02, P1-21 · **Surface** console · **Spec required** Yes — authorization surface |
+| **Status** | **WIP** — lazy route chunks and direct-route guards; shared permission mapping remains · **Depends on** PF-02, P1-21 · **Surface** console · **Spec required** Yes — authorization surface |
 | **Plan refs** | `docs/UI-UX/08-PAGE-SPECIFICATIONS.md` § Cross-Screen Requirements, `docs/PLAN/08-AUTHORIZATION.md`, `docs/PLAN/06-FRONTEND-ARCHITECTURE.md`, `docs/UI-UX/03-INFORMATION-ARCHITECTURE.md` § Depth Rule |
 
 **Goal** — Routes that a user's claims don't permit are **genuinely unreachable**, not merely hidden by CSS — the rule `docs/UI-UX/08` states as non-negotiable.
@@ -592,7 +592,7 @@ Pulled from across `docs/UI-UX/` so they are enforceable rather than remembered:
 
 | | |
 |---|---|
-| **Status** | TODO · **Depends on** PF-04 · **Surface** console · **Spec required** No |
+| **Status** | **WIP** — shared boundary adopted by Granted Projects, Projects, Audit Log, Users, Roles, Project Grants, Applications, Authorizations, Sessions/MFA, Policies and User Detail; remaining screens and acceptance pending · **Depends on** PF-04 · **Surface** console · **Spec required** No |
 | **Plan refs** | `docs/UI-UX/14-EMPTY-LOADING-ERROR-STATES.md`, `docs/UI-UX/09-INTERACTION-DESIGN.md` |
 
 **Goal** — Loading, empty, error, and permission-denied handled by shared machinery, so `docs/UI-UX/19`'s chain has something concrete to point at on every screen.
@@ -620,7 +620,7 @@ Pulled from across `docs/UI-UX/` so they are enforceable rather than remembered:
 
 | | |
 |---|---|
-| **Status** | TODO · **Depends on** PF-05 · **Surface** console · **Spec required** No |
+| **Status** | **WIP** — validation, API field mapping and retained drafts adopted by project, role, user invitation, application/SAML, Project Grant and organization-policy forms; remaining adoption and live/manual acceptance pending · **Depends on** PF-05 · **Surface** console · **Spec required** No |
 | **Plan refs** | `docs/UI-UX/15-FORM-UX.md`, `docs/UI-UX/11-MICRO-INTERACTIONS.md`, `docs/PLAN/05-API-CONTRACT.md` § Standard Error Format, `docs/UI-UX/13-ACCESSIBILITY.md` |
 
 **Goal** — Forms behave identically everywhere, and a server-side validation error lands on the field that caused it.
@@ -673,7 +673,7 @@ Pulled from across `docs/UI-UX/` so they are enforceable rather than remembered:
 
 | | |
 |---|---|
-| **Status** | TODO · **Depends on** PF-02 · **Surface** console · **Spec required** No |
+| **Status** | **WIP** — CI axe/lint/contrast and shared focus/live regions exist; 24px checkbox/radio targets have component, compiled-CSS and Chromium tablet regressions; assistive-technology acceptance remains · **Depends on** PF-02 · **Surface** console · **Spec required** No |
 | **Plan refs** | `docs/UI-UX/13-ACCESSIBILITY.md`, `docs/UI-UX/17-UX-ACCEPTANCE-CRITERIA.md`, `docs/PLAN/02-REQUIREMENTS.md` (WCAG 2.1 AA) |
 
 **Goal** — Make accessibility a property of the foundation rather than a Phase 5 remediation project. `docs/UI-UX/13` is explicit that retrofitting is far more expensive, and `docs/PLAN/18` R-10 lists exactly this as a medium risk.
@@ -700,7 +700,7 @@ Pulled from across `docs/UI-UX/` so they are enforceable rather than remembered:
 
 | | |
 |---|---|
-| **Status** | TODO · **Depends on** P0-16, P1-21 · **Surface** console · **Spec required** No |
+| **Status** | **WIP** — scoped query keys, resource freshness, centralized invalidation and read-side 403 mapping; auth-flow acceptance remains · **Depends on** P0-16, P1-21 · **Surface** console · **Spec required** No |
 | **Plan refs** | `docs/PLAN/06-FRONTEND-ARCHITECTURE.md` § Tech Stack, `docs/PLAN/05-API-CONTRACT.md`, `docs/UI-UX/09-INTERACTION-DESIGN.md` |
 
 **Goal** — One way to fetch, cache, invalidate, and mutate — so cached data from a previous organization can never render after a context switch, which would be a cross-tenant leak in the UI even with a correct API.
@@ -731,7 +731,7 @@ Every task below inherits: the `docs/UI-UX/19` chain table, the twelve console-w
 
 | | |
 |---|---|
-| **Status** | TODO · **Gate** P1-16 · **Size** L · **Surface** console |
+| **Status** | **REVIEW** — organization policy summary, real drill-down links, and empty activity behavior implemented; browser acceptance pending · **Gate** P1-16 · **Size** L · **Surface** console |
 | **Plan refs** | `docs/UI-UX/18-DETAILED-PAGE-SPECIFICATIONS.md` § Organization Overview, `docs/UI-UX/08`, `docs/UI-UX/02-USER-JOURNEYS.md` |
 
 **Goal** — The workspace landing screen. `docs/UI-UX/18` specifies it in detail — follow that spec rather than re-deriving it.
@@ -802,7 +802,7 @@ Every task below inherits: the `docs/UI-UX/19` chain table, the twelve console-w
 
 | | |
 |---|---|
-| **Status** | TODO · **Gate** P1-19 · **Size** L · **Surface** console |
+| **Status** | **WIP** — list states and shared two-step invite form implemented; E2E, async email-in-use validation and acceptance pending · **Gate** P1-19 · **Size** L · **Surface** console |
 | **Plan refs** | `docs/UI-UX/18-DETAILED-PAGE-SPECIFICATIONS.md` § Users List, `docs/UI-UX/04-USER-FLOWS.md` Flow 1, `docs/UI-UX/08` |
 
 **Goal** — Where admins spend most of their time, plus the invite flow — `docs/UI-UX/04` Flow 1, implemented step by step.
@@ -829,7 +829,7 @@ Every task below inherits: the `docs/UI-UX/19` chain table, the twelve console-w
 
 | | |
 |---|---|
-| **Status** | TODO · **Gate** P1-19 · **Size** M · **Surface** console |
+| **Status** | **WIP** — tab/profile baseline and shared detail states implemented; end-to-end and acceptance pending · **Gate** P1-19 · **Size** M · **Surface** console |
 | **Plan refs** | `docs/UI-UX/08` (User detail — Profile tab), `docs/UI-UX/15-FORM-UX.md` |
 
 **Steps**

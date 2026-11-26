@@ -346,6 +346,12 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Install workbench browser
+        run: npx playwright install --with-deps chromium
+
+      - name: Component workbench browser checks
+        run: npm run test:workbench
+
       # The E2E layer moved to its own job (P1-27).
       #
       # It needs a running service, a database, a mail sink and both demo

@@ -1,16 +1,20 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "react-router-dom";
 
 import { Badge } from "../components/Badge";
 import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import { TextField } from "../components/FormField";
+import { FormSummary, FormSystem, useExplicitForm } from "../components/FormSystem";
 import { Modal } from "../components/Modal";
 import { ProjectNav } from "../components/ProjectNav";
 import { RoleList } from "../components/RoleSourceBadge";
 import { Table } from "../components/Table";
 import type { Column } from "../components/Table";
-import { api, queryKeys } from "../lib/api/client";
+import { CollectionStateBoundary } from "../components/states";
+import { api } from "../lib/api/client";
+import { invalidateQueries, mutationInvalidations } from "../lib/api/queryPolicy";
 import type { components } from "../lib/api/schema.gen";
 import { useOrgId, useProjectGrants, useProjects, useRoles } from "../lib/api/queries";
 import { useAuth } from "../lib/auth/AuthProvider";
@@ -43,6 +47,12 @@ type Role = { key: string; display_name: string };
 export function ProjectGrantsPage() {
   const { projectId } = useParams<{ projectId: string }>();
   const orgId = useOrgId();
+  return <ProjectGrantsScope key={`${orgId ?? ""}:${projectId ?? ""}`} />;
+}
+
+function ProjectGrantsScope() {
+  const { projectId } = useParams<{ projectId: string }>();
+  const orgId = useOrgId();
   const projects = useProjects(orgId);
   const grants = useProjectGrants(orgId, projectId ?? null);
   const roles = useRoles(orgId, projectId ?? null);
@@ -51,14 +61,15 @@ export function ProjectGrantsPage() {
   const [creating, setCreating] = useState(false);
   const [revoking, setRevoking] = useState<Grant | null>(null);
 
-  const project = (projects.data ?? []).find((candidate) => candidate.id === projectId);
+  const accessDenied = grants.isError && kindOf(grants.error) === "permission";
+  const project = accessDenied ? undefined : (projects.data ?? []).find((candidate) => candidate.id === projectId);
   const rows = useMemo(() => grants.data ?? [], [grants.data]);
   const projectRoles = useMemo(() => (roles.data ?? []) as Role[], [roles.data]);
 
   // UX only. The API refuses independently on every request (`docs/PLAN/08`,
   // `CLAUDE.md`); these are the roles that satisfy PROJECT_OWNER at project
   // scope, the same set the route is guarded by.
-  const mayManage = hasRole("ORG_ADMIN", "ORG_OWNER", "INSTANCE_OWNER");
+  const mayManage = !accessDenied && hasRole("ORG_ADMIN", "ORG_OWNER", "INSTANCE_OWNER");
 
   const columns: Column<Grant>[] = [
     {
@@ -155,22 +166,28 @@ export function ProjectGrantsPage() {
       </p>
 
       <div className="mt-4">
+        <CollectionStateBoundary
+          count={rows.length}
+          loading={grants.isPending}
+          failed={grants.isError}
+          permitted={!accessDenied}
+          errorKind={kindOf(grants.error) === "network" ? "network" : "server"}
+          onRetry={() => void grants.refetch()}
+          what="Project Grants"
+          loadingLabel="Loading Project Grants"
+          skeleton={<Table<Grant> caption="Project Grants" columns={columns} rows={[]}
+            rowKey={(grant) => grant.id} status="loading" what="Project Grants" />}
+          emptyAction={mayManage ? (
+            <Button variant="primary" onClick={() => setCreating(true)}>Create the first grant</Button>
+          ) : undefined}
+        >
         <Table<Grant>
           caption={`Project Grants of ${project?.name ?? "this project"}`}
           columns={columns}
           rows={rows}
           rowKey={(grant) => grant.id}
-          status={grants.isPending ? "loading" : grants.isError ? "error" : "ready"}
-          errorKind={kindOf(grants.error)}
-          onRetry={() => void grants.refetch()}
+          status="ready"
           what="Project Grants"
-          emptyAction={
-            mayManage ? (
-              <Button variant="primary" onClick={() => setCreating(true)}>
-                Create the first grant
-              </Button>
-            ) : undefined
-          }
           actions={
             mayManage
               ? (grant) =>
@@ -190,20 +207,21 @@ export function ProjectGrantsPage() {
               : undefined
           }
         />
+        </CollectionStateBoundary>
       </div>
 
       <CreateGrantModal
-        open={creating}
+        open={!accessDenied && creating}
         orgId={orgId}
         projectId={projectId ?? null}
         projectName={project?.name ?? "this project"}
-        projectRoles={projectRoles}
+        projectRoles={accessDenied ? [] : projectRoles}
         rolesStatus={roles.isPending ? "loading" : roles.isError ? "error" : "ready"}
         onClose={() => setCreating(false)}
       />
 
       <RevokeGrantDialog
-        grant={revoking}
+        grant={accessDenied ? null : revoking}
         orgId={orgId}
         projectId={projectId ?? null}
         onClose={() => setRevoking(null)}
@@ -261,51 +279,55 @@ function CreateGrantModal({
   onClose: () => void;
 }) {
   const queryClient = useQueryClient();
-  const [partner, setPartner] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [reviewing, setReviewing] = useState(false);
-  const [problem, setProblem] = useState<string | null>(null);
+  const mounted = useRef(true);
+  const rolesRef = useRef<HTMLFieldSetElement>(null);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
 
   function reset() {
-    setPartner("");
+    form.reset();
     setSelected(new Set());
     setReviewing(false);
-    setProblem(null);
   }
 
   function dismiss() {
-    reset();
     onClose();
   }
 
-  const partnerId = partner.trim().toLowerCase();
   const chosen = projectRoles.filter((role) => selected.has(role.key));
   const withheld = projectRoles.filter((role) => !selected.has(role.key));
 
-  const create = useMutation({
-    mutationFn: async () => {
-      const { data, error } = await api.POST(
-        "/v1/organizations/{org_id}/projects/{project_id}/grants",
-        {
-          params: { path: { org_id: orgId as string, project_id: projectId as string } },
-          body: { granted_org_id: partnerId, role_keys: chosen.map((role) => role.key) },
-        },
-      );
-      if (error !== undefined) throw error;
-      return data;
+  const form = useExplicitForm({
+    initialValues: { granted_org_id: "", role_keys: "" },
+    fields: {
+      granted_org_id: { label: "Organization ID", validate: (value) => partnerIdProblem(value.trim().toLowerCase(), orgId) ?? undefined },
+      role_keys: { label: "Roles to share", validate: () => rolesStatus !== "ready" ? "Load the project's roles before continuing." : chosen.length === 0 ? "Select at least one role to share." : undefined },
     },
-    onSuccess: () => {
-      void queryClient.invalidateQueries({
-        queryKey: [...queryKeys.projectGrants, orgId, projectId],
-      });
-      dismiss();
+    onSave: async (values) => {
+      try {
+        const { error } = await api.POST(
+          "/v1/organizations/{org_id}/projects/{project_id}/grants",
+          {
+            params: { path: { org_id: orgId as string, project_id: projectId as string } },
+            body: { granted_org_id: values.granted_org_id.trim().toLowerCase(), role_keys: chosen.map((role) => role.key) },
+          },
+        );
+        if (error !== undefined) throw error;
+        void invalidateQueries(queryClient, mutationInvalidations.projectGrants(orgId, projectId)).catch(() => undefined);
+        if (mounted.current) { reset(); onClose(); }
+      } catch (error) {
+        if (mounted.current) setReviewing(false);
+        throw error;
+      }
     },
-    onError: (error: unknown) => setProblem(messageFor(error)),
   });
-
-  const partnerProblem = partnerIdProblem(partnerId, orgId);
-  const partnerInvalid = partnerProblem !== null && partner.trim() !== "";
-  const blocked = partnerProblem !== null || chosen.length === 0;
+  const partnerId = form.values.granted_org_id.trim().toLowerCase();
+  useEffect(() => {
+    if (!form.saving && form.errors.role_keys && !form.errors.granted_org_id) {
+      rolesRef.current?.querySelector<HTMLInputElement>('input[type="checkbox"]')?.focus();
+    }
+  }, [form.errors.role_keys, form.errors.granted_org_id, form.saving]);
 
   function toggle(key: string) {
     setSelected((previous) => {
@@ -321,31 +343,41 @@ function CreateGrantModal({
       open={open}
       title={reviewing ? "Confirm the grant" : "Create a Project Grant"}
       onClose={dismiss}
+      dismissible={!form.saving}
       footer={
         reviewing ? (
           <>
             <Button
               onClick={() => {
-                setProblem(null);
                 setReviewing(false);
               }}
+              disabled={form.saving}
+              disabledReason="Wait for the grant to finish saving."
             >
               Back
             </Button>
-            <Button variant="primary" loading={create.isPending} onClick={() => create.mutate()}>
+            {/* The keys keep React from turning the clicked Review node into
+                this submit button, which would send the grant unconfirmed. */}
+            <Button key="create" variant="primary" loading={form.saving} type="submit" form="create-project-grant">
               Create grant
             </Button>
           </>
         ) : (
           <>
             <Button onClick={dismiss}>Cancel</Button>
-            <Button variant="primary" disabled={blocked} onClick={() => setReviewing(true)}>
+            <Button key="review" type="button" variant="primary" onClick={() => { if (form.validate()) setReviewing(true); }}>
               Review
             </Button>
           </>
         )
       }
     >
+      <FormSystem id="create-project-grant" pattern="explicit" {...form.formProps} onSubmit={(event) => {
+        if (reviewing) void form.formProps.onSubmit(event);
+        else { event.preventDefault(); if (form.validate()) setReviewing(true); }
+      }}>
+      <p className="mb-3 text-small text-text-secondary">Step {reviewing ? "2" : "1"} of 2: {reviewing ? "Confirm" : "Choose organization and roles"}</p>
+      <FormSummary message={form.summary} />
       {reviewing ? (
         <>
           <p className="text-body text-text-primary">
@@ -356,41 +388,21 @@ function CreateGrantModal({
             The roles cannot be changed after this. To share more or fewer, revoke the grant and
             create another.
           </p>
-          {problem !== null ? (
-            <p role="alert" className="mt-3 text-small text-danger">
-              {problem}
-            </p>
-          ) : null}
+          <input type="hidden" name="granted_org_id" value={form.values.granted_org_id} />
         </>
       ) : (
         <>
-          <label htmlFor="grant-partner" className="block text-small font-medium text-text-secondary">
-            Organization ID
-          </label>
-          <input
-            id="grant-partner"
-            value={partner}
-            onChange={(event) => setPartner(event.currentTarget.value)}
-            aria-invalid={partnerInvalid || undefined}
-            aria-describedby={partnerInvalid ? "grant-partner-error" : "grant-partner-help"}
+          <TextField
+            id="grant-partner" label="Organization ID" {...form.field("granted_org_id")}
             autoComplete="off"
             spellCheck={false}
             placeholder="00000000-0000-0000-0000-000000000000"
-            className="mt-1 w-full rounded border border-border bg-bg-base px-3 py-2 font-mono text-body text-text-primary"
+            helperText="Ask the other organization for its ID. For privacy, organizations cannot be searched by name, and their name is shown here once the grant exists."
           />
-          {partnerInvalid ? (
-            <p id="grant-partner-error" className="mt-1 text-small text-danger">
-              {partnerProblem}
-            </p>
-          ) : (
-            <p id="grant-partner-help" className="mt-1 text-small text-text-secondary">
-              Ask the other organization for its ID. For privacy, organizations cannot be searched
-              by name, and their name is shown here once the grant exists.
-            </p>
-          )}
 
-          <fieldset className="mt-4">
+          <fieldset ref={rolesRef} className="mt-4" aria-invalid={Boolean(form.errors.role_keys)} aria-describedby={form.errors.role_keys ? "grant-roles-error" : undefined}>
             <legend className="text-small font-medium text-text-secondary">Roles to share</legend>
+            {form.errors.role_keys ? <p id="grant-roles-error" role="alert" className="text-small text-danger">{form.errors.role_keys}</p> : null}
             {rolesStatus === "loading" ? (
               <p className="mt-2 text-small text-text-secondary">Loading this project&apos;s roles…</p>
             ) : rolesStatus === "error" ? (
@@ -413,8 +425,12 @@ function CreateGrantModal({
                       <label className="flex items-center gap-2">
                         <input
                           type="checkbox"
+                          name="role_keys"
+                          value={role.key}
+                          disabled={form.saving}
                           checked={on}
                           onChange={() => toggle(role.key)}
+                          onBlur={form.field("role_keys").onBlur}
                           className="h-4 w-4"
                         />
                         <span>
@@ -454,6 +470,7 @@ function CreateGrantModal({
           ) : null}
         </>
       )}
+      </FormSystem>
     </Modal>
   );
 }
@@ -532,9 +549,7 @@ function RevokeGrantDialog({
       if (error !== undefined) throw error;
     },
     onSuccess: () => {
-      void queryClient.invalidateQueries({
-        queryKey: [...queryKeys.projectGrants, orgId, projectId],
-      });
+      void invalidateQueries(queryClient, mutationInvalidations.projectGrants(orgId, projectId));
       setProblem(null);
       onClose();
     },
@@ -616,6 +631,7 @@ function formatDate(iso: string): string {
 }
 
 function kindOf(error: unknown): "network" | "server" | "permission" | "validation" {
+  if (error instanceof TypeError) return "network";
   const failure = error as { kind?: "network" | "server" | "permission" | "validation" } | null;
   return failure?.kind ?? "server";
 }

@@ -100,6 +100,8 @@ describe("the token-derived utilities the shell depends on", () => {
     "shadow-flat",
     "shadow-raised",
     "max-w-form",
+    // Checkbox/radio controls use a 24px square hit area even in dense forms.
+    "size-6",
 
     // The responsive nav track, which must land inside a media query.
     "tablet:w-nav",

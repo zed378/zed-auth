@@ -45,17 +45,17 @@ export function ErrorState({
   const copy = {
     network: {
       title: "Could not reach the service",
-      body: "Check your connection. Nothing was changed.",
+      body: "Check your connection and try again.",
       retryable: true,
     },
     server: {
-      title: "Something went wrong",
-      body: "The service could not complete that. Trying again is safe.",
+      title: "The request could not be completed",
+      body: "Try again, or contact your administrator if this keeps happening.",
       retryable: true,
     },
     permission: {
       title: "You do not have access to this",
-      body: "Your account does not carry the role this needs.",
+      body: "Ask your organization administrator to review your access.",
       // No retry. The same request will be refused again, and offering the
       // button suggests otherwise.
       retryable: false,
@@ -71,7 +71,7 @@ export function ErrorState({
     <div role="alert" className="rounded border border-border bg-bg-surface p-5">
       <h2 className="text-heading-3 font-medium text-text-primary">{copy.title}</h2>
       <p className="mt-1 max-w-prose text-body text-text-secondary">{copy.body}</p>
-      {detail !== undefined ? (
+      {detail !== undefined && kind !== "permission" ? (
         <p className="mt-2 text-small text-text-secondary">{detail}</p>
       ) : null}
       {copy.retryable && onRetry !== undefined ? (
@@ -104,23 +104,12 @@ export function EmptyState({
   action?: ReactNode;
 }) {
   if (filtered) {
-    return (
-      <div className="rounded border border-border bg-bg-surface p-5 text-center">
-        <h2 className="text-heading-3 font-medium text-text-primary">
-          No {what} match that search
-        </h2>
-        <p className="mt-1 text-body text-text-secondary">
-          There are {what} here — none of them match what you typed.
-        </p>
-        {onClearFilter !== undefined ? (
-          <p className="mt-3">
-            <Button onClick={onClearFilter}>Clear the search</Button>
-          </p>
-        ) : null}
-      </div>
-    );
+    return <FilteredEmptyState what={what} onClearFilter={onClearFilter} />;
   }
+  return <InitialEmptyState what={what} action={action} />;
+}
 
+export function InitialEmptyState({ what, action }: { what: string; action?: ReactNode }) {
   return (
     <div className="rounded border border-border bg-bg-surface p-5 text-center">
       <h2 className="text-heading-3 font-medium text-text-primary">No {what} yet</h2>
@@ -130,6 +119,50 @@ export function EmptyState({
       {action !== undefined ? <p className="mt-3">{action}</p> : null}
     </div>
   );
+}
+
+export function FilteredEmptyState({ what, onClearFilter }: { what: string; onClearFilter?: () => void }) {
+  return <div className="rounded border border-border bg-bg-surface p-5 text-center">
+    <h2 className="text-heading-3 font-medium text-text-primary">No {what} match that search</h2>
+    <p className="mt-1 text-body text-text-secondary">Clear or adjust your filters to try another search.</p>
+    {onClearFilter ? <p className="mt-3"><Button onClick={onClearFilter}>Clear the search</Button></p> : null}
+  </div>;
+}
+
+export function PermissionDeniedState() {
+  return <ErrorState kind="permission" />;
+}
+
+export type CollectionState = "permission" | "error" | "loading" | "empty" | "ready";
+
+/** A definitive failure wins over pending flags; permission denial never exposes cached data. */
+export function resolveCollectionState({ loading, failed, count, permitted = true }: {
+  loading: boolean; failed: boolean; count: number; permitted?: boolean;
+}): CollectionState {
+  if (!permitted) return "permission";
+  if (failed) return "error";
+  if (loading) return "loading";
+  return count === 0 ? "empty" : "ready";
+}
+
+export function CollectionStateBoundary({ loading, failed, count, permitted = true, skeleton,
+  loadingLabel, filtered = false, what, onClearFilter, emptyAction, onRetry,
+  errorKind = "server", children,
+}: {
+  loading: boolean; failed: boolean; count: number; permitted?: boolean;
+  skeleton: ReactNode; loadingLabel: string; filtered?: boolean; what: string;
+  onClearFilter?: () => void; emptyAction?: ReactNode; onRetry: () => void;
+  errorKind?: "network" | "server"; children: ReactNode;
+}) {
+  const state = resolveCollectionState({ loading, failed, count, permitted });
+  if (state === "permission") return <PermissionDeniedState />;
+  if (state === "loading") return <LoadingRegion label={loadingLabel}>{skeleton}</LoadingRegion>;
+  if (state === "empty") return <EmptyState filtered={filtered} what={what} onClearFilter={onClearFilter} action={emptyAction} />;
+  return <div>
+    {state === "error" ? <ErrorState kind={errorKind} onRetry={onRetry}
+      detail={count > 0 ? "Showing last-known data. Try again to refresh this list." : undefined} /> : null}
+    {state !== "error" || count > 0 ? children : null}
+  </div>;
 }
 
 /**

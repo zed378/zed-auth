@@ -150,7 +150,7 @@ describe("the invite flow", () => {
 
     renderScreen(<UsersPage />);
     await userEvent.click(await screen.findByRole("button", { name: /invite user/i }));
-    await userEvent.type(screen.getByLabelText(/email address/i), "nonsense");
+    await userEvent.type(screen.getByLabelText(/email address/i), "invalid@example.test");
     await userEvent.click(screen.getByRole("button", { name: /next/i }));
     await userEvent.click(screen.getByRole("checkbox", { name: /no access yet/i }));
     await userEvent.click(screen.getByRole("button", { name: /send invitation/i }));
@@ -159,7 +159,7 @@ describe("the invite flow", () => {
     // back onto the form themselves.
     const field = await screen.findByLabelText(/email address/i);
     expect(field).toHaveAttribute("aria-invalid", "true");
-    expect(screen.getByText("must look like name@example.com")).toBeInTheDocument();
+    expect(screen.getByText("must look like name@example.com", { selector: "p" })).toBeInTheDocument();
   });
 });
 

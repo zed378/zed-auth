@@ -9,9 +9,10 @@ import type { ReactNode } from "react";
  * layout. The console is a desktop tool by design (`docs/UI-UX/00`) — admin work is
  * structured data entry and table scanning.
  *
- * The one exception in the plan is personal account settings (`docs/UI-UX/16`),
- * which is genuinely mobile-optimised. It is not built yet; when it is, it
- * renders outside this wrapper rather than adding a condition here.
+ * `docs/UI-UX/16` excludes all admin screens below tablet width (768px).
+ * The roughly 600px width in `docs/UI-UX/12` is a testing sample, not a separate
+ * breakpoint. AccountShell renders the mobile personal settings outside this
+ * wrapper; hosted authentication is a separate surface.
  *
  * **Replaced, not covered.** The first version painted a full-screen overlay
  * on top of the layout and left the layout in the DOM. That looked right and

@@ -27,6 +27,8 @@
  * sentence is also present as text in the accessibility tree — the rule that
  * colour and hover are never the sole carrier (`docs/UI-UX/13`).
  */
+import { useState } from "react";
+
 export function RoleSourceBadge({
   roleKey,
   /** The organization a Project Grant delegated this from. Absent means direct. */
@@ -35,6 +37,9 @@ export function RoleSourceBadge({
   roleKey: string;
   delegatedFrom?: string;
 }) {
+  const [showSource, setShowSource] = useState(false);
+  if (!roleKey.trim()) throw new Error("A role badge requires a role key.");
+  if (delegatedFrom !== undefined && !delegatedFrom.trim()) throw new Error("A delegated role requires a source organization.");
   if (delegatedFrom === undefined) {
     return (
       <span className="inline-flex items-center rounded border border-border px-2 py-0.5 font-mono text-small text-text-primary">
@@ -44,9 +49,12 @@ export function RoleSourceBadge({
   }
 
   return (
-    <span
+    <button
+      type="button"
       className="inline-flex items-center gap-1 rounded border border-accent px-2 py-0.5 font-mono text-small text-text-primary"
       title={`Delegated from ${delegatedFrom}`}
+      aria-expanded={showSource}
+      onClick={() => setShowSource((shown) => !shown)}
     >
       {roleKey}
       <LinkMark />
@@ -54,8 +62,8 @@ export function RoleSourceBadge({
         The same fact as the `title`, for everyone who cannot hover. A tooltip
         is an affordance for a mouse and nothing else.
       */}
-      <span className="sr-only">— delegated from {delegatedFrom}</span>
-    </span>
+      <span className={showSource ? "font-sans" : "sr-only"}>— delegated from {delegatedFrom}</span>
+    </button>
   );
 }
 

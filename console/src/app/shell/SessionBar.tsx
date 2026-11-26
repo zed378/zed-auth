@@ -15,7 +15,7 @@ export function SessionBar() {
   if (status !== "authenticated" || claims === null) return null;
 
   return (
-    <div className="flex items-center justify-end gap-3 border-b border-border px-5 py-2 text-small desktop:px-6">
+    <div className="flex items-center justify-end gap-3 text-small">
       {/*
         The subject, not a display name. The console has one at this point in
         Phase 1 only if it asks the API for it, and an access token carrying a

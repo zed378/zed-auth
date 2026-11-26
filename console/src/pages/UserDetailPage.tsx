@@ -6,11 +6,12 @@ import { Badge, statusTone } from "../components/Badge";
 import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { RoleList } from "../components/RoleSourceBadge";
-import { ErrorState, Skeleton } from "../components/states";
+import { ErrorState, LoadingRegion, Skeleton } from "../components/states";
 import { Table } from "../components/Table";
 import type { Column } from "../components/Table";
 import { api, queryKeys } from "../lib/api/client";
-import { useOrgId, useProjects, useUserGrants } from "../lib/api/queries";
+import { invalidateQueries, mutationInvalidations } from "../lib/api/queryPolicy";
+import { asFailure, useOrgId, useProjects, useUserGrants } from "../lib/api/queries";
 import { useAuth } from "../lib/auth/AuthProvider";
 import { MfaTab } from "./MfaTab";
 import { SessionsTab } from "./SessionsTab";
@@ -45,10 +46,10 @@ export function UserDetailPage() {
     queryKey: [...queryKeys.users, orgId, "detail", userId],
     enabled: orgId !== null && userId !== undefined,
     queryFn: async () => {
-      const { data, error } = await api.GET("/v1/organizations/{org_id}/users/{user_id}", {
+      const { data, error, response } = await api.GET("/v1/organizations/{org_id}/users/{user_id}", {
         params: { path: { org_id: orgId as string, user_id: userId as string } },
       });
-      if (error !== undefined) throw error;
+      if (error !== undefined) throw asFailure(error, response.status);
       return data;
     },
   });
@@ -59,14 +60,18 @@ export function UserDetailPage() {
         <Link to="/users" className="underline">
           Users
         </Link>{" "}
-        / <span aria-current="page">{user.data?.email ?? "…"}</span>
+        / <span aria-current="page">{user.isError && kindOf(user.error) === "permission"
+          ? "User"
+          : user.data?.email ?? "…"}</span>
       </nav>
 
       <h1 className="mt-2 text-heading-1 font-medium text-text-primary">
         {user.isPending ? (
           <Skeleton className="h-7 w-64" />
         ) : (
-          (user.data?.display_name?.toString() ?? user.data?.email ?? "User")
+          (user.isError && kindOf(user.error) === "permission"
+            ? "User details"
+            : user.data?.display_name?.toString() ?? user.data?.email ?? "User")
         )}
       </h1>
 
@@ -111,6 +116,7 @@ export function UserDetailPage() {
       <div id={`panel-${tab}`} role="tabpanel" aria-labelledby={`tab-${tab}`} className="mt-4">
         {tab === "profile" ? (
           <ProfileTab
+            key={`${orgId ?? ""}:${userId ?? ""}:${user.isError && kindOf(user.error) === "permission"}`}
             user={user}
             orgId={orgId}
             userId={userId ?? ""}
@@ -140,6 +146,7 @@ function ProfileTab({
   onChanged: () => void;
 }) {
   const [confirming, setConfirming] = useState(false);
+  const accessDenied = user.isError && kindOf(user.error) === "permission";
   const queryClient = useQueryClient();
   const { hasRole } = useAuth();
 
@@ -152,20 +159,38 @@ function ProfileTab({
       if (error !== undefined) throw error;
     },
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: [...queryKeys.users, orgId] });
+      void invalidateQueries(queryClient, mutationInvalidations.users(orgId));
       setConfirming(false);
       onChanged();
     },
   });
 
-  if (user.isPending) return <Skeleton className="h-40 w-full" />;
-  if (user.isError) return <ErrorState kind={kindOf(user.error)} onRetry={onChanged} />;
+  if (user.isPending && user.data === undefined) {
+    return (
+      <LoadingRegion label="Loading user profile">
+        <Skeleton className="h-40 w-full" />
+      </LoadingRegion>
+    );
+  }
+  if (accessDenied) return <ErrorState kind="permission" />;
+  if (user.data === undefined) {
+    return <ErrorState kind={user.isError ? kindOf(user.error) : "server"} onRetry={onChanged} />;
+  }
 
   const status = String(user.data?.status ?? "");
   const deactivated = status === "deactivated";
 
   return (
     <>
+      {user.isError ? (
+        <div className="mb-4">
+          <ErrorState
+            kind={kindOf(user.error)}
+            detail="Showing last-known profile details. Try again to refresh this user."
+            onRetry={onChanged}
+          />
+        </div>
+      ) : null}
       <dl className="grid max-w-xl grid-cols-1 gap-3 tablet:grid-cols-2">
         <Field label="Email" value={String(user.data?.email ?? "")} />
         <Field label="Username" value={stringOrDash(user.data?.username)} />
@@ -183,7 +208,7 @@ function ProfileTab({
         <Field label="Created" value={String(user.data?.created_at ?? "").slice(0, 10)} />
       </dl>
 
-      {hasRole("ORG_ADMIN", "ORG_OWNER", "INSTANCE_OWNER") && !deactivated ? (
+      {!user.isError && hasRole("ORG_ADMIN", "ORG_OWNER", "INSTANCE_OWNER") && !deactivated ? (
         <div className="mt-6 border-t border-border pt-4">
           {/*
             `danger-text`, not a full destructive button. docs/UI-UX/07's rule:
@@ -199,7 +224,7 @@ function ProfileTab({
       ) : null}
 
       <ConfirmDialog
-        open={confirming}
+        open={!user.isError && confirming}
         title="Deactivate this user?"
         verb="Deactivate"
         busy={deactivate.isPending}

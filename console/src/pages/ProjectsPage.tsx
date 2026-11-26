@@ -1,12 +1,16 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 
 import { Button } from "../components/Button";
+import { TextField } from "../components/FormField";
+import { FormSummary, FormSystem, useExplicitForm } from "../components/FormSystem";
 import { Modal } from "../components/Modal";
 import { Table } from "../components/Table";
 import type { Column } from "../components/Table";
-import { api, queryKeys } from "../lib/api/client";
+import { CollectionStateBoundary } from "../components/states";
+import { api } from "../lib/api/client";
+import { invalidateQueries, mutationInvalidations } from "../lib/api/queryPolicy";
 import { useOrgId, useProjects } from "../lib/api/queries";
 import { useAuth } from "../lib/auth/AuthProvider";
 
@@ -24,11 +28,13 @@ export function ProjectsPage() {
   const orgId = useOrgId();
   const projects = useProjects(orgId);
   const [search, setSearch] = useState("");
-  const [creating, setCreating] = useState(false);
+  const [creatingOrg, setCreatingOrg] = useState<string | null>(null);
   const { hasRole } = useAuth();
 
   const all = (projects.data ?? []) as Project[];
   const rows = all.filter((project) => project.name.toLowerCase().includes(search.toLowerCase()));
+  const accessDenied = projects.isError && kindOf(projects.error) === "permission";
+  const mayCreate = !accessDenied && hasRole("ORG_ADMIN", "ORG_OWNER", "INSTANCE_OWNER");
 
   const columns: Column<Project>[] = [
     {
@@ -61,14 +67,14 @@ export function ProjectsPage() {
           the API refuses regardless (docs/PLAN/08). Hiding it spares somebody
           filling in a form that will be rejected; it is not what stops them.
         */}
-        {hasRole("ORG_ADMIN", "ORG_OWNER", "INSTANCE_OWNER") ? (
-          <Button variant="primary" onClick={() => setCreating(true)}>
+        {mayCreate ? (
+          <Button variant="primary" onClick={() => setCreatingOrg(orgId)}>
             New project
           </Button>
         ) : null}
       </div>
 
-      <div className="mt-4">
+      {!accessDenied ? <div className="mt-4">
         <label htmlFor="project-search" className="sr-only">
           Search projects
         </label>
@@ -80,43 +86,53 @@ export function ProjectsPage() {
           placeholder="Search projects"
           className="w-full max-w-sm rounded border border-border bg-bg-surface px-3 py-2 text-body text-text-primary"
         />
-      </div>
+      </div> : null}
 
       <div className="mt-4">
+        <CollectionStateBoundary
+          count={rows.length}
+          loading={projects.isPending}
+          failed={projects.isError}
+          permitted={!accessDenied}
+          errorKind={kindOf(projects.error) === "network" ? "network" : "server"}
+          onRetry={() => void projects.refetch()}
+          what="projects"
+          loadingLabel="Loading projects"
+          skeleton={<Table<Project> caption="Projects in this organization" columns={columns}
+            rows={[]} rowKey={(project) => project.id} status="loading" what="projects"
+            actions={() => null} />}
+          filtered={search !== ""}
+          onClearFilter={() => setSearch("")}
+          emptyAction={
+            mayCreate ? (
+              <Button variant="primary" onClick={() => setCreatingOrg(orgId)}>
+                Create the first project
+              </Button>
+            ) : undefined
+          }
+        >
         <Table<Project>
           caption="Projects in this organization"
           columns={columns}
           rows={rows}
           rowKey={(project) => project.id}
-          status={projects.isPending ? "loading" : projects.isError ? "error" : "ready"}
-          errorKind={kindOf(projects.error)}
-          onRetry={() => void projects.refetch()}
+          status="ready"
           what="projects"
-          // The distinction docs/UI-UX/14 asks for: there ARE projects and the
-          // search matched none, versus there are none at all. Different copy,
-          // different recovery.
-          filtered={search !== "" && all.length > 0}
-          onClearFilter={() => setSearch("")}
-          emptyAction={
-            hasRole("ORG_ADMIN", "ORG_OWNER", "INSTANCE_OWNER") ? (
-              <Button variant="primary" onClick={() => setCreating(true)}>
-                Create the first project
-              </Button>
-            ) : undefined
-          }
           actions={(project) => (
             <Link to={`/projects/${project.id}`} className="text-accent underline">
               Applications
             </Link>
           )}
         />
+        </CollectionStateBoundary>
       </div>
 
       <CreateProjectModal
-        open={creating}
+        key={orgId}
+        open={!accessDenied && orgId !== null && creatingOrg === orgId}
         orgId={orgId}
-        onClose={() => setCreating(false)}
-        existingNames={all.map((project) => project.name.toLowerCase())}
+        onClose={() => setCreatingOrg((current) => current === orgId ? null : current)}
+        existingNames={accessDenied ? [] : all.map((project) => project.name.toLowerCase())}
       />
     </>
   );
@@ -133,12 +149,11 @@ function CreateProjectModal({
   onClose: () => void;
   existingNames: string[];
 }) {
-  const [name, setName] = useState("");
-  const [problem, setProblem] = useState<string | null>(null);
+  const formId = useId();
   const queryClient = useQueryClient();
 
   const create = useMutation({
-    mutationFn: async () => {
+    mutationFn: async ({ name }: { name: string }) => {
       const { data, error } = await api.POST("/v1/organizations/{org_id}/projects", {
         params: { path: { org_id: orgId as string } },
         body: { name: name.trim() },
@@ -147,75 +162,47 @@ function CreateProjectModal({
       return data;
     },
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: [...queryKeys.projects, orgId] });
-      setName("");
-      setProblem(null);
+      // A refresh failure must not turn an already-created project into a failed save.
+      void invalidateQueries(queryClient, mutationInvalidations.projects(orgId)).catch(() => undefined);
+      form.reset();
       onClose();
-    },
-    onError: (error: unknown) => {
-      const envelope = error as { error?: { code?: string; message?: string } };
-      setProblem(envelope.error?.message ?? "That could not be saved.");
     },
   });
 
   // Checked before the request as well as after it. The API is the authority
   // — uniqueness is enforced there (P1-17) — and telling somebody before they
   // submit is a kindness the server cannot offer.
-  const duplicate = existingNames.includes(name.trim().toLowerCase());
-  const invalid = name.trim() === "" || duplicate;
+  const form = useExplicitForm({
+    initialValues: { name: "" },
+    fields: { name: { label: "Name", validate: (name) => name.trim() === "" ? "Enter a project name."
+      : existingNames.includes(name.trim().toLowerCase()) ? "A project with that name already exists in this organization." : undefined } },
+    onSave: async (values) => { await create.mutateAsync(values); },
+  });
 
   return (
     <Modal
       open={open}
       title="New project"
       onClose={onClose}
+      dismissible={!form.saving}
       footer={
         <>
-          <Button onClick={onClose}>Cancel</Button>
+          <Button onClick={onClose} disabled={form.saving} disabledReason="Wait for project creation to finish.">Cancel</Button>
           <Button
             variant="primary"
-            loading={create.isPending}
-            disabled={invalid}
-            onClick={() => create.mutate()}
+            loading={form.saving}
+            type="submit"
+            form={formId}
           >
             Create project
           </Button>
         </>
       }
     >
-      <label htmlFor="project-name" className="block text-small font-medium text-text-secondary">
-        Name
-      </label>
-      <input
-        id="project-name"
-        value={name}
-        onChange={(event) => {
-          setName(event.currentTarget.value);
-          setProblem(null);
-        }}
-        aria-invalid={duplicate || undefined}
-        aria-describedby={duplicate ? "project-name-error" : "project-name-help"}
-        className="mt-1 w-full rounded border border-border bg-bg-base px-3 py-2 text-body text-text-primary"
-      />
-      {/*
-        Helper text and error text never appear together — docs/UI-UX/07
-        § Form Field. The error REPLACES the help rather than stacking under it.
-      */}
-      {duplicate ? (
-        <p id="project-name-error" className="mt-1 text-small text-danger">
-          A project with that name already exists in this organization.
-        </p>
-      ) : (
-        <p id="project-name-help" className="mt-1 text-small text-text-secondary">
-          Unique within this organization, case-insensitively.
-        </p>
-      )}
-
-      {problem !== null ? (
-        <p role="alert" className="mt-3 text-small text-danger">
-          {problem}
-        </p>
-      ) : null}
+      <FormSystem {...form.formProps} id={formId} pattern="explicit" className="space-y-3">
+        <TextField label="Name" {...form.field("name")} helperText="Unique within this organization, case-insensitively." />
+        <FormSummary message={form.summary} />
+      </FormSystem>
     </Modal>
   );
 }

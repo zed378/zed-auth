@@ -17,6 +17,7 @@ import { defineConfig, devices } from "@playwright/test";
  */
 export default defineConfig({
   testDir: "./e2e",
+  testIgnore: "**/workbench.spec.ts",
 
   // A failing E2E test is usually a real failure, and a retried one hides a
   // race rather than fixing it. Retries only in CI, where an infrastructure

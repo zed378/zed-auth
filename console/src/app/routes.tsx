@@ -1,21 +1,32 @@
+import { lazy, Suspense } from "react";
 import { Route, Routes } from "react-router-dom";
 
 import { RequireAuth } from "./RequireAuth";
-import { CallbackPage } from "../pages/CallbackPage";
 import { NotFoundPage } from "../pages/NotFoundPage";
-import { OverviewPage } from "../pages/OverviewPage";
-import { ApplicationsPage } from "../pages/ApplicationsPage";
-import { AuditLogPage } from "../pages/AuditLogPage";
-import { AuthorizationsPage } from "../pages/AuthorizationsPage";
-import { GrantedProjectsPage } from "../pages/GrantedProjectsPage";
-import { PlaceholderPage } from "../pages/PlaceholderPage";
-import { PoliciesPage } from "../pages/PoliciesPage";
-import { ProjectGrantsPage } from "../pages/ProjectGrantsPage";
-import { ProjectsPage } from "../pages/ProjectsPage";
-import { RolesPage } from "../pages/RolesPage";
-import { UserDetailPage } from "../pages/UserDetailPage";
-import { UsersPage } from "../pages/UsersPage";
-import { SilentCallbackPage } from "../pages/SilentCallbackPage";
+
+const CallbackPage = lazy(() => import("../pages/CallbackPage").then(({ CallbackPage }) => ({ default: CallbackPage })));
+const SilentCallbackPage = lazy(() => import("../pages/SilentCallbackPage").then(({ SilentCallbackPage }) => ({ default: SilentCallbackPage })));
+const OverviewPage = lazy(() => import("../pages/OverviewPage").then(({ OverviewPage }) => ({ default: OverviewPage })));
+const ApplicationsPage = lazy(() => import("../pages/ApplicationsPage").then(({ ApplicationsPage }) => ({ default: ApplicationsPage })));
+const AuditLogPage = lazy(() => import("../pages/AuditLogPage").then(({ AuditLogPage }) => ({ default: AuditLogPage })));
+const AuthorizationsPage = lazy(() => import("../pages/AuthorizationsPage").then(({ AuthorizationsPage }) => ({ default: AuthorizationsPage })));
+const GrantedProjectsPage = lazy(() => import("../pages/GrantedProjectsPage").then(({ GrantedProjectsPage }) => ({ default: GrantedProjectsPage })));
+const PlaceholderPage = lazy(() => import("../pages/PlaceholderPage").then(({ PlaceholderPage }) => ({ default: PlaceholderPage })));
+const PoliciesPage = lazy(() => import("../pages/PoliciesPage").then(({ PoliciesPage }) => ({ default: PoliciesPage })));
+const ProjectGrantsPage = lazy(() => import("../pages/ProjectGrantsPage").then(({ ProjectGrantsPage }) => ({ default: ProjectGrantsPage })));
+const ProjectsPage = lazy(() => import("../pages/ProjectsPage").then(({ ProjectsPage }) => ({ default: ProjectsPage })));
+const RolesPage = lazy(() => import("../pages/RolesPage").then(({ RolesPage }) => ({ default: RolesPage })));
+const UserDetailPage = lazy(() => import("../pages/UserDetailPage").then(({ UserDetailPage }) => ({ default: UserDetailPage })));
+const UsersPage = lazy(() => import("../pages/UsersPage").then(({ UsersPage }) => ({ default: UsersPage })));
+
+function RouteLoading() {
+  return (
+    <main className="card" role="status" aria-live="polite">
+      <h1>Loading screen</h1>
+      <p>The requested screen is loading.</p>
+    </main>
+  );
+}
 
 /**
  * Routes, matching docs/PLAN/06-FRONTEND-ARCHITECTURE.md § Information Architecture.
@@ -34,7 +45,8 @@ import { SilentCallbackPage } from "../pages/SilentCallbackPage";
  */
 export function AppRoutes() {
   return (
-    <Routes>
+    <Suspense fallback={<RouteLoading />}>
+      <Routes>
       <Route path="/auth/callback" element={<CallbackPage />} />
       <Route path="/auth/silent" element={<SilentCallbackPage />} />
 
@@ -135,6 +147,7 @@ export function AppRoutes() {
         }
       />
       <Route path="*" element={<NotFoundPage />} />
-    </Routes>
+      </Routes>
+    </Suspense>
   );
 }

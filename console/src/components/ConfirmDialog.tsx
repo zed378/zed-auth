@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 
 import { Button } from "./Button";
 import { Modal } from "./Modal";
@@ -33,18 +33,30 @@ export function ConfirmDialog({
   busy = false,
   /** When set, the confirm button stays disabled until this exact text is typed. */
   typeToConfirm,
+  consequenceLoading = false,
+  consequenceError,
+  onRetryConsequence,
+  success,
 }: {
   open: boolean;
   title: string;
-  consequence: React.ReactNode;
+  consequence: Exclude<ReactNode, null | undefined | boolean>;
   verb: string;
   onConfirm: () => void;
   onCancel: () => void;
   busy?: boolean;
   typeToConfirm?: string;
+  /** Hide cached consequences and block the action while recomputing. */
+  consequenceLoading?: boolean;
+  consequenceError?: string;
+  onRetryConsequence?: () => void;
+  /** Set only after the mutation succeeds; keep open until acknowledgement. */
+  success?: string;
 }) {
   const [typed, setTyped] = useState("");
   const input = useRef<HTMLInputElement>(null);
+  const inputId = useId();
+  const reasonId = useId();
 
   // What was typed belongs to ONE opening. Kept across a cancel, reopening the
   // dialog for another row with the same name would arrive already unlocked —
@@ -62,20 +74,36 @@ export function ConfirmDialog({
   // Case-sensitive. "acme corp" and "Acme Corp" being interchangeable defeats
   // the point of typing it (P1-16 made the same call server-side).
   const unlocked = typeToConfirm === undefined || typed === typeToConfirm;
+  const blocked = !unlocked || consequenceLoading || Boolean(consequenceError);
+  const reason = consequenceLoading ? "Wait for the current consequences to load."
+    : consequenceError ? "Load the consequences before continuing."
+    : !unlocked ? `Type ${typeToConfirm} exactly to continue.` : undefined;
+
+  if (open && /^(ok|confirm)$/i.test(verb.trim())) {
+    throw new Error("ConfirmDialog requires an action verb, not OK or Confirm.");
+  }
+  if (open && (consequence == null || typeof consequence === "boolean" || consequence === "")) {
+    throw new Error("ConfirmDialog requires a plain-language consequence.");
+  }
 
   return (
     <Modal
+      motion="none"
       open={open}
       title={title}
       onClose={onCancel}
+      dismissible={!busy}
       footer={
-        <>
-          <Button onClick={onCancel}>Cancel</Button>
+        success ? <Button onClick={onCancel}>Done</Button> : <>
+          <Button onClick={onCancel} disabled={busy} disabledReason="Wait for the action to finish.">Cancel</Button>
           <Button
             variant="destructive"
             loading={busy}
-            disabled={!unlocked}
+            disabled={blocked}
+            disabledReason={reason}
+            aria-describedby={reason ? reasonId : undefined}
             onClick={() => {
+              if (busy || blocked) return;
               setTyped("");
               onConfirm();
             }}
@@ -85,16 +113,23 @@ export function ConfirmDialog({
         </>
       }
     >
-      <div className="text-body text-text-primary">{consequence}</div>
+      {success ? <p role="status">{success}</p> : <>
+      <div className="text-body text-text-primary" aria-busy={consequenceLoading || undefined}>
+        {consequenceLoading ? <div role="status"><span className="sr-only">Loading current consequences.</span><div aria-hidden="true" className="h-12 w-full rounded bg-border" /></div>
+          : consequenceError ? <div role="alert"><p>{consequenceError}</p>{onRetryConsequence ? <Button onClick={onRetryConsequence}>Retry consequences</Button> : null}</div>
+          : consequence}
+      </div>
+      {reason ? <p id={reasonId} className="mt-2 text-small text-text-secondary">{reason}</p> : null}
 
       {typeToConfirm !== undefined ? (
         <>
-          <label htmlFor="confirm-text" className="mt-4 block text-small text-text-secondary">
+          <label htmlFor={inputId} className="mt-4 block text-small text-text-secondary">
             Type <span className="font-mono text-text-primary">{typeToConfirm}</span> to confirm
           </label>
           <input
             ref={input}
-            id="confirm-text"
+            id={inputId}
+            disabled={busy}
             autoComplete="off"
             spellCheck={false}
             value={typed}
@@ -103,6 +138,7 @@ export function ConfirmDialog({
           />
         </>
       ) : null}
+      </>}
     </Modal>
   );
 }

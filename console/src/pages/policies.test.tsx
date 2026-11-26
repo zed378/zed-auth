@@ -165,12 +165,15 @@ describe("validation", () => {
     const field = await screen.findByLabelText(/minimum length/i);
     await userEvent.clear(field);
     await userEvent.type(field, "4");
+    expect(field).not.toHaveAttribute("aria-invalid");
+    await userEvent.tab();
 
     // Below the platform floor. The bound comes from the generated schema, so
     // a form that drifted from the server turns this red.
     expect(field).toHaveAttribute("aria-invalid", "true");
     expect(screen.getByText(/Must be between 12 and 128/i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /save policies/i })).toBeDisabled();
+    await userEvent.click(screen.getByRole("button", { name: /save policies/i }));
+    expect(field).toHaveFocus();
   });
 
   it("says why an organization cannot permit no sign-in method", async () => {
@@ -179,11 +182,12 @@ describe("validation", () => {
     renderScreen(<PoliciesPage />);
 
     await userEvent.click(await screen.findByRole("checkbox", { name: /password/i }));
+    await userEvent.click(screen.getByRole("button", { name: /save policies/i }));
 
     // The API refuses an empty list too. Saying so here means the
     // administrator finds out before they save.
     expect(screen.getByRole("alert")).toHaveTextContent(/at least one sign-in method/i);
-    expect(screen.getByRole("button", { name: /save policies/i })).toBeDisabled();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
   it("accepts 0 for password expiry, because never expiring is a real choice", async () => {
@@ -223,9 +227,10 @@ describe("changes that take access away", () => {
     renderScreen(<PoliciesPage />);
 
     await userEvent.click(await screen.findByRole("checkbox", { name: /password/i }));
-    // Blocked by validation before it can even be confirmed — an empty list is
-    // refused by the API, so the form refuses it first.
-    expect(screen.getByRole("button", { name: /save policies/i })).toBeDisabled();
+    // Submit validation explains the missing method before confirmation.
+    await userEvent.click(screen.getByRole("button", { name: /save policies/i }));
+    expect(screen.getByRole("alert")).toHaveTextContent(/at least one sign-in method/i);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
   it("does not confirm a change that takes nothing away", async () => {
@@ -301,7 +306,7 @@ describe("saving", () => {
     await userEvent.type(field, "48");
     await userEvent.click(screen.getByRole("button", { name: /save policies/i }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent(
+    expect(await screen.findByRole("status")).toHaveTextContent(
       /may not go below the platform floor/i,
     );
   });

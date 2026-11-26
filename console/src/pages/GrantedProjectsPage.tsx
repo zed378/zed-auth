@@ -8,7 +8,9 @@ import { RoleList, RoleSourceBadge } from "../components/RoleSourceBadge";
 import { SidePanel } from "../components/SidePanel";
 import { Table } from "../components/Table";
 import type { Column } from "../components/Table";
-import { api, queryKeys } from "../lib/api/client";
+import { CollectionStateBoundary } from "../components/states";
+import { api } from "../lib/api/client";
+import { invalidateQueries, mutationInvalidations } from "../lib/api/queryPolicy";
 import type { components } from "../lib/api/schema.gen";
 import {
   useDelegatedUserGrants,
@@ -54,6 +56,7 @@ export function GrantedProjectsPage() {
   const [managing, setManaging] = useState<Received | null>(null);
 
   const rows = useMemo(() => grants.data ?? [], [grants.data]);
+  const accessDenied = grants.isError && kindOf(grants.error) === "permission";
 
   // UX only. The API enforces ORG_ADMIN over this organization independently on
   // every request (`CLAUDE.md`, `docs/PLAN/08`).
@@ -143,24 +146,29 @@ export function GrantedProjectsPage() {
       </p>
 
       <div className="mt-4">
+        <CollectionStateBoundary
+          count={rows.length}
+          loading={grants.isPending}
+          failed={grants.isError}
+          permitted={!accessDenied}
+          errorKind={kindOf(grants.error) === "network" ? "network" : "server"}
+          onRetry={() => void grants.refetch()}
+          what="granted projects"
+          loadingLabel="Loading granted projects"
+          skeleton={<Table<Received> caption="Projects granted to this organization" columns={columns}
+            rows={[]} rowKey={(grant) => grant.id} status="loading" what="granted projects" />}
+          emptyAction={<span className="max-w-prose text-body text-text-secondary">
+            Only another organization can grant a project to yours. When one does, it appears
+            here with the roles you may assign.
+          </span>}
+        >
         <Table<Received>
           caption="Projects granted to this organization"
           columns={columns}
           rows={rows}
           rowKey={(grant) => grant.id}
-          status={grants.isPending ? "loading" : grants.isError ? "error" : "ready"}
-          errorKind={kindOf(grants.error)}
-          onRetry={() => void grants.refetch()}
+          status="ready"
           what="granted projects"
-          emptyAction={
-            // The empty state's own sentence: this list is not something this
-            // organization can add to, and "create the first one" would be a
-            // dead end (`docs/UI-UX/14`).
-            <p className="max-w-prose text-body text-text-secondary">
-              Only another organization can grant a project to yours. When one does, it appears
-              here with the roles you may assign.
-            </p>
-          }
           actions={
             mayManage
               ? (grant) =>
@@ -186,9 +194,10 @@ export function GrantedProjectsPage() {
               : undefined
           }
         />
+        </CollectionStateBoundary>
       </div>
 
-      <GrantPanel grant={managing} orgId={orgId} onClose={() => setManaging(null)} />
+      <GrantPanel grant={accessDenied ? null : managing} orgId={orgId} onClose={() => setManaging(null)} />
     </>
   );
 }
@@ -212,7 +221,7 @@ function GrantPanel({
 }) {
   const grantId = grant?.id ?? null;
   const assignments = useDelegatedUserGrants(orgId, grantId);
-  const users = useUsers(orgId, "");
+  const users = useUsers(grant === null ? null : orgId, "");
 
   const [chosenUser, setChosenUser] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -234,9 +243,7 @@ function GrantPanel({
   }
 
   function refresh() {
-    void queryClient.invalidateQueries({ queryKey: [...queryKeys.delegatedGrants, orgId, grantId] });
-    // The holder count on the row behind the panel is now stale.
-    void queryClient.invalidateQueries({ queryKey: [...queryKeys.receivedGrants, orgId] });
+    void invalidateQueries(queryClient, mutationInvalidations.delegatedGrants(orgId, grantId));
   }
 
   const assign = useMutation({
@@ -438,7 +445,7 @@ function GrantPanel({
       </SidePanel>
 
       <ConfirmDialog
-        open={removing !== null}
+        open={grant !== null && removing !== null}
         title="Remove these roles?"
         verb="Remove roles"
         busy={remove.isPending}
