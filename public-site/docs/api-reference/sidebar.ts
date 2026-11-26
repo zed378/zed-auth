@@ -16,6 +16,18 @@ const sidebar: SidebarsConfig = {
       items: [
         {
           type: "doc",
+          id: "api-reference/social-login-start",
+          label: "Start hosted social sign-in",
+          className: "api-method get",
+        },
+        {
+          type: "doc",
+          id: "api-reference/social-login-callback",
+          label: "Complete a hosted social provider callback",
+          className: "api-method get",
+        },
+        {
+          type: "doc",
           id: "api-reference/get-open-id-configuration",
           label: "OpenID Provider configuration",
           className: "api-method get",

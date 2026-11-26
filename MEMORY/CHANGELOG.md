@@ -10,6 +10,10 @@ Format follows Keep a Changelog conventions, grouped by release once releases ex
 
 ## Unreleased
 
+### 2026-11-26 - P0-13: CI repair
+
+- Browser jobs pinned to `ubuntu-24.04`, public API reference regenerated, and the landing page now says delegation shipped, with its sign-in limit ([record](./records/2026-11-26-P0-13-ci-repair.md)).
+
 ### 2026-11-26 - PF-14/16/17: review fixes for the parallel console work
 
 - Project Grant `Review` no longer creates the grant without confirmation. Repaired an unparsable CI workflow and the end-to-end suite; reopened role and SAML editors now reseed when the stored record changed; global search ignores results for earlier input ([record](./records/2026-11-26-PF-review-fixes.md)). Parent tasks unchanged. No commit or deployment performed.

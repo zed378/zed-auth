@@ -1,0 +1,1 @@
+{"parameters":[{"name":"provider","in":"path","required":true,"schema":{"type":"string","enum":["google","microsoft","github"]}},{"name":"state","in":"query","schema":{"type":"string","maxLength":128}},{"name":"code","in":"query","schema":{"type":"string","maxLength":4096}},{"name":"error","in":"query","schema":{"type":"string","maxLength":256}}]}

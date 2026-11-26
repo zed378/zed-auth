@@ -65,6 +65,8 @@ const PROGRESS = resolve(here, "../../TASKS/PROGRESS.md");
  * not on whether a TSX module compiles.
  */
 const SHIPPED = "Shipped — Phase 1";
+const SHIPPED_PHASE_4 = "Shipped — Phase 4";
+const isShipped = (phase) => phase.startsWith("Shipped — ");
 
 const CAPABILITY_CLAIMS = [
   {
@@ -101,7 +103,7 @@ const CAPABILITY_CLAIMS = [
   },
   {
     label: "Roles that scale to delegation",
-    phase: "Phase 4",
+    phase: SHIPPED_PHASE_4,
     // Every task a visitor needs before delegation does anything — the lesson
     // the single sign-on card taught above, applied before it could repeat.
     // `P4-01` alone is the contract and confers no access: the receiving
@@ -198,13 +200,13 @@ for (const claim of CAPABILITY_CLAIMS) {
   // A shipped card must not ALSO carry a bare phase label, and a planned card
   // must not carry the shipped marker. Either mixture reads as the other thing
   // to somebody skimming the grid.
-  if (claim.phase === SHIPPED && /Phase [0-9]/.test(card.split(SHIPPED).join(""))) {
+  if (isShipped(claim.phase) && /Phase [0-9]/.test(card.split(claim.phase).join(""))) {
     problems.push(
       `the "${claim.label}" card is marked shipped and still carries a bare ` +
         `phase label, which reads as planned`,
     );
   }
-  if (claim.phase !== SHIPPED && card.includes("Shipped")) {
+  if (!isShipped(claim.phase) && card.includes("Shipped")) {
     problems.push(
       `the "${claim.label}" card is labelled "${claim.phase}" and also says "Shipped"`,
     );
@@ -259,14 +261,14 @@ for (const claim of CAPABILITY_CLAIMS) {
   // The direction that matters most, and the one the first version of this
   // check did not have: the page says a visitor can use this, and the board
   // says it is not finished.
-  if (claim.phase === SHIPPED && outstanding.length > 0) {
+  if (isShipped(claim.phase) && outstanding.length > 0) {
     problems.push(
       `"${claim.label}" is described as shipped, but ${outstanding.join(", ")} ` +
         `${outstanding.length === 1 ? "is" : "are"} not DONE on the PROGRESS board`,
     );
   }
 
-  if (claim.phase !== SHIPPED && outstanding.length === 0) {
+  if (!isShipped(claim.phase) && outstanding.length === 0) {
     problems.push(
       `"${claim.label}" is labelled "${claim.phase}" but every task it needs ` +
         `(${claim.tasks.join(", ")}) is DONE — it has shipped, and describing ` +
@@ -304,8 +306,8 @@ if (!landingText.includes("no hosted signup")) {
 
 if (problems.length > 0) fail(problems);
 
-const shipped = CAPABILITY_CLAIMS.filter((c) => c.phase === SHIPPED);
-const planned = CAPABILITY_CLAIMS.filter((c) => c.phase !== SHIPPED);
+const shipped = CAPABILITY_CLAIMS.filter((c) => isShipped(c.phase));
+const planned = CAPABILITY_CLAIMS.filter((c) => !isShipped(c.phase));
 const outstandingFor = (c) =>
   c.tasks.filter((t) => statusOf(t) !== "DONE").join(", ");
 
